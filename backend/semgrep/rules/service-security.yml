@@ -1,0 +1,145 @@
+# Local Semgrep ruleset, run by `./scripts/semgrep.sh` alongside the registry
+# packs.
+#
+# Local, not a registry pack, for two reasons: the run stays offline and
+# deterministic, and each rule here can carry the reason this project cares
+# about it. The registry packs the script also passes cover the generic Java and
+# OWASP ground; this file covers the decisions that are specific to THIS
+# service, where a regression would pass a generic scan.
+#
+# Rule ids are prefixed `be-` so they never collide with a registry id.
+rules:
+  - id: be-csrf-disabled
+    languages: [java]
+    severity: ERROR
+    message: >-
+      CSRF protection is being disabled. The SPA contract in FRONTEND.md is a
+      double-submit: the browser reads the XSRF-TOKEN cookie and echoes it in
+      the X-XSRF-TOKEN header on every unsafe request. Disabling the filter
+      makes every one of those requests succeed without the token, so the
+      contract silently stops being enforced and the frontend tests still pass.
+    pattern-either:
+      - pattern: $HTTP.csrf($C -> $C.disable())
+      - pattern: $HTTP.csrf(AbstractHttpConfigurer::disable)
+      - pattern: $HTTP.csrf($C -> $C.ignoringRequestMatchers(...))
+
+  - id: be-authorize-any-request-permit-all
+    languages: [java]
+    severity: ERROR
+    message: >-
+      `anyRequest().permitAll()` makes the default-deny tail of the filter chain
+      a default-allow. This chain's contract is `anyRequest().authenticated()`
+      with an explicit permitAll allowlist for the login endpoint, the health
+      probe and frontend GETs. Add to that allowlist instead of inverting the
+      default.
+    pattern-either:
+      - pattern: $A.anyRequest().permitAll()
+      - pattern: $A.anyRequest().denyAll().permitAll()
+
+  - id: be-session-fixation-disabled
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Session fixation protection is being turned off. AuthController rotates
+      the session id through the ChangeSessionIdAuthenticationStrategy bean
+      precisely because nothing in the filter chain authenticates, so a
+      pre-login session id would otherwise survive authentication and be
+      replayable.
+    pattern-either:
+      - pattern: $S.sessionFixation($F -> $F.none())
+      - pattern: $S.sessionFixation($F -> $F.migrateSession().none())
+
+  - id: be-insecure-password-encoder
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Passwords must stay behind BCryptPasswordEncoder. NoOp stores the
+      plaintext and the message-digest encoders are unsalted and fast, so a
+      leaked store is trivially reversible.
+    pattern-either:
+      - pattern: NoOpPasswordEncoder.getInstance()
+      - pattern: new StandardPasswordEncoder(...)
+      - pattern: new MessageDigestPasswordEncoder(...)
+      - pattern: NoOpPasswordEncoder.getInstance().encode(...)
+
+  - id: be-hardcoded-credential-literal
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A credential is being built from a string literal. This remote is public.
+      Credentials reach the service as environment variables read through
+      @Value, never as source. If this is test data, it belongs in
+      src/test/resources/application.yaml with the rest of it.
+    patterns:
+      - pattern-either:
+          - pattern: User.withUsername(...).password("...")
+          - pattern: $B.password("...")
+          - pattern: $B.secret("...")
+      - pattern-not-inside: |
+          @SpringBootTest
+          class $C { ... }
+
+  - id: be-jpql-string-concatenation
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A query is being assembled by string concatenation, which is an injection
+      sink the moment any fragment is caller-controlled. Use a bound parameter
+      (:name or ?1) — every repository in this service already does.
+    pattern-either:
+      - pattern: |
+          @Query("..." + $X)
+      - pattern: $EM.createQuery("..." + $X)
+      - pattern: $EM.createNativeQuery("..." + $X)
+      - pattern: $JDBC.queryForObject("..." + $X, ...)
+      - pattern: $JDBC.query("..." + $X, ...)
+
+  - id: be-cors-wildcard-origin
+    languages: [java]
+    severity: ERROR
+    message: >-
+      The SPA is served from this same origin, so the service needs no CORS
+      allowance at all. A wildcard origin combined with the session cookie this
+      service issues would let any site drive an authenticated request.
+    pattern-either:
+      - pattern: $C.allowedOrigins("*")
+      - pattern: $C.allowedOriginPatterns("*")
+      - pattern: $C.addAllowedOrigin("*")
+      - pattern: |
+          @CrossOrigin(origins = "*")
+
+  - id: be-process-execution
+    languages: [java]
+    severity: ERROR
+    message: >-
+      This service has no reason to spawn a process. Any argument reaching exec()
+      from a request is command injection, and the container image has no shell
+      contract to rely on.
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+
+  - id: be-java-deserialization
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Java deserialization of untrusted bytes executes attacker-chosen code
+      during readObject. Session state is serialized by Spring Session into
+      Redis, which is trusted infrastructure; application code should use JSON.
+    pattern-either:
+      - pattern: new ObjectInputStream(...).readObject()
+      - pattern: $OIS.readObject()
+
+  - id: be-trust-all-certificates
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A TrustManager that accepts every certificate, or a hostname verifier that
+      returns true, removes the only thing that makes TLS more than encryption
+      to an unknown peer.
+    pattern-either:
+      - pattern: |
+          public void checkServerTrusted(...) { }
+      - pattern: |
+          public boolean verify(...) { return true; }
+      - pattern: $B.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)

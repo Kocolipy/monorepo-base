@@ -17,7 +17,7 @@ Before completing Java, dependency, or application-configuration changes, run `m
 Implementation work is complete only when both baseline gates are green, alongside the build and the tests:
 
 - ArchUnit rules in `src/test/java/arch/ArchitectureTest.java`, which run inside `mvn clean verify`. Iterate with `mvn -Dtest=ArchitectureTest test`.
-- `./scripts/semgrep.sh`, which runs the pinned Semgrep rulesets and exits non-zero on any finding. The script owns the ruleset list; `.semgrepignore` owns the skipped paths.
+- `./scripts/semgrep.sh`, which scans **this app only** and exits non-zero on any finding. It runs two halves: the checked-in local rules in `semgrep/rules/` (offline and deterministic, each rule carrying the reason this service cares about it) and the `p/*` registry packs for generic Java and OWASP coverage. The pack *list* is fixed in the script, but the packs' *contents* resolve from the registry at run time and track upstream, so a pack gaining a rule can turn this gate red with no commit here. The script owns both config lists; `.semgrepignore` owns the skipped paths. The frontend scans itself separately via `npm run test:security` — nothing scans the monorepo as a whole.
 
 Run both as part of finishing the work, not as a separate pre-commit step. A red gate is a defect in the change, not in the gate. Move the class, adjust the design, or fix the flagged code. Suppress a Semgrep finding with `// nosemgrep: RULE_ID` plus a reason only when it is a false positive. Edit a rule, the ruleset list, or `.semgrepignore` only when the user asks for the architecture or the scan policy itself to change, and say so explicitly.
 
