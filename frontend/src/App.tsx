@@ -1,19 +1,29 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "@/auth/auth-context";
-import { ProtectedRoute } from "@/auth/protected-route";
+import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
 import { Login } from "@/pages/login";
 import { Showcase } from "@/pages/showcase";
 
 /**
  * The application root owns routing and the session-backed authentication state.
+ *
+ * Every route states what it requires of the session by its guard; the guards
+ * share one transition table, so no page decides where a visitor goes.
  */
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route
+            path="/"
+            element={
+              <GuestRoute>
+                <Login />
+              </GuestRoute>
+            }
+          />
           <Route
             path="/showcase"
             element={

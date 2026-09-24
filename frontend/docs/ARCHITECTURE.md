@@ -25,21 +25,31 @@ runs it.
 
 ### Why `auth/` is its own folder and not a page
 
-`src/auth/` is a _concern_, not a screen. It holds four files:
+`src/auth/` is a _concern_, not a screen. It holds six files:
 
 - `api.ts` — the three `/api/auth/*` calls, each mapping a status code to a
   domain outcome (`401` on `/me` is a guest, not an error).
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
-  mount and owns the `checking | authenticated | guest` status.
+  mount and owns the session status plus the expiry provenance.
 - `auth-context-value.ts` — the context object and the `useAuth` hook, split out
   so a consumer importing the hook does not pull in the provider component.
-- `protected-route.tsx` — renders a waiting state while `checking`, redirects to
-  `/` with the attempted path in router state while `guest`, otherwise renders
-  its children.
+  `useAuth` deliberately exposes no way to _end_ a session.
+- `session-route.ts` — `resolveSessionRoute`, the whole routing contract as one
+  pure transition table: who waits, who renders, who is redirected where, and
+  what the redirect carries.
+- `route-guards.tsx` — `ProtectedRoute` and `GuestRoute`, two thin adapters over
+  that table sharing one pending view.
+- `use-session-request.ts` — the seam features request through. It handles an
+  `unauthenticated` result itself and returns a `SessionResult`, which has no
+  `unauthenticated` member, so no page can forget to relay a session ending.
 
 `pages/login.tsx` and `pages/showcase.tsx` are screens that _consume_ this; they
-hold no session logic themselves. A second protected area adds a route, not a
-second copy of the guard.
+hold no session logic themselves, and neither decides where a visitor goes next.
+A second protected area adds a route, not a second copy of the guard.
+
+`mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
+enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
+cannot opt out of the seam by calling `apiFetch` itself.
 
 ### Why every request goes through `lib/http.ts`
 

@@ -71,7 +71,7 @@ src/
   App.tsx                 app root — BrowserRouter + AuthProvider + the routes
   index.css               Tailwind entry + the design tokens
   vite-env.d.ts
-  auth/                   session state: api.ts, auth-context, protected-route
+  auth/                   session state, route guards, request seam
   pages/login.tsx         the public login page at /
   pages/showcase.tsx      the protected page and counter requests at /showcase
   components/ui/          shadcn primitives (placeholder — see below)

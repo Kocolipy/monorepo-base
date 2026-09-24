@@ -47,6 +47,18 @@ module.exports = {
     },
 
     {
+      name: "mb-transport-is-behind-the-session-seam",
+      comment:
+        "src/lib/http.ts classifies a 401 as `unauthenticated`, and responding to that is a session concern. Only src/auth/ may call it: features request through useSessionRequest, which handles the session outcome once and hands back a result with no unauthenticated case to forget. A page that imports apiFetch directly silently opts out of that.",
+      severity: "error",
+      from: {
+        path: "^src/",
+        pathNot: ["^src/(auth|lib)/", "\\.(test|spec)\\.[tj]sx?$"],
+      },
+      to: { path: "^src/lib/http\\.ts$" },
+    },
+
+    {
       name: "cq-no-devdep-in-prod",
       comment:
         "Production source must not import devDependencies; they are absent at runtime. *.testHelpers.ts(x) is exempt as the shared-test-support naming convention — it is excluded from the production TypeScript project the same way *.test.ts(x) is (tsconfig.json), and is deliberately not named *.helpers.ts(x), which stays inside this rule.",

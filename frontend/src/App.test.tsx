@@ -61,6 +61,17 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your session ended. Please sign in again.",
+    );
+  });
+
+  it("does not claim a session ended for a visitor who never had one", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("signs in and sends the guest to the showcase", async () => {

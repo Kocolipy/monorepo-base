@@ -2,22 +2,26 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthContext, type AuthContextValue } from "@/auth/auth-context-value";
+import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import { apiFetch } from "@/lib/http";
 
 import { Showcase } from "./showcase";
 
-vi.mock("@/lib/http");
+vi.mock("@/lib/http", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/http")>()),
+  apiFetch: vi.fn(),
+}));
 
 const apiFetchMock = vi.mocked(apiFetch);
 const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
 const reset = () => screen.getByRole("button", { name: "Reset" });
 
-const auth: AuthContextValue = {
+const auth: AuthContextState = {
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
+  sessionExpired: false,
   status: "authenticated",
   user: { username: "ada" },
 };
@@ -30,7 +34,7 @@ function resolveOnceWith(result: object) {
   apiFetchMock.mockResolvedValueOnce(result as never);
 }
 
-function renderShowcase(value: AuthContextValue = auth) {
+function renderShowcase(value: AuthContextState = auth) {
   return render(
     <AuthContext.Provider value={value}>
       <Showcase />
@@ -117,9 +121,10 @@ describe("Showcase", () => {
       finishLoading?.({ kind: "unauthenticated" });
     });
 
+    // The page never sees this case: the session seam ends the session, and the
+    // route guard replaces this page with the login route on the same update.
     expect(auth.expireSession).toHaveBeenCalledOnce();
-    expect(increment()).toBeEnabled();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(count()).toHaveTextContent(/^Clicked 0 times$/);
   });
 
   it("counts each click", async () => {
@@ -224,7 +229,7 @@ describe("Showcase", () => {
     await user.click(increment());
 
     expect(auth.expireSession).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(count()).toHaveTextContent(/^Clicked 0 times$/);
   });
 
   it("signs out", async () => {

@@ -1,31 +1,23 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
+import type { SessionRouteState } from "@/auth/session-route";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-interface LoginLocationState {
-  from?: string;
-}
+/** Shown when the visitor arrives here because their session expired. */
+const EXPIRED_MESSAGE = "Your session ended. Please sign in again.";
 
 export function Login() {
-  const { login, status } = useAuth();
+  const { login } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  if (status === "checking") {
-    return (
-      <p className="grid min-h-svh place-items-center text-muted-foreground">
-        Checking your session…
-      </p>
-    );
-  }
-  if (status === "authenticated") return <Navigate replace to="/showcase" />;
-
-  const destination = (location.state as LoginLocationState | null)?.from ?? "/showcase";
+  // Where to go afterwards is the guest route's decision, not this page's: it
+  // reads the same return destination and redirects once the status changes.
+  const expired = (location.state as SessionRouteState | null)?.expired === true;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,7 +26,6 @@ export function Login() {
     const data = new FormData(event.currentTarget);
     try {
       await login(String(data.get("username")), String(data.get("password")));
-      navigate(destination, { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to sign in. Please try again.");
     } finally {
@@ -50,6 +41,11 @@ export function Login() {
           <CardDescription>Sign in to view the showcase.</CardDescription>
         </CardHeader>
         <CardContent>
+          {expired && !error ? (
+            <p className="mb-4 text-sm text-muted-foreground" role="status">
+              {EXPIRED_MESSAGE}
+            </p>
+          ) : null}
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="username">
