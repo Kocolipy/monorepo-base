@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
+import {
+  CSRF_EXPIRED_MESSAGE,
+  useSessionRequest,
+  type SessionResult,
+} from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -10,7 +15,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { apiFetch, CSRF_EXPIRED_MESSAGE, type ApiResult } from "@/lib/http";
 
 interface CountResponse {
   count: number;
@@ -21,37 +25,36 @@ const decodeCount = async (response: Response): Promise<number> => {
   return result.count;
 };
 
-const getCount = (): Promise<ApiResult<number>> => apiFetch("/api/count", {}, decodeCount);
-const incrementCount = (): Promise<ApiResult<number>> =>
-  apiFetch("/api/count/increment", { method: "POST" }, decodeCount);
-const resetCount = (): Promise<ApiResult<number>> =>
-  apiFetch("/api/count/reset", { method: "POST" }, decodeCount);
-
 /** The original home page, now available to authenticated users at /showcase. */
 export function Showcase() {
   const [count, setCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(true);
-  const { expireSession, logout, user } = useAuth();
+  const { logout, user } = useAuth();
+  const request = useSessionRequest();
 
-  const applyResult = useCallback(
-    (result: ApiResult<number>, failureMessage: string) => {
-      switch (result.kind) {
-        case "ok":
-          setCount(result.data);
-          return;
-        case "unauthenticated":
-          expireSession();
-          return;
-        case "csrf-expired":
-          setError(CSRF_EXPIRED_MESSAGE);
-          return;
-        case "failed":
-          setError(failureMessage);
-      }
-    },
-    [expireSession],
+  const getCount = useCallback(() => request("/api/count", {}, decodeCount), [request]);
+  const incrementCount = useCallback(
+    () => request("/api/count/increment", { method: "POST" }, decodeCount),
+    [request],
   );
+  const resetCount = useCallback(
+    () => request("/api/count/reset", { method: "POST" }, decodeCount),
+    [request],
+  );
+
+  const applyResult = useCallback((result: SessionResult<number>, failureMessage: string) => {
+    switch (result.kind) {
+      case "ok":
+        setCount(result.data);
+        return;
+      case "csrf-expired":
+        setError(CSRF_EXPIRED_MESSAGE);
+        return;
+      case "failed":
+        setError(failureMessage);
+    }
+  }, []);
 
   useEffect(() => {
     void getCount()
@@ -59,9 +62,9 @@ export function Showcase() {
       .finally(() => {
         setIsUpdating(false);
       });
-  }, [applyResult]);
+  }, [applyResult, getCount]);
 
-  const updateCount = async (request: () => Promise<ApiResult<number>>) => {
+  const updateCount = async (request: () => Promise<SessionResult<number>>) => {
     setError(null);
     setIsUpdating(true);
     try {

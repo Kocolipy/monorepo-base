@@ -16,7 +16,7 @@ own error responses. `SpaRoutes.isReservedServerPath` is the only place the list
 lives.
 
 **SPA shell** — `index.html`, the single document the single-page application
-boots from. A path with no server-side handler is *forwarded to the shell* when
+boots from. A path with no server-side handler is _forwarded to the shell_ when
 it belongs to the client-side router, which is how a deep link such as
 `/account/settings` survives a page reload.
 
@@ -30,3 +30,26 @@ Avoid "frontend route" as a term: it blurred two different questions — whether
 path may be served without authentication (true of file requests) and whether a
 missing path should become the shell (false of them) — which is how two modules
 came to implement it twice and disagree.
+
+## Sessions
+
+**Session status** — what the SPA currently knows about the visitor's session:
+`checking` before the one start-up check has answered, then `authenticated` or
+`guest`. It is a _condition_, not an event, which is why a session ending is not
+a fourth member. `resolveSessionRoute` is the only place the status decides what
+a route does.
+
+**Guest** — a visitor with no session. The status a cold arrival starts in, and
+the one a sign-out returns to.
+
+**Expired session** — a session that _was_ authenticated and which the backend
+has since refused with a `401`. The status becomes `guest` either way; what
+distinguishes an expired session is its provenance, carried as `sessionExpired`
+and passed into the redirect so the login route can say the session ended rather
+than greeting a stranger. A persistent `403` is **not** an expired session — that
+is a stale CSRF token, and the session survives it.
+
+**Return destination** — the protected path a visitor asked for before being
+redirected to sign in, recorded as `from` in router state and replayed once the
+status turns `authenticated`. Owned by the route guards, so no page navigates on
+its own behalf after signing in.

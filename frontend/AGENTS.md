@@ -45,17 +45,19 @@ them:
   belong here too — `components.json` points the shadcn CLI at `@/lib/hooks`.
 - **`src/auth/`** — the session. `api.ts` maps semantic HTTP results for the
   three `/api/auth/*` endpoints, `auth-context.tsx` holds the
-  `checking | authenticated | guest` status and expiration transition,
-  `auth-context-value.ts` is the context plus the `useAuth` hook, and
-  `protected-route.tsx` gates a route on it.
+  `checking | authenticated | guest` status and the expiry transition,
+  `auth-context-value.ts` is the context plus the `useAuth` hook,
+  `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
+  into `ProtectedRoute` / `GuestRoute`, and `use-session-request.ts` is the seam
+  features request through.
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`). A
-  page may call `apiFetch` directly when a separate request module would only
-  pass through its arguments and result. Free to import from `auth/`, `ui/` and
-  `lib/`.
+  page requests through `useSessionRequest`, never `apiFetch` directly — the
+  `mb-transport-is-behind-the-session-seam` rule enforces it. Free to import
+  from `auth/`, `ui/` and `lib/`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
-  wraps everything in `AuthProvider`, and routes `/` to login and `/showcase`
-  through `ProtectedRoute`.
+  wraps everything in `AuthProvider`, and states what each route requires of the
+  session with `GuestRoute` (`/`) and `ProtectedRoute` (`/showcase`).
 
 `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
 `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
@@ -96,12 +98,14 @@ backend side moves. What the SPA has to honour:
 - **`403` is not `401`.** A `403` means the token was missing or stale;
   `apiFetch` re-seeds it with a safe `GET /api/auth/me`, retries once, then
   returns `csrf-expired` while preserving the auth state. A `401` returns
-  `unauthenticated`; protected features expire the auth state so
-  `ProtectedRoute` sends the user to login. Treating `403` as `401` looks like a
-  random sign-out to the user.
-- **Reach the backend through `apiFetch`, from a component and an API module
-  alike.** A direct `fetch` call puts the CSRF handling in one more place that
-  can drift. Playwright's `page.request` bypasses it too: copy
+  `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
+  session and `ProtectedRoute` sends the user to login, marking the redirect as
+  an expiry so the login page says the session ended. Treating `403` as `401`
+  looks like a random sign-out to the user.
+- **Features reach the backend through `useSessionRequest`; only `src/auth/`
+  reaches `apiFetch`.** A direct `fetch` call puts the CSRF handling in one more
+  place that can drift, and a direct `apiFetch` call puts the session-ending
+  rule back in the feature. Playwright's `page.request` bypasses both: copy
   `resetCounterViaApi()` in `test/e2e/auth.helpers.ts` for an API call from a
   spec.
 - **Sessions expire after 15 minutes** of inactivity, the single default in
