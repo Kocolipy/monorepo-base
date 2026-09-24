@@ -190,6 +190,32 @@ context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
 does; add new API fixtures beside it rather than inlining a raw
 `page.request.post`.
 
+### Forcing a refused request
+
+Two branches of `apiFetch` only exist because the backend distinguishes them, so
+the spec has to make a real request come back refused rather than stub the
+response:
+
+- **`401`** — drop the session cookie from the browser context and put every
+  other cookie back (`expireSession()` in `test/e2e/auth.helpers.ts`). The CSRF
+  token lives outside the session (`CookieCsrfTokenRepository`), so keeping it is
+  what makes this a `401` and not a `403`. The backend session stays valid, so a
+  spec doing this cannot break one running beside it.
+- **`403`, persistently** — rewrite the `X-XSRF-TOKEN` header with
+  `page.route`. Deleting the cookie does not work: `apiFetch` answers a `403` by
+  re-seeding the cookie and retrying once, so the retry would succeed. Rewriting
+  on every attempt makes the backend reject both.
+
+A test that forces a failure has to be shown to **fire**: neuter the mechanism
+(rename the cookie, drop the header rewrite), confirm the test fails, then put it
+back. Both of these were verified that way.
+
+### Sharing backend state under `fullyParallel`
+
+The counter is one value on the backend and `authentication.spec.ts` resets it,
+so a spec running beside it must not assert a count. `session.spec.ts` only
+makes requests the backend refuses, which leaves the count untouched.
+
 ### Unit-testing a module that calls the API
 
 Everything under `src/` reaches the backend through `apiFetch` in

@@ -156,10 +156,10 @@
     "semantic_hash": ""
   },
   "frontend/playwright.config.ts": {
-    "mtime": 1790047683.0,
-    "seen": 1790228773.4155567,
-    "ast_hash": "f3d0dfcd14b410fd77e90ed5d42258c6",
-    "semantic_hash": "f3d0dfcd14b410fd77e90ed5d42258c6"
+    "mtime": 1790229147.608077,
+    "seen": 1790229151.9396305,
+    "ast_hash": "9b5a0e68e206a75b853093866b9cee62",
+    "semantic_hash": ""
   },
   "frontend/prettier.config.mjs": {
     "mtime": 1790047683.0,
@@ -294,9 +294,9 @@
     "semantic_hash": "0c68d19f85039f6a9772d7e974fd1490"
   },
   "frontend/test/e2e/auth.helpers.ts": {
-    "mtime": 1790219171.1963418,
-    "seen": 1790228773.4155743,
-    "ast_hash": "525dba3d5d504a60e69afd31679e79e1",
+    "mtime": 1790229248.1649492,
+    "seen": 1790229293.6027217,
+    "ast_hash": "95ec3c9fa56093057ef7800f0ee142b9",
     "semantic_hash": ""
   },
   "frontend/test/e2e/auth.setup.ts": {
@@ -420,9 +420,9 @@
     "semantic_hash": ""
   },
   "frontend/docs/TESTING_GUIDE.md": {
-    "mtime": 1790228385.181552,
-    "seen": 1790228773.415605,
-    "ast_hash": "d24b12666a19898d0a13bda538945700",
+    "mtime": 1790229265.6266108,
+    "seen": 1790229293.6027558,
+    "ast_hash": "1bd32d822c11175c09ee961d754c6db6",
     "semantic_hash": ""
   },
   "frontend/index.html": {
@@ -648,15 +648,27 @@
     "semantic_hash": ""
   },
   "architecture-review.html": {
-    "mtime": 1790221014.3179474,
-    "seen": 1790228773.4155948,
-    "ast_hash": "325ce77b67bd12f6ea2992c2c367e2a6",
+    "mtime": 1790229133.7302697,
+    "seen": 1790229151.939673,
+    "ast_hash": "3cb12a71f9b517995afd2cc0c432e4d8",
     "semantic_hash": ""
   },
   "architecture-review.md": {
-    "mtime": 1790221071.5089526,
-    "seen": 1790228773.4155955,
-    "ast_hash": "b351110696d10ee90296b8d29843e1b7",
+    "mtime": 1790228965.9545574,
+    "seen": 1790229151.9396737,
+    "ast_hash": "6c2cfef283c25a5e049e983d8594b262",
+    "semantic_hash": ""
+  },
+  "frontend/test/e2e/login.spec.ts": {
+    "mtime": 1790229122.458137,
+    "seen": 1790229151.9396522,
+    "ast_hash": "1d3f29fc8ce26883160fc171a50cfe59",
+    "semantic_hash": ""
+  },
+  "frontend/test/e2e/session.spec.ts": {
+    "mtime": 1790229253.0889552,
+    "seen": 1790229293.6027253,
+    "ast_hash": "5086c612a611d456a6e2533581b00e7f",
     "semantic_hash": ""
   }
 }

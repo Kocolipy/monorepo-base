@@ -26,7 +26,7 @@ export default defineConfig({
     // of being silently skipped at runtime.
     {
       name: "guest",
-      testMatch: /smoke\.spec\.ts/,
+      testMatch: /(?:smoke|login)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: { cookies: [], origins: [] },
@@ -34,7 +34,7 @@ export default defineConfig({
     },
     {
       name: "authenticated",
-      testMatch: /authentication\.spec\.ts/,
+      testMatch: /(?:authentication|session)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
