@@ -5,7 +5,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Capped at 2 locally: the dev box runs tight on memory, and one Chromium
+  // per worker is the biggest cost in this suite. CI stays serial.
+  workers: process.env.CI ? 1 : 2,
   reporter: "html",
   use: {
     baseURL: "http://localhost:5173",
@@ -33,12 +35,21 @@ export default defineConfig({
       },
     },
     {
-      name: "authenticated",
-      testMatch: /(?:authentication|session)\.spec\.ts/,
+      name: "user",
+      testMatch: /roles-user\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
         storageState: "test/e2e/.auth/user.json",
+      },
+    },
+    {
+      name: "admin",
+      testMatch: /(?:authentication|session|roles-admin)\.spec\.ts/,
+      dependencies: ["setup"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: "test/e2e/.auth/admin.json",
       },
     },
   ],

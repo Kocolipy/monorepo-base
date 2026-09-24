@@ -20,7 +20,7 @@ const state: AuthContextState = {
   logout: vi.fn(),
   sessionExpired: false,
   status: "authenticated",
-  user: { username: "ada" },
+  user: { role: "USER", username: "ada" },
 };
 
 const wrapper = ({ children }: { children: ReactNode }) => (

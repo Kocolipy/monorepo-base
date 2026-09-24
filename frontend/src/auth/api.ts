@@ -1,6 +1,9 @@
 import { apiFetch, CSRF_EXPIRED_MESSAGE, type ApiResult } from "@/lib/http";
 
+export type AuthRole = "USER" | "ADMIN";
+
 export interface AuthUser {
+  role: AuthRole;
   username: string;
 }
 

@@ -65,7 +65,7 @@
   },
   {
     "ParameterKey": "AppUsername",
-    "ParameterValue": "admin"
+    "ParameterValue": "user"
   },
   {
     "ParameterKey": "AppPassword",
@@ -73,7 +73,7 @@
   },
   {
     "ParameterKey": "AppSecondaryUsername",
-    "ParameterValue": "admin2"
+    "ParameterValue": "admin"
   },
   {
     "ParameterKey": "AppSecondaryPassword",

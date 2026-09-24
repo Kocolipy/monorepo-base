@@ -43,7 +43,7 @@ them:
   credentials, CSRF recovery, status classification, and typed success decoding
   behind one semantic result interface (see "Backend contract"). Shared hooks
   belong here too — `components.json` points the shadcn CLI at `@/lib/hooks`.
-- **`src/auth/`** — the session. `api.ts` maps semantic HTTP results for the
+- **`src/auth/`** — the session and role authorization. `api.ts` maps semantic HTTP results for the
   three `/api/auth/*` endpoints, `auth-context.tsx` holds the
   `checking | authenticated | guest` status and the expiry transition,
   `auth-context-value.ts` is the context plus the `useAuth` hook,
@@ -56,8 +56,9 @@ them:
   from `auth/`, `ui/` and `lib/`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
-  wraps everything in `AuthProvider`, and states what each route requires of the
-  session with `GuestRoute` (`/`) and `ProtectedRoute` (`/showcase`).
+  wraps everything in `AuthProvider`, and states what each route requires with
+  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`), and an `ADMIN`-restricted
+  `ProtectedRoute` (`/accounts`).
 
 `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
 `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
@@ -119,7 +120,7 @@ backend side moves. What the SPA has to honour:
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the two pages to render, and deliberately no more. They
+family — enough for the three pages to render, and deliberately no more. They
 follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
 override) so that swapping them out is a delete plus an import rewrite. Keep
 them cheap to delete: no `asChild` / Radix `Slot` (the real library owns that),

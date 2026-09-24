@@ -7,6 +7,7 @@ import { getCurrentUser, login, logout } from "./api";
 vi.mock("@/lib/http");
 
 const apiFetchMock = vi.mocked(apiFetch);
+const TEST_LOGIN = ["ada", "secret"] as const;
 
 function resolveWith(result: object) {
   apiFetchMock.mockResolvedValue(result as never);
@@ -25,9 +26,9 @@ describe("auth API", () => {
   });
 
   it("returns the authenticated user", async () => {
-    resolveWith({ kind: "ok", data: { username: "ada" } });
+    resolveWith({ kind: "ok", data: { role: "USER", username: "ada" } });
 
-    await expect(getCurrentUser()).resolves.toEqual({ username: "ada" });
+    await expect(getCurrentUser()).resolves.toEqual({ role: "USER", username: "ada" });
   });
 
   it.each([{ kind: "csrf-expired" }, { kind: "failed", status: 503 }])(
@@ -39,13 +40,14 @@ describe("auth API", () => {
   );
 
   it("requests typed user data when signing in", async () => {
-    resolveWith({ kind: "ok", data: { username: "ada" } });
+    const [username, password] = TEST_LOGIN;
+    resolveWith({ kind: "ok", data: { role: "USER", username } });
 
-    await expect(login("ada", "secret")).resolves.toEqual({ username: "ada" });
+    await expect(login(username, password)).resolves.toEqual({ role: "USER", username });
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/auth/login",
       {
-        body: JSON.stringify({ username: "ada", password: "secret" }),
+        body: JSON.stringify({ username, password }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },

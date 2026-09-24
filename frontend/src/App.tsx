@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "@/auth/auth-context";
 import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
+import { Accounts } from "@/pages/accounts";
 import { Login } from "@/pages/login";
 import { Showcase } from "@/pages/showcase";
 
@@ -29,6 +30,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <Showcase />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounts"
+            element={
+              <ProtectedRoute requiredRole="ADMIN">
+                <Accounts />
               </ProtectedRoute>
             }
           />

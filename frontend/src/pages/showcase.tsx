@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import {
@@ -114,6 +115,14 @@ export function Showcase() {
           >
             Reset
           </Button>
+          {user?.role === "ADMIN" ? (
+            <Link
+              className="ml-auto text-sm font-medium underline underline-offset-4"
+              to="/accounts"
+            >
+              Manage accounts
+            </Link>
+          ) : null}
         </CardFooter>
       </Card>
     </main>

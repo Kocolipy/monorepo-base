@@ -4,10 +4,11 @@ React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
 up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
-login page and one protected page with a counter on it, both talking to the
-Spring Boot backend over session cookies. What is actually built out is the
-toolchain: type checking, linting, unit tests, architecture tests, E2E, static
-security analysis, dead-code/complexity analysis, and mutation testing.
+login page, a counter page for authenticated accounts, and an administrator-only
+accounts placeholder, all talking to the Spring Boot backend over session
+cookies. What is actually built out is the toolchain: type checking, linting,
+unit tests, architecture tests, E2E, static security analysis,
+dead-code/complexity analysis, and mutation testing.
 
 ## Setup
 
@@ -73,7 +74,8 @@ src/
   vite-env.d.ts
   auth/                   session state, route guards, request seam
   pages/login.tsx         the public login page at /
-  pages/showcase.tsx      the protected page and counter requests at /showcase
+  pages/showcase.tsx      the USER/ADMIN counter page at /showcase
+  pages/accounts.tsx      the ADMIN-only placeholder at /accounts
   components/ui/          shadcn primitives (placeholder — see below)
   lib/utils.ts            cn()
   lib/http.ts             typed API results — credentials + CSRF + status + decoding
@@ -125,12 +127,11 @@ code they cover. Coverage and mutation score are both at 100% on the code that
 is mutated — a small surface, but the gates are real and the arch rules have
 been verified to fail on planted violations.
 
-E2E runs in three Playwright projects: `setup` signs in once and saves the
-storage state, `guest` runs the smoke suite with an empty session (the bundle
-boots, the Tailwind stylesheet is generated and applied, React state reaches the
-DOM, no console errors), and `authenticated` reuses the saved session to drive
-the protected page and the counter. The authenticated suite needs the backend
-running — see the root `README.md` and `make integration-test`.
+E2E runs in four Playwright projects: `setup` signs in the seeded User and Admin
+once and saves separate storage states, `guest` runs signed-out and smoke
+coverage, `user` verifies the `USER` route policy, and `admin` drives the
+counter/session suites plus the `ADMIN` accounts guard. The non-guest projects
+need the backend running — see the root `README.md` and `make integration-test`.
 
 ## Backend contract
 
@@ -146,7 +147,8 @@ In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 ## Technology stack
 
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
-- **react-router-dom 7** for routing (`/` login, `/showcase` protected)
+- **react-router-dom 7** for routing (`/` login, `/showcase` authenticated,
+  `/accounts` ADMIN-only)
 - **Vite 7** for development and building, with Brotli/gzip precompression
 - **Tailwind CSS v4** (CSS-first, no config file) with shadcn-shaped tokens
 - **Vitest 4** + Testing Library + happy-dom for unit tests

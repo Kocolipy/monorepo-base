@@ -18,8 +18,9 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.web.http.DefaultCookieSerializer;
@@ -39,12 +40,15 @@ class AuthControllerTests {
     void setUp() {
         SecurityConfig config = new SecurityConfig();
         PasswordEncoder passwordEncoder = config.passwordEncoder();
-        UserDetailsService users = config.userDetailsService(
-                "ada",
-                "correct-password",
-                "grace",
-                "another-correct-password",
-                passwordEncoder);
+        InMemoryUserDetailsManager users = new InMemoryUserDetailsManager(
+                User.withUsername("ada")
+                        .password(passwordEncoder.encode("correct-password"))
+                        .roles("USER")
+                        .build(),
+                User.withUsername("grace")
+                        .password(passwordEncoder.encode("another-correct-password"))
+                        .roles("ADMIN")
+                        .build());
         AuthenticationManager manager = config.authenticationManager(users, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
@@ -74,6 +78,7 @@ class AuthControllerTests {
         SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("ada");
+        assertThat(response.role()).isEqualTo("USER");
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
     }
@@ -90,6 +95,7 @@ class AuthControllerTests {
         SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("grace");
+        assertThat(response.role()).isEqualTo("ADMIN");
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
     }
@@ -186,10 +192,22 @@ class AuthControllerTests {
     }
 
     @Test
-    void currentUserReportsThePrincipalName() {
-        AuthController.UserResponse response = controller.currentUser(() -> "ada");
+    void currentUserReportsThePrincipalAndRole() {
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("ada", null, "ROLE_USER"));
 
         assertThat(response.username()).isEqualTo("ada");
+        assertThat(response.role()).isEqualTo("USER");
+    }
+
+    @Test
+    void currentUserRejectsAnAuthenticationWithoutAnApplicationRole() {
+        var authentication = new TestingAuthenticationToken(
+                "ada", null, "FACTOR_PASSWORD");
+
+        assertThatThrownBy(() -> controller.currentUser(authentication))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Authenticated account has no role");
     }
 
     @Test

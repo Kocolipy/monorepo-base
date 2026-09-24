@@ -115,23 +115,23 @@ Parameters:
 
   # Application Configuration
   AppUsername:
-    Description: Application admin username
+    Description: Application USER username
     Type: String
-    Default: admin
+    Default: user
 
   AppPassword:
-    Description: Application admin password
+    Description: Application USER password
     Type: String
     NoEcho: true
     MinLength: 8
 
   AppSecondaryUsername:
-    Description: Application secondary username
+    Description: Application ADMIN username
     Type: String
-    Default: admin2
+    Default: admin
 
   AppSecondaryPassword:
-    Description: Application secondary password
+    Description: Application ADMIN password
     Type: String
     NoEcho: true
     MinLength: 8

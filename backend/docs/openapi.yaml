@@ -24,7 +24,7 @@ paths:
     post:
       tags: [Authentication]
       summary: Log in
-      description: Authenticates credentials and stores the authenticated user in the HTTP session.
+      description: Authenticates database-backed credentials, stores the authenticated user in the HTTP session, and returns the account role.
       operationId: login
       security: []
       parameters:
@@ -64,7 +64,7 @@ paths:
       operationId: getCurrentUser
       responses:
         "200":
-          description: The authenticated user.
+          description: The authenticated user and role.
           content:
             application/json:
               schema:
@@ -262,10 +262,14 @@ components:
           format: password
     UserResponse:
       type: object
-      required: [username]
+      required: [username, role]
       properties:
         username:
           type: string
+        role:
+          type: string
+          enum: [USER, ADMIN]
+          description: The account role used for authorization.
     UpdateSessionRequest:
       type: object
       required: [displayName]

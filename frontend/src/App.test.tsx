@@ -36,7 +36,7 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ username: "ada" }), {
+        new Response(JSON.stringify({ role: "USER", username: "ada" }), {
           headers: { "Content-Type": "application/json" },
           status: 200,
         }),
@@ -54,7 +54,7 @@ describe("App", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(Response.json({ username: "ada" }))
+        .mockResolvedValueOnce(Response.json({ role: "USER", username: "ada" }))
         .mockResolvedValueOnce(new Response(null, { status: 401 })),
     );
     render(<App />);
@@ -80,7 +80,7 @@ describe("App", () => {
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ username: "ada" }), {
+        new Response(JSON.stringify({ role: "USER", username: "ada" }), {
           headers: { "Content-Type": "application/json" },
           status: 200,
         }),
@@ -121,5 +121,29 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The username or password is incorrect.",
     );
+  });
+
+  it("redirects a USER away from account administration", async () => {
+    window.history.replaceState(null, "", "/accounts");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ role: "USER", username: "ada" })),
+    );
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/showcase");
+  });
+
+  it("renders account administration for an ADMIN", async () => {
+    window.history.replaceState(null, "", "/accounts");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ role: "ADMIN", username: "grace" })),
+    );
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Accounts" })).toBeInTheDocument();
+    expect(screen.getByText("Account management is coming soon.")).toBeInTheDocument();
   });
 });

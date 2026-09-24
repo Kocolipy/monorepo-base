@@ -11,5 +11,5 @@ app:
   auth:
     username: test-user
     password: test-password
-    secondary-username: test-user-2
-    secondary-password: test-password-2
+    secondary-username: test-admin
+    secondary-password: test-admin-password

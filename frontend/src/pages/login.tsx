@@ -38,7 +38,7 @@ export function Login() {
       <Card className="w-full">
         <CardHeader>
           <CardTitle>Welcome back</CardTitle>
-          <CardDescription>Sign in to view the showcase.</CardDescription>
+          <CardDescription>Sign in to continue.</CardDescription>
         </CardHeader>
         <CardContent>
           {expired && !error ? (

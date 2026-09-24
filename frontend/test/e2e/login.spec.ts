@@ -27,6 +27,13 @@ test.describe("sessions, signed out", () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
+  test("sends a guest asking for the accounts page to the login page", async ({ page }) => {
+    await page.goto("/accounts");
+
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
   test("redirects an unknown path to the login page", async ({ page }) => {
     await page.goto("/no-such-page");
 

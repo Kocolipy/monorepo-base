@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
+import type { AuthRole } from "./api";
 import { useAuth } from "./auth-context-value";
 import {
   resolveSessionRoute,
@@ -24,7 +25,7 @@ function SessionRoute({
   children: ReactNode;
   requires: SessionRequirement;
 }) {
-  const { sessionExpired, status } = useAuth();
+  const { sessionExpired, status, user } = useAuth();
   const location = useLocation();
   const carried = location.state as SessionRouteState | null;
 
@@ -32,6 +33,7 @@ function SessionRoute({
     pathname: location.pathname,
     requires,
     returnTo: carried?.from,
+    role: user?.role,
     sessionExpired,
     status,
   });
@@ -46,9 +48,15 @@ function SessionRoute({
   }
 }
 
-/** A route only an authenticated visitor may see. */
-export function ProtectedRoute({ children }: { children: ReactNode }) {
-  return <SessionRoute requires="authenticated">{children}</SessionRoute>;
+/** A route only an authenticated visitor, optionally with a named role, may see. */
+export function ProtectedRoute({
+  children,
+  requiredRole,
+}: {
+  children: ReactNode;
+  requiredRole?: AuthRole;
+}) {
+  return <SessionRoute requires={requiredRole ?? "authenticated"}>{children}</SessionRoute>;
 }
 
 /** A route only a guest may see; an authenticated visitor is sent onward. */

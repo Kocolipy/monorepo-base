@@ -43,9 +43,10 @@ runs it.
   `unauthenticated` result itself and returns a `SessionResult`, which has no
   `unauthenticated` member, so no page can forget to relay a session ending.
 
-`pages/login.tsx` and `pages/showcase.tsx` are screens that _consume_ this; they
-hold no session logic themselves, and neither decides where a visitor goes next.
-A second protected area adds a route, not a second copy of the guard.
+`pages/login.tsx`, `pages/showcase.tsx`, and `pages/accounts.tsx` are screens
+that _consume_ this; they hold no session or role logic themselves, and none
+decides where a visitor goes next. A new protected area adds a route declaration,
+not a second copy of the guard.
 
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
 enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
@@ -176,13 +177,20 @@ directory that a test run writes into belongs on this list.
 
 ## Routing
 
-`App.tsx` owns the whole route table — three routes, deliberately flat:
+`App.tsx` owns the whole route table — four routes, deliberately flat:
 
-| Path        | Element                                         | Notes                                                       |
-| ----------- | ----------------------------------------------- | ----------------------------------------------------------- |
-| `/`         | `<Login />`                                     | public; redirects to `/showcase` when already authenticated |
-| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>` | guarded on `useAuth().status`                               |
-| `*`         | `<Navigate replace to="/" />`                   | unknown paths fall back to login                            |
+| Path        | Element                                                              | Notes                                                   |
+| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| `/`         | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase` |
+| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                         |
+| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | placeholder restricted to `ADMIN`                       |
+| `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                        |
+
+`resolveSessionRoute` is the pure transition table behind both guard adapters.
+It sends a Visitor to login with a return destination, renders authenticated
+routes for either role, and redirects a role mismatch to `/showcase`. Spring
+Security remains authoritative for server operations: `/api/accounts/**`
+requires `ADMIN` even if client-side routing is bypassed.
 
 `BrowserRouter` means real paths, not hashes, so the backend has to serve
 `index.html` for any unmatched path — that fallback is the backend's side of the
@@ -203,7 +211,6 @@ to need it does not have to invent a convention.
 | Server-state caching            | a query library wrapping `apiFetch`, wired in `App.tsx` beside `AuthProvider`        |
 | Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
 | Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
-| Role / permission checks        | `src/auth/`, alongside `ProtectedRoute` — the backend is the authority               |
 | Session-expiry warning          | `src/auth/`, reading the 15-minute window from `/frontend/AGENTS.md`                 |
 | Nested layouts, lazy routes     | `src/App.tsx`, when there is a second protected area                                 |
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |

@@ -255,6 +255,7 @@ public class ArchitectureTest {
             .applicationServices("com.example.backend..application..")
             .adapter("persistence", "com.example.backend..infrastructure.persistence..")
             .adapter("web", "com.example.backend..controller..")
+            .adapter("config", "com.example.backend..config..")
             .withOptionalLayers(true)
             .because("Dependencies point inward: adapters depend on application, application on domain, domain on nothing");
 }

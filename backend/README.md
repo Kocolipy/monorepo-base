@@ -31,10 +31,12 @@ The service listens on `http://localhost:8080`. Its health endpoint is
 
 ## Log in
 
-Set `APP_USERNAME`, `APP_PASSWORD`, `APP_SECONDARY_USERNAME`, and
-`APP_SECONDARY_PASSWORD` to your desired credentials. The development defaults
-are `admin` / `P@ssw0rd` and `admin2` / `P@ssw0rd`; they must not be used
-in production.
+Authentication is database-backed. On startup the service idempotently seeds
+one `USER` account and one `ADMIN` account when their usernames are absent. The
+development defaults are `user` / `P@ssw0rd` and `admin` / `P@ssw0rd`;
+`APP_USERNAME` / `APP_PASSWORD` configure the `USER` seed and
+`APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the `ADMIN` seed.
+These published defaults must not be used in production.
 
 Log in and keep the returned `JSESSIONID` in a cookie jar:
 
@@ -48,7 +50,9 @@ curl -b cookies.txt http://localhost:8080/api/auth/me
 ```
 
 All API endpoints other than login and the health check require that cookie.
-Continue sending it when using the session API:
+Counter and session endpoints accept either authenticated role; future account
+administration endpoints under `/api/accounts/**` require `ADMIN`. Continue
+sending the cookie when using the session API:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/session

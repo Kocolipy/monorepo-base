@@ -1,6 +1,6 @@
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 
-const TEST_CREDENTIALS = ["admin", "P@ssw0rd"] as const;
+const ADMIN_CREDENTIALS = ["admin", "P@ssw0rd"] as const;
 
 /**
  * The backend's session cookie (`server.servlet.session.cookie.name`).
@@ -19,13 +19,18 @@ export async function submitLogin(page: Page, username: string, password: string
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
-/** Sign in the dedicated E2E identity and wait for the protected page. */
-export async function login(page: Page) {
-  const [username, password] = TEST_CREDENTIALS;
+/** Sign in as a named seeded identity and wait for the protected page. */
+export async function loginAs(page: Page, username: string, password: string) {
   await submitLogin(page, username, password);
 
   await expect(page).toHaveURL(/\/showcase$/);
   await expect(page.getByText(`Signed in as ${username}`)).toBeVisible();
+}
+
+/** Sign in the seeded ADMIN identity used by the existing authenticated specs. */
+export async function login(page: Page) {
+  const [username, password] = ADMIN_CREDENTIALS;
+  await loginAs(page, username, password);
 }
 
 /**

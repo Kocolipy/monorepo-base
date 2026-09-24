@@ -152,23 +152,23 @@ get_inputs() {
     
     # Application configuration
     print_info "Application Configuration"
-    read -p "Enter application admin username (default: admin): " APP_USERNAME
-    APP_USERNAME=${APP_USERNAME:-admin}
+    read -p "Enter application USER username (default: user): " APP_USERNAME
+    APP_USERNAME=${APP_USERNAME:-user}
     
-    read -sp "Enter application admin password: " APP_PASSWORD
+    read -sp "Enter application USER password: " APP_PASSWORD
     echo
     if [ -z "$APP_PASSWORD" ]; then
         print_error "Application password is required"
         exit 1
     fi
     
-    read -p "Enter secondary username (default: admin2): " APP_SECONDARY_USERNAME
-    APP_SECONDARY_USERNAME=${APP_SECONDARY_USERNAME:-admin2}
+    read -p "Enter application ADMIN username (default: admin): " APP_SECONDARY_USERNAME
+    APP_SECONDARY_USERNAME=${APP_SECONDARY_USERNAME:-admin}
     
-    read -sp "Enter secondary password: " APP_SECONDARY_PASSWORD
+    read -sp "Enter application ADMIN password: " APP_SECONDARY_PASSWORD
     echo
     if [ -z "$APP_SECONDARY_PASSWORD" ]; then
-        print_error "Secondary password is required"
+        print_error "Application ADMIN password is required"
         exit 1
     fi
 }

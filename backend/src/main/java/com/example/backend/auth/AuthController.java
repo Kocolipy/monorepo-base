@@ -5,7 +5,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import java.security.Principal;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.AuthenticationException;
@@ -70,12 +69,12 @@ public class AuthController {
 
         issueCsrfToken(request, response);
 
-        return new UserResponse(authentication.getName());
+        return userResponse(authentication);
     }
 
     @GetMapping("/me")
-    public UserResponse currentUser(Principal principal) {
-        return new UserResponse(principal.getName());
+    public UserResponse currentUser(Authentication authentication) {
+        return userResponse(authentication);
     }
 
     @DeleteMapping("/logout")
@@ -107,6 +106,16 @@ public class AuthController {
                 csrfTokenRepository.generateToken(request), request, response);
     }
 
+    private UserResponse userResponse(Authentication authentication) {
+        String role = authentication.getAuthorities().stream()
+                .map(authority -> authority.getAuthority())
+                .filter(authority -> authority.startsWith("ROLE_"))
+                .map(authority -> authority.substring("ROLE_".length()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Authenticated account has no role"));
+        return new UserResponse(authentication.getName(), role);
+    }
+
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public void authenticationFailed() {
@@ -116,6 +125,6 @@ public class AuthController {
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {
     }
 
-    public record UserResponse(String username) {
+    public record UserResponse(String username, String role) {
     }
 }

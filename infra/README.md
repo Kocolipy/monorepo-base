@@ -76,6 +76,12 @@ Internet → ALB (HTTP:80) → EC2 (8080) → RDS PostgreSQL + Redis
 ./deploy.sh
 ```
 
+The script prompts separately for the database-backed `USER` and `ADMIN` seed
+credentials. The corresponding CloudFormation parameters retain their existing
+names for compatibility: `AppUsername` / `AppPassword` seed the `USER`, while
+`AppSecondaryUsername` / `AppSecondaryPassword` seed the `ADMIN`. Existing
+accounts are never overwritten on restart.
+
 ### Option 2: Manual
 
 ```bash
@@ -214,9 +220,11 @@ curl $ALB_URL/api/count -b cookies.txt
 | KeyName              | Key pair name      | Yes      | spring-backend-key |
 | InstanceType         | EC2 type           | No       | t3.small           |
 | DBPassword           | Database password  | Yes      | -                  |
-| RedisPassword        | Redis password     | No       | (empty)            |
-| AppPassword          | Admin password     | Yes      | -                  |
-| AppSecondaryPassword | Secondary password | Yes      | -                  |
+| RedisPassword        | Redis password        | No       | (empty)            |
+| AppUsername          | Seeded USER username  | No       | user               |
+| AppPassword          | Seeded USER password  | Yes      | -                  |
+| AppSecondaryUsername | Seeded ADMIN username | No       | admin              |
+| AppSecondaryPassword | Seeded ADMIN password | Yes      | -                  |
 
 ---
 

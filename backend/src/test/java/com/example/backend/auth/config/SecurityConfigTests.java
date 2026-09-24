@@ -15,8 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
@@ -143,6 +148,28 @@ class SecurityConfigTests {
     }
 
     @Test
+    void userRoleCannotReachAccountAdministration() throws Exception {
+        mvc.perform(get("/api/accounts").session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminRoleCanReachAccountAdministration() throws Exception {
+        mvc.perform(get("/api/accounts").session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isOk());
+    }
+
+    private MockHttpSession authenticatedSession(String authority) {
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new TestingAuthenticationToken("account", null, authority));
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(
+                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+                context);
+        return session;
+    }
+
+    @Test
     void responsesCarryTheContentSecurityPolicy() throws Exception {
         mvc.perform(get("/"))
                 .andExpect(header().string("Content-Security-Policy",
@@ -180,7 +207,7 @@ class SecurityConfigTests {
     @RestController
     static class ProbeController {
 
-        @GetMapping("/")
+        @GetMapping({"/", "/api/accounts"})
         String index() {
             return "index";
         }

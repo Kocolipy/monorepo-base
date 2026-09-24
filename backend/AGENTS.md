@@ -69,7 +69,7 @@ Preserve these boundaries:
 - Login and health endpoints are public; application endpoints require authentication.
 - Runtime credentials and environment-specific settings remain external configuration.
 
-`src/test/java/arch/ArchitectureTest.java` is the executable form of the structural boundaries: onion layering, package placement, naming, constructor injection, JPA mapping, and package-cycle freedom. Read it before reshaping packages or adding a layer.
+`src/test/java/arch/ArchitectureTest.java` is the executable form of the structural boundaries: onion layering, package placement, naming, constructor injection, JPA mapping, and package-cycle freedom. The onion model treats `..config..` as an inbound adapter: configuration may wire an application seam, but application and domain code never depend on configuration. Read it before reshaping packages or adding a layer.
 
 For domain terminology and architectural decisions, follow `/docs/agents/domain.md`. Record durable architectural choices as ADRs rather than expanding this file.
 

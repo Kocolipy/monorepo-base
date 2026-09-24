@@ -53,3 +53,18 @@ is a stale CSRF token, and the session survives it.
 redirected to sign in, recorded as `from` in router state and replayed once the
 status turns `authenticated`. Owned by the route guards, so no page navigates on
 its own behalf after signing in.
+
+## Accounts and roles
+
+**Visitor** — an unauthenticated person. A Visitor may use only the login page;
+asking for a protected route records the return destination and sends them there.
+
+**User** — an authenticated account whose role is `USER`. A User may use the
+counter page at `/showcase` but not account administration.
+
+**Admin** — an authenticated account whose role is `ADMIN`. An Admin may use the
+counter page and the placeholder accounts page at `/accounts`.
+
+**Account** — a database-backed login identity with one username, encoded
+password, and role. Startup seeding creates the configured User and Admin only
+when their usernames are absent; it does not overwrite an existing account.

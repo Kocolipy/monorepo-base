@@ -1,10 +1,13 @@
 import { test as setup } from "@playwright/test";
 
-import { login } from "./auth.helpers";
+import { loginAs } from "./auth.helpers";
 
-const STORAGE_STATE = "test/e2e/.auth/user.json";
+setup("authenticate USER", async ({ page }) => {
+  await loginAs(page, "user", "P@ssw0rd");
+  await page.context().storageState({ path: "test/e2e/.auth/user.json" });
+});
 
-setup("authenticate", async ({ page }) => {
-  await login(page);
-  await page.context().storageState({ path: STORAGE_STATE });
+setup("authenticate ADMIN", async ({ page }) => {
+  await loginAs(page, "admin", "P@ssw0rd");
+  await page.context().storageState({ path: "test/e2e/.auth/admin.json" });
 });

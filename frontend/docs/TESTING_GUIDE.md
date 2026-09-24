@@ -159,10 +159,11 @@ Playwright specs in `test/e2e/`, run against `npm run dev` on `:5173`
 (`webServer` starts it, `reuseExistingServer` outside CI reuses one you already
 have up). First run on a machine needs `npx playwright install chromium`.
 
-The `setup` project signs the dedicated E2E user in once and saves Playwright
-`storageState` under the ignored `test/e2e/.auth/` directory. The
-`authenticated` project depends on that setup and reuses the session; `guest`
-starts with explicitly empty browser storage.
+The `setup` project signs in the seeded User and Admin once and saves separate
+Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
+The `user` and `admin` projects reuse those sessions; `guest` starts with
+explicitly empty browser storage. Role-guard specs are split by identity so a
+spec can never accidentally run with a more privileged session than it names.
 
 ### Routing a new spec
 

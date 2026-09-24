@@ -23,7 +23,7 @@ const auth: AuthContextState = {
   logout: vi.fn(),
   sessionExpired: false,
   status: "authenticated",
-  user: { username: "ada" },
+  user: { role: "USER", username: "ada" },
 };
 
 function resolveWith(result: object) {

@@ -82,4 +82,26 @@ describe("resolveSessionRoute", () => {
       to: LOGIN_PATH,
     });
   });
+
+  it("renders an ADMIN-only route for an administrator", () => {
+    expect(
+      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", role: "ADMIN" })),
+    ).toEqual({ kind: "render" });
+  });
+
+  it("redirects a USER away from an ADMIN-only route", () => {
+    expect(
+      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", role: "USER" })),
+    ).toEqual({ kind: "redirect", to: DEFAULT_DESTINATION });
+  });
+
+  it("sends a guest on an ADMIN-only route to login with its return destination", () => {
+    expect(
+      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", status: "guest" })),
+    ).toEqual({
+      kind: "redirect",
+      state: { expired: false, from: "/accounts" },
+      to: LOGIN_PATH,
+    });
+  });
 });
