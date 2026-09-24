@@ -24,7 +24,10 @@ paths:
     post:
       tags: [Authentication]
       summary: Log in
-      description: Authenticates database-backed credentials, stores the authenticated user in the HTTP session, and returns the account role.
+      description: |
+        Authenticates database-backed credentials, stores the authenticated user
+        in the HTTP session, and returns the account role. A successful login also
+        ends the account's run of failed attempts, resetting its counter to zero.
       operationId: login
       security: []
       parameters:
@@ -54,7 +57,13 @@ paths:
         "400":
           description: The request body is missing, malformed, or fails validation.
         "401":
-          description: The credentials are invalid.
+          description: |
+            The login was refused. One response covers every reason — unknown
+            username, wrong password, and an account locked after too many
+            consecutive failures — and carries no body, so it cannot be used to
+            learn whether an account exists or whether it is locked. Consecutive
+            refusals lock the account for a configured window; while it holds, the
+            correct password is refused too.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/me:

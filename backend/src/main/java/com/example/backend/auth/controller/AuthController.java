@@ -1,5 +1,6 @@
-package com.example.backend.auth;
+package com.example.backend.auth.controller;
 
+import com.example.backend.auth.application.LoginAttemptService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -35,18 +36,21 @@ public class AuthController {
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final CsrfTokenRepository csrfTokenRepository;
     private final CookieSerializer cookieSerializer;
+    private final LoginAttemptService loginAttempts;
 
     public AuthController(
             AuthenticationManager authenticationManager,
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             CsrfTokenRepository csrfTokenRepository,
-            CookieSerializer cookieSerializer) {
+            CookieSerializer cookieSerializer,
+            LoginAttemptService loginAttempts) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.csrfTokenRepository = csrfTokenRepository;
         this.cookieSerializer = cookieSerializer;
+        this.loginAttempts = loginAttempts;
     }
 
     @PostMapping("/login")
@@ -54,9 +58,12 @@ public class AuthController {
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        Authentication authentication = authenticationManager.authenticate(
-                UsernamePasswordAuthenticationToken.unauthenticated(
-                        body.username(), body.password()));
+        Authentication authentication = authenticate(body);
+
+        // The run of failures this login ends is the account's own state, so it is
+        // cleared before any session work: a caller that gets a session back has
+        // by definition not been refused.
+        loginAttempts.recordSuccess(authentication.getName());
 
         // Rotate before the context is saved, so the authentication lands in the
         // session the caller will keep using rather than the pre-login one.
@@ -70,6 +77,23 @@ public class AuthController {
         issueCsrfToken(request, response);
 
         return userResponse(authentication);
+    }
+
+    /**
+     * Authenticates the submitted credentials, counting the attempt against the
+     * account when they are refused. The exception is rethrown unchanged so every
+     * refusal — wrong password, unknown username, locked account — still leaves
+     * through the one handler that answers with a bare 401.
+     */
+    private Authentication authenticate(LoginRequest body) {
+        try {
+            return authenticationManager.authenticate(
+                    UsernamePasswordAuthenticationToken.unauthenticated(
+                            body.username(), body.password()));
+        } catch (AuthenticationException refused) {
+            loginAttempts.recordFailure(body.username());
+            throw refused;
+        }
     }
 
     @GetMapping("/me")

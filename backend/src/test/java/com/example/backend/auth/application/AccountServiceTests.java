@@ -3,13 +3,12 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.auth.InMemoryAccountRepository;
+import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.time.Duration;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -17,12 +16,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 class AccountServiceTests {
 
-    private final RecordingAccountRepository accounts = new RecordingAccountRepository();
+    private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
+
+    private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final MutableClock clock = new MutableClock(NOW);
+
     private AccountService service;
 
     @BeforeEach
     void setUp() {
-        service = new AccountService(accounts, new PrefixPasswordEncoder());
+        service = new AccountService(accounts, new PrefixPasswordEncoder(), clock);
     }
 
     @Test
@@ -57,6 +60,30 @@ class AccountServiceTests {
         assertThat(details.getAuthorities())
                 .extracting(authority -> authority.getAuthority())
                 .containsExactly("ROLE_ADMIN");
+        assertThat(details.isAccountNonLocked()).isTrue();
+    }
+
+    /**
+     * Carrying the lockout into {@code UserDetails} is what rejects a locked
+     * account before its password is compared, so the flag has to reflect the
+     * stored instant rather than only the attempt count.
+     */
+    @Test
+    void reportsALockedAccountAsLockedToSpringSecurity() {
+        accounts.save(new Account(
+                "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5))));
+
+        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
+    }
+
+    @Test
+    void reportsAnAccountWhoseLockoutHasExpiredAsUsableAgain() {
+        accounts.save(new Account(
+                "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5))));
+
+        clock.advanceBy(Duration.ofMinutes(5));
+
+        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isTrue();
     }
 
     @Test
@@ -64,23 +91,6 @@ class AccountServiceTests {
         assertThatThrownBy(() -> service.loadUserByUsername("missing"))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("Account not found");
-    }
-
-    private static final class RecordingAccountRepository implements AccountRepository {
-
-        private final Map<String, Account> stored = new HashMap<>();
-
-        @Override
-        public Optional<Account> findByUsername(String username) {
-            return Optional.ofNullable(stored.get(username));
-        }
-
-        @Override
-        public Account save(Account account) {
-            Account nonNullAccount = Objects.requireNonNull(account);
-            stored.put(nonNullAccount.username(), nonNullAccount);
-            return nonNullAccount;
-        }
     }
 
     private static final class PrefixPasswordEncoder implements PasswordEncoder {

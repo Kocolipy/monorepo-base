@@ -1,14 +1,27 @@
-package com.example.backend.auth;
+package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.auth.InMemoryAccountRepository;
+import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.domain.Account;
+import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.auth.domain.LockoutPolicy;
 import jakarta.servlet.http.Cookie;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
@@ -24,6 +37,8 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.web.http.DefaultCookieSerializer;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class AuthControllerTests {
 
@@ -35,6 +50,13 @@ class AuthControllerTests {
     private AuthController controller;
 
     private CsrfTokenRepository csrfTokenRepository;
+
+    /**
+     * Backs the attempt counter only: the credentials this controller checks come
+     * from the in-memory user details manager below. The lockout itself is
+     * exercised in {@link LoginLockoutTests}, over the real account store.
+     */
+    private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
 
     @BeforeEach
     void setUp() {
@@ -49,6 +71,8 @@ class AuthControllerTests {
                         .password(passwordEncoder.encode("another-correct-password"))
                         .roles("ADMIN")
                         .build());
+        accounts.save(new Account("ada", passwordEncoder.encode("correct-password"),
+                AccountRole.USER));
         AuthenticationManager manager = config.authenticationManager(users, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
@@ -58,7 +82,11 @@ class AuthControllerTests {
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
                 csrfTokenRepository,
-                cookieSerializer);
+                cookieSerializer,
+                new LoginAttemptService(
+                        accounts,
+                        new LockoutPolicy(3, Duration.ofMinutes(5)),
+                        Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)));
     }
 
     @AfterEach
@@ -110,6 +138,34 @@ class AuthControllerTests {
                 new MockHttpServletResponse()))
                 .isInstanceOf(BadCredentialsException.class);
         assertThat(request.getSession(false)).isNull();
+    }
+
+    /**
+     * The login path, not a security event listener, is what records the attempt,
+     * so a refusal has to leave the count incremented on the way out.
+     */
+    @Test
+    void loginRecordsARefusedAttemptAgainstTheAccount() {
+        assertThatThrownBy(() -> controller.login(
+                new AuthController.LoginRequest("ada", "wrong-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse()))
+                .isInstanceOf(BadCredentialsException.class);
+
+        assertThat(accounts.require("ada").failedLoginAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void loginClearsTheFailureRunOfTheAccountItAccepts() {
+        accounts.save(new Account(
+                "ada", accounts.require("ada").passwordHash(), AccountRole.USER, 2, null));
+
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse());
+
+        assertThat(accounts.require("ada").failedLoginAttempts()).isZero();
     }
 
     /**
@@ -208,6 +264,24 @@ class AuthControllerTests {
         assertThatThrownBy(() -> controller.currentUser(authentication))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Authenticated account has no role");
+    }
+
+    /**
+     * Every refusal leaves through this one handler, so the decision that a locked
+     * account looks exactly like a wrong password is really a property of the
+     * response it writes: status 401 and no body at all. Asserted over MockMvc
+     * because the mapping is annotation-driven — calling the method directly would
+     * prove nothing about the status a caller sees.
+     */
+    @Test
+    void aRefusedLoginAnswersWithAnEmptyUnauthorizedResponse() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ada\",\"password\":\"wrong-password\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(""));
     }
 
     @Test

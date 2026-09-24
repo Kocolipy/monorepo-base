@@ -1,0 +1,48 @@
+package com.example.backend.auth;
+
+import com.example.backend.auth.domain.Account;
+import com.example.backend.auth.domain.AccountRepository;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Account store for tests, standing in for the JPA adapter. Shared so the
+ * lockout can be asserted against one persistence behaviour rather than against
+ * a slightly different fake per test class.
+ */
+public final class InMemoryAccountRepository implements AccountRepository {
+
+    private final Map<String, Account> stored = new HashMap<>();
+
+    private int saves;
+
+    @Override
+    public Optional<Account> findByUsername(String username) {
+        return Optional.ofNullable(stored.get(username));
+    }
+
+    @Override
+    public Account save(Account account) {
+        Account nonNullAccount = Objects.requireNonNull(account);
+        stored.put(nonNullAccount.username(), nonNullAccount);
+        saves++;
+        return nonNullAccount;
+    }
+
+    /** The stored account, failing the calling test when there is none. */
+    public Account require(String username) {
+        return findByUsername(username).orElseThrow(
+                () -> new AssertionError("No account stored for " + username));
+    }
+
+    /**
+     * How many writes this store has taken. Lets a test assert that a login with
+     * nothing to clear writes nothing, which is the only observable difference
+     * between skipping the write and performing a redundant one.
+     */
+    public int saves() {
+        return saves;
+    }
+}
