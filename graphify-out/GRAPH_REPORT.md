@@ -1,17 +1,17 @@
-# Graph Report - monorepo-base  (2026-09-24)
+# Graph Report - monorepo-base-spa-routes  (2026-09-24)
 
 ## Corpus Check
-- 95 files · ~44,307 words
+- 101 files · ~38,976 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 14 file(s) not represented in the graph (top: (none) 9, .example 1, .properties 1)
+- Unclassified: 15 file(s) not represented in the graph (top: (none) 10, .example 1, .properties 1)
 
 ## Summary
-- 812 nodes · 1375 edges · 53 communities (39 shown, 14 thin omitted)
-- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 123 edges (avg confidence: 0.85)
+- 848 nodes · 1426 edges · 65 communities (49 shown, 16 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 114 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `46585fef`
+- Built from commit: `81efbf8d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -19,12 +19,12 @@
 - sources.ts
 - showcase.tsx
 - org.junit.jupiter.api.Test
-- UserCounter
-- Backend Semgrep Baseline Gate
+- UserCounterService
+- Frontend Architecture Doc
 - ArchitectureTest.java
-- EC2Instance
-- SessionController.java
+- Workflow
 - AuthController.java
+- SecurityConfig.java
 - devDependencies
 - stryker.config.json
 - compilerOptions
@@ -39,14 +39,18 @@
 - deploy.sh
 - Kiro: graphify enforcement
 - mvnw
-- AWS CloudFormation Deployment Guide
+- EC2Instance
+- .servesSpaShell
 - Frontend Technology Stack
 - DBInstance RDS PostgreSQL
 - Spring Session In Redis
 - infra/ Is Deployment Material Not An App
+- UserCounterPersistenceAdapter
 - tsconfig.test.json
+- UserCounter
 - Domain Documentation Guide
 - GitHub Issue Tracker Guide
+- Backend Semgrep Baseline Gate
 - PIT Scoped To Touched Tests
 - Graphify Runner Agent
 - BackendApplication.java
@@ -55,18 +59,26 @@
 - App And DB Credential Parameters
 - Graphify Runner
 - Frontend Project Structure
+- UserCounterEntity
 - prettier.config.mjs
 - dev.sh
 - integration-test.sh
 - semgrep.sh
 - CLAUDE.md
+- vitest
 - bootstrap.sh
 - package.sh
 - Test Static index.html Stub
 - com.example:backend
+- dependencies
+- eslint.config.js
+- UserCounter.java
 - dev-stop.sh
 - graphify-guard.sh
 - graphify-refresh.sh
+- designTokens.test.ts
+- engines
+- @testing-library/jest-dom
 
 ## God Nodes (most connected - your core abstractions)
 1. `scripts` - 19 edges
@@ -77,20 +89,20 @@
 6. `AuthControllerTests` - 17 edges
 7. `SpaFrontendTests` - 15 edges
 8. `compilerOptions` - 15 edges
-9. `apiFetch()` - 14 edges
-10. `UserCounterService` - 13 edges
+9. `UserCounterService` - 13 edges
+10. `LoginRequest` - 12 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `05 — The auth status state machine is read by its callers — Worth exploring` --references--> `useAuth()`  [INFERRED]
-  architecture-review.md → frontend/src/auth/auth-context-value.ts
-- `02 — Every caller of `apiFetch` re-derives status meaning — Strong` --references--> `apiFetch()`  [INFERRED]
-  architecture-review.md → frontend/src/lib/http.ts
-- `Top recommendation` --references--> `apiFetch()`  [INFERRED]
-  architecture-review.md → frontend/src/lib/http.ts
+- `getCurrentUser operation` --shares_data_with--> `getCurrentUser()`  [INFERRED]
+  backend/docs/openapi.yaml → frontend/src/auth/api.ts
+- `login operation` --shares_data_with--> `login()`  [INFERRED]
+  backend/docs/openapi.yaml → frontend/src/auth/api.ts
+- `logout operation` --shares_data_with--> `logout()`  [INFERRED]
+  backend/docs/openapi.yaml → frontend/src/auth/api.ts
+- `Baseline Full Extensive Test Levels` --semantically_similar_to--> `ArchUnit Baseline Gate`  [INFERRED] [semantically similar]
+  frontend/AGENTS.md → backend/AGENTS.md
 - `Frontend Local Semgrep Ruleset` --semantically_similar_to--> `Backend Semgrep Baseline Gate`  [INFERRED] [semantically similar]
   frontend/AGENTS.md → backend/AGENTS.md
-- `04 — The Counter slice is seven modules over a two-field row — Worth exploring` --references--> `UserCounterRepository`  [INFERRED]
-  architecture-review.md → backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java
 
 ## Import Cycles
 - None detected.
@@ -101,43 +113,43 @@
 - **Local Compose Versus Cloud Datastores** — backend_compose_postgres_service, backend_compose_redis_service, infra_infrastructure_dbinstance, infra_infrastructure_rediscluster [INFERRED 0.85]
 - **Published Credential Exposure Surface** — agents_published_credentials_warning, backend_readme_dev_default_credentials, infra_infrastructure_app_credential_parameters, backend_semgrep_rules_service_security_be_hardcoded_credential_literal [INFERRED 0.85]
 
-## Communities (53 total, 14 thin omitted)
+## Communities (65 total, 16 thin omitted)
 
 ### Community 0 - "sources.ts"
-Cohesion: 0.17
-Nodes (13): blankComments(), files, sources, configSource, routes, testFiles, readSource(), readSources() (+5 more)
+Cohesion: 0.21
+Nodes (10): configSource, routes, testFiles, readSource(), readSources(), ROOT, SourceFile, toPosix() (+2 more)
 
 ### Community 1 - "showcase.tsx"
-Cohesion: 0.07
-Nodes (40): Frontend Architecture Doc, Deliberately Absent Concerns and Where They Go, One-Way Import Direction Through the Layers, lib/ Is a Leaf, No types/ hooks/ utils/ Catch-All Dirs, Tailwind v4 CSS-First Token Pipeline, components/ui Is a Package Placeholder, Vitest Deliberately Omits the Tailwind Vite Plugin (+32 more)
+Cohesion: 0.09
+Nodes (34): One-Way Import Direction Through the Layers, components/ui Is a Package Placeholder, Frontend SPA Entry HTML, App(), AuthUser, AuthProvider(), AuthContext, AuthContextValue (+26 more)
 
 ### Community 2 - "org.junit.jupiter.api.Test"
-Cohesion: 0.06
-Nodes (42): 01 — "Is this an SPA route?" is answered twice, differently — Strong, assertthat, assertthatcode, autowired, Override, SpaErrorViewResolver, SecurityConfigTests, BackendApplicationTests (+34 more)
+Cohesion: 0.05
+Nodes (44): assertthat, assertthatcode, LoginRequest, Override, SpaErrorViewResolver, AuthControllerTests, ProbeController, SecurityConfigTests (+36 more)
 
-### Community 3 - "UserCounter"
-Cohesion: 0.06
-Nodes (26): 04 — The Counter slice is seven modules over a two-field row — Worth exploring, getCount operation, UserCounterService, UserCounter, UserCounterRepository, UserCounterEntity, UserCounterJpaRepository, Override (+18 more)
+### Community 3 - "UserCounterService"
+Cohesion: 0.16
+Nodes (9): autowired, getCount operation, incrementCount operation, resetCount operation, UserCounterService, UserCounterRepository, UserCounterServiceTests, org.springframework.stereotype.Service (+1 more)
 
-### Community 4 - "Backend Semgrep Baseline Gate"
-Cohesion: 0.07
-Nodes (29): Long-Gate Sentinel And Log Pattern, ArchUnit Baseline Gate, Always ./mvnw Never Bare mvn, Security-Sensitive Change Policy, Backend Semgrep Baseline Gate, be-authorize-any-request-permit-all, be-cors-wildcard-origin, be-csrf-disabled (+21 more)
+### Community 4 - "Frontend Architecture Doc"
+Cohesion: 0.10
+Nodes (22): login operation, Colors Come From index.css Tokens, Frontend Architecture Doc, Deliberately Absent Concerns and Where They Go, Vite Full-Reloads on Any Watched HTML Write, lib/ Is a Leaf, No types/ hooks/ utils/ Catch-All Dirs, Tailwind v4 CSS-First Token Pipeline (+14 more)
 
 ### Community 5 - "ArchitectureTest.java"
 Cohesion: 0.12
 Nodes (16): ArchitectureTest, classes, com.tngtech.archunit.junit.AnalyzeClasses, com.tngtech.archunit.lang.ArchRule, controller, entitymanager, generalcodingrules, importoption (+8 more)
 
-### Community 6 - "EC2Instance"
-Cohesion: 0.25
-Nodes (8): Backend Serves SPA And Forwards Routes, ALBListener, ALBTargetGroup, EC2Instance, EC2InstanceProfile, EC2Role, TargetGroupAttachment, Infra Troubleshooting Runbook
+### Community 6 - "Workflow"
+Cohesion: 0.08
+Nodes (22): Fix Recommendation Patterns, Report Template, Trend Comparison (`--history`), Cosmic Ray / Python, Custom, mutmut / Python, PIT / JVM, Stryker.NET / .NET (+14 more)
 
-### Community 7 - "SessionController.java"
-Cohesion: 0.07
-Nodes (25): deleteSession operation, incrementCount operation, CountResponse, UserCounterController, SessionController, SessionResponse, UpdateSessionRequest, ProbeController (+17 more)
-
-### Community 8 - "AuthController.java"
+### Community 7 - "AuthController.java"
 Cohesion: 0.06
-Nodes (46): assertthatnoexception, assertthatthrownby, authentication, authenticationentrypoint, authenticationmanager, AuthController, LoginRequest, UserResponse (+38 more)
+Nodes (47): Backend API Contract (OpenAPI 3.1), X-XSRF-TOKEN Header Parameter, deleteSession operation, getCurrentUser operation, getHealth operation, getSession operation, logout operation, JSESSIONID Session Cookie Security Scheme (+39 more)
+
+### Community 8 - "SecurityConfig.java"
+Cohesion: 0.08
+Nodes (29): assertthatnoexception, assertthatthrownby, authentication, authenticationentrypoint, authenticationmanager, SecurityConfig, badcredentialsexception, bcryptpasswordencoder (+21 more)
 
 ### Community 9 - "devDependencies"
 Cohesion: 0.07
@@ -156,8 +168,8 @@ Cohesion: 0.25
 Nodes (8): Frontend Local Semgrep Ruleset, fe-dangerously-set-inner-html, fe-document-write, fe-eval-or-dynamic-function, fe-hardcoded-credential, fe-inner-html-assignment, fe-target-blank-without-noopener, Local Ruleset Keeps the Scan Offline and Deterministic
 
 ### Community 13 - "package.json"
-Cohesion: 0.05
-Nodes (41): dependencies, class-variance-authority, clsx, react, react-dom, react-router-dom, tailwind-merge, engines (+33 more)
+Cohesion: 0.10
+Nodes (20): name, packageManager, private, type, version, class-variance-authority, dependency-cruiser, eslint (+12 more)
 
 ### Community 14 - "scripts"
 Cohesion: 0.11
@@ -172,8 +184,8 @@ Cohesion: 0.12
 Nodes (16): compilerOptions, allowImportingTsExtensions, isolatedModules, lib, module, moduleDetection, moduleResolution, noEmit (+8 more)
 
 ### Community 17 - "apiFetch"
-Cohesion: 0.07
-Nodes (37): 02 — Every caller of `apiFetch` re-derives status meaning — Strong, 03 — The runtime configuration surface has no module at all — Strong, 05 — The auth status state machine is read by its callers — Worth exploring, 06 — A template whose identity has no seam — Speculative, Architecture review — deepening opportunities, Candidates, Top recommendation, Backend API Contract (OpenAPI 3.1) (+29 more)
+Cohesion: 0.18
+Nodes (15): getCurrentUser(), login(), logout(), apiFetch(), ApiRequestInit, csrfToken(), isUnsafe(), SAFE_METHODS (+7 more)
 
 ### Community 18 - "lib.sh"
 Cohesion: 0.24
@@ -195,25 +207,33 @@ Nodes (4): graphify-runner, Kiro: graphify enforcement, The hooks, When the refr
 Cohesion: 0.38
 Nodes (8): mvnw script, clean(), die(), exec_maven(), hash_string(), set_java_home(), trim(), verbose()
 
-### Community 23 - "AWS CloudFormation Deployment Guide"
-Cohesion: 0.28
-Nodes (9): EC2KeyPair, Infra Quickstart Flow, ALB To EC2 To RDS And Redis Topology, Ship JAR From backend/target, AWS CloudFormation Deployment Guide, Existing VPC Prerequisite, SSH Key Management Via SSM, Deploying To AWS From infra/ (+1 more)
+### Community 23 - "EC2Instance"
+Cohesion: 0.17
+Nodes (16): ALBListener, ALBTargetGroup, EC2Instance, EC2InstanceProfile, EC2KeyPair, EC2Role, TargetGroupAttachment, Infra Quickstart Flow (+8 more)
+
+### Community 24 - ".servesSpaShell"
+Cohesion: 0.14
+Nodes (10): SpaRoutes, ReservedServerPaths, SpaRoutesTests, SpaShell, CONTEXT, Request paths, list, org.junit.jupiter.api.Nested (+2 more)
 
 ### Community 25 - "Frontend Technology Stack"
-Cohesion: 0.29
-Nodes (7): No Parent-Relative Paths From An App, SPA Build Contract, with-frontend Maven Profile, Claim: No Router Data Layer Or Auth, No .env Required In Frontend, Frontend Technology Stack, npm ci Not npm install
+Cohesion: 0.22
+Nodes (9): No Parent-Relative Paths From An App, SPA Build Contract, with-frontend Maven Profile, Backend Serves SPA And Forwards Routes, Claim: No Router Data Layer Or Auth, No .env Required In Frontend, Frontend Technology Stack, npm ci Not npm install (+1 more)
 
 ### Community 26 - "DBInstance RDS PostgreSQL"
 Cohesion: 0.29
 Nodes (8): docs/openapi.yaml API Contract, Postgres Compose Service, Auth API Endpoints, Count API Endpoints, Per-User Counts In PostgreSQL, Session API Endpoints, DBInstance RDS PostgreSQL, DBSubnetGroup
 
 ### Community 27 - "Spring Session In Redis"
-Cohesion: 0.33
-Nodes (7): Backend Architecture Boundaries, Redis Compose Service, Spring Session In Redis, RedisCluster ElastiCache, RedisSubnetGroup, Image Tag Plus Digest Pinning, Toolchain Pin Table
+Cohesion: 0.29
+Nodes (8): ArchUnit Baseline Gate, Always ./mvnw Never Bare mvn, Redis Compose Service, Spring Session In Redis, RedisCluster ElastiCache, RedisSubnetGroup, Image Tag Plus Digest Pinning, Toolchain Pin Table
 
 ### Community 28 - "infra/ Is Deployment Material Not An App"
-Cohesion: 0.22
-Nodes (9): infra/ Is Deployment Material Not An App, infra-up Targets Are Local Docker Deps, Monorepo Layout Contract, Flag ADR Conflicts Explicitly, docs/adr Decision Records, CONTEXT.md Domain Glossary, gh CLI Conventions, GitHub Issues As Issue Tracker (+1 more)
+Cohesion: 0.20
+Nodes (10): infra/ Is Deployment Material Not An App, infra-up Targets Are Local Docker Deps, Monorepo Layout Contract, Backend Architecture Boundaries, Flag ADR Conflicts Explicitly, docs/adr Decision Records, CONTEXT.md Domain Glossary, gh CLI Conventions (+2 more)
+
+### Community 29 - "UserCounterPersistenceAdapter"
+Cohesion: 0.18
+Nodes (10): UserCounterJpaRepository, Override, UserCounterPersistenceAdapter, lockmodetype, optional, org.springframework.data.jpa.repository.JpaRepository, org.springframework.data.jpa.repository.Lock, org.springframework.data.jpa.repository.Query (+2 more)
 
 ### Community 30 - "tsconfig.test.json"
 Cohesion: 0.29
@@ -226,6 +246,10 @@ Nodes (5): Before exploring, read these, Domain Docs, File structure, Flag ADR c
 ### Community 33 - "GitHub Issue Tracker Guide"
 Cohesion: 0.33
 Nodes (5): Conventions, Issue tracker: GitHub, Pull requests as a triage surface, When a skill says "fetch the relevant ticket", When a skill says "publish to the issue tracker"
+
+### Community 34 - "Backend Semgrep Baseline Gate"
+Cohesion: 0.17
+Nodes (12): Long-Gate Sentinel And Log Pattern, Security-Sensitive Change Policy, Backend Semgrep Baseline Gate, be-authorize-any-request-permit-all, be-cors-wildcard-origin, be-csrf-disabled, be-jpql-string-concatenation, be-session-fixation-disabled (+4 more)
 
 ### Community 36 - "Graphify Runner Agent"
 Cohesion: 0.40
@@ -244,8 +268,8 @@ Cohesion: 0.70
 Nodes (4): print_header(), print_info(), print_warn(), get-vpc-info.sh script
 
 ### Community 40 - "App And DB Credential Parameters"
-Cohesion: 0.50
-Nodes (5): Published Default Credentials Warning, Development Default Credentials, be-hardcoded-credential-literal, App And DB Credential Parameters, Stack Parameters Reference
+Cohesion: 0.67
+Nodes (4): Published Default Credentials Warning, Development Default Credentials, be-hardcoded-credential-literal, App And DB Credential Parameters
 
 ### Community 41 - "Graphify Runner"
 Cohesion: 0.50
@@ -255,35 +279,63 @@ Nodes (3): Graphify Runner, Reporting, Steps
 Cohesion: 0.67
 Nodes (3): shadcn Placeholder Primitives, src/ Dependency Direction Rules, Frontend Project Structure
 
+### Community 43 - "UserCounterEntity"
+Cohesion: 0.29
+Nodes (4): UserCounterEntity, id, jakarta.persistence.Entity, jakarta.persistence.Table
+
+### Community 50 - "vitest"
+Cohesion: 0.29
+Nodes (6): ref_node_url, @tailwindcss/vite, vite, vite-plugin-compression2, @vitejs/plugin-react-swc, vitest
+
+### Community 56 - "dependencies"
+Cohesion: 0.29
+Nodes (7): dependencies, class-variance-authority, clsx, react, react-dom, react-router-dom, tailwind-merge
+
+### Community 57 - "eslint.config.js"
+Cohesion: 0.33
+Nodes (5): @eslint/js, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, typescript-eslint
+
+### Community 58 - "UserCounter.java"
+Cohesion: 0.50
+Nodes (3): PostgreSQL Datasource, Backend Test Configuration, H2 In-Memory Test Datasource
+
 ### Community 59 - "dev-stop.sh"
 Cohesion: 0.60
 Nodes (3): pid_in_repo(), dev-stop.sh script, terminate()
 
+### Community 62 - "designTokens.test.ts"
+Cohesion: 0.67
+Nodes (3): blankComments(), files, sources
+
+### Community 63 - "engines"
+Cohesion: 0.67
+Nodes (3): engines, node, npm
+
 ## Ambiguous Edges - Review These
-- `Frontend Technology Stack` → `Claim: No Router Data Layer Or Auth`  [AMBIGUOUS]
-  frontend/AGENTS.md · relation: conceptually_related_to
 - `login operation` → `Shared Playwright storageState for Auth`  [AMBIGUOUS]
   frontend/docs/TESTING_GUIDE.md · relation: conceptually_related_to
+- `Frontend Technology Stack` → `Claim: No Router Data Layer Or Auth`  [AMBIGUOUS]
+  frontend/AGENTS.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **221 isolated node(s):** `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend`, `semgrep.sh script`, `$schema` (+216 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 329 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **237 isolated node(s):** `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend`, `semgrep.sh script`, `$schema` (+232 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 347 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **What is the exact relationship between `Frontend Technology Stack` and `Claim: No Router Data Layer Or Auth`?**
-  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `login operation` and `Shared Playwright storageState for Auth`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `login operation` connect `apiFetch` to `AuthController.java`, `Backend Semgrep Baseline Gate`?**
-  _High betweenness centrality (0.173) - this node is a cross-community bridge._
-- **Why does `Shared Playwright storageState for Auth` connect `Backend Semgrep Baseline Gate` to `apiFetch`?**
-  _High betweenness centrality (0.145) - this node is a cross-community bridge._
+- **What is the exact relationship between `Frontend Technology Stack` and `Claim: No Router Data Layer Or Auth`?**
+  _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
+- **Why does `login operation` connect `Frontend Architecture Doc` to `apiFetch`, `org.junit.jupiter.api.Test`, `AuthController.java`?**
+  _High betweenness centrality (0.197) - this node is a cross-community bridge._
+- **Why does `Frontend Testing Guide` connect `Frontend Architecture Doc` to `Backend Semgrep Baseline Gate`?**
+  _High betweenness centrality (0.162) - this node is a cross-community bridge._
 - **What connects `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend` to the rest of the system?**
-  _221 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _237 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `showcase.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.07481005260081823 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08748114630467571 - nodes in this community are weakly interconnected._
 - **Should `org.junit.jupiter.api.Test` be split into smaller, more focused modules?**
-  _Cohesion score 0.05555555555555555 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05143638850889193 - nodes in this community are weakly interconnected._
