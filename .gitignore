@@ -64,6 +64,11 @@ frontend/test/e2e/.auth/
 /backend/frontend/
 backend/cookies.txt
 
+# infra/: deploy artefacts and secrets the CloudFormation scripts write locally
+/infra/parameters.json
+/infra/*-outputs.txt
+/infra/*.pem
+
 # Scratch
 TODO
 

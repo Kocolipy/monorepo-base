@@ -14,6 +14,7 @@ that directory:
 ```
 frontend/         Vite + React + TypeScript SPA
 backend/          Spring Boot 4 service (Java 25, Maven)
+infra/            AWS CloudFormation template + deploy/cleanup scripts
 packages/         shared code, when any appears
 docs/agents/      agent documentation shared by both apps
 .agents/skills/   agent skills shared by both apps
@@ -21,6 +22,11 @@ docs/agents/      agent documentation shared by both apps
 
 There is no top-level package manager, build file, or task runner. Nothing
 builds "the monorepo" — each app is built and tested on its own terms.
+
+`infra/` is deployment material, not an app: it is never built or tested by
+either app's gates, and the Makefile's `infra-up` / `infra-down` / `infra-logs`
+targets are **local Docker dependencies** (Postgres + Redis), unrelated to this
+directory. See `/infra/README.md`.
 
 ## Paths
 

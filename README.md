@@ -7,11 +7,17 @@ Monorepo holding the frontend SPA and the backend service.
 ```
 frontend/   Vite + React + TypeScript SPA
 backend/    Spring Boot 4 service (Java 25, Maven)
+infra/      AWS CloudFormation template + deploy/cleanup scripts
 ```
 
-Each app is self-contained: its own `README.md`, `AGENTS.md`, `.gitignore`,
+Each app is self-contained: its own `README.md`, `AGENTS.md`,
 dependency manifest, and test/quality tooling. Start there for anything
 app-specific — this file only covers the repo as a whole.
+
+`infra/` is not an app — it holds the AWS deployment material (CloudFormation
+template, `deploy.sh`, `cleanup.sh`, `get-vpc-info.sh`) and is documented in
+`infra/README.md`. Note the name clash: `make infra-up` starts the **local**
+Postgres and Redis containers and has nothing to do with this directory.
 
 Shared code, when it appears, goes in a top-level `packages/` directory.
 
@@ -100,3 +106,24 @@ when `frontend/dist/index.html` is missing, rather than packaging a stale SPA.
 
 `backend/FRONTEND.md` documents the runtime contract (CSRF, CSP, sessions) —
 read it before changing either side's request handling.
+
+## Deploying to AWS
+
+```bash
+cd infra
+./get-vpc-info.sh vpc-YOUR_VPC_ID   # inspect an existing VPC
+./deploy.sh                          # create the stack, optionally ship the JAR
+./cleanup.sh                         # delete the stack
+```
+
+`infra/` holds the CloudFormation template (`infrastructure.yaml`) and its
+scripts. They resolve `backend/` from their own location, so they work from any
+working directory, and they build the JAR with `backend/mvnw` rather than a
+system Maven. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache
+Redis in `ap-southeast-1`; details, parameters, and troubleshooting are in
+`infra/README.md`.
+
+Deploy artefacts the scripts write locally — `parameters.json`,
+`*-outputs.txt`, and retrieved `*.pem` keys — are gitignored. Set the
+application's env vars explicitly on the instance: the backend's
+`application.yaml` fallbacks are published defaults, not credentials.
