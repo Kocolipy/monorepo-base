@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getCount, incrementCount, resetCount } from "./showcase-api";
 
 describe("showcase counter API", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
 
   it("gets the authenticated user's current counter", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: 3 })));
@@ -18,6 +25,7 @@ describe("showcase counter API", () => {
     await expect(incrementCount()).resolves.toBe(4);
     expect(fetch).toHaveBeenCalledWith("/api/count/increment", {
       credentials: "include",
+      headers: { "X-XSRF-TOKEN": "test-token" },
       method: "POST",
     });
   });
@@ -28,6 +36,7 @@ describe("showcase counter API", () => {
     await expect(resetCount()).resolves.toBe(0);
     expect(fetch).toHaveBeenCalledWith("/api/count/reset", {
       credentials: "include",
+      headers: { "X-XSRF-TOKEN": "test-token" },
       method: "POST",
     });
   });

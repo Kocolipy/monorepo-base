@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import { resetCounterViaApi } from "./auth.helpers";
+
 test.describe("authentication and counter", () => {
   test.beforeEach(async ({ page }) => {
-    const response = await page.request.post("/api/count/reset");
-    expect(response.ok()).toBe(true);
+    await resetCounterViaApi(page);
   });
 
   test("opens the protected showcase with the saved session and manages the counter", async ({

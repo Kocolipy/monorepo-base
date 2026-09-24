@@ -27,8 +27,8 @@ Vitest with happy-dom and Testing Library. Globals are on, so `describe` / `it`
 here, which costs nothing and survives a config change). `test/setup.ts` pulls
 in `@testing-library/jest-dom`.
 
-Tests are **colocated** with the code they cover — `home.test.tsx` beside
-`home.tsx` — and type-checked through `tsconfig.test.json`, which is the only
+Tests are **colocated** with the code they cover — `showcase.test.tsx` beside
+`showcase.tsx` — and type-checked through `tsconfig.test.json`, which is the only
 project that includes them. `tsconfig.json` excludes `*.test.*` and
 `*.testHelpers.*` so production builds never see them.
 
@@ -47,7 +47,7 @@ trap below was found. The command is under Mutation testing.
 `toHaveTextContent` is a **substring** match. `toHaveTextContent("Clicked 1 time")`
 passes on the buggy `"Clicked 1 times"` — so the assertion written to pin down
 a pluralisation is exactly the one that does not. Anchor it:
-`toHaveTextContent(/^Clicked 1 time$/)`. `src/pages/home.test.tsx` carries the
+`toHaveTextContent(/^Clicked 1 time$/)`. `src/pages/showcase.test.tsx` carries the
 comment; Stryker is what found it (the `count === 1` mutant survived).
 
 Playwright's `toHaveText` is exact by default, so E2E does not have this trap.
@@ -128,7 +128,7 @@ The `mutation-testing` skill drives the run and triages the survivors. Two of
 its defaults disagree with the rule above, so pass them explicitly:
 
 ```bash
-/mutation-testing --target=src/pages/home.tsx --threshold=100
+/mutation-testing --target=src/pages/showcase.tsx --threshold=100
 ```
 
 `--scope=changed` covers the whole changeset rather than the source one test
@@ -178,6 +178,27 @@ call `login()` in each test. Specs that exercise sign-in itself should get a
 separate signed-out project with explicitly empty `storageState`. Per-test
 `login()` under `fullyParallel` fires N concurrent logins that can throttle and
 time out; shared storage state collapses that to one.
+
+### Calling the API from a spec
+
+`page.request` shares the browser context's cookie jar but adds **no headers of
+its own**, so it does not satisfy the backend's CSRF contract
+(`/backend/FRONTEND.md`) — an unsafe request made that way returns `403` and the
+spec fails somewhere unrelated to what it was testing. Read the token out of the
+context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
+does; add new API fixtures beside it rather than inlining a raw
+`page.request.post`.
+
+### Unit-testing a module that calls the API
+
+Everything under `src/` reaches the backend through `apiFetch` in
+`src/lib/http.ts`, which reads the `XSRF-TOKEN` cookie at call time. A test that
+stubs `fetch` and asserts on the request therefore has to seed that cookie in
+`beforeEach` and clear it in `afterEach`, or the expected `X-XSRF-TOKEN` header
+is absent and the assertion fails for the wrong reason. `src/auth/api.test.ts`
+is the pattern. `src/lib/http.test.ts` owns the header/retry behaviour itself, so
+a feature's own test does not need to re-prove it — assert the request shape it
+sends and let that suite cover the CSRF mechanics.
 
 ### Flakiness — the rules that keep these tests green
 

@@ -1,13 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 
 describe("App", () => {
+  beforeEach(() => {
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
+    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
   it("renders login at the home route for a guest", async () => {
@@ -67,7 +72,7 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/login", {
       body: JSON.stringify({ username, password }),
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
       method: "POST",
     });
   });

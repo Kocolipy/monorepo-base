@@ -1,3 +1,5 @@
+import { apiFetch } from "@/lib/http";
+
 interface CountResponse {
   count: number;
 }
@@ -12,16 +14,13 @@ async function readCount(response: Response, errorMessage: string): Promise<numb
 }
 
 async function updateCount(path: string): Promise<number> {
-  const response = await fetch(path, {
-    credentials: "include",
-    method: "POST",
-  });
+  const response = await apiFetch(path, { method: "POST" });
 
   return readCount(response, "Unable to update the counter. Please try again.");
 }
 
 export async function getCount(): Promise<number> {
-  const response = await fetch("/api/count", { credentials: "include" });
+  const response = await apiFetch("/api/count");
   return readCount(response, "Unable to load the counter. Please try again.");
 }
 

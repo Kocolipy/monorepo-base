@@ -1,25 +1,63 @@
 # Architecture
 
-What is here today, and where a new concern belongs. This baseline has one
-page; the rules below exist so that the tenth page does not need a rewrite.
+What is here today, and where a new concern belongs. This baseline has two
+pages; the rules below exist so that the tenth page does not need a rewrite.
 
-## The four layers
+## The layers
 
 ```
 src/
   main.tsx            composition root — mounts React, imports index.css
-  App.tsx             app root — where a router goes when one is needed
+  App.tsx             app root — BrowserRouter, AuthProvider, the route table
   index.css           Tailwind entry + the design tokens
   vite-env.d.ts       /// <reference types="vite/client" />
-  pages/              one component per page
+  auth/               session state and the route guard
+  pages/              one component per page, plus its own api.ts when it needs one
   components/ui/      shadcn primitives (placeholder — see "Component library")
   lib/                framework-agnostic helpers; a leaf
 ```
 
-Imports run one way: `main` → `App` → `pages` → `components/ui` → `lib`. A
-layer may skip a step (a page may call `cn` directly) but may never point back
-up. `test/.dependency-cruiser.cjs` encodes exactly that, and
-`npm run test:arch` runs it.
+Imports run one way: `main` → `App` → `pages` → `auth` → `components/ui` →
+`lib`. A layer may skip a step (a page may call `cn` directly, `auth/` reaches
+straight into `lib/http`) but may never point back up.
+`test/.dependency-cruiser.cjs` encodes exactly that, and `npm run test:arch`
+runs it.
+
+### Why `auth/` is its own folder and not a page
+
+`src/auth/` is a _concern_, not a screen. It holds four files:
+
+- `api.ts` — the three `/api/auth/*` calls, each mapping a status code to a
+  domain outcome (`401` on `/me` is a guest, not an error).
+- `auth-context.tsx` — the `AuthProvider`, which checks the session once on
+  mount and owns the `checking | authenticated | guest` status.
+- `auth-context-value.ts` — the context object and the `useAuth` hook, split out
+  so a consumer importing the hook does not pull in the provider component.
+- `protected-route.tsx` — renders a waiting state while `checking`, redirects to
+  `/` with the attempted path in router state while `guest`, otherwise renders
+  its children.
+
+`pages/login.tsx` and `pages/showcase.tsx` are screens that _consume_ this; they
+hold no session logic themselves. A second protected area adds a route, not a
+second copy of the guard.
+
+### Why every request goes through `lib/http.ts`
+
+The backend enforces CSRF double-submit (`/backend/FRONTEND.md`), so every
+unsafe request needs the `XSRF-TOKEN` cookie echoed in an `X-XSRF-TOKEN` header
+or it comes back `403`. `apiFetch()` is the single place that knows this: it
+reads the cookie **at call time** (login and logout both rotate the token, so a
+value captured at start-up or held in state is stale), adds the header on unsafe
+methods only, and on a `403` re-seeds the cookie with a safe `GET` and retries
+exactly once — which also covers the cold start where `POST /api/auth/login` is
+the tab's first HTTP call.
+
+It lives in `lib/` because both `auth/api.ts` and `pages/showcase-api.ts` need
+it and `lib/` is the one folder every layer may call. That places it under
+`mb-lib-is-a-leaf`, so it must stay dependency-free — no auth types, no React.
+A second API module goes beside its feature and calls `apiFetch`; a module that
+calls `fetch` directly is a bug, because the CSRF and retry behaviour then
+exists in two places that will drift.
 
 ### Why `components/ui/` is fenced off
 
@@ -39,7 +77,10 @@ no rule constrains, or beside the page that owns them.
 `mb-lib-is-a-leaf` keeps `src/lib/` importing nothing from `src/`. It is the
 one folder every other layer may call, so an edge pointing out of it is a cycle
 waiting to happen — and `cn()` in particular is imported by every primitive, so
-anything it drags in is effectively in every bundle chunk.
+anything it drags in is effectively in every bundle chunk. `http.ts` is held to
+the same line: it takes a path and a `RequestInit` and knows nothing about auth
+or React, which is what lets both `auth/api.ts` and a page's `*-api.ts` sit on
+top of it without a cycle.
 
 ### Why there is no `src/types/`, `src/hooks/` or `src/utils/`
 
@@ -120,16 +161,40 @@ run writing `playwright-report/index.html`, or `npm run test:coverage` writing
 another test is driving. Vite already ignores `**/test-results/**`; a new
 directory that a test run writes into belongs on this list.
 
+## Routing
+
+`App.tsx` owns the whole route table — three routes, deliberately flat:
+
+| Path        | Element                                         | Notes                                                       |
+| ----------- | ----------------------------------------------- | ----------------------------------------------------------- |
+| `/`         | `<Login />`                                     | public; redirects to `/showcase` when already authenticated |
+| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>` | guarded on `useAuth().status`                               |
+| `*`         | `<Navigate replace to="/" />`                   | unknown paths fall back to login                            |
+
+`BrowserRouter` means real paths, not hashes, so the backend has to serve
+`index.html` for any unmatched path — that fallback is the backend's side of the
+SPA contract, and a deep link like `/showcase` 404s without it.
+
+A new protected area is a new `<Route>` wrapped in the existing
+`ProtectedRoute`. Nested layouts and lazy route chunks are both unused; add them
+in `App.tsx` when there is a second protected area, not before.
+
 ## What is deliberately absent
 
 Nothing below exists yet. Each entry names where it goes, so the first person
 to need it does not have to invent a convention.
 
-| Concern              | Where it goes                                                                         |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| Routing              | `src/App.tsx`, routing to `src/pages/`                                                |
-| HTTP / data fetching | a new `src/lib/api/` (leaf-safe) or a per-feature `api.ts` beside its feature         |
-| Global state         | beside the feature that owns it; hoist to `src/lib/` only when a second one needs it  |
-| Environment config   | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md   |
-| Auth                 | its own folder under `src/`, plus new Playwright projects (see docs/TESTING_GUIDE.md) |
-| PWA / service worker | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line              |
+| Concern                         | Where it goes                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| Global state                    | beside the feature that owns it; hoist to `src/lib/` only when a second one needs it |
+| Server-state caching            | a query library wrapping `apiFetch`, wired in `App.tsx` beside `AuthProvider`        |
+| Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
+| Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
+| Role / permission checks        | `src/auth/`, alongside `ProtectedRoute` — the backend is the authority               |
+| Session-expiry warning          | `src/auth/`, reading the 15-minute window from `/backend/FRONTEND.md`                |
+| Nested layouts, lazy routes     | `src/App.tsx`, when there is a second protected area                                 |
+| PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
+
+Already present, and where it lives: routing in `src/App.tsx`, authentication in
+`src/auth/`, HTTP in `src/lib/http.ts` with a per-feature `*-api.ts` beside each
+page.

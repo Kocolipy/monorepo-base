@@ -1,8 +1,10 @@
 # AGENTS.md — frontend
 
-React + Vite + Tailwind baseline. One vanilla page, and the full tooling gate
-around it. There is no router, no data layer, no authentication and no service
-worker yet — this file describes what is actually here, not what is planned.
+React + Vite + Tailwind baseline, and the full tooling gate around it. Two
+pages behind a session-backed login: `react-router-dom` routes them, `src/auth/`
+owns the session, and each page's own `*-api.ts` talks to the backend through
+`src/lib/http.ts`. There is no global state library and no service worker — this
+file describes what is actually here, not what is planned.
 
 Monorepo-wide rules — layout, the path discipline, the SPA contract with the
 backend, line endings, ignore rules, and the shared agent docs and skills — live
@@ -27,7 +29,7 @@ npm run format                    # Prettier, write
 npm run typecheck                 # tsc -b over all three projects, no bundle
 npm test                          # vitest, single pass
 npm run test:watch                # vitest in watch mode
-npm test src/pages/home.test.tsx  # one file
+npm test src/pages/showcase.test.tsx  # one file
 npm test -- -t "name of test"     # one test by name
 npm run test:coverage             # v8 coverage
 npm run test:arch                 # depcruise + arch vitest suite
@@ -49,20 +51,28 @@ First E2E run on a machine also needs `npx playwright install chromium`.
 
 ## Architecture
 
-Four folders under `src/`, and the dependency direction runs one way through
+Five folders under `src/`, and the dependency direction runs one way through
 them:
 
 - **`src/components/ui/`** — the shadcn primitives. This is a **placeholder**
   for the in-house component library (see below). It may import `cn` from
   `src/lib/` and its own siblings, nothing else.
 - **`src/lib/`** — framework-agnostic helpers any layer may call, and a leaf:
-  it imports nothing from `src/`. Holds `cn()` today. Shared hooks belong here
-  too — `components.json` points the shadcn CLI at `@/lib/hooks`.
-- **`src/pages/`** — one component per page. Free to import from `ui/` and
-  `lib/`.
+  it imports nothing from `src/`. Holds `cn()` and `http.ts`, the single
+  `fetch` wrapper every API module goes through (see "Backend contract").
+  Shared hooks belong here too — `components.json` points the shadcn CLI at
+  `@/lib/hooks`.
+- **`src/auth/`** — the session. `api.ts` wraps the three `/api/auth/*`
+  endpoints, `auth-context.tsx` holds the `checking | authenticated | guest`
+  status, `auth-context-value.ts` is the context plus the `useAuth` hook, and
+  `protected-route.tsx` gates a route on it.
+- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`), each
+  with its own API module beside it when it needs one (`showcase-api.ts`). Free
+  to import from `auth/`, `ui/` and `lib/`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
-  and owns the one `src/index.css` import; `App.tsx` is where a router goes
-  when one is needed.
+  and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
+  wraps everything in `AuthProvider`, and routes `/` to login and `/showcase`
+  through `ProtectedRoute`.
 
 `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
 `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
@@ -85,14 +95,41 @@ Four rules are review-blocking:
   `bg-[#0f172a]` without complaint, so nothing else would catch it.
 
 **Read `docs/ARCHITECTURE.md`** before adding a folder under `src/`, changing
-the path alias, touching the token pipeline, or wiring in a router or a data
-layer. It has the folder map, the reasoning behind each dependency rule, and
-where a new concern belongs.
+the path alias, or touching the token pipeline. It has the folder map, the
+reasoning behind each dependency rule, and where a new concern belongs.
+
+## Backend contract
+
+`/backend/FRONTEND.md` is the authority on the runtime contract — read it before
+changing anything that issues a request. The parts the SPA has to honour:
+
+- **Every unsafe request carries `X-XSRF-TOKEN`.** The backend enforces CSRF
+  double-submit, so a `POST` / `PUT` / `PATCH` / `DELETE` without the header
+  comes back `403`. `src/lib/http.ts` is the only place that deals with this:
+  `apiFetch()` reads the `XSRF-TOKEN` cookie **per request** (login and logout
+  both rotate it, so a cached value goes stale), adds the header on unsafe
+  methods only, and always sends `credentials: "include"`.
+- **`403` is not `401`.** A `403` means the token was missing or stale;
+  `apiFetch` re-seeds it with a safe `GET /api/auth/me` and retries once, then
+  surfaces the failure. Only `401` means the session ended, and only `401` sends
+  the user to the login screen — treating `403` as a logout looks like a random
+  sign-out to the user.
+- **Never call `fetch` directly from a component or an API module.** Go through
+  `apiFetch`, or the CSRF handling exists in one more place that can drift.
+  Playwright's `page.request` bypasses it too: use `resetCounterViaApi()` in
+  `test/e2e/auth.helpers.ts` as the pattern for an API call from a spec.
+- **Sessions expire after 15 minutes** of inactivity, the single default in
+  every environment. Nothing in the SPA hardcodes that today; if a countdown or
+  expiry warning is added, it reads 15 minutes from this contract.
+- **The CSP forbids inline script, `eval`, and every third-party origin** for
+  scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
+  and avoid Vite plugins that inject inline `<script>`. Inline _styles_ are
+  allowed.
 
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the vanilla page to render, and deliberately no more. They
+family — enough for the two pages to render, and deliberately no more. They
 follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
 override) so that swapping them out is a delete plus an import rewrite.
 

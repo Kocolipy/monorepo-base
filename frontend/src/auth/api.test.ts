@@ -1,9 +1,16 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getCurrentUser, login, logout } from "./api";
 
 describe("auth API", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
 
   it("treats an unauthorized session check as a guest", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
@@ -31,10 +38,30 @@ describe("auth API", () => {
     await expect(getCurrentUser()).rejects.toThrow("Unable to check the current session.");
   });
 
+  it("sends the CSRF token when signing in", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ username: "ada" })));
+
+    await expect(login("ada", "secret")).resolves.toEqual({ username: "ada" });
+    expect(fetch).toHaveBeenCalledWith("/api/auth/login", {
+      body: JSON.stringify({ username: "ada", password: "secret" }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
+      method: "POST",
+    });
+  });
+
   it("reports invalid credentials without exposing backend details", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
 
     await expect(login("ada", "wrong")).rejects.toThrow("The username or password is incorrect.");
+  });
+
+  it("reports a persistent CSRF rejection as a token problem, not a bad password", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
+
+    await expect(login("ada", "secret")).rejects.toThrow(
+      "Your security token expired. Please try again.",
+    );
   });
 
   it("rejects other login failures", async () => {
@@ -43,12 +70,13 @@ describe("auth API", () => {
     await expect(login("ada", "secret")).rejects.toThrow("Unable to sign in. Please try again.");
   });
 
-  it("logs out with the session cookie", async () => {
+  it("logs out with the session cookie and the CSRF token", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
 
     await logout();
     expect(fetch).toHaveBeenCalledWith("/api/auth/logout", {
       credentials: "include",
+      headers: { "X-XSRF-TOKEN": "test-token" },
       method: "DELETE",
     });
   });
@@ -57,6 +85,12 @@ describe("auth API", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
 
     await expect(logout()).resolves.toBeUndefined();
+  });
+
+  it("reports a persistent CSRF rejection on logout", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
+
+    await expect(logout()).rejects.toThrow("Your security token expired. Please try again.");
   });
 
   it("rejects logout failures other than an expired session", async () => {

@@ -1,12 +1,13 @@
 # front-end
 
 React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
-up around a single vanilla page.
+up around a small session-authenticated app.
 
-This is a **baseline repo**. The application content is deliberately one page
-with a counter on it; what is actually built out is the toolchain — type
-checking, linting, unit tests, architecture tests, E2E, static security
-analysis, dead-code/complexity analysis, and mutation testing.
+This is a **baseline repo**. The application content is deliberately thin — a
+login page and one protected page with a counter on it, both talking to the
+Spring Boot backend over session cookies. What is actually built out is the
+toolchain: type checking, linting, unit tests, architecture tests, E2E, static
+security analysis, dead-code/complexity analysis, and mutation testing.
 
 ## Setup
 
@@ -69,7 +70,7 @@ npx fallow dead-code --trace <file>:<export>      # a symbol's real consumers
 Run a single test file or a single test by name:
 
 ```bash
-npm test src/pages/home.test.tsx
+npm test src/pages/showcase.test.tsx
 npm test -- -t "counts each click"
 ```
 
@@ -77,18 +78,24 @@ npm test -- -t "counts each click"
 
 ```
 src/
-  main.tsx              mounts React, imports index.css
-  App.tsx               app root — where a router goes
-  index.css             Tailwind entry + the design tokens
+  main.tsx                mounts React, imports index.css
+  App.tsx                 app root — BrowserRouter + AuthProvider + the routes
+  index.css               Tailwind entry + the design tokens
   vite-env.d.ts
-  pages/home.tsx        the one page
-  components/ui/        shadcn primitives (placeholder — see below)
-  lib/utils.ts          cn()
+  auth/                   session state: api.ts, auth-context, protected-route
+  pages/login.tsx         the public login page at /
+  pages/showcase.tsx      the protected page at /showcase
+  pages/showcase-api.ts   the counter endpoints
+  components/ui/          shadcn primitives (placeholder — see below)
+  lib/utils.ts            cn()
+  lib/http.ts             apiFetch() — session cookie + CSRF token + retry
 test/
-  setup.ts              jest-dom
+  setup.ts                jest-dom
   .dependency-cruiser.cjs
-  arch/                 architecture rules the module graph can't express
-  e2e/smoke.spec.ts     Playwright smoke suite
+  arch/                   architecture rules the module graph can't express
+  e2e/smoke.spec.ts       guest-facing Playwright smoke suite
+  e2e/authentication.spec.ts  authenticated session + counter
+  e2e/auth.setup.ts       signs in once, saves the storage state
 semgrep/rules/          local Semgrep ruleset
 docs/                   ARCHITECTURE.md, TESTING_GUIDE.md
 graphify-out/           knowledge graph (tracked; refreshed with the code)
@@ -101,7 +108,7 @@ graphify-out/           knowledge graph (tracked; refreshed with the code)
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the page to render, and no more. They follow the shadcn
+family — enough for the two pages to render, and no more. They follow the shadcn
 shape (a `cva` variant table, `cn()` merging a `className` override) so that
 swapping them for the in-house shadcn package is a delete plus an import
 rewrite.
@@ -137,21 +144,44 @@ code they cover. Coverage and mutation score are both at 100% on the code that
 is mutated — a small surface, but the gates are real and the arch rules have
 been verified to fail on planted violations.
 
-E2E is a four-test Playwright smoke suite: the bundle boots, the Tailwind
-stylesheet is generated and applied, React state reaches the DOM, and the page
-loads with no console errors.
+E2E runs in three Playwright projects: `setup` signs in once and saves the
+storage state, `guest` runs the smoke suite with an empty session (the bundle
+boots, the Tailwind stylesheet is generated and applied, React state reaches the
+DOM, no console errors), and `authenticated` reuses the saved session to drive
+the protected page and the counter. The authenticated suite needs the backend
+running — see the root `README.md` and `make integration-test`.
+
+## Backend contract
+
+The SPA is served by the Spring Boot backend and shares its session cookie.
+`/backend/FRONTEND.md` is the authoritative contract; the short version:
+
+- **CSRF.** Every unsafe request (`POST`/`PUT`/`PATCH`/`DELETE`) must echo the
+  `XSRF-TOKEN` cookie in an `X-XSRF-TOKEN` header, or the backend answers `403`.
+  `src/lib/http.ts` does this in one place — `apiFetch()` reads the cookie per
+  request, adds the header on unsafe methods, retries once after re-seeding the
+  token on a `403`, and never retries a `401`. **Call `apiFetch`, not `fetch`.**
+- **`401` means signed out, `403` means stale token.** Only the first sends the
+  user back to login.
+- **Sessions expire after 15 minutes** of inactivity, in every environment.
+- **A strict CSP is sent**: no inline script, no `eval`, no third-party origin
+  for scripts, styles, fonts, images, or `fetch`. Self-host anything new.
+
+In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
+`npm run dev` needs the backend up for anything past the login form.
 
 ## Technology stack
 
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
+- **react-router-dom 7** for routing (`/` login, `/showcase` protected)
 - **Vite 7** for development and building, with Brotli/gzip precompression
 - **Tailwind CSS v4** (CSS-first, no config file) with shadcn-shaped tokens
 - **Vitest 4** + Testing Library + happy-dom for unit tests
-- **Playwright** for E2E
+- **Playwright** for E2E, with a session-reusing `authenticated` project
 - **dependency-cruiser** for architecture rules
 - **Semgrep** for static security analysis
 - **fallow** for dead code, complexity and duplication
 - **Stryker** for mutation testing
 - **ESLint 9** (flat config) and **Prettier**
 
-There is no PWA support and no service worker.
+There is no global state library, no PWA support and no service worker.
