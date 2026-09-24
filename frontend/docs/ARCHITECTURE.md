@@ -46,18 +46,21 @@ second copy of the guard.
 The backend enforces CSRF double-submit (`/frontend/AGENTS.md`, "Backend contract"), so every
 unsafe request needs the `XSRF-TOKEN` cookie echoed in an `X-XSRF-TOKEN` header
 or it comes back `403`. `apiFetch()` is the single place that knows this: it
-reads the cookie **at call time** (login and logout both rotate the token, so a
-value captured at start-up or held in state is stale), adds the header on unsafe
-methods only, and on a `403` re-seeds the cookie with a safe `GET` and retries
-exactly once — which also covers the cold start where `POST /api/auth/login` is
-the tab's first HTTP call.
+reads the cookie **at call time**, adds the header on unsafe methods only, and
+on a `403` re-seeds the cookie with a safe `GET` and retries exactly once.
 
-It lives in `lib/` because both `auth/api.ts` and `pages/showcase-api.ts` need
-it and `lib/` is the one folder every layer may call. That places it under
-`mb-lib-is-a-leaf`, so it must stay dependency-free — no auth types, no React.
-A second API module goes beside its feature and calls `apiFetch`; a module that
-calls `fetch` directly is a bug, because the CSRF and retry behaviour then
-exists in two places that will drift.
+Its interface returns an `ApiResult`: `ok` carries data from an explicit decoder,
+`unauthenticated` means the session ended, `csrf-expired` keeps a persistent
+`403` distinct, and `failed` covers every other transport, HTTP, or decoding
+failure. Features retain their own human-facing copy while sharing status
+meaning. A no-content request omits the decoder, so its `ok` data is typed as
+`void` rather than pretending every success is JSON.
+
+It lives in `lib/` because every layer may call it. That places it under
+`mb-lib-is-a-leaf`, so it stays dependency-free — no auth types, no React. A
+page may call it directly when a separate request module would only forward an
+endpoint and result; a feature-specific module remains worthwhile when it owns
+actual feature mapping.
 
 ### Why `components/ui/` is fenced off
 
@@ -78,9 +81,9 @@ no rule constrains, or beside the page that owns them.
 one folder every other layer may call, so an edge pointing out of it is a cycle
 waiting to happen — and `cn()` in particular is imported by every primitive, so
 anything it drags in is effectively in every bundle chunk. `http.ts` is held to
-the same line: it takes a path and a `RequestInit` and knows nothing about auth
-or React, which is what lets both `auth/api.ts` and a page's `*-api.ts` sit on
-top of it without a cycle.
+the same line: it takes a path, request options, and an optional decoder, and
+knows nothing about auth or React. Both `auth/api.ts` and a page can consume its
+semantic results without creating a cycle.
 
 ### Why there is no `src/types/`, `src/hooks/` or `src/utils/`
 
@@ -196,5 +199,6 @@ to need it does not have to invent a convention.
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
 Already present, and where it lives: routing in `src/App.tsx`, authentication in
-`src/auth/`, HTTP in `src/lib/http.ts` with a per-feature `*-api.ts` beside each
-page.
+`src/auth/`, and typed HTTP results in `src/lib/http.ts`. A feature module maps
+results only when it adds feature behavior; a page consumes pass-through
+results directly.

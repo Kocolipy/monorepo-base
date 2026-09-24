@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { Button } from "@/components/ui/button";
@@ -10,40 +10,64 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { apiFetch, type ApiResult } from "@/lib/http";
 
-import * as counterApi from "./showcase-api";
+interface CountResponse {
+  count: number;
+}
+
+const CSRF_MESSAGE = "Your security token expired. Please try again.";
+
+const decodeCount = async (response: Response): Promise<number> => {
+  const result = (await response.json()) as CountResponse;
+  return result.count;
+};
+
+const getCount = (): Promise<ApiResult<number>> => apiFetch("/api/count", {}, decodeCount);
+const incrementCount = (): Promise<ApiResult<number>> =>
+  apiFetch("/api/count/increment", { method: "POST" }, decodeCount);
+const resetCount = (): Promise<ApiResult<number>> =>
+  apiFetch("/api/count/reset", { method: "POST" }, decodeCount);
 
 /** The original home page, now available to authenticated users at /showcase. */
 export function Showcase() {
   const [count, setCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(true);
-  const { logout, user } = useAuth();
+  const { expireSession, logout, user } = useAuth();
 
-  // Stryker disable ArrayDeclaration: Replacing the empty dependency list with a stable literal
-  // still runs this mount-only effect exactly once and has no observable behavioral difference.
+  const applyResult = useCallback(
+    (result: ApiResult<number>, failureMessage: string) => {
+      switch (result.kind) {
+        case "ok":
+          setCount(result.data);
+          return;
+        case "unauthenticated":
+          expireSession();
+          return;
+        case "csrf-expired":
+          setError(CSRF_MESSAGE);
+          return;
+        case "failed":
+          setError(failureMessage);
+      }
+    },
+    [expireSession],
+  );
+
   useEffect(() => {
-    void counterApi
-      .getCount()
-      .then((currentCount) => {
-        setCount(currentCount);
-      })
-      .catch(() => {
-        setError("Unable to load the counter. Please try again.");
-      })
+    void getCount()
+      .then((result) => applyResult(result, "Unable to load the counter. Please try again."))
       .finally(() => {
         setIsUpdating(false);
       });
-  }, []);
-  // Stryker restore ArrayDeclaration
+  }, [applyResult]);
 
-  const updateCount = async (request: () => Promise<number>) => {
+  const updateCount = async (request: () => Promise<ApiResult<number>>) => {
     setError(null);
     setIsUpdating(true);
     try {
-      setCount(await request());
-    } catch {
-      setError("Unable to update the counter. Please try again.");
+      applyResult(await request(), "Unable to update the counter. Please try again.");
     } finally {
       setIsUpdating(false);
     }
@@ -79,12 +103,12 @@ export function Showcase() {
           ) : null}
         </CardContent>
         <CardFooter className="gap-2">
-          <Button onClick={() => void updateCount(counterApi.incrementCount)} disabled={isUpdating}>
+          <Button onClick={() => void updateCount(incrementCount)} disabled={isUpdating}>
             Increment
           </Button>
           <Button
             variant="outline"
-            onClick={() => void updateCount(counterApi.resetCount)}
+            onClick={() => void updateCount(resetCount)}
             disabled={count === 0 || isUpdating}
           >
             Reset

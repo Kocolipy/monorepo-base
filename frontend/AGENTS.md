@@ -2,7 +2,7 @@
 
 React + Vite + Tailwind baseline, and the full tooling gate around it. Two
 pages behind a session-backed login: `react-router-dom` routes them, `src/auth/`
-owns the session, and each page's own `*-api.ts` talks to the backend through
+owns the session, and requests receive typed semantic results from
 `src/lib/http.ts`. There is no global state library and no service worker — this
 file describes what is actually here, not what is planned.
 
@@ -39,17 +39,19 @@ them:
   for the in-house component library (see below). It may import `cn` from
   `src/lib/` and its own siblings, nothing else.
 - **`src/lib/`** — framework-agnostic helpers any layer may call, and a leaf:
-  it imports nothing from `src/`. Holds `cn()` and `http.ts`, the single
-  `fetch` wrapper every API module goes through (see "Backend contract").
-  Shared hooks belong here too — `components.json` points the shadcn CLI at
-  `@/lib/hooks`.
-- **`src/auth/`** — the session. `api.ts` wraps the three `/api/auth/*`
-  endpoints, `auth-context.tsx` holds the `checking | authenticated | guest`
-  status, `auth-context-value.ts` is the context plus the `useAuth` hook, and
+  it imports nothing from `src/`. Holds `cn()` and `http.ts`; `apiFetch` owns
+  credentials, CSRF recovery, status classification, and typed success decoding
+  behind one semantic result interface (see "Backend contract"). Shared hooks
+  belong here too — `components.json` points the shadcn CLI at `@/lib/hooks`.
+- **`src/auth/`** — the session. `api.ts` maps semantic HTTP results for the
+  three `/api/auth/*` endpoints, `auth-context.tsx` holds the
+  `checking | authenticated | guest` status and expiration transition,
+  `auth-context-value.ts` is the context plus the `useAuth` hook, and
   `protected-route.tsx` gates a route on it.
-- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`), each
-  with its own API module beside it when it needs one (`showcase-api.ts`). Free
-  to import from `auth/`, `ui/` and `lib/`.
+- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`). A
+  page may call `apiFetch` directly when a separate request module would only
+  pass through its arguments and result. Free to import from `auth/`, `ui/` and
+  `lib/`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and routes `/` to login and `/showcase`
@@ -92,10 +94,11 @@ backend side moves. What the SPA has to honour:
   both rotate it, so a cached value goes stale), adds the header on unsafe
   methods only, and always sends `credentials: "include"`.
 - **`403` is not `401`.** A `403` means the token was missing or stale;
-  `apiFetch` re-seeds it with a safe `GET /api/auth/me` and retries once, then
-  surfaces the failure. Only `401` means the session ended, and only `401` sends
-  the user to the login screen — treating `403` as a logout looks like a random
-  sign-out to the user.
+  `apiFetch` re-seeds it with a safe `GET /api/auth/me`, retries once, then
+  returns `csrf-expired` while preserving the auth state. A `401` returns
+  `unauthenticated`; protected features expire the auth state so
+  `ProtectedRoute` sends the user to login. Treating `403` as `401` looks like a
+  random sign-out to the user.
 - **Reach the backend through `apiFetch`, from a component and an API module
   alike.** A direct `fetch` call puts the CSRF handling in one more place that
   can drift. Playwright's `page.request` bypasses it too: copy

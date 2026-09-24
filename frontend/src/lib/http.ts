@@ -1,10 +1,9 @@
 /**
  * The one place the SPA talks to the backend.
  *
- * The backend enforces CSRF with the double-submit pattern documented in
- * `backend/FRONTEND.md`: the `XSRF-TOKEN` cookie is deliberately not
- * `HttpOnly`, and every unsafe request has to echo its value in the
- * `X-XSRF-TOKEN` header or come back `403`.
+ * It owns session credentials, CSRF recovery, HTTP status meaning, and successful
+ * response decoding. Feature modules receive semantic results rather than raw
+ * `Response` objects.
  */
 
 const CSRF_COOKIE = "XSRF-TOKEN";
@@ -13,17 +12,21 @@ const CSRF_HEADER = "X-XSRF-TOKEN";
 /** Methods the backend exempts from the CSRF check. */
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/**
- * A safe request whose response re-seeds the cookie. Any response does, so the
- * cheapest anonymous-friendly endpoint is enough — a `401` still carries the
- * `Set-Cookie`.
- */
+/** A safe request whose response re-seeds the CSRF cookie. */
 const CSRF_SEED_PATH = "/api/auth/me";
 
 /** Plain-object headers only, so a request can be merged without a `Headers` copy. */
 export type ApiRequestInit = Omit<RequestInit, "headers"> & {
   headers?: Record<string, string>;
 };
+
+export type ApiResult<T> =
+  | { kind: "ok"; data: T }
+  | { kind: "unauthenticated" }
+  | { kind: "csrf-expired" }
+  | { kind: "failed"; status?: number };
+
+export type ApiDecoder<T> = (response: Response) => Promise<T> | T;
 
 /**
  * The current CSRF token, read from `document.cookie` at call time.
@@ -51,20 +54,39 @@ function withCsrf(init: ApiRequestInit): RequestInit {
   };
 }
 
-/**
- * `fetch` with the session cookie, the CSRF header, and one retry.
- *
- * A `403` on an unsafe request means the token was missing, stale, or rotated
- * underneath us — not that the session ended. So it is retried exactly once
- * after a safe request re-seeds the cookie, which also covers the cold start
- * where `POST /api/auth/login` is the tab's very first API call. A second `403`
- * is handed back to the caller unchanged; `401` is never retried, because that
- * one really is "sign in again".
- */
-export async function apiFetch(path: string, init: ApiRequestInit = {}): Promise<Response> {
-  const response = await fetch(path, withCsrf(init));
-  if (response.status !== 403 || !isUnsafe(init.method)) return response;
+export function apiFetch(path: string, init?: ApiRequestInit): Promise<ApiResult<void>>;
+export function apiFetch<T>(
+  path: string,
+  init: ApiRequestInit,
+  decode: ApiDecoder<T>,
+): Promise<ApiResult<T>>;
 
-  await fetch(CSRF_SEED_PATH, { credentials: "include" });
-  return fetch(path, withCsrf(init));
+/**
+ * Performs an API request and returns its meaning rather than a raw response.
+ *
+ * Unsafe requests retry exactly once after a `403` and CSRF re-seed. The final
+ * response is then classified consistently for every feature. Successful body
+ * decoding is explicit, so no-content responses remain type-safe.
+ */
+export async function apiFetch<T>(
+  path: string,
+  init: ApiRequestInit = {},
+  decode?: ApiDecoder<T>,
+): Promise<ApiResult<T | void>> {
+  try {
+    let response = await fetch(path, withCsrf(init));
+    if (response.status === 403 && isUnsafe(init.method)) {
+      await fetch(CSRF_SEED_PATH, { credentials: "include" });
+      response = await fetch(path, withCsrf(init));
+    }
+
+    if (response.status === 401) return { kind: "unauthenticated" };
+    if (response.status === 403) return { kind: "csrf-expired" };
+    if (!response.ok) return { kind: "failed", status: response.status };
+    if (decode === undefined) return { kind: "ok", data: undefined };
+
+    return { kind: "ok", data: await decode(response) };
+  } catch {
+    return { kind: "failed" };
+  }
 }

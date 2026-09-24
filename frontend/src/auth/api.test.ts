@@ -1,100 +1,94 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { apiFetch } from "@/lib/http";
 
 import { getCurrentUser, login, logout } from "./api";
 
+vi.mock("@/lib/http");
+
+const apiFetchMock = vi.mocked(apiFetch);
+
+function resolveWith(result: object) {
+  apiFetchMock.mockResolvedValue(result as never);
+}
+
 describe("auth API", () => {
   beforeEach(() => {
-    document.cookie = "XSRF-TOKEN=test-token; path=/";
+    apiFetchMock.mockReset();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-  });
-
-  it("treats an unauthorized session check as a guest", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+  it("treats an unauthenticated session check as a guest", async () => {
+    resolveWith({ kind: "unauthenticated" });
 
     await expect(getCurrentUser()).resolves.toBeNull();
-    expect(fetch).toHaveBeenCalledWith("/api/auth/me", { credentials: "include" });
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/me", {}, expect.any(Function));
   });
 
   it("returns the authenticated user", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ username: "ada" }), {
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
+    resolveWith({ kind: "ok", data: { username: "ada" } });
 
     await expect(getCurrentUser()).resolves.toEqual({ username: "ada" });
   });
 
-  it("rejects a failed session check", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
+  it.each([{ kind: "csrf-expired" }, { kind: "failed", status: 503 }])(
+    "rejects a failed session check for $kind",
+    async (result) => {
+      resolveWith(result);
+      await expect(getCurrentUser()).rejects.toThrow("Unable to check the current session.");
+    },
+  );
 
-    await expect(getCurrentUser()).rejects.toThrow("Unable to check the current session.");
-  });
-
-  it("sends the CSRF token when signing in", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ username: "ada" })));
+  it("requests typed user data when signing in", async () => {
+    resolveWith({ kind: "ok", data: { username: "ada" } });
 
     await expect(login("ada", "secret")).resolves.toEqual({ username: "ada" });
-    expect(fetch).toHaveBeenCalledWith("/api/auth/login", {
-      body: JSON.stringify({ username: "ada", password: "secret" }),
-      credentials: "include",
-      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
-      method: "POST",
-    });
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/auth/login",
+      {
+        body: JSON.stringify({ username: "ada", password: "secret" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      expect.any(Function),
+    );
   });
 
   it("reports invalid credentials without exposing backend details", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
-
+    resolveWith({ kind: "unauthenticated" });
     await expect(login("ada", "wrong")).rejects.toThrow("The username or password is incorrect.");
   });
 
-  it("reports a persistent CSRF rejection as a token problem, not a bad password", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
-
+  it("reports a persistent CSRF rejection as a token problem", async () => {
+    resolveWith({ kind: "csrf-expired" });
     await expect(login("ada", "secret")).rejects.toThrow(
       "Your security token expired. Please try again.",
     );
   });
 
-  it("rejects other login failures", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
-
+  it("reports other login failures", async () => {
+    resolveWith({ kind: "failed", status: 500 });
     await expect(login("ada", "secret")).rejects.toThrow("Unable to sign in. Please try again.");
   });
 
-  it("logs out with the session cookie and the CSRF token", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+  it("logs out without decoding a response body", async () => {
+    resolveWith({ kind: "ok", data: undefined });
 
-    await logout();
-    expect(fetch).toHaveBeenCalledWith("/api/auth/logout", {
-      credentials: "include",
-      headers: { "X-XSRF-TOKEN": "test-token" },
-      method: "DELETE",
-    });
+    await expect(logout()).resolves.toBeUndefined();
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/auth/logout", { method: "DELETE" });
   });
 
   it("treats an already-expired session as logged out", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
-
+    resolveWith({ kind: "unauthenticated" });
     await expect(logout()).resolves.toBeUndefined();
   });
 
   it("reports a persistent CSRF rejection on logout", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
-
+    resolveWith({ kind: "csrf-expired" });
     await expect(logout()).rejects.toThrow("Your security token expired. Please try again.");
   });
 
-  it("rejects logout failures other than an expired session", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 500 })));
+  it("reports other logout failures", async () => {
+    resolveWith({ kind: "failed", status: 500 });
     await expect(logout()).rejects.toThrow("Unable to sign out. Please try again.");
   });
 });

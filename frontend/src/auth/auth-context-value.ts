@@ -5,6 +5,7 @@ import type { AuthUser } from "./api";
 export type AuthStatus = "checking" | "authenticated" | "guest";
 
 export interface AuthContextValue {
+  expireSession: () => void;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   status: AuthStatus;

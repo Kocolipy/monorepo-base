@@ -13,6 +13,11 @@ function clearCookies() {
   }
 }
 
+const decodeCount = async (response: Response): Promise<number> => {
+  const body = (await response.json()) as { count: number };
+  return body.count;
+};
+
 describe("csrfToken", () => {
   afterEach(clearCookies);
 
@@ -35,13 +40,21 @@ describe("apiFetch", () => {
     clearCookies();
   });
 
-  it("sends the session cookie and no CSRF header on a safe request", async () => {
+  it("sends the session cookie and returns no-content success for a safe request", async () => {
     setCookie("token-1");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
 
-    await apiFetch("/api/count");
-
+    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "ok", data: undefined });
     expect(fetch).toHaveBeenCalledWith("/api/count", { credentials: "include" });
+  });
+
+  it("decodes successful response data", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: 3 })));
+
+    await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({
+      kind: "ok",
+      data: 3,
+    });
   });
 
   it("echoes the cookie in the CSRF header on an unsafe request", async () => {
@@ -117,12 +130,11 @@ describe("apiFetch", () => {
         return Promise.resolve(new Response(null, { status: 401 }));
       })
       .mockResolvedValueOnce(Response.json({ count: 1 }));
-
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await apiFetch("/api/count/increment", { method: "POST" });
-
-    expect(response.status).toBe(200);
+    await expect(
+      apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
+    ).resolves.toEqual({ kind: "ok", data: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/increment", {
@@ -132,35 +144,47 @@ describe("apiFetch", () => {
     });
   });
 
-  it("gives up after a second 403 rather than looping", async () => {
+  it("returns csrf-expired after a second 403 rather than looping", async () => {
     setCookie("stale");
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await apiFetch("/api/count/increment", { method: "POST" });
-
-    expect(response.status).toBe(403);
+    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      kind: "csrf-expired",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("does not retry a safe request that was forbidden", async () => {
+  it("classifies a forbidden safe request without retrying", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await apiFetch("/api/count");
-
-    expect(response.status).toBe(403);
+    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "csrf-expired" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not retry a 401, which means the session ended", async () => {
+  it("classifies 401 as unauthenticated without retrying", async () => {
     setCookie("token-1");
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await apiFetch("/api/auth/logout", { method: "DELETE" });
-
-    expect(response.status).toBe(401);
+    await expect(apiFetch("/api/auth/logout", { method: "DELETE" })).resolves.toEqual({
+      kind: "unauthenticated",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies other unsuccessful statuses as failed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
+
+    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "failed", status: 503 });
+  });
+
+  it("classifies network and decoding failures as failed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValueOnce(new TypeError("offline")));
+    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "failed" });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json")));
+    await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({ kind: "failed" });
   });
 });

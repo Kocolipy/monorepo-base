@@ -1,24 +1,34 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextValue } from "@/auth/auth-context-value";
+import { apiFetch } from "@/lib/http";
 
 import { Showcase } from "./showcase";
-import * as counterApi from "./showcase-api";
 
-vi.mock("./showcase-api");
+vi.mock("@/lib/http");
 
+const apiFetchMock = vi.mocked(apiFetch);
 const count = () => screen.getByTestId("count");
 const increment = () => screen.getByRole("button", { name: "Increment" });
 const reset = () => screen.getByRole("button", { name: "Reset" });
 
 const auth: AuthContextValue = {
+  expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
   status: "authenticated",
   user: { username: "ada" },
 };
+
+function resolveWith(result: object) {
+  apiFetchMock.mockResolvedValue(result as never);
+}
+
+function resolveOnceWith(result: object) {
+  apiFetchMock.mockResolvedValueOnce(result as never);
+}
 
 function renderShowcase(value: AuthContextValue = auth) {
   return render(
@@ -30,49 +40,53 @@ function renderShowcase(value: AuthContextValue = auth) {
 
 describe("Showcase", () => {
   beforeEach(() => {
-    vi.mocked(counterApi.getCount).mockReset().mockResolvedValue(0);
-    vi.mocked(counterApi.incrementCount).mockReset();
-    vi.mocked(counterApi.resetCount).mockReset();
+    apiFetchMock.mockReset();
+    resolveWith({ kind: "ok", data: 0 });
+    vi.mocked(auth.expireSession).mockReset();
+    vi.mocked(auth.logout).mockReset();
   });
 
-  it("renders the original home page and signed-in user", () => {
+  it("renders the original home page and signed-in user", async () => {
     renderShowcase();
     expect(screen.getByRole("heading", { name: "Front End" })).toBeInTheDocument();
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
-  it("renders safely while authenticated user details are unavailable", () => {
+  it("renders safely while authenticated user details are unavailable", async () => {
     renderShowcase({ ...auth, user: null });
     expect(screen.getByText("Signed in as")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
   it("loads the current count when the showcase opens", async () => {
-    vi.mocked(counterApi.getCount).mockResolvedValue(3);
+    resolveWith({ kind: "ok", data: 3 });
     renderShowcase();
+
     expect(await screen.findByText("Clicked 3 times")).toBeInTheDocument();
-    expect(counterApi.getCount).toHaveBeenCalledOnce();
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/count", {}, expect.any(Function));
   });
 
   it("disables counter actions while the initial count is loading", async () => {
-    let finishLoading: ((count: number) => void) | undefined;
-    vi.mocked(counterApi.getCount).mockReturnValue(
+    let finishLoading: ((result: object) => void) | undefined;
+    apiFetchMock.mockReturnValueOnce(
       new Promise((resolve) => {
         finishLoading = resolve;
-      }),
+      }) as never,
     );
     renderShowcase();
 
     expect(increment()).toBeDisabled();
     expect(reset()).toBeDisabled();
 
-    finishLoading?.(2);
+    finishLoading?.({ kind: "ok", data: 2 });
     expect(await screen.findByText("Clicked 2 times")).toBeInTheDocument();
     expect(increment()).toBeEnabled();
     expect(reset()).toBeEnabled();
   });
 
   it("reports a failed initial counter read", async () => {
-    vi.mocked(counterApi.getCount).mockRejectedValue(new Error("backend unavailable"));
+    resolveWith({ kind: "failed", status: 503 });
     renderShowcase();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -81,38 +95,79 @@ describe("Showcase", () => {
     expect(increment()).toBeEnabled();
   });
 
+  it("reports an expired CSRF token with security-specific copy", async () => {
+    resolveWith({ kind: "csrf-expired" });
+    renderShowcase();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your security token expired. Please try again.",
+    );
+  });
+
+  it("expires the auth state when the initial request is unauthenticated", async () => {
+    let finishLoading: ((result: object) => void) | undefined;
+    apiFetchMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishLoading = resolve;
+      }) as never,
+    );
+    renderShowcase();
+
+    await act(async () => {
+      finishLoading?.({ kind: "unauthenticated" });
+    });
+
+    expect(auth.expireSession).toHaveBeenCalledOnce();
+    expect(increment()).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("counts each click", async () => {
-    vi.mocked(counterApi.incrementCount).mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "ok", data: 1 });
+    resolveOnceWith({ kind: "ok", data: 2 });
     const user = userEvent.setup();
     renderShowcase();
+
     await user.click(increment());
     await user.click(increment());
+
     expect(count()).toHaveTextContent(/^Clicked 2 times$/);
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      "/api/count/increment",
+      { method: "POST" },
+      expect.any(Function),
+    );
   });
 
   it("uses the singular label at exactly one", async () => {
-    vi.mocked(counterApi.incrementCount).mockResolvedValue(1);
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "ok", data: 1 });
     const user = userEvent.setup();
     renderShowcase();
+
     await user.click(increment());
     expect(count()).toHaveTextContent(/^Clicked 1 time$/);
   });
 
   it("disables Reset until there is something to reset", async () => {
-    vi.mocked(counterApi.incrementCount).mockResolvedValue(1);
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "ok", data: 1 });
     const user = userEvent.setup();
     renderShowcase();
+
     expect(reset()).toBeDisabled();
     await user.click(increment());
     expect(reset()).toBeEnabled();
   });
 
   it("disables counter actions while an update is pending", async () => {
-    let finishIncrement: ((count: number) => void) | undefined;
-    vi.mocked(counterApi.incrementCount).mockReturnValue(
+    let finishIncrement: ((result: object) => void) | undefined;
+    resolveOnceWith({ kind: "ok", data: 0 });
+    apiFetchMock.mockReturnValueOnce(
       new Promise((resolve) => {
         finishIncrement = resolve;
-      }),
+      }) as never,
     );
     const user = userEvent.setup();
     renderShowcase();
@@ -121,25 +176,34 @@ describe("Showcase", () => {
     expect(increment()).toBeDisabled();
     expect(reset()).toBeDisabled();
 
-    finishIncrement?.(1);
+    finishIncrement?.({ kind: "ok", data: 1 });
     expect(await screen.findByText("Clicked 1 time")).toBeInTheDocument();
     expect(increment()).toBeEnabled();
     expect(reset()).toBeEnabled();
   });
 
   it("returns the count to zero on reset", async () => {
-    vi.mocked(counterApi.incrementCount).mockResolvedValue(1);
-    vi.mocked(counterApi.resetCount).mockResolvedValue(0);
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "ok", data: 1 });
+    resolveOnceWith({ kind: "ok", data: 0 });
     const user = userEvent.setup();
     renderShowcase();
+
     await user.click(increment());
     await user.click(reset());
+
     expect(count()).toHaveTextContent(/^Clicked 0 times$/);
     expect(reset()).toBeDisabled();
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      "/api/count/reset",
+      { method: "POST" },
+      expect.any(Function),
+    );
   });
 
   it("keeps the count and reports backend failures", async () => {
-    vi.mocked(counterApi.incrementCount).mockRejectedValue(new Error("backend unavailable"));
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "failed", status: 503 });
     const user = userEvent.setup();
     renderShowcase();
 
@@ -149,6 +213,18 @@ describe("Showcase", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Unable to update the counter. Please try again.",
     );
+  });
+
+  it("expires the auth state when an update is unauthenticated", async () => {
+    resolveOnceWith({ kind: "ok", data: 0 });
+    resolveOnceWith({ kind: "unauthenticated" });
+    const user = userEvent.setup();
+    renderShowcase();
+
+    await user.click(increment());
+
+    expect(auth.expireSession).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("signs out", async () => {

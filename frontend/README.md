@@ -73,11 +73,10 @@ src/
   vite-env.d.ts
   auth/                   session state: api.ts, auth-context, protected-route
   pages/login.tsx         the public login page at /
-  pages/showcase.tsx      the protected page at /showcase
-  pages/showcase-api.ts   the counter endpoints
+  pages/showcase.tsx      the protected page and counter requests at /showcase
   components/ui/          shadcn primitives (placeholder — see below)
   lib/utils.ts            cn()
-  lib/http.ts             apiFetch() — session cookie + CSRF token + retry
+  lib/http.ts             typed API results — credentials + CSRF + status + decoding
 test/
   setup.ts                jest-dom
   .dependency-cruiser.cjs
@@ -136,10 +135,10 @@ running — see the root `README.md` and `make integration-test`.
 ## Backend contract
 
 The SPA is served by the Spring Boot backend and shares its session cookie.
-`AGENTS.md`'s "Backend contract" section is the authoritative version; the short
-form is CSRF double-submit through `apiFetch()`, `401` (signed out) versus `403`
-(stale token), 15-minute sessions, and a CSP that rules out inline script and
-third-party origins. Read it before changing anything that issues a request.
+`AGENTS.md`'s "Backend contract" section is authoritative. `apiFetch()` owns
+CSRF recovery and returns typed semantic results instead of raw responses:
+`unauthenticated` expires auth state and returns the user to login, while
+`csrf-expired` preserves the session and lets the feature show retry copy.
 
 In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 `npm run dev` needs the backend up for anything past the login form.
