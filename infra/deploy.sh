@@ -4,6 +4,11 @@
 
 set -e
 
+# Resolve paths so the script works from any working directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BACKEND_DIR="${REPO_ROOT}/backend"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -262,7 +267,7 @@ deploy_stack() {
     
     aws cloudformation create-stack \
         --stack-name ${STACK_NAME} \
-        --template-body file://infrastructure.yaml \
+        --template-body file://${SCRIPT_DIR}/infrastructure.yaml \
         --parameters file:///tmp/cfn-parameters-${STACK_NAME}.json \
         --capabilities CAPABILITY_NAMED_IAM \
         --region ${AWS_REGION}
@@ -339,13 +344,16 @@ ${SSH_COMMAND}
 
 Next Steps:
 1. $(if [ "$CREATE_KEY_PAIR_VALUE" = "true" ]; then echo "Retrieve private key using command above"; else echo "Use existing key: ${KEY_NAME}.pem"; fi)
-2. Build your application: mvn clean package -DskipTests
-3. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
-4. SSH to EC2: ${SSH_COMMAND}
-5. Move JAR: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
-6. Start service: sudo systemctl start backend && sudo systemctl enable backend
-7. Check logs: sudo journalctl -u backend -f
-8. Test via ALB: curl ${ALB_URL}/actuator/health
+2. Build the integrated JAR (SPA + backend), from the repo root: make package
+   (equivalently: scripts/package.sh — 'cd backend && ./mvnw clean package' is
+   backend-only and produces a JAR with no SPA)
+3. Verify the SPA is in the JAR: unzip -Z1 ../backend/target/backend-0.0.1-SNAPSHOT.jar BOOT-INF/classes/static/index.html
+4. Copy JAR to EC2: scp -i ${KEY_NAME}.pem ../backend/target/backend-0.0.1-SNAPSHOT.jar ec2-user@${EC2_IP}:/tmp/backend.jar
+5. SSH to EC2: ${SSH_COMMAND}
+6. Move JAR: sudo mv /tmp/backend.jar /opt/backend/backend.jar && sudo chown springboot:springboot /opt/backend/backend.jar
+7. Start service: sudo systemctl start backend && sudo systemctl enable backend
+8. Check logs: sudo journalctl -u backend -f
+9. Test via ALB: curl ${ALB_URL}/actuator/health (and curl ${ALB_URL}/ for the SPA)
 EOF
     
     print_info "Outputs saved to ${STACK_NAME}-outputs.txt"
@@ -377,33 +385,54 @@ prompt_jar_deployment() {
 
 # Deploy JAR
 deploy_jar() {
-    print_info "Building application..."
-    
-    cd ..
-    if [ ! -f "pom.xml" ]; then
-        print_error "pom.xml not found. Run this script from the cloudformation directory."
+    print_info "Building application (SPA + backend, integrated JAR)..."
+
+    if [ ! -f "${BACKEND_DIR}/pom.xml" ]; then
+        print_error "pom.xml not found at ${BACKEND_DIR}. Is infra/ still a sibling of backend/?"
         exit 1
     fi
-    
-    mvn clean package -DskipTests
-    
-    JAR_FILE=$(find target -name "*.jar" -not -name "*-sources.jar" | head -n 1)
-    
+
+    if [ ! -x "${REPO_ROOT}/scripts/package.sh" ]; then
+        print_error "scripts/package.sh not found or not executable at ${REPO_ROOT}/scripts/package.sh"
+        exit 1
+    fi
+
+    # The integrated package path, not a bare './mvnw clean package': the
+    # backend's with-frontend profile is off by default, so a pure backend build
+    # ships a JAR with no SPA. package.sh builds frontend/dist and activates the
+    # profile with an explicit -Dfrontend.dist.dir.
+    "${REPO_ROOT}/scripts/package.sh"
+
+    JAR_FILE=$(find "${BACKEND_DIR}/target" -maxdepth 1 -name 'backend-*.jar' ! -name '*-plain.jar' -print -quit)
+
     if [ -z "$JAR_FILE" ]; then
-        print_error "JAR file not found in target directory"
+        print_error "JAR file not found in ${BACKEND_DIR}/target"
         exit 1
     fi
-    
+
+    # package.sh already asserts this; re-check the artefact we are about to ship
+    # so a stale or hand-built JAR in target/ cannot be deployed SPA-less.
+    if command -v unzip >/dev/null 2>&1; then
+        if unzip -Z1 "${JAR_FILE}" 'BOOT-INF/classes/static/index.html' >/dev/null 2>&1; then
+            print_info "verified BOOT-INF/classes/static/index.html inside ${JAR_FILE}"
+        else
+            print_error "${JAR_FILE} contains no BOOT-INF/classes/static/index.html — the SPA is missing from the JAR"
+            exit 1
+        fi
+    else
+        print_warn "unzip not installed — cannot verify the SPA is inside ${JAR_FILE}"
+    fi
+
     print_info "Copying JAR to EC2 instance..."
-    
-    scp -i ${KEY_NAME}.pem \
+
+    scp -i "${SCRIPT_DIR}/${KEY_NAME}.pem" \
         -o StrictHostKeyChecking=no \
         ${JAR_FILE} \
         ec2-user@${EC2_IP}:/tmp/backend.jar
-    
+
     print_info "Configuring and starting application..."
-    
-    ssh -i ${KEY_NAME}.pem \
+
+    ssh -i "${SCRIPT_DIR}/${KEY_NAME}.pem" \
         -o StrictHostKeyChecking=no \
         ec2-user@${EC2_IP} << 'ENDSSH'
 sudo mv /tmp/backend.jar /opt/backend/backend.jar

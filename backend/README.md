@@ -75,7 +75,9 @@ curl -b cookies.txt -X POST http://localhost:8080/api/count/reset
 
 Copy `.env.example` to `.env` if your runtime loads dotenv files, or export the
 variables in your shell. The defaults connect to Redis at `localhost:6379`,
-PostgreSQL at `localhost:5432`, and expire sessions after 30 minutes. Override
+PostgreSQL at `localhost:5432`, and expire sessions after 15 minutes of
+inactivity — the same value every environment uses, including deployed ones
+(`infra/infrastructure.yaml`), so the SPA can rely on a single window. Override
 `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` in deployed
 environments.
 

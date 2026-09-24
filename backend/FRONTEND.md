@@ -81,7 +81,9 @@ manually can go.
 
 The inactivity window dropped from 30 to 15 minutes, so idle tabs will start
 seeing `401` sooner. If the app shows a session-expiry warning or a countdown,
-update the interval it assumes.
+update the interval it assumes. 15 minutes is the single default across every
+environment — local `.env.example` and the deployed CloudFormation stack both set
+`SESSION_TIMEOUT=15m` — so the SPA may hardcode that assumption.
 
 ## 6. Content-Security-Policy
 

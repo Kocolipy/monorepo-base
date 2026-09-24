@@ -1,5 +1,7 @@
 # Quick Start
 
+All commands run from the repo-root `infra/` directory.
+
 ## 1. Get VPC Info
 
 ```bash
@@ -33,7 +35,15 @@ chmod 400 spring-backend-key.pem
 ## 4. Deploy Application
 
 ```bash
-# From cloudformation/ directory
+# Build the integrated JAR (SPA + backend) from the repo root.
+# NOT 'cd backend && ./mvnw clean package' — the with-frontend profile is off by
+# default there, so that JAR contains no SPA.
+(cd .. && make package)
+
+# package.sh fails if the SPA is missing; this is the same check by hand.
+unzip -Z1 ../backend/target/backend-0.0.1-SNAPSHOT.jar BOOT-INF/classes/static/index.html
+
+# From the infra/ directory
 EC2_IP=$(aws cloudformation describe-stacks \
   --stack-name spring-backend \
   --region ap-southeast-1 \
@@ -41,7 +51,7 @@ EC2_IP=$(aws cloudformation describe-stacks \
   --output text)
 
 scp -i spring-backend-key.pem \
-  ../target/backend-0.0.1-SNAPSHOT.jar \
+  ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'

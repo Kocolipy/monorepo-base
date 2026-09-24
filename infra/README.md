@@ -2,10 +2,13 @@
 
 Deploy Spring Boot backend to AWS ap-southeast-1 with ALB, EC2, RDS PostgreSQL, and Redis.
 
+This directory is the repo-root `infra/` folder — a sibling of `backend/` and
+`frontend/`, not part of either app. All commands below are run from `infra/`.
+
 ## Quick Start (5 Minutes)
 
 ```bash
-cd cloudformation
+cd infra
 chmod +x get-vpc-info.sh deploy.sh
 
 # 1. Get your VPC details
@@ -50,10 +53,19 @@ Internet → ALB (HTTP:80) → EC2 (8080) → RDS PostgreSQL + Redis
    # Set region: ap-southeast-1
    ```
 
-3. **Application built**:
+3. **Application built** — the *integrated* JAR (SPA + backend), from the repo
+   root:
+
    ```bash
-   mvn clean package -DskipTests
+   make package     # == scripts/package.sh
    ```
+
+   `./mvnw clean package` in `backend/` is a **backend-only** build: the
+   `with-frontend` profile is off by default, so that JAR serves no SPA.
+   `make package` builds `frontend/dist`, activates the profile with an explicit
+   `-Dfrontend.dist.dir`, and fails if `BOOT-INF/classes/static/index.html` is
+   missing from the artefact. `./deploy.sh` runs this for you when you answer yes
+   to the JAR-deployment prompt.
 
 ---
 
@@ -149,9 +161,9 @@ EC2_IP=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`EC2PublicIP`].OutputValue' \
   --output text)
 
-# Copy JAR (paths assume you're in cloudformation/ directory)
+# Copy JAR (paths assume you're in the infra/ directory)
 scp -i spring-backend-key.pem \
-  ../target/backend-0.0.1-SNAPSHOT.jar \
+  ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
 # Start application
@@ -227,13 +239,15 @@ ssh -i spring-backend-key.pem ec2-user@$EC2_IP "sudo systemctl restart backend"
 ### Update Application
 
 ```bash
-# Build (from project root)
-mvn clean package -DskipTests
+# Build the integrated JAR (SPA + backend), from the repo root
+(cd .. && make package)
 
-# Copy and restart
-cd cloudformation
+# Confirm the SPA is in the artefact (package.sh already asserts this)
+unzip -Z1 ../backend/target/backend-0.0.1-SNAPSHOT.jar BOOT-INF/classes/static/index.html
+
+# Copy and restart (from infra/)
 scp -i spring-backend-key.pem \
-  ../target/backend-0.0.1-SNAPSHOT.jar \
+  ../backend/target/backend-0.0.1-SNAPSHOT.jar \
   ec2-user@$EC2_IP:/tmp/backend.jar
 
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP << 'ENDSSH'
@@ -332,6 +346,7 @@ psql -h RDS_ENDPOINT -U backend -d backend
 - **deploy.sh** - Automated deployment script
 - **cleanup.sh** - Stack deletion script
 - **get-vpc-info.sh** - VPC information extractor
+- **QUICKSTART.md** - Condensed command-only walkthrough
 - **README.md** - This file
 
 ---
