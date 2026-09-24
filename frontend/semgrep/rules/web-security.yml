@@ -1,0 +1,79 @@
+# Local Semgrep ruleset, run by `npm run test:security`.
+#
+# Local, not a registry pack (`--config p/react`), for two reasons: the run
+# stays offline and deterministic, and each rule here can carry the reason this
+# project cares about it. Registry packs are still worth pointing at
+# occasionally for a wider sweep:
+#
+#   npx semgrep scan --config p/typescript --config p/react
+#
+# Rule ids are prefixed `fe-` so they never collide with a registry id.
+rules:
+  - id: fe-dangerously-set-inner-html
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      dangerouslySetInnerHTML injects unescaped HTML into the DOM. If the
+      content is not a literal, it is an XSS sink. Render it as text, or
+      sanitise it first and note here why the sanitiser is trusted.
+    pattern: <$EL dangerouslySetInnerHTML={...} />
+
+  - id: fe-inner-html-assignment
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Assigning to innerHTML/outerHTML parses the string as HTML. Use
+      textContent for text, or build nodes with the DOM API.
+    pattern-either:
+      - pattern: $EL.innerHTML = $VALUE
+      - pattern: $EL.outerHTML = $VALUE
+      - pattern: $EL.insertAdjacentHTML($POS, $VALUE)
+
+  - id: fe-eval-or-dynamic-function
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      eval() and the Function constructor execute their argument as code. There
+      is no use for either in this codebase.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: window.eval(...)
+
+  - id: fe-document-write
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      document.write() parses its argument as HTML and blocks the parser. Use
+      the DOM API.
+    pattern-either:
+      - pattern: document.write(...)
+      - pattern: document.writeln(...)
+
+  - id: fe-target-blank-without-noopener
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      An anchor with target="_blank" hands the opened page a `window.opener`
+      handle back to this one unless rel includes "noopener". Add
+      rel="noopener noreferrer".
+    patterns:
+      - pattern: <a target="_blank" ... />
+      - pattern-not: <a target="_blank" rel="=~/.*noopener.*/" ... />
+
+  - id: fe-hardcoded-credential
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      A credential-shaped name is being assigned a string literal. Client
+      bundles are public — read the value from an import.meta.env variable, and
+      keep anything genuinely secret on the server.
+    patterns:
+      - pattern-either:
+          - pattern: const $NAME = "..."
+          - pattern: let $NAME = "..."
+          - pattern: var $NAME = "..."
+          - pattern: '{ ..., $NAME: "...", ... }'
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: (?i).*(api_?key|secret|passwd|password|auth_?token|access_?token|private_?key).*

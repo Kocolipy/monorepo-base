@@ -1,0 +1,22 @@
+# The index stores every text file with LF, but a Windows/WSL checkout with
+# core.autocrlf=true rewrites them to CRLF on the way out. That breaks shell
+# scripts outright (`/bin/bash^M: bad interpreter`), makes `.env` files
+# unsourceable, and corrupts the Maven wrapper, so pin the working tree to LF
+# regardless of the machine's git config.
+#
+# This is repo-wide policy: frontend/ keeps its own copy so it stays
+# self-contained if extracted, and both agree.
+* text=auto eol=lf
+
+# Binary fixtures: never touch these.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.pdf   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.gz    binary
+*.br    binary
+*.jar   binary

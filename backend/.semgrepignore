@@ -1,0 +1,8 @@
+# Paths Semgrep skips. Replaces Semgrep's built-in defaults, so src/test/java is scanned.
+:include .gitignore
+
+# Generated and vendored output
+graphify-out/
+frontend/dist/
+node_modules/
+target/

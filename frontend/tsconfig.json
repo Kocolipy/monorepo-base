@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Ambient types are opt-in per project. Without this, every @types/*
+       package in node_modules is injected globally — so `@types/node` (added
+       for the config files, which read process.env) would put `process`,
+       `Buffer` and node's module resolution into browser source that has none
+       of them at runtime. `src/vite-env.d.ts` pulls in vite/client by
+       reference, which this array does not gate. */
+    "types": [],
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Path alias — `@/x` resolves to `src/x`. Mirrored in vite.config.ts,
+       vitest.config.ts and (via tsConfig) test/.dependency-cruiser.cjs; all
+       four have to agree or one of the four tools stops resolving imports. */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.testHelpers.ts",
+    "src/**/*.testHelpers.tsx"
+  ]
+}

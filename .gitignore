@@ -1,0 +1,79 @@
+# Monorepo-wide ignore rules.
+#
+# frontend/ and backend/ no longer carry their own .gitignore -- both were
+# merged into this file. Mind git's anchoring rule when editing: a pattern
+# containing a slash anywhere but the end is relative to THIS directory, so
+# app-specific rules need an explicit /frontend/ or /backend/ prefix, and
+# rules that must apply inside both apps need a **/ prefix. A bare name like
+# `node_modules` already matches at any depth.
+
+# ============================================================ anywhere
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS / editor
+.DS_Store
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+**/.vscode/*
+!**/.vscode/extensions.json
+
+# Build output and dependencies
+node_modules/
+dist-ssr/
+target/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+.stryker-tmp/
+*.local
+*.tsbuildinfo
+
+# AI tooling: agent definitions are tracked, fetched skills are not.
+**/.agents/*
+**/.claude/skills/*
+**/.codex/skills/*
+**/.kiro/skills/*
+**/.scratch/*
+**/artifacts/*
+skills-lock.json
+
+# graphify knowledge-graph output: the committed graph is kept, the
+# regenerable cache and dated run directories are not.
+**/graphify-out/cost.json
+**/graphify-out/cache/
+**/graphify-out/.graphify_python
+**/graphify-out/.graphify_root
+**/graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+**/graphify-out/reflections/*
+
+# Scratch
+TODO
+cookies.txt
+
+# ============================================================ frontend
+
+# Anchored on purpose: a bare `dist` would also match backend/frontend/dist/,
+# which is the built SPA the backend serves and is deliberately tracked
+# (see backend/FRONTEND.md).
+/frontend/dist/
+/frontend/playwright/.cache/
+/frontend/test/e2e/.auth/

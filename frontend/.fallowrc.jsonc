@@ -1,0 +1,56 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+
+  // Entry points fallow cannot discover on its own. It walks JS/TS import
+  // graphs, so anything reached purely through a config file is invisible to
+  // it and gets reported as an unused file. Nothing qualifies yet — the
+  // Playwright specs are reached by `testMatch` regex, but fallow treats
+  // *.spec.ts as test files rather than unused source. Add a line here (with
+  // its reason) the moment a config starts pointing at a source file nothing
+  // imports.
+  "entry": [
+    // Selected by playwright.config.ts's setup-project testMatch. Fallow does
+    // not follow that regex edge, but Playwright executes this file directly.
+    "test/e2e/auth.setup.ts",
+  ],
+
+  "ignoreDependencies": [
+    // Resolved by Vite's plugin pipeline (@tailwindcss/vite) and by the
+    // `@import "tailwindcss"` in src/index.css, never by a JS import
+    // statement, so fallow's import graph cannot see either one.
+    "tailwindcss",
+  ],
+
+  // Duplication is only worth a finding when the clone is large enough that
+  // extracting it pays for the indirection. Below this, matches are incidental
+  // — two components sharing a card scaffold, a pair of specs sharing a
+  // navigation block — and refactoring them couples files that have no reason
+  // to move together. Raised from the default 5.
+  "duplicates": {
+    "minLines": 50,
+  },
+
+  "health": {
+    "thresholdOverrides": [
+      {
+        "files": ["**/*.tsx"],
+        // A component's line count is mostly markup, not logic. 60 lines is
+        // the right ceiling for a function body; for a render tree it measures
+        // how much UI the component draws, which is a different question. This
+        // dial only controls the large-function drill-down — the
+        // cyclomatic/cognitive/CRAP thresholds are what fail the gate, and
+        // they stay at the defaults.
+        "maxUnitSize": 150,
+        "reason": "JSX is ~2/3 of a component's lines; 60 measures markup, not logic",
+      },
+      {
+        "files": ["**/*.test.*", "**/*.spec.*"],
+        // Test suites intentionally group many cases inside describe
+        // callbacks. Keep their complexity and CRAP checks active, but reserve
+        // the large-function drill-down for production code.
+        "maxUnitSize": 1500,
+        "reason": "Test suite callbacks are containers, not production functions",
+      },
+    ],
+  },
+}

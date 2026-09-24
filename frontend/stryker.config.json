@@ -1,0 +1,56 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "ignorePatterns": [
+    ".claude",
+    ".agents",
+    "graphify-out",
+    "artifacts",
+    "coverage",
+    "playwright-report",
+    "test-results",
+    "dist"
+  ],
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "coverageAnalysis": "perTest",
+  "_comment_mutate": [
+    "src/main.tsx is the composition root: its only statement is a createRoot call against the real document, so every mutant is either uncoverable or a restatement of what the smoke E2E already proves.",
+    "src/components/ui/** is vendored placeholder code, due to be deleted when the in-house shadcn package is published. Its mutants are edits to Tailwind class strings, and killing them means pinning assertions to markup that is about to be replaced."
+  ],
+  "mutate": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/**/*.testHelpers.ts",
+    "!src/**/*.testHelpers.tsx",
+    "!src/**/*.d.ts",
+    "!src/main.tsx",
+    "!src/components/ui/**",
+    "!test/**"
+  ],
+  "reporters": ["html", "json", "clear-text", "progress"],
+  "htmlReporter": {
+    "fileName": "artifacts/mutation-testing/mutation-report.html"
+  },
+  "jsonReporter": {
+    "fileName": "artifacts/mutation-testing/mutation-report.json"
+  },
+  "clearTextReporter": {
+    "allowColor": false,
+    "maxTestsToLog": 1
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  },
+  "timeoutMS": 60000,
+  "timeoutFactor": 2,
+  "concurrency": 4,
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true
+}

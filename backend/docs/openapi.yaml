@@ -1,0 +1,306 @@
+openapi: 3.1.0
+info:
+  title: Backend API
+  version: 1.0.0
+  description: |
+    API contract for authentication and Redis-backed HTTP sessions.
+
+    CSRF protection is enabled. Every unsafe request (POST, PUT, PATCH, DELETE)
+    must echo the value of the `XSRF-TOKEN` cookie in the `X-XSRF-TOKEN` header,
+    or the request is rejected with 403 before authentication is considered. The
+    cookie is readable by JavaScript and is issued on any response from the API,
+    including anonymous ones. Login and logout both replace it, so the value has
+    to be read at request time rather than cached.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Authentication
+  - name: Session
+  - name: Counter
+  - name: Health
+paths:
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Log in
+      description: Authenticates credentials and stores the authenticated user in the HTTP session.
+      operationId: login
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authentication succeeded.
+          headers:
+            Set-Cookie:
+              description: |
+                The session cookie, and a replacement `XSRF-TOKEN` cookie. The
+                session cookie can be omitted when an existing session is reused;
+                the CSRF token is always replaced, because a token obtained before
+                authentication does not remain valid after it.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "400":
+          description: The request body is missing, malformed, or fails validation.
+        "401":
+          description: The credentials are invalid.
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /api/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get the authenticated user
+      operationId: getCurrentUser
+      responses:
+        "200":
+          description: The authenticated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/auth/logout:
+    delete:
+      tags: [Authentication]
+      summary: Log out
+      description: Invalidates the current HTTP session and clears the security context.
+      operationId: logout
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: Logout completed.
+          headers:
+            Set-Cookie:
+              description: |
+                An expired session cookie, so the browser stops sending an id that
+                names nothing, and a replacement `XSRF-TOKEN` cookie usable for the
+                next login.
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /api/session:
+    get:
+      tags: [Session]
+      summary: Get session state
+      operationId: getSession
+      responses:
+        "200":
+          description: Current session state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      tags: [Session]
+      summary: Update session state
+      operationId: updateSession
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSessionRequest"
+      responses:
+        "200":
+          description: Updated session state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "400":
+          description: The request body is missing, malformed, or fails validation.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+    delete:
+      tags: [Session]
+      summary: Delete the current session
+      operationId: deleteSession
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: The session was invalidated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /api/count:
+    get:
+      tags: [Counter]
+      summary: Get the authenticated user's count
+      operationId: getCount
+      responses:
+        "200":
+          description: The current count, or zero if the user has not incremented it yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/count/increment:
+    post:
+      tags: [Counter]
+      summary: Increment the authenticated user's count
+      operationId: incrementCount
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          description: The incremented count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /api/count/reset:
+    post:
+      tags: [Counter]
+      summary: Reset the authenticated user's count
+      operationId: resetCount
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          description: The reset count, which is zero.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /actuator/health:
+    get:
+      tags: [Health]
+      summary: Get application health
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: The application is healthy.
+          content:
+            application/vnd.spring-boot.actuator.v3+json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: The application is unhealthy.
+          content:
+            application/vnd.spring-boot.actuator.v3+json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+security:
+  - sessionCookie: []
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
+      description: HTTP session created by a successful login.
+  parameters:
+    CsrfToken:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: The current value of the XSRF-TOKEN cookie, echoed back unchanged.
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: A valid authenticated session is required.
+    CsrfTokenRejected:
+      description: |
+        The CSRF token is missing or does not match the XSRF-TOKEN cookie. This is
+        decided before authentication, so it is returned even on the public login
+        operation.
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          pattern: ".*\\S.*"
+        password:
+          type: string
+          minLength: 1
+          pattern: ".*\\S.*"
+          format: password
+    UserResponse:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+    UpdateSessionRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: ".*\\S.*"
+    SessionResponse:
+      type: object
+      required: [id, createdAt, maxInactiveIntervalSeconds]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        maxInactiveIntervalSeconds:
+          type: integer
+          format: int32
+    CountResponse:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+      additionalProperties: true

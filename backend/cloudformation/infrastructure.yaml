@@ -1,0 +1,593 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Spring Boot Backend Infrastructure - ALB, EC2, RDS PostgreSQL, ElastiCache Redis (ap-southeast-1)"
+
+Parameters:
+  # Network Configuration (Existing VPC Required)
+  VpcId:
+    Description: Existing VPC ID
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID (for ALB)
+    Type: AWS::EC2::Subnet::Id
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID (for ALB)
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet1Id:
+    Description: Private Subnet 1 ID (for RDS and Redis)
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet2Id:
+    Description: Private Subnet 2 ID (for RDS and Redis)
+    Type: AWS::EC2::Subnet::Id
+
+  # EC2 Configuration
+  CreateKeyPair:
+    Description: Create new EC2 Key Pair (recommended)
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  KeyName:
+    Description: EC2 Key Pair name (will be created if CreateKeyPair is true, or use existing if false)
+    Type: String
+    Default: "spring-backend-key"
+
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+
+  SSHLocation:
+    Description: IP address range that can SSH to EC2 instances
+    Type: String
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range (x.x.x.x/x)
+
+  # RDS Configuration
+  DBInstanceClass:
+    Description: RDS instance type
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t4g.micro
+      - db.t4g.small
+
+  DBAllocatedStorage:
+    Description: Database storage size in GB
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+
+  DBName:
+    Description: PostgreSQL database name
+    Type: String
+    Default: backend
+
+  DBUsername:
+    Description: PostgreSQL master username
+    Type: String
+    Default: backend
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+
+  DBPassword:
+    Description: PostgreSQL master password
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Must contain only alphanumeric characters
+
+  # Redis Configuration
+  RedisNodeType:
+    Description: ElastiCache Redis node type
+    Type: String
+    Default: cache.t3.micro
+    AllowedValues:
+      - cache.t3.micro
+      - cache.t3.small
+      - cache.t3.medium
+      - cache.t4g.micro
+      - cache.t4g.small
+
+  RedisPassword:
+    Description: Redis AUTH token (leave empty for no auth)
+    Type: String
+    NoEcho: true
+    Default: ""
+
+  # Application Configuration
+  AppUsername:
+    Description: Application admin username
+    Type: String
+    Default: admin
+
+  AppPassword:
+    Description: Application admin password
+    Type: String
+    NoEcho: true
+    MinLength: 8
+
+  AppSecondaryUsername:
+    Description: Application secondary username
+    Type: String
+    Default: admin2
+
+  AppSecondaryPassword:
+    Description: Application secondary password
+    Type: String
+    NoEcho: true
+    MinLength: 8
+
+Mappings:
+  # Amazon Linux 2023 AMI ID for ap-southeast-1 (Singapore)
+  AWSRegionAMI:
+    ap-southeast-1:
+      AMI: ami-0dc2d3e4c0f9ebd18
+
+Conditions:
+  HasRedisPassword: !Not [!Equals [!Ref RedisPassword, ""]]
+  ShouldCreateKeyPair: !Equals [!Ref CreateKeyPair, "true"]
+
+Resources:
+  # ============================================
+  # EC2 Key Pair (Optional - CloudFormation managed)
+  # ============================================
+  EC2KeyPair:
+    Type: AWS::EC2::KeyPair
+    Condition: ShouldCreateKeyPair
+    Properties:
+      KeyName: !Ref KeyName
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-KeyPair
+
+  # ============================================
+  # Security Groups
+  # ============================================
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-ALB-SG
+      GroupDescription: Security group for Application Load Balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP from Internet
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS from Internet
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ALB-SG
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-EC2-SG
+      GroupDescription: Security group for EC2 instance
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+          Description: Application port from ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-EC2-SG
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-RDS-SG
+      GroupDescription: Security group for RDS PostgreSQL
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+          Description: PostgreSQL from EC2
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-RDS-SG
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${AWS::StackName}-Redis-SG
+      GroupDescription: Security group for ElastiCache Redis
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref EC2SecurityGroup
+          Description: Redis from EC2
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Redis-SG
+
+  # ============================================
+  # Application Load Balancer
+  # ============================================
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${AWS::StackName}-ALB
+      Type: application
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      Subnets:
+        - !Ref PublicSubnet1Id
+        - !Ref PublicSubnet2Id
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-ALB
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${AWS::StackName}-TG
+      Port: 8080
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckPath: /actuator/health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 200
+      TargetType: instance
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-TG
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # ============================================
+  # RDS PostgreSQL
+  # ============================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-DBSubnetGroup
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub ${AWS::StackName}-postgres
+      Engine: postgres
+      EngineVersion: "15.4"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-04:00"
+      PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
+      MultiAZ: false
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-PostgreSQL
+
+  # ============================================
+  # ElastiCache Redis
+  # ============================================
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Subnet group for ElastiCache Redis
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      CacheSubnetGroupName: !Sub ${AWS::StackName}-redis-subnet-group
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      CacheClusterId: !Sub ${AWS::StackName}-redis
+      Engine: redis
+      EngineVersion: "7.0"
+      CacheNodeType: !Ref RedisNodeType
+      NumCacheNodes: 1
+      Port: 6379
+      VpcSecurityGroupIds:
+        - !Ref RedisSecurityGroup
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      TransitEncryptionEnabled: !If [HasRedisPassword, true, false]
+      AuthToken: !If [HasRedisPassword, !Ref RedisPassword, !Ref AWS::NoValue]
+      PreferredMaintenanceWindow: "sun:05:00-sun:06:00"
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Redis
+
+  # ============================================
+  # IAM Roles
+  # ============================================
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${AWS::StackName}-EC2Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-EC2Role
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub ${AWS::StackName}-EC2InstanceProfile
+      Roles:
+        - !Ref EC2Role
+
+  # ============================================
+  # EC2 Instance
+  # ============================================
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - DBInstance
+      - RedisCluster
+      - ALBTargetGroup
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !FindInMap [AWSRegionAMI, "ap-southeast-1", AMI]
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref EC2SecurityGroup
+          SubnetId: !Ref PublicSubnet1Id
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Update system
+          dnf update -y
+
+          # Install Java 25 (Amazon Corretto)
+          dnf install -y java-25-amazon-corretto-devel
+
+          # Install CloudWatch agent
+          wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+          rpm -U ./amazon-cloudwatch-agent.rpm
+          rm amazon-cloudwatch-agent.rpm
+
+          # Create application user
+          useradd -m -s /bin/bash springboot
+
+          # Create application directory
+          mkdir -p /opt/backend
+          chown springboot:springboot /opt/backend
+
+          # Create environment file
+          cat > /opt/backend/.env << 'EOF'
+          DATABASE_URL=jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}
+          DATABASE_USERNAME=${DBUsername}
+          DATABASE_PASSWORD=${DBPassword}
+          REDIS_HOST=${RedisCluster.RedisEndpoint.Address}
+          REDIS_PORT=${RedisCluster.RedisEndpoint.Port}
+          REDIS_PASSWORD=${RedisPassword}
+          SERVER_PORT=8080
+          SESSION_TIMEOUT=30m
+          SESSION_COOKIE_SECURE=false
+          APP_USERNAME=${AppUsername}
+          APP_PASSWORD=${AppPassword}
+          APP_SECONDARY_USERNAME=${AppSecondaryUsername}
+          APP_SECONDARY_PASSWORD=${AppSecondaryPassword}
+          EOF
+
+          chown springboot:springboot /opt/backend/.env
+          chmod 600 /opt/backend/.env
+
+          # Create systemd service
+          cat > /etc/systemd/system/backend.service << 'EOF'
+          [Unit]
+          Description=Spring Boot Backend Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=springboot
+          WorkingDirectory=/opt/backend
+          EnvironmentFile=/opt/backend/.env
+          ExecStart=/usr/bin/java -jar /opt/backend/backend.jar
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=backend
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Reload systemd (don't enable yet - waiting for JAR deployment)
+          systemctl daemon-reload
+
+          # Signal completion
+          echo "User data script completed successfully" > /var/log/user-data-complete.log
+
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-EC2
+
+  # Register EC2 instance with ALB Target Group
+  TargetGroupAttachment:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
+    Properties:
+      TargetGroupArn: !Ref ALBTargetGroup
+      TargetId: !Ref EC2Instance
+      Port: 8080
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VpcId
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC-ID
+
+  LoadBalancerDNS:
+    Description: Application Load Balancer DNS Name
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${AWS::StackName}-ALB-DNS
+
+  LoadBalancerURL:
+    Description: Application URL via Load Balancer
+    Value: !Sub http://${ApplicationLoadBalancer.DNSName}
+
+  EC2InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub ${AWS::StackName}-EC2-ID
+
+  EC2PublicIP:
+    Description: EC2 Instance Public IP (for SSH)
+    Value: !GetAtt EC2Instance.PublicIp
+
+  EC2PublicDNS:
+    Description: EC2 Instance Public DNS
+    Value: !GetAtt EC2Instance.PublicDnsName
+
+  KeyPairName:
+    Description: EC2 Key Pair Name
+    Value: !Ref KeyName
+
+  KeyPairId:
+    Description: EC2 Key Pair ID (if created by CloudFormation)
+    Value:
+      !If [
+        ShouldCreateKeyPair,
+        !GetAtt EC2KeyPair.KeyPairId,
+        "Using existing key pair",
+      ]
+
+  GetPrivateKeyCommand:
+    Description: Command to retrieve private key (if created by CloudFormation)
+    Value: !If
+      - ShouldCreateKeyPair
+      - !Sub |
+        aws ssm get-parameter --name /ec2/keypair/${EC2KeyPair.KeyPairId} --with-decryption --query Parameter.Value --output text --region ap-southeast-1 > ${KeyName}.pem && chmod 400 ${KeyName}.pem
+      - "N/A - Using existing key pair"
+
+  DBEndpoint:
+    Description: RDS PostgreSQL Endpoint
+    Value: !GetAtt DBInstance.Endpoint.Address
+
+  DBPort:
+    Description: RDS PostgreSQL Port
+    Value: !GetAtt DBInstance.Endpoint.Port
+
+  DatabaseConnectionString:
+    Description: JDBC Connection String
+    Value: !Sub jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}
+
+  RedisEndpoint:
+    Description: ElastiCache Redis Endpoint
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
+
+  RedisPort:
+    Description: ElastiCache Redis Port
+    Value: !GetAtt RedisCluster.RedisEndpoint.Port
+
+  SSHCommand:
+    Description: SSH Command to connect to EC2 instance
+    Value: !Sub ssh -i ${KeyName}.pem ec2-user@${EC2Instance.PublicIp}
+
+  Region:
+    Description: AWS Region
+    Value: ap-southeast-1

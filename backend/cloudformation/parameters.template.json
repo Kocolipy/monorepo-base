@@ -1,0 +1,82 @@
+[
+  {
+    "ParameterKey": "VpcId",
+    "ParameterValue": "vpc-XXXXXXXX"
+  },
+  {
+    "ParameterKey": "PublicSubnet1Id",
+    "ParameterValue": "subnet-XXXXXXXX"
+  },
+  {
+    "ParameterKey": "PublicSubnet2Id",
+    "ParameterValue": "subnet-YYYYYYYY"
+  },
+  {
+    "ParameterKey": "PrivateSubnet1Id",
+    "ParameterValue": "subnet-ZZZZZZZZ"
+  },
+  {
+    "ParameterKey": "PrivateSubnet2Id",
+    "ParameterValue": "subnet-WWWWWWWW"
+  },
+  {
+    "ParameterKey": "CreateKeyPair",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "KeyName",
+    "ParameterValue": "spring-backend-key"
+  },
+  {
+    "ParameterKey": "InstanceType",
+    "ParameterValue": "t3.small"
+  },
+  {
+    "ParameterKey": "SSHLocation",
+    "ParameterValue": "0.0.0.0/0"
+  },
+  {
+    "ParameterKey": "DBInstanceClass",
+    "ParameterValue": "db.t3.micro"
+  },
+  {
+    "ParameterKey": "DBAllocatedStorage",
+    "ParameterValue": "20"
+  },
+  {
+    "ParameterKey": "DBName",
+    "ParameterValue": "backend"
+  },
+  {
+    "ParameterKey": "DBUsername",
+    "ParameterValue": "backend"
+  },
+  {
+    "ParameterKey": "DBPassword",
+    "ParameterValue": "CHANGE_ME_SecureDBPassword123"
+  },
+  {
+    "ParameterKey": "RedisNodeType",
+    "ParameterValue": "cache.t3.micro"
+  },
+  {
+    "ParameterKey": "RedisPassword",
+    "ParameterValue": "CHANGE_ME_SecureRedisPassword123"
+  },
+  {
+    "ParameterKey": "AppUsername",
+    "ParameterValue": "admin"
+  },
+  {
+    "ParameterKey": "AppPassword",
+    "ParameterValue": "CHANGE_ME_SecureAppPassword123"
+  },
+  {
+    "ParameterKey": "AppSecondaryUsername",
+    "ParameterValue": "admin2"
+  },
+  {
+    "ParameterKey": "AppSecondaryPassword",
+    "ParameterValue": "CHANGE_ME_SecureSecondaryPassword123"
+  }
+]

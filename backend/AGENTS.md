@@ -1,0 +1,99 @@
+## Verification
+
+Before completing Java, dependency, or application-configuration changes, run `mvn clean verify`. Add or update a focused regression test for every behavior change. If verification cannot run, report the exact unverified scope and reason.
+
+### Baseline gates
+
+Implementation work is complete only when both baseline gates are green, alongside the build and the tests:
+
+- ArchUnit rules in `src/test/java/arch/ArchitectureTest.java`, which run inside `mvn clean verify`. Iterate with `mvn -Dtest=ArchitectureTest test`.
+- `./scripts/semgrep.sh`, which runs the pinned Semgrep rulesets and exits non-zero on any finding. The script owns the ruleset list; `.semgrepignore` owns the skipped paths.
+
+Run both as part of finishing the work, not as a separate pre-commit step. A red gate is a defect in the change, not in the gate. Move the class, adjust the design, or fix the flagged code. Suppress a Semgrep finding with `// nosemgrep: RULE_ID` plus a reason only when it is a false positive. Edit a rule, the ruleset list, or `.semgrepignore` only when the user asks for the architecture or the scan policy itself to change, and say so explicitly.
+
+Changes to Redis-backed session persistence require an integration-level check against Redis; the controller tests use servlet mocks and do not exercise Redis.
+
+### Reading a gate's result
+
+A full scan or build can outlast a shell's foreground window, so run either gate with its result written where the shell cannot lose it: redirect to a log and append a **sentinel** carrying the exit status.
+
+```bash
+./scripts/semgrep.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
+```
+
+Wait for the sentinel and read the log in one call, rather than polling for output:
+
+```bash
+until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
+grep -E "inding|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
+```
+
+The gate is green on `GATE_EXIT=0` beside a zero findings count, both quoted from the log; report those two lines as the evidence rather than the absence of an error. When a call returns no output the run's state is unknown, so read the log again: a relaunch only starts a second run competing for the same log.
+
+### Mutation testing
+
+Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gates, and runs when you write a unit test or change an existing one, scoped to the tests you touched. PIT is configured in `pom.xml` and bound to no lifecycle phase, so `mvn clean verify` never runs it.
+
+Target the touched test class and the production class it covers:
+
+```bash
+mvn org.pitest:pitest-maven:mutationCoverage \
+  -DtargetClasses="com.example.backend.<package>.<ClassUnderTest>*" \
+  -DtargetTests="com.example.backend.<package>.<TouchedTests>"
+```
+
+`target/pit-reports/mutations.xml` carries the per-mutant status. `SURVIVED` means a test ran the line without asserting on the behavior, so strengthen the assertion; `NO_COVERAGE` means no test reached the line, so add the missing case. Narrowing `targetClasses`, dropping mutators, or asserting on a duplicated implementation constant moves the score without making the test load-bearing.
+
+The tests are done when every mutant is `KILLED`, or a **survivor** carries a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged. The surviving mutant plus its reason belong in the change summary.
+
+Treat a clean score under the default mutators as provisional. PIT's `DEFAULTS` set leaves some lines unmutated, so a line can be both unmutated and untested while the score reads 100% — a call whose return value is discarded, such as `request.changeSessionId()`, yielded no mutant while session-fixation rotation went unexercised. Line coverage below 100% beside a 100% score points at those lines. Confirm with the expanded set before reporting a score as clean:
+
+```bash
+-Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE
+```
+
+## Architecture constraints
+
+Preserve these boundaries:
+
+- Spring Security owns authentication.
+- Authentication state is stored in the HTTP session.
+- Spring Session persists sessions in Redis.
+- Login and health endpoints are public; application endpoints require authentication.
+- Runtime credentials and environment-specific settings remain external configuration.
+
+`src/test/java/arch/ArchitectureTest.java` is the executable form of the structural boundaries: onion layering, package placement, naming, constructor injection, JPA mapping, and package-cycle freedom. Read it before reshaping packages or adding a layer.
+
+For domain terminology and architectural decisions, follow `docs/agents/domain.md`. Record durable architectural choices as ADRs rather than expanding this file.
+
+## Security-sensitive changes
+
+Treat authentication, authorization rules, logout, session invalidation, cookie attributes, and credential handling as security-sensitive. Cover changed behavior with tests and keep production secrets out of tracked files.
+
+## API contract
+
+Before completing changes to controller routes, request or response bodies, status codes, authentication requirements, or validation constraints, update `docs/openapi.yaml`. Verify every affected operation and schema against the implementation.
+
+## Agent skills
+
+### Issue tracker
+
+For issue creation, lookup, triage, comments, labels, or closure, read `docs/agents/issue-tracker.md` before acting.
+
+### Domain docs
+
+Before exploring or changing domain behavior, terminology, or architecture, read `docs/agents/domain.md`.
+
+### graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
+
+Rules:
+
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

@@ -1,0 +1,16 @@
+# The index stores every text file with LF, but a Windows/WSL checkout with
+# core.autocrlf=true rewrites them to CRLF on the way out. That breaks shell
+# scripts outright (`/bin/bash^M: bad interpreter`) and makes `.env` files
+# unsourceable, so pin the working tree to LF regardless of the machine's git
+# config.
+* text=auto eol=lf
+
+# Binary fixtures: never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.pdf binary
+*.ico binary
+*.woff  binary
+*.woff2 binary

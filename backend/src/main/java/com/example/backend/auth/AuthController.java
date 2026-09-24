@@ -1,0 +1,121 @@
+package com.example.backend.auth;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import java.security.Principal;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.session.web.http.CookieSerializer;
+import org.springframework.session.web.http.CookieSerializer.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+
+    private final AuthenticationManager authenticationManager;
+    private final SecurityContextRepository securityContextRepository;
+    private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
+    private final CsrfTokenRepository csrfTokenRepository;
+    private final CookieSerializer cookieSerializer;
+
+    public AuthController(
+            AuthenticationManager authenticationManager,
+            SecurityContextRepository securityContextRepository,
+            SessionAuthenticationStrategy sessionAuthenticationStrategy,
+            CsrfTokenRepository csrfTokenRepository,
+            CookieSerializer cookieSerializer) {
+        this.authenticationManager = authenticationManager;
+        this.securityContextRepository = securityContextRepository;
+        this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
+        this.csrfTokenRepository = csrfTokenRepository;
+        this.cookieSerializer = cookieSerializer;
+    }
+
+    @PostMapping("/login")
+    public UserResponse login(
+            @Valid @RequestBody LoginRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        Authentication authentication = authenticationManager.authenticate(
+                UsernamePasswordAuthenticationToken.unauthenticated(
+                        body.username(), body.password()));
+
+        // Rotate before the context is saved, so the authentication lands in the
+        // session the caller will keep using rather than the pre-login one.
+        sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
+
+        issueCsrfToken(request, response);
+
+        return new UserResponse(authentication.getName());
+    }
+
+    @GetMapping("/me")
+    public UserResponse currentUser(Principal principal) {
+        return new UserResponse(principal.getName());
+    }
+
+    @DeleteMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(HttpServletRequest request, HttpServletResponse response) {
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        SecurityContextHolder.clearContext();
+
+        // Invalidating the session server-side leaves the browser holding a
+        // cookie that now names nothing. Expire it so a later request arrives
+        // without a session id at all.
+        cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
+
+        issueCsrfToken(request, response);
+    }
+
+    /**
+     * Replaces the CSRF cookie with a freshly minted token. On login this stops a
+     * token minted before authentication from remaining valid after it; on logout
+     * it both discards the token that belonged to the closed session and leaves
+     * the caller with a usable token, so the next login can be submitted without
+     * a round trip to fetch one.
+     */
+    private void issueCsrfToken(HttpServletRequest request, HttpServletResponse response) {
+        csrfTokenRepository.saveToken(
+                csrfTokenRepository.generateToken(request), request, response);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public void authenticationFailed() {
+        // Deliberately omit details so callers cannot distinguish unknown users.
+    }
+
+    public record LoginRequest(@NotBlank String username, @NotBlank String password) {
+    }
+
+    public record UserResponse(String username) {
+    }
+}

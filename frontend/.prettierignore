@@ -1,0 +1,13 @@
+node_modules
+dist
+build
+coverage
+playwright-report
+test-results
+graphify-out
+.vite
+.stryker-tmp
+*.min.*
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
