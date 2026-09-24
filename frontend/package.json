@@ -28,6 +28,9 @@
     "test:security": "semgrep scan --config semgrep/rules --error --quiet --metrics=off .",
     "analyze": "npx vite-bundle-visualizer -o dist/stats.html"
   },
+  "overrides": {
+    "qs": "^6.16.0"
+  },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
