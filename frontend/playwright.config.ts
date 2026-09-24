@@ -45,7 +45,7 @@ export default defineConfig({
     },
     {
       name: "admin",
-      testMatch: /(?:authentication|session|roles-admin)\.spec\.ts/,
+      testMatch: /(?:authentication|session|roles-admin|accounts-admin)\.spec\.ts/,
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],

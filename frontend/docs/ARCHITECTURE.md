@@ -48,6 +48,16 @@ that _consume_ this; they hold no session or role logic themselves, and none
 decides where a visitor goes next. A new protected area adds a route declaration,
 not a second copy of the guard.
 
+`pages/accounts.tsx` is the widest of the three: it reads the account listing from
+`GET /api/admin/users` and posts the three administration actions, replacing the
+one affected row from each response rather than reloading the listing — the
+response _is_ that account's new state, so a refetch would only add a request that
+could disagree with it. Every request goes through `useSessionRequest`, so a
+`401` ends the session in one place and a `403` stays a CSRF problem. What each
+status means to an administrator (`409` a refused change, `404` an account that
+has since gone) is mapped in that page, because only the page knows what was being
+attempted.
+
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
 enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
 cannot opt out of the seam by calling `apiFetch` itself.
@@ -183,14 +193,15 @@ directory that a test run writes into belongs on this list.
 | ----------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
 | `/`         | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase` |
 | `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                         |
-| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | placeholder restricted to `ADMIN`                       |
+| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | account administration, restricted to `ADMIN`           |
 | `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                        |
 
 `resolveSessionRoute` is the pure transition table behind both guard adapters.
 It sends a Visitor to login with a return destination, renders authenticated
 routes for either role, and redirects a role mismatch to `/showcase`. Spring
-Security remains authoritative for server operations: `/api/accounts/**`
-requires `ADMIN` even if client-side routing is bypassed.
+Security remains authoritative for server operations: `/api/admin/**` requires
+`ADMIN` even if client-side routing is bypassed, so the guard decides what is
+_rendered_ and never what is _permitted_.
 
 `BrowserRouter` means real paths, not hashes, so the backend has to serve
 `index.html` for any unmatched path — that fallback is the backend's side of the

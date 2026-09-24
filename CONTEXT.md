@@ -64,8 +64,8 @@ counter page at `/showcase` but not account administration, in the browser or
 over the API.
 
 **Admin** — an authenticated account whose role is `ADMIN`. An Admin may use the
-counter page, the placeholder accounts page at `/accounts`, and the
-administration API under `/api/admin/**`.
+counter page, the accounts page at `/accounts`, and the administration API under
+`/api/admin/**`.
 
 **Account** — a database-backed login identity with one username, encoded
 password, role, email, enabled flag, and creation timestamp, plus the state of
@@ -117,7 +117,7 @@ they mean.
 **Recovery guard** — account administration refuses two disable requests
 outright, with a `409`: an account disabling itself, and the last enabled Admin.
 Both would leave nobody able to enable anything again, and nothing in the system
-could undo either without direct database access. A *locked* Admin still counts
+could undo either without direct database access. A _locked_ Admin still counts
 as available, because that lockout ends on its own.
 
 **Account listing** — what account administration may know about an account:
@@ -128,6 +128,15 @@ would mislead — an account locked out right now looks healthy if only `enabled
 is shown, and nothing would say which accounts need unlocking. Whether the
 lockout is in force is the server's own evaluation at the moment it answers, not
 a comparison the client makes against its own clock.
+
+**Accounts page** — the SPA screen at `/accounts`, an Admin's view of the account
+listing and the only place the two capabilities are exercised from a browser.
+Each row reports both refusal mechanisms and offers the action that would change
+it: Disable or Enable, and Unlock only while a lockout is in force. It offers no
+Disable for the signed-in Admin's own account, so the recovery guard's refusal is
+visible before the click rather than as a `409` after it. The page never decides
+authorization — it renders behind the `ADMIN` guard, and the backend refuses
+`/api/admin/**` to any other role regardless.
 
 **Session survival** — disabling an account does not end a session it already
 holds. Spring Security evaluates account status when authenticating, and later

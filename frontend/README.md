@@ -5,10 +5,11 @@ up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
 login page, a counter page for authenticated accounts, and an administrator-only
-accounts placeholder, all talking to the Spring Boot backend over session
-cookies. What is actually built out is the toolchain: type checking, linting,
-unit tests, architecture tests, E2E, static security analysis,
-dead-code/complexity analysis, and mutation testing.
+accounts page that lists every account and closes, reopens or unlocks one, all
+talking to the Spring Boot backend over session cookies. What is actually built
+out is the toolchain: type checking, linting, unit tests, architecture tests,
+E2E, static security analysis, dead-code/complexity analysis, and mutation
+testing.
 
 ## Setup
 
@@ -75,7 +76,7 @@ src/
   auth/                   session state, route guards, request seam
   pages/login.tsx         the public login page at /
   pages/showcase.tsx      the USER/ADMIN counter page at /showcase
-  pages/accounts.tsx      the ADMIN-only placeholder at /accounts
+  pages/accounts.tsx      the ADMIN-only account administration page at /accounts
   components/ui/          shadcn primitives (placeholder — see below)
   lib/utils.ts            cn()
   lib/http.ts             typed API results — credentials + CSRF + status + decoding
@@ -85,6 +86,7 @@ test/
   arch/                   architecture rules the module graph can't express
   e2e/smoke.spec.ts       guest-facing Playwright smoke suite
   e2e/authentication.spec.ts  authenticated session + counter
+  e2e/accounts-admin.spec.ts  the ADMIN accounts page, driven as a browser
   e2e/auth.setup.ts       signs in once, saves the storage state
 semgrep/rules/          local Semgrep ruleset
 docs/                   ARCHITECTURE.md, TESTING_GUIDE.md
@@ -130,8 +132,9 @@ been verified to fail on planted violations.
 E2E runs in four Playwright projects: `setup` signs in the seeded User and Admin
 once and saves separate storage states, `guest` runs signed-out and smoke
 coverage, `user` verifies the `USER` route policy, and `admin` drives the
-counter/session suites plus the `ADMIN` accounts guard. The non-guest projects
-need the backend running — see the root `README.md` and `make integration-test`.
+counter/session suites plus the `ADMIN` account administration page and its
+endpoints. The non-guest projects need the backend running — see the root
+`README.md` and `make integration-test`.
 
 ## Backend contract
 

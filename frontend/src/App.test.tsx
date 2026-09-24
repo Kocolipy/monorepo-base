@@ -139,11 +139,27 @@ describe("App", () => {
     window.history.replaceState(null, "", "/accounts");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(Response.json({ role: "ADMIN", username: "grace" })),
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === "/api/admin/users"
+            ? Response.json([
+                {
+                  createdAt: "2026-01-02T03:04:05Z",
+                  email: "grace@example.com",
+                  enabled: true,
+                  locked: false,
+                  lockedUntil: null,
+                  role: "ADMIN",
+                  username: "grace",
+                },
+              ])
+            : Response.json({ role: "ADMIN", username: "grace" }),
+        ),
+      ),
     );
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Accounts" })).toBeInTheDocument();
-    expect(screen.getByText("Account management is coming soon.")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
   });
 });

@@ -205,11 +205,22 @@ a valid token present, since a missing one earns the same `403` from the CSRF
 filter first.
 
 A spec that changes an account's state must restore it in a `finally`, and must
-not pick an account whose state another project depends on. `roles-admin.spec.ts`
-disables and re-enables the seeded User for this reason; the parallel `user`
-project is unaffected while it is disabled only because it replays a saved
-session, and account status is evaluated when authenticating rather than per
-request.
+not pick an account whose state another project depends on. **Exactly one spec may
+change a given seeded account**, and `accounts-admin.spec.ts` is that spec for
+the seeded User: it disables and re-enables it through the page and is
+`test.describe.serial` so its own tests cannot race each other under
+`fullyParallel`. `roles-admin.spec.ts` therefore asserts only the idempotent
+actions and the refusals, and the disable/enable contract itself — statuses, the
+`409`s, the response shape — is covered in `AdminUserEndpointTests`, where no
+shared row is at stake. The parallel `user` project is unaffected while the
+account is disabled only because it replays a saved session, and account status is
+evaluated when authenticating rather than per request.
+
+Two specs looking at the same listing also have to agree on what they may
+assume: the environment may hold accounts nobody seeded (a stray second admin, in
+this repo's dev database), so address a row with `getByRole("rowheader", { exact:
+true, name })` — a substring match resolves `admin` to `admin2` as well and fails
+on strict mode.
 
 ### Forcing a refused request
 
@@ -244,8 +255,11 @@ Everything under `src/` reaches the backend through `apiFetch` in
 recovery, status classification, and decoding. Feature tests mock `apiFetch`
 with an `ApiResult` (`ok`, `unauthenticated`, `csrf-expired`, or `failed`) and
 assert only their own response to that meaning. This keeps raw `Response`
-construction and cookie setup out of feature suites; `src/auth/api.test.ts` and
-`src/pages/showcase.test.tsx` are the patterns.
+construction and cookie setup out of feature suites; `src/auth/api.test.ts`,
+`src/pages/showcase.test.tsx` and `src/pages/accounts.test.tsx` are the patterns.
+A page that renders a `<Link>` needs a router in the test too — wrap it in
+`MemoryRouter`, as `accounts.test.tsx` does, or the link throws on a null router
+context.
 
 ### Flakiness — the rules that keep these tests green
 

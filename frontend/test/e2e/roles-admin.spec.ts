@@ -7,7 +7,7 @@ test.describe("ADMIN route guards", () => {
     await page.goto("/accounts");
 
     await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-    await expect(page.getByText("Account management is coming soon.")).toBeVisible();
+    await expect(page.getByRole("rowheader", { exact: true, name: "admin" })).toBeVisible();
     await expect(page).toHaveURL(/\/accounts$/);
   });
 });
@@ -73,34 +73,14 @@ test.describe("ADMIN user listing", () => {
 
 test.describe("ADMIN account control", () => {
   /**
-   * Disable and enable in one test, and restore the account even if an
-   * expectation fails: the seeded `USER` identity is shared with the `user`
-   * project running beside this one, and leaving it disabled would break a spec
-   * that has nothing to do with this one.
-   *
-   * Those parallel specs are unaffected *while* it is disabled because they
-   * replay a saved session, and a disabled account keeps an existing session —
-   * the backend decides account status when authenticating.
+   * The disable/enable round trip is asserted through the page in
+   * `accounts-admin.spec.ts`, which reaches the same endpoints through the SPA.
+   * It lives in exactly one spec on purpose: the seeded `user` identity is
+   * shared with the `user` project running beside this one, and two specs
+   * toggling it in parallel would race. The endpoint's own contract — status
+   * codes, the refusals, the response shape — is covered in
+   * `AdminUserEndpointTests`.
    */
-  test("closes an account to logins and reopens it", async ({ page }) => {
-    try {
-      const disabled = await postAdminAction(page, "user", "disable");
-
-      expect(disabled.status()).toBe(200);
-      expect(await disabled.json()).toMatchObject({ username: "user", enabled: false });
-
-      const listing = (await (await page.request.get("/api/admin/users")).json()) as Array<
-        Record<string, unknown>
-      >;
-      expect(listing.find((account) => account.username === "user")).toMatchObject({
-        enabled: false,
-      });
-    } finally {
-      const enabled = await postAdminAction(page, "user", "enable");
-      expect(enabled.status()).toBe(200);
-      expect(await enabled.json()).toMatchObject({ username: "user", enabled: true });
-    }
-  });
 
   /**
    * Unlocking an account that is serving no lockout is the safe case to assert

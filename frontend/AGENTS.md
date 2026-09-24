@@ -1,6 +1,6 @@
 # AGENTS.md — frontend
 
-React + Vite + Tailwind baseline, and the full tooling gate around it. Two
+React + Vite + Tailwind baseline, and the full tooling gate around it. Three
 pages behind a session-backed login: `react-router-dom` routes them, `src/auth/`
 owns the session, and requests receive typed semantic results from
 `src/lib/http.ts`. There is no global state library and no service worker — this
@@ -50,10 +50,13 @@ them:
   `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
   into `ProtectedRoute` / `GuestRoute`, and `use-session-request.ts` is the seam
   features request through.
-- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`). A
-  page requests through `useSessionRequest`, never `apiFetch` directly — the
-  `mb-transport-is-behind-the-session-seam` rule enforces it. Free to import
-  from `auth/`, `ui/` and `lib/`.
+- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
+  `accounts.tsx`). A page requests through `useSessionRequest`, never `apiFetch`
+  directly — the `mb-transport-is-behind-the-session-seam` rule enforces it. Free
+  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN account
+  administration page: it reads `GET /api/admin/users` and posts the
+  disable / enable / unlock actions, and owns the copy for what each refusal
+  status means to an administrator.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with
