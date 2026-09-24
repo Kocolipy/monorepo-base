@@ -1,5 +1,6 @@
 package com.example.backend.auth.config;
 
+import com.example.backend.web.SpaRoutes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpMethod;
@@ -156,12 +157,13 @@ public class SecurityConfig {
                 .build();
     }
 
+    /**
+     * Which paths the frontend owns is SpaRoutes' knowledge; that only a GET of
+     * one may skip authentication is this chain's.
+     */
     private boolean isFrontendGet(HttpServletRequest request) {
         String path = request.getRequestURI().substring(request.getContextPath().length());
         return HttpMethod.GET.matches(request.getMethod())
-                && !path.equals("/api")
-                && !path.startsWith("/api/")
-                && !path.equals("/actuator")
-                && !path.startsWith("/actuator/");
+                && !SpaRoutes.isReservedServerPath(path);
     }
 }

@@ -22,6 +22,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.ModelAndView;
 
+/**
+ * That each adapter asks {@link SpaRoutes}, through the real servlet stack. The
+ * path algebra itself — prefixes, exact matches, the file-request heuristic — is
+ * covered by {@link SpaRoutesTests} without paying for a Spring context, so each
+ * case here is one representative rather than a matrix.
+ */
 @SpringBootTest
 class SpaFrontendTests {
 
@@ -52,42 +58,36 @@ class SpaFrontendTests {
     }
 
     /**
-     * "/api" itself is as much of an API path as anything beneath it, so the
-     * public-GET allowance must not swallow it.
+     * The filter chain consults SpaRoutes, so the public-GET allowance does not
+     * swallow an API path. "/api" itself is kept alongside a nested path because
+     * a regression on the exact match is a security hole, not a 404.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"/api", "/api/count", "/api/session"})
+    @ValueSource(strings = {"/api", "/api/count"})
     void keepsApiRoutesProtected(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isUnauthorized());
     }
 
-    /**
-     * Unmatched routes belong to the client-side router. A single-segment route
-     * has nothing before the separator, and a dot in an earlier segment does not
-     * make the route a file request.
-     */
-    @ParameterizedTest
-    @ValueSource(strings = {"/dashboard", "/account/settings", "/v1.0/settings"})
-    void forwardsMissingClientSideRoutesToFrontendEntryPoint(String path) {
-        ModelAndView resolved = resolve(path, HttpStatus.NOT_FOUND);
+    /** Unmatched routes belong to the client-side router. */
+    @Test
+    void forwardsMissingClientSideRoutesToFrontendEntryPoint() {
+        ModelAndView resolved = resolve("/dashboard", HttpStatus.NOT_FOUND);
 
         assertThat(resolved).isNotNull();
         assertThat(resolved.getViewName()).isEqualTo("forward:/index.html");
     }
 
     /** A missing file stays a 404 rather than returning the HTML shell. */
-    @ParameterizedTest
-    @ValueSource(strings = {"/assets/missing.js", "/favicon.ico"})
-    void doesNotForwardPathsThatLookLikeFiles(String path) {
-        assertThat(resolve(path, HttpStatus.NOT_FOUND)).isNull();
+    @Test
+    void doesNotForwardPathsThatLookLikeFiles() {
+        assertThat(resolve("/assets/missing.js", HttpStatus.NOT_FOUND)).isNull();
     }
 
-    /** Reserved prefixes answer for themselves, exact match included. */
-    @ParameterizedTest
-    @ValueSource(strings = {"/api", "/api/missing", "/actuator", "/actuator/health"})
-    void doesNotForwardReservedServerPaths(String path) {
-        assertThat(resolve(path, HttpStatus.NOT_FOUND)).isNull();
+    /** Reserved prefixes answer for themselves. */
+    @Test
+    void doesNotForwardReservedServerPaths() {
+        assertThat(resolve("/api/missing", HttpStatus.NOT_FOUND)).isNull();
     }
 
     /** The shell stands in for a missing route only, not for a failed one. */
