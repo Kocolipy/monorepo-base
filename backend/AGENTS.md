@@ -1,7 +1,11 @@
 # AGENTS.md — backend
 
-Spring Boot 4 service on Java 25, built with Maven. No Maven wrapper is checked
-in.
+Spring Boot 4 service on Java 25, built with Maven through the checked-in
+wrapper. Always `./mvnw`, never a bare `mvn`: the wrapper downloads and
+checksum-verifies the one Maven release pinned in
+`.mvn/wrapper/maven-wrapper.properties`, and the build's Enforcer rules reject a
+wrong JDK (`[25,26)`) or an older Maven. A JDK 25 must be on `PATH` — the
+wrapper only launches Maven.
 
 Monorepo-wide rules — layout, the path discipline, the SPA contract this service
 serves, line endings, ignore rules, the long-gate sentinel pattern, and the
@@ -10,13 +14,13 @@ only what is specific to this app. Run every command below from `backend/`.
 
 ## Verification
 
-Before completing Java, dependency, or application-configuration changes, run `mvn clean verify`. Add or update a focused regression test for every behavior change. If verification cannot run, report the exact unverified scope and reason.
+Before completing Java, dependency, or application-configuration changes, run `./mvnw clean verify`. Add or update a focused regression test for every behavior change. If verification cannot run, report the exact unverified scope and reason.
 
 ### Baseline gates
 
 Implementation work is complete only when both baseline gates are green, alongside the build and the tests:
 
-- ArchUnit rules in `src/test/java/arch/ArchitectureTest.java`, which run inside `mvn clean verify`. Iterate with `mvn -Dtest=ArchitectureTest test`.
+- ArchUnit rules in `src/test/java/arch/ArchitectureTest.java`, which run inside `./mvnw clean verify`. Iterate with `./mvnw -Dtest=ArchitectureTest test`.
 - `./scripts/semgrep.sh`, which scans **this app only** and exits non-zero on any finding. It runs two halves: the checked-in local rules in `semgrep/rules/` (offline and deterministic, each rule carrying the reason this service cares about it) and the `p/*` registry packs for generic Java and OWASP coverage. The pack *list* is fixed in the script, but the packs' *contents* resolve from the registry at run time and track upstream, so a pack gaining a rule can turn this gate red with no commit here. The script owns both config lists; `.semgrepignore` owns the skipped paths. The frontend scans itself separately via `npm run test:security` — nothing scans the monorepo as a whole.
 
 Run both as part of finishing the work, not as a separate pre-commit step. A red gate is a defect in the change, not in the gate. Move the class, adjust the design, or fix the flagged code. Suppress a Semgrep finding with `// nosemgrep: RULE_ID` plus a reason only when it is a false positive. Edit a rule, the ruleset list, or `.semgrepignore` only when the user asks for the architecture or the scan policy itself to change, and say so explicitly.
@@ -39,12 +43,12 @@ from the log.
 
 ### Mutation testing
 
-Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gates, and runs when you write a unit test or change an existing one, scoped to the tests you touched. PIT is configured in `pom.xml` and bound to no lifecycle phase, so `mvn clean verify` never runs it.
+Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gates, and runs when you write a unit test or change an existing one, scoped to the tests you touched. PIT is configured in `pom.xml` and bound to no lifecycle phase, so `./mvnw clean verify` never runs it.
 
 Target the touched test class and the production class it covers:
 
 ```bash
-mvn org.pitest:pitest-maven:mutationCoverage \
+./mvnw org.pitest:pitest-maven:mutationCoverage \
   -DtargetClasses="com.example.backend.<package>.<ClassUnderTest>*" \
   -DtargetTests="com.example.backend.<package>.<TouchedTests>"
 ```

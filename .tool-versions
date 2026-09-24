@@ -1,0 +1,16 @@
+# Toolchain pins for asdf / mise. Exact patch versions on purpose: a floating
+# major is what lets one machine build on Node 18 and another on Node 24.
+#
+# Node is the one that actually bites — Vite 7 and Vitest 4 fail on Node 18 in
+# ways that read as test failures rather than as an environment problem. Keep
+# this version in lockstep with /.nvmrc and frontend/package.json's
+# engines.node, and the Maven version in lockstep with
+# backend/.mvn/wrapper/maven-wrapper.properties.
+#
+# Java/Maven are also enforced at build time by the Maven Enforcer rules in
+# backend/pom.xml, so a developer without asdf/mise still cannot build on the
+# wrong JDK. The Java plugin name below is asdf-java's ("temurin-<version>");
+# mise accepts the same string.
+nodejs 22.23.3
+maven 3.9.11
+java temurin-25.0.4.1+1

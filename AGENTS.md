@@ -80,7 +80,7 @@ app's gates with the result written where the shell cannot lose it: redirect to
 a log and append a **sentinel** carrying the exit status.
 
 ```bash
-mvn clean verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
+./mvnw clean verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 ```
 
 Wait for the sentinel and read the log in one call, rather than polling for
@@ -109,7 +109,7 @@ ignored. **Nothing generated is ever copied back into a source directory**, and
 no compiled SPA is tracked — the source is the only source of truth.
 
 The copy is done by the `with-frontend` Maven profile in `backend/pom.xml`,
-which is **off by default**: `mvn clean verify` in `backend/` is a pure backend
+which is **off by default**: `./mvnw clean verify` in `backend/` is a pure backend
 build that needs no Node and packages no SPA. The release path is `make package`
 from the repo root, which builds the SPA and then invokes the profile with an
 explicit `-Dfrontend.dist.dir`. The profile's `validate`-phase enforcer fails the

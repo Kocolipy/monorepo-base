@@ -10,11 +10,24 @@ analysis, dead-code/complexity analysis, and mutation testing.
 
 ## Setup
 
+Node is pinned at the repo root (`/.nvmrc`, `/.tool-versions`) and declared in
+`package.json`'s `engines`; `.npmrc` sets `engine-strict`, so a wrong Node fails
+the install instead of warning. Activate the pin first:
+
 ```bash
-npm install
+nvm use                           # from the repo root; or: mise install
+```
+
+```bash
+npm ci                            # exactly what package-lock.json records
 npx playwright install chromium   # first time only, for npm run test:e2e
 npm run dev                       # http://localhost:5173
 ```
+
+Use `npm ci`, not `npm install` — `install` re-resolves semver ranges and
+rewrites the lockfile, which is how two machines end up on different dependency
+trees. Reach for `npm install` only when deliberately adding or upgrading a
+dependency, and commit the lockfile change it produces.
 
 **No `.env` is required.** Nothing reads `import.meta.env` yet. When that
 changes, the variable must be `VITE_`-prefixed (Vite only exposes that prefix

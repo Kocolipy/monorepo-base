@@ -9,10 +9,17 @@ backend, line endings, ignore rules, and the shared agent docs and skills — li
 in the root `AGENTS.md`. This file covers only what is specific to this app.
 Run every command below from `frontend/`.
 
+**`npm ci`, never `npm install`** — `install` re-resolves semver ranges and
+rewrites `package-lock.json`, so it is only for a deliberate dependency change.
+Node is pinned in `/.nvmrc` and `/.tool-versions` and declared in
+`package.json`'s `engines`; `.npmrc` sets `engine-strict`, so a wrong Node is a
+hard install failure. Activate the pin from the repo root (`nvm use`, or
+`mise install`) before the first install.
+
 ## Commands
 
 ```bash
-npm install                       # node_modules is often stale — vitest may be missing until you run this
+npm ci                            # node_modules is often stale — vitest may be missing until you run this
 npm run dev                       # Vite dev server on :5173
 npm run build                     # tsc -b (app, node, and test projects) + vite build
 npm run lint                      # ESLint
