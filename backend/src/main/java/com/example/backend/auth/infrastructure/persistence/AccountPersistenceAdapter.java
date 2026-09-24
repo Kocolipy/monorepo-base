@@ -24,10 +24,19 @@ class AccountPersistenceAdapter implements AccountRepository {
     @Override
     public Account save(Account account) {
         return toDomain(accounts.save(new AccountEntity(
-                account.username(), account.passwordHash(), account.role())));
+                account.username(),
+                account.passwordHash(),
+                account.role(),
+                account.failedLoginAttempts(),
+                account.lockedUntil())));
     }
 
     private Account toDomain(AccountEntity entity) {
-        return new Account(entity.getUsername(), entity.getPasswordHash(), entity.getRole());
+        return new Account(
+                entity.getUsername(),
+                entity.getPasswordHash(),
+                entity.getRole(),
+                entity.getFailedLoginAttempts(),
+                entity.getLockedUntil());
     }
 }

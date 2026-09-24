@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
+import java.time.Clock;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -16,10 +17,13 @@ public class AccountService implements UserDetailsService {
 
     private final AccountRepository accounts;
     private final PasswordEncoder passwordEncoder;
+    private final Clock clock;
 
-    public AccountService(AccountRepository accounts, PasswordEncoder passwordEncoder) {
+    public AccountService(
+            AccountRepository accounts, PasswordEncoder passwordEncoder, Clock clock) {
         this.accounts = accounts;
         this.passwordEncoder = passwordEncoder;
+        this.clock = clock;
     }
 
     public void seedDefaults(
@@ -31,6 +35,12 @@ public class AccountService implements UserDetailsService {
         seedIfAbsent(adminUsername, adminPassword, AccountRole.ADMIN);
     }
 
+    /**
+     * Reports the account to Spring Security, including whether it is currently
+     * locked. Carrying the lockout here is what rejects a locked account with its
+     * correct password: {@code DaoAuthenticationProvider} checks account status
+     * before it checks the password, so the credentials are never even compared.
+     */
     @Override
     public UserDetails loadUserByUsername(String username) {
         Account account = accounts.findByUsername(username)
@@ -38,6 +48,7 @@ public class AccountService implements UserDetailsService {
         return User.withUsername(account.username())
                 .password(account.passwordHash())
                 .roles(account.role().name())
+                .accountLocked(account.isLocked(clock.instant()))
                 .build();
     }
 

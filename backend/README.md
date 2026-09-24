@@ -38,6 +38,13 @@ development defaults are `user` / `P@ssw0rd` and `admin` / `P@ssw0rd`;
 `APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the `ADMIN` seed.
 These published defaults must not be used in production.
 
+Three consecutive refused logins lock an account for five minutes. While the
+lockout holds the correct password is refused too, and every refusal — unknown
+username, wrong password, locked account — answers with the same bare `401`, so
+the response cannot be used to find out which accounts exist. An accepted login
+resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` and `APP_LOCKOUT_DURATION` (a
+duration such as `5m` or `30s`) configure the policy.
+
 Log in and keep the returned `JSESSIONID` in a cookie jar:
 
 ```bash
@@ -170,8 +177,8 @@ Mutation testing is a third, non-gate check that PIT runs on demand:
 
 ```bash
 ./mvnw org.pitest:pitest-maven:mutationCoverage \
-  -DtargetClasses="com.example.backend.auth.AuthController*" \
-  -DtargetTests="com.example.backend.auth.AuthControllerTests"
+  -DtargetClasses="com.example.backend.auth.controller.AuthController*" \
+  -DtargetTests="com.example.backend.auth.controller.AuthControllerTests"
 ```
 
 Nothing to install — `pitest-maven` is declared in `pom.xml` and bound to no

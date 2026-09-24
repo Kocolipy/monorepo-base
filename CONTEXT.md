@@ -68,3 +68,20 @@ counter page and the placeholder accounts page at `/accounts`.
 **Account** — a database-backed login identity with one username, encoded
 password, and role. Startup seeding creates the configured User and Admin only
 when their usernames are absent; it does not overwrite an existing account.
+
+**Failure run** — the consecutive rejected logins recorded against one account,
+counted on the account itself as `failed_login_attempts`. A login the backend
+accepts ends the run and returns the count to zero; a login it rejects lengthens
+it. An unknown username has no run, because nothing is recorded for a name that
+names no account.
+
+**Lockout** — the state an account enters once its failure run reaches the
+configured limit (`app.auth.lockout.max-attempts`, default 3), closing it to
+logins until `locked_until` has passed (`app.auth.lockout.duration`, default 5
+minutes). A locked account is refused **with its correct password**, and refused
+the same way as a wrong one: a bare `401` with no body, so the response never
+reveals that the account exists or that it is locked. The window is a fixed
+penalty — attempts made during it neither count nor extend it — and once it
+expires the next rejected login starts a fresh run rather than re-locking on the
+old count. Enforcement is Spring Security's, which checks account status before
+it compares passwords; the counting is the login path's.
