@@ -4,7 +4,6 @@ build
 coverage
 playwright-report
 test-results
-graphify-out
 .vite
 .stryker-tmp
 *.min.*

@@ -142,14 +142,3 @@ loads with no console errors.
 - **ESLint 9** (flat config) and **Prettier**
 
 There is no PWA support and no service worker.
-
-## Agent tooling
-
-`AGENTS.md` is the entry point for coding agents; `CLAUDE.md` imports it and
-adds one Claude-specific override. `graphify-out/` holds a knowledge graph of
-the repo and is tracked in git — refresh it in the same commit as the change
-that caused it:
-
-```bash
-$(cat graphify-out/.graphify_python) -m graphify update .
-```
