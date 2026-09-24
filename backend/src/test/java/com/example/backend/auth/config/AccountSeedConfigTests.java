@@ -36,17 +36,15 @@ class AccountSeedConfigTests {
     }
 
     /**
-     * The three fields the administrative listing reports. Seeding is the only
-     * writer of them, so an account created without them would leave that listing
-     * with nothing to show.
+     * The two fields the administrative listing reports besides the credentials.
+     * Seeding is the only writer of them, so an account created without them
+     * would leave that listing with nothing to show.
      */
     @Test
-    void seedsTheEmailEnabledFlagAndCreationTimestamp() {
+    void seedsTheEnabledFlagAndCreationTimestamp() {
         var user = accounts.findByUsername("test-user").orElseThrow();
         var admin = accounts.findByUsername("test-admin").orElseThrow();
 
-        assertThat(user.email()).isEqualTo("test-user@example.com");
-        assertThat(admin.email()).isEqualTo("test-admin@example.com");
         assertThat(user.enabled()).isTrue();
         assertThat(admin.enabled()).isTrue();
         assertThat(user.createdAt()).isNotNull().isBeforeOrEqualTo(Instant.now());

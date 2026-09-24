@@ -99,7 +99,7 @@ export async function postAdminAction(page: Page, username: string, action: stri
   const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
   expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
 
-  return page.request.post(`/api/admin/users/${username}/${action}`, {
+  return page.request.post(`/api/admin/accounts/${username}/${action}`, {
     headers: { "X-XSRF-TOKEN": String(token) },
   });
 }

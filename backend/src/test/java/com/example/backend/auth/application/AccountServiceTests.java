@@ -19,10 +19,8 @@ class AccountServiceTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    private static final AccountSeed USER_SEED =
-            new AccountSeed("user", "user-password", "user@example.com");
-    private static final AccountSeed ADMIN_SEED =
-            new AccountSeed("admin", "admin-password", "admin@example.com");
+    private static final AccountSeed USER_SEED = new AccountSeed("user", "user-password");
+    private static final AccountSeed ADMIN_SEED = new AccountSeed("admin", "admin-password");
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final MutableClock clock = new MutableClock(NOW);
@@ -39,15 +37,14 @@ class AccountServiceTests {
         service.seedDefaults(USER_SEED, ADMIN_SEED);
 
         assertThat(accounts.findByUsername("user")).contains(
-                seeded("user", "encoded:user-password", AccountRole.USER, "user@example.com"));
+                seeded("user", "encoded:user-password", AccountRole.USER));
         assertThat(accounts.findByUsername("admin")).contains(
-                seeded("admin", "encoded:admin-password", AccountRole.ADMIN, "admin@example.com"));
+                seeded("admin", "encoded:admin-password", AccountRole.ADMIN));
     }
 
     @Test
     void seedingDoesNotOverwriteAnExistingAccount() {
-        Account existing =
-                seeded("user", "existing-hash", AccountRole.ADMIN, "existing@example.com");
+        Account existing = seeded("user", "existing-hash", AccountRole.ADMIN);
         accounts.save(existing);
 
         service.seedDefaults(USER_SEED, ADMIN_SEED);
@@ -57,27 +54,26 @@ class AccountServiceTests {
     }
 
     /**
-     * The profile columns were added to a table that already held rows, so an
-     * account seeded before that change reads back with neither field. Leaving it
+     * The creation timestamp column was added to a table that already held rows,
+     * so an account seeded before that change reads back without it. Leaving it
      * that way would make the administrative listing permanently incomplete for
      * the two accounts every deployment has.
      */
     @Test
-    void seedingBackfillsAnExistingAccountThatPredatesTheProfileColumns() {
+    void seedingBackfillsAnExistingAccountThatPredatesTheCreatedAtColumn() {
         accounts.save(new Account("user", "existing-hash", AccountRole.ADMIN));
 
         service.seedDefaults(USER_SEED, ADMIN_SEED);
 
-        assertThat(accounts.require("user")).isEqualTo(new Account(
-                "user", "existing-hash", AccountRole.ADMIN, 0, null,
-                "user@example.com", true, NOW));
+        assertThat(accounts.require("user")).isEqualTo(
+                new Account("user", "existing-hash", AccountRole.ADMIN, 0, null, true, NOW));
     }
 
-    /** A backfill touches the profile only; nothing else about the account. */
+    /** A backfill touches the timestamp only; nothing else about the account. */
     @Test
     void backfillingKeepsThePasswordRoleDisabledFlagAndFailureRun() {
         accounts.save(new Account(
-                "admin", "operator-hash", AccountRole.USER, 2, null, null, false, null));
+                "admin", "operator-hash", AccountRole.USER, 2, null, false, null));
 
         service.seedDefaults(USER_SEED, ADMIN_SEED);
 
@@ -86,7 +82,7 @@ class AccountServiceTests {
         assertThat(backfilled.role()).isEqualTo(AccountRole.USER);
         assertThat(backfilled.enabled()).isFalse();
         assertThat(backfilled.failedLoginAttempts()).isEqualTo(2);
-        assertThat(backfilled.email()).isEqualTo("admin@example.com");
+        assertThat(backfilled.createdAt()).isEqualTo(NOW);
     }
 
     /**
@@ -127,7 +123,7 @@ class AccountServiceTests {
     void reportsALockedAccountAsLockedToSpringSecurity() {
         accounts.save(new Account(
                 "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5)),
-                "ada@example.com", true, NOW));
+                true, NOW));
 
         assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
     }
@@ -136,7 +132,7 @@ class AccountServiceTests {
     void reportsAnAccountWhoseLockoutHasExpiredAsUsableAgain() {
         accounts.save(new Account(
                 "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5)),
-                "ada@example.com", true, NOW));
+                true, NOW));
 
         clock.advanceBy(Duration.ofMinutes(5));
 
@@ -151,8 +147,7 @@ class AccountServiceTests {
     @Test
     void reportsADisabledAccountAsDisabled() {
         accounts.save(new Account(
-                "retired", "stored-hash", AccountRole.USER, 0, null,
-                "retired@example.com", false, NOW));
+                "retired", "stored-hash", AccountRole.USER, 0, null, false, NOW));
 
         var details = service.loadUserByUsername("retired");
 
@@ -168,9 +163,8 @@ class AccountServiceTests {
     }
 
     /** A complete, enabled account created at {@code NOW} — what seeding writes. */
-    private static Account seeded(
-            String username, String passwordHash, AccountRole role, String email) {
-        return new Account(username, passwordHash, role, 0, null, email, true, NOW);
+    private static Account seeded(String username, String passwordHash, AccountRole role) {
+        return new Account(username, passwordHash, role, 0, null, true, NOW);
     }
 
     private static final class PrefixPasswordEncoder implements PasswordEncoder {

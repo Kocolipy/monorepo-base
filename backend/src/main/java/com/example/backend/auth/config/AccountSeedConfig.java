@@ -22,12 +22,10 @@ public class AccountSeedConfig {
             AccountService accounts,
             @Value("${app.auth.username}") String username,
             @Value("${app.auth.password}") String password,
-            @Value("${app.auth.email}") String email,
             @Value("${app.auth.secondary-username}") String adminUsername,
-            @Value("${app.auth.secondary-password}") String adminPassword,
-            @Value("${app.auth.secondary-email}") String adminEmail) {
+            @Value("${app.auth.secondary-password}") String adminPassword) {
         return arguments -> accounts.seedDefaults(
-                new AccountSeed(username, password, email),
-                new AccountSeed(adminUsername, adminPassword, adminEmail));
+                new AccountSeed(username, password),
+                new AccountSeed(adminUsername, adminPassword));
     }
 }

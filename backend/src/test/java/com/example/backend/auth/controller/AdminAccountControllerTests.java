@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.auth.application.AccountAdministrationService;
 import com.example.backend.auth.application.AccountSummary;
-import com.example.backend.auth.controller.AdminUserController.AdminUserResponse;
+import com.example.backend.auth.controller.AdminAccountController.AdminAccountResponse;
 import com.example.backend.auth.domain.AccountRole;
 import java.lang.reflect.RecordComponent;
 import java.security.Principal;
@@ -12,7 +12,7 @@ import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-class AdminUserControllerTests {
+class AdminAccountControllerTests {
 
     private static final Instant CREATED_AT = Instant.parse("2026-01-02T03:04:05Z");
 
@@ -20,24 +20,22 @@ class AdminUserControllerTests {
 
     @Test
     void listsEveryAccountTheServiceReports() {
-        AdminUserController controller = new AdminUserController(new RecordingService(List.of(
+        AdminAccountController controller = new AdminAccountController(new RecordingService(List.of(
                 summary("ada", AccountRole.ADMIN, true, false),
                 summary("bob", AccountRole.USER, false, true))));
 
-        List<AdminUserResponse> response = controller.listUsers();
+        List<AdminAccountResponse> response = controller.listAccounts();
 
         assertThat(response).containsExactly(
-                new AdminUserResponse(
-                        "ada", "ada@example.com", AccountRole.ADMIN, true, false, null, CREATED_AT),
-                new AdminUserResponse(
-                        "bob", "bob@example.com", AccountRole.USER, false, true, null, CREATED_AT));
+                new AdminAccountResponse("ada", AccountRole.ADMIN, true, false, null, CREATED_AT),
+                new AdminAccountResponse("bob", AccountRole.USER, false, true, null, CREATED_AT));
     }
 
     @Test
     void listsNothingWhenNoAccountExists() {
-        AdminUserController controller = new AdminUserController(new RecordingService(List.of()));
+        AdminAccountController controller = new AdminAccountController(new RecordingService(List.of()));
 
-        assertThat(controller.listUsers()).isEmpty();
+        assertThat(controller.listAccounts()).isEmpty();
     }
 
     /**
@@ -48,9 +46,9 @@ class AdminUserControllerTests {
     @Test
     void disablingNamesBothTheTargetAndTheRequester() {
         RecordingService service = new RecordingService(List.of());
-        AdminUserController controller = new AdminUserController(service);
+        AdminAccountController controller = new AdminAccountController(service);
 
-        AdminUserResponse response = controller.disable("bob", principal);
+        AdminAccountResponse response = controller.disable("bob", principal);
 
         assertThat(service.calls).containsExactly("disable:bob:ada");
         assertThat(response.username()).isEqualTo("bob");
@@ -59,7 +57,7 @@ class AdminUserControllerTests {
     @Test
     void enablingAndUnlockingReachTheirOwnOperations() {
         RecordingService service = new RecordingService(List.of());
-        AdminUserController controller = new AdminUserController(service);
+        AdminAccountController controller = new AdminAccountController(service);
 
         controller.enable("bob");
         controller.unlock("bob");
@@ -74,17 +72,15 @@ class AdminUserControllerTests {
      */
     @Test
     void theResponseShapeHasNoFieldThatCouldCarryACredential() {
-        assertThat(AdminUserResponse.class.getRecordComponents())
+        assertThat(AdminAccountResponse.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly(
-                        "username", "email", "role", "enabled", "locked", "lockedUntil",
-                        "createdAt");
+                        "username", "role", "enabled", "locked", "lockedUntil", "createdAt");
     }
 
     private static AccountSummary summary(
             String username, AccountRole role, boolean enabled, boolean locked) {
-        return new AccountSummary(
-                username, username + "@example.com", role, enabled, locked, null, CREATED_AT);
+        return new AccountSummary(username, role, enabled, locked, null, CREATED_AT);
     }
 
     private static final class RecordingService extends AccountAdministrationService {

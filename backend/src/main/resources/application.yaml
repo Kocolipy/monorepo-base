@@ -37,10 +37,8 @@ app:
   auth:
     username: ${APP_USERNAME:user}
     password: ${APP_PASSWORD:P@ssw0rd}
-    email: ${APP_EMAIL:user@example.com}
     secondary-username: ${APP_SECONDARY_USERNAME:admin}
     secondary-password: ${APP_SECONDARY_PASSWORD:P@ssw0rd}
-    secondary-email: ${APP_SECONDARY_EMAIL:admin@example.com}
     lockout:
       # Consecutive failures that lock an account, and how long it stays locked.
       max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:3}

@@ -160,58 +160,41 @@ class AccountTests {
 
     @Test
     void aNewAccountIsEnabledAndCarriesTheProfileItWasGiven() {
-        Account seeded = new Account(
-                "ada", "hash", AccountRole.USER, 0, null, "ada@example.com", true, NOW);
+        Account seeded = new Account("ada", "hash", AccountRole.USER, 0, null, true, NOW);
 
-        assertThat(seeded.email()).isEqualTo("ada@example.com");
         assertThat(seeded.createdAt()).isEqualTo(NOW);
         assertThat(seeded.enabled()).isTrue();
     }
 
     @Test
-    void backfillingFillsAProfileTheAccountDoesNotHave() {
-        Account backfilled = ACCOUNT.withProfileBackfilled("ada@example.com", NOW);
+    void backfillingFillsACreationTimestampTheAccountDoesNotHave() {
+        Account backfilled = ACCOUNT.withCreatedAtBackfilled(NOW);
 
-        assertThat(backfilled.email()).isEqualTo("ada@example.com");
         assertThat(backfilled.createdAt()).isEqualTo(NOW);
     }
 
     /**
      * The identity of the result is what lets seeding skip a write on an account
-     * that needs nothing, so "already complete" has to return the same instance
+     * that needs nothing, so "already recorded" has to return the same instance
      * rather than an equal copy.
      */
     @Test
-    void backfillingACompleteProfileChangesNothingAndAllocatesNothing() {
-        Account complete = new Account(
-                "ada", "hash", AccountRole.USER, 0, null, "ada@example.com", true, NOW);
+    void backfillingARecordedTimestampChangesNothingAndAllocatesNothing() {
+        Account complete = new Account("ada", "hash", AccountRole.USER, 0, null, true, NOW);
 
-        assertThat(complete.withProfileBackfilled("other@example.com", NOW.plusSeconds(60)))
-                .isSameAs(complete);
-    }
-
-    @Test
-    void backfillingFillsOnlyTheHalfOfTheProfileThatIsMissing() {
-        Account halfRecorded = new Account(
-                "ada", "hash", AccountRole.USER, 0, null, "kept@example.com", true, null);
-
-        Account backfilled =
-                halfRecorded.withProfileBackfilled("ignored@example.com", NOW);
-
-        assertThat(backfilled.email()).isEqualTo("kept@example.com");
-        assertThat(backfilled.createdAt()).isEqualTo(NOW);
+        assertThat(complete.withCreatedAtBackfilled(NOW.plusSeconds(60))).isSameAs(complete);
     }
 
     /**
-     * A backfill is administrative bookkeeping on a row that predates two
-     * columns. It must not disturb the login history, which the login path owns
+     * A backfill is administrative bookkeeping on a row that predates the
+     * column. It must not disturb the login history, which the login path owns
      * and may have written a moment earlier.
      */
     @Test
     void backfillingPreservesTheFailureRunAndLockout() {
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
-        Account backfilled = locked.withProfileBackfilled("ada@example.com", NOW);
+        Account backfilled = locked.withCreatedAtBackfilled(NOW);
 
         assertThat(backfilled.failedLoginAttempts()).isEqualTo(3);
         assertThat(backfilled.lockedUntil()).isEqualTo(locked.lockedUntil());
@@ -221,8 +204,7 @@ class AccountTests {
     /** The two refusal mechanisms are independent; neither implies the other. */
     @Test
     void aDisabledAccountIsNotLockedAndALockedAccountIsNotDisabled() {
-        Account disabled = new Account(
-                "ada", "hash", AccountRole.USER, 0, null, "ada@example.com", false, NOW);
+        Account disabled = new Account("ada", "hash", AccountRole.USER, 0, null, false, NOW);
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
         assertThat(disabled.isLocked(NOW)).isFalse();
@@ -231,16 +213,13 @@ class AccountTests {
 
     @Test
     void theLoginTransitionsCarryTheProfileThrough() {
-        Account seeded = new Account(
-                "ada", "hash", AccountRole.USER, 0, null, "ada@example.com", false, NOW);
+        Account seeded = new Account("ada", "hash", AccountRole.USER, 0, null, false, NOW);
 
         Account afterFailure = seeded.withFailureRecorded(POLICY, NOW);
         Account afterSuccess = afterFailure.withSuccessfulLogin();
 
-        assertThat(afterFailure.email()).isEqualTo("ada@example.com");
         assertThat(afterFailure.createdAt()).isEqualTo(NOW);
         assertThat(afterFailure.enabled()).isFalse();
-        assertThat(afterSuccess.email()).isEqualTo("ada@example.com");
         assertThat(afterSuccess.createdAt()).isEqualTo(NOW);
         assertThat(afterSuccess.enabled()).isFalse();
     }

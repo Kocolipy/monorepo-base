@@ -12,18 +12,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
- * One row of the **account listing**, exactly as `GET /api/admin/users` reports
+ * One row of the **account listing**, exactly as `GET /api/admin/accounts` reports
  * it.
  *
  * `enabled` and `locked` are two separate refusal mechanisms and both are shown:
  * an account serving a lockout right now looks healthy if only `enabled` is
  * rendered, and an administrator would have no way to tell which accounts need
- * unlocking. `email` and `createdAt` are null only for a row written before
- * those columns existed.
+ * unlocking. `createdAt` is null only for a row written before that column
+ * existed.
  */
 export interface AdminAccount {
   username: string;
-  email: string | null;
   role: AuthRole;
   enabled: boolean;
   locked: boolean;
@@ -98,7 +97,7 @@ export function Accounts() {
   const [pending, setPending] = useState<string | null>(null);
 
   const loadAccounts = useCallback(
-    () => request("/api/admin/users", {}, decodeAccounts),
+    () => request("/api/admin/accounts", {}, decodeAccounts),
     [request],
   );
 
@@ -127,7 +126,7 @@ export function Accounts() {
     setPending(account.username);
     try {
       const result = await request(
-        `/api/admin/users/${account.username}/${action}`,
+        `/api/admin/accounts/${account.username}/${action}`,
         { method: "POST" },
         decodeAccount,
       );
@@ -192,9 +191,6 @@ export function Accounts() {
                     Username
                   </th>
                   <th className="py-2 pr-4 font-medium" scope="col">
-                    Email
-                  </th>
-                  <th className="py-2 pr-4 font-medium" scope="col">
                     Role
                   </th>
                   <th className="py-2 pr-4 font-medium" scope="col">
@@ -214,7 +210,6 @@ export function Accounts() {
                     <th className="py-3 pr-4 font-medium" scope="row">
                       {account.username}
                     </th>
-                    <td className="py-3 pr-4 text-muted-foreground">{account.email ?? "—"}</td>
                     <td className="py-3 pr-4 text-muted-foreground">{account.role}</td>
                     <td className="py-3 pr-4">
                       <StatusCell account={account} />

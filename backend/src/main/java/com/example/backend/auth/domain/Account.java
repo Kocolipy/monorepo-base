@@ -9,9 +9,9 @@ import java.time.Instant;
  * Its recent login history — how many consecutive failures have been recorded,
  * and, once the policy's limit is reached, the instant its lockout expires — is
  * behaviour here rather than in the caller, so "what counts as locked" has one
- * answer that a unit test can reach. Its administrative profile — email, whether
- * it is enabled, when it was created — is plain data that only account
- * administration reads.
+ * answer that a unit test can reach. Its administrative profile — whether it is
+ * enabled, when it was created — is plain data that only account administration
+ * reads.
  *
  * <p>The two are deliberately separate. A lockout is automatic, temporary, and
  * imposed by the failure run; {@code enabled} is a standing decision that no
@@ -23,10 +23,9 @@ import java.time.Instant;
  * {@link com.example.backend.auth.application.AccountSummary}, which has no
  * field to leak it into.
  *
- * <p>{@code email} and {@code createdAt} are nullable for one reason only: a row
- * written before those columns existed has no value for them, and inventing one
- * would be worse than reporting that none is recorded. Startup seeding backfills
- * what it can (see
+ * <p>{@code createdAt} is nullable for one reason only: a row written before the
+ * column existed has no value for it, and inventing one would be worse than
+ * reporting that none is recorded. Startup seeding backfills what it can (see
  * {@link com.example.backend.auth.application.AccountService#seedDefaults}).
  */
 public record Account(
@@ -35,28 +34,23 @@ public record Account(
         AccountRole role,
         int failedLoginAttempts,
         Instant lockedUntil,
-        String email,
         boolean enabled,
         Instant createdAt) {
 
     /**
      * A newly registered account: nothing failed yet, nothing locked, and no
-     * profile recorded. Kept because most callers — every test of the lockout
-     * rule among them — have no interest in the profile fields, and spelling out
-     * eight arguments there would bury what each case is actually about.
+     * creation timestamp recorded. Kept because most callers — every test of the
+     * lockout rule among them — have no interest in the profile fields, and
+     * spelling out seven arguments there would bury what each case is actually
+     * about.
      */
     public Account(String username, String passwordHash, AccountRole role) {
-        this(username, passwordHash, role, 0, null, null, true, null);
+        this(username, passwordHash, role, 0, null, true, null);
     }
 
     /**
-     * An account with a login history and no profile recorded — the shape the
-     * lockout rule reasons about.
-     *
-     * <p>There is deliberately no sibling overload taking a profile instead: two
-     * five-argument constructors distinguished only by the type of the fourth
-     * parameter would compile a mistake as readily as the intent. A caller that
-     * cares about the profile uses the canonical constructor and names all eight.
+     * An account with a login history and no creation timestamp recorded — the
+     * shape the lockout rule reasons about.
      */
     public Account(
             String username,
@@ -64,7 +58,7 @@ public record Account(
             AccountRole role,
             int failedLoginAttempts,
             Instant lockedUntil) {
-        this(username, passwordHash, role, failedLoginAttempts, lockedUntil, null, true, null);
+        this(username, passwordHash, role, failedLoginAttempts, lockedUntil, true, null);
     }
 
     /**
@@ -98,7 +92,6 @@ public record Account(
                 role,
                 attempts,
                 limitReached ? now.plus(policy.lockDuration()) : null,
-                email,
                 enabled,
                 createdAt);
     }
@@ -114,12 +107,12 @@ public record Account(
     }
 
     /**
-     * The account with an administrative profile filled in where it had none.
-     * Startup seeding's backfill for a row that predates those columns; anything
-     * already recorded is left alone, credentials and login history included.
+     * The account with a creation timestamp filled in where it had none. Startup
+     * seeding's backfill for a row that predates that column; anything already
+     * recorded is left alone, credentials and login history included.
      */
-    public Account withProfileBackfilled(String fallbackEmail, Instant fallbackCreatedAt) {
-        if (email != null && createdAt != null) {
+    public Account withCreatedAtBackfilled(Instant fallbackCreatedAt) {
+        if (createdAt != null) {
             return this;
         }
         return new Account(
@@ -128,9 +121,8 @@ public record Account(
                 role,
                 failedLoginAttempts,
                 lockedUntil,
-                email == null ? fallbackEmail : email,
                 enabled,
-                createdAt == null ? fallbackCreatedAt : createdAt);
+                fallbackCreatedAt);
     }
 
     /**
@@ -156,7 +148,6 @@ public record Account(
                 role,
                 failedLoginAttempts,
                 lockedUntil,
-                email,
                 shouldBeEnabled,
                 createdAt);
     }
@@ -185,6 +176,6 @@ public record Account(
         if (failedLoginAttempts == 0 && lockedUntil == null) {
             return this;
         }
-        return new Account(username, passwordHash, role, 0, null, email, enabled, createdAt);
+        return new Account(username, passwordHash, role, 0, null, enabled, createdAt);
     }
 }

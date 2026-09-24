@@ -183,7 +183,7 @@ time out; shared storage state collapses that to one.
 ### Calling the API from a spec
 
 A **safe** request needs nothing but the jar: `roles-admin.spec.ts` and
-`roles-user.spec.ts` call `GET /api/admin/users` through `page.request` directly,
+`roles-user.spec.ts` call `GET /api/admin/accounts` through `page.request` directly,
 which is how the role policy is asserted on the server rather than only on the
 SPA's redirect. A spec that asserts a role is refused must assert the exact
 status — `403` means the session was accepted and the role refused, where a `401`
@@ -211,7 +211,7 @@ the seeded User: it disables and re-enables it through the page and is
 `test.describe.serial` so its own tests cannot race each other under
 `fullyParallel`. `roles-admin.spec.ts` therefore asserts only the idempotent
 actions and the refusals, and the disable/enable contract itself — statuses, the
-`409`s, the response shape — is covered in `AdminUserEndpointTests`, where no
+`409`s, the response shape — is covered in `AdminAccountEndpointTests`, where no
 shared row is at stake. The parallel `user` project is unaffected while the
 account is disabled only because it replays a saved session, and account status is
 evaluated when authenticating rather than per request.

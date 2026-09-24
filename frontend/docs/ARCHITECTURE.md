@@ -49,7 +49,7 @@ decides where a visitor goes next. A new protected area adds a route declaration
 not a second copy of the guard.
 
 `pages/accounts.tsx` is the widest of the three: it reads the account listing from
-`GET /api/admin/users` and posts the three administration actions, replacing the
+`GET /api/admin/accounts` and posts the three administration actions, replacing the
 one affected row from each response rather than reloading the listing — the
 response _is_ that account's new state, so a refetch would only add a request that
 could disagree with it. Every request goes through `useSessionRequest`, so a

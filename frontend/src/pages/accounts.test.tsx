@@ -26,7 +26,6 @@ const auth: AuthContextState = {
 
 const account = (overrides: Partial<AdminAccount> = {}): AdminAccount => ({
   createdAt: "2026-01-02T03:04:05Z",
-  email: "grace@example.com",
   enabled: true,
   locked: false,
   lockedUntil: null,
@@ -60,27 +59,26 @@ describe("Accounts", () => {
     vi.mocked(auth.logout).mockReset();
   });
 
-  it("lists every account with its email, role, status, and creation date", async () => {
+  it("lists every account with its role, status, and creation date", async () => {
     resolveOnceWith({ kind: "ok", data: [account(), account({ role: "ADMIN", username: "ada" })] });
     renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
     const grace = row("grace");
-    expect(grace.getByText("grace@example.com")).toBeInTheDocument();
     expect(grace.getByText("USER")).toBeInTheDocument();
     expect(grace.getByText("Active")).toBeInTheDocument();
     expect(grace.getByText("2026-01-02")).toBeInTheDocument();
 
     expect(screen.getByRole("rowheader", { name: "ada" })).toBeInTheDocument();
-    expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/users", {}, expect.any(Function));
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/accounts", {}, expect.any(Function));
   });
 
-  it("renders a row written before the email and creation columns existed", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ createdAt: null, email: null })] });
+  it("renders a row written before the creation column existed", async () => {
+    resolveOnceWith({ kind: "ok", data: [account({ createdAt: null })] });
     renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
-    expect(row("grace").getAllByText("—")).toHaveLength(2);
+    expect(row("grace").getAllByText("—")).toHaveLength(1);
   });
 
   /**
@@ -124,7 +122,7 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Disable grace" }));
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/users/grace/disable",
+      "/api/admin/accounts/grace/disable",
       { method: "POST" },
       expect.any(Function),
     );
@@ -142,7 +140,7 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Enable grace" }));
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/users/grace/enable",
+      "/api/admin/accounts/grace/enable",
       { method: "POST" },
       expect.any(Function),
     );
@@ -185,7 +183,7 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/users/grace/unlock",
+      "/api/admin/accounts/grace/unlock",
       { method: "POST" },
       expect.any(Function),
     );

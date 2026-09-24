@@ -141,11 +141,10 @@ describe("App", () => {
       "fetch",
       vi.fn((input: string) =>
         Promise.resolve(
-          input === "/api/admin/users"
+          input === "/api/admin/accounts"
             ? Response.json([
                 {
                   createdAt: "2026-01-02T03:04:05Z",
-                  email: "grace@example.com",
                   enabled: true,
                   locked: false,
                   lockedUntil: null,

@@ -206,7 +206,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
-  /api/admin/users:
+  /api/admin/accounts:
     get:
       tags: [Administration]
       summary: List every registered account
@@ -218,7 +218,7 @@ paths:
         The response never contains a password hash. It is serialised from a
         projection that has no field for one, so the guarantee is structural
         rather than a matter of review discipline.
-      operationId: listUsers
+      operationId: listAccounts
       responses:
         "200":
           description: Every account, ordered by username.
@@ -227,12 +227,12 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/AdminUserResponse"
+                  $ref: "#/components/schemas/AdminAccountResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/AdminRoleRequired"
-  /api/admin/users/{username}/disable:
+  /api/admin/accounts/{username}/disable:
     post:
       tags: [Administration]
       summary: Close an account to logins
@@ -253,7 +253,7 @@ paths:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
         "200":
-          $ref: "#/components/responses/AdminUser"
+          $ref: "#/components/responses/AdminAccount"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -262,7 +262,7 @@ paths:
           $ref: "#/components/responses/UnknownAccount"
         "409":
           $ref: "#/components/responses/UnsafeAccountChange"
-  /api/admin/users/{username}/enable:
+  /api/admin/accounts/{username}/enable:
     post:
       tags: [Administration]
       summary: Reopen an account to logins
@@ -275,14 +275,14 @@ paths:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
         "200":
-          $ref: "#/components/responses/AdminUser"
+          $ref: "#/components/responses/AdminAccount"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/AdminRoleRequired"
         "404":
           $ref: "#/components/responses/UnknownAccount"
-  /api/admin/users/{username}/unlock:
+  /api/admin/accounts/{username}/unlock:
     post:
       tags: [Administration]
       summary: End a lockout early
@@ -299,7 +299,7 @@ paths:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
         "200":
-          $ref: "#/components/responses/AdminUser"
+          $ref: "#/components/responses/AdminAccount"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -363,12 +363,12 @@ components:
         The CSRF token is missing or does not match the XSRF-TOKEN cookie. This is
         decided before authentication, so it is returned even on the public login
         operation.
-    AdminUser:
+    AdminAccount:
       description: The account as it stands after the change.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/AdminUserResponse"
+            $ref: "#/components/schemas/AdminAccountResponse"
     UnknownAccount:
       description: |
         No account has that username. The body is empty; the caller is already an
@@ -407,19 +407,12 @@ components:
           type: string
           enum: [USER, ADMIN]
           description: The account role used for authorization.
-    AdminUserResponse:
+    AdminAccountResponse:
       type: object
-      required: [username, email, role, enabled, locked, lockedUntil, createdAt]
+      required: [username, role, enabled, locked, lockedUntil, createdAt]
       properties:
         username:
           type: string
-        email:
-          type: [string, "null"]
-          format: email
-          description: |
-            Null only for an account row written before this column existed.
-            Startup seeding backfills the configured accounts, so a deployment
-            reports null at most until its next restart.
         role:
           type: string
           enum: [USER, ADMIN]
@@ -445,7 +438,10 @@ components:
         createdAt:
           type: [string, "null"]
           format: date-time
-          description: Null for the same reason as `email`.
+          description: |
+            Null only for an account row written before this column existed.
+            Startup seeding backfills it, so a deployment reports null at most
+            until its next restart.
     UpdateSessionRequest:
       type: object
       required: [displayName]

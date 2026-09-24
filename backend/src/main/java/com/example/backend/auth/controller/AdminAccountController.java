@@ -32,18 +32,18 @@ import org.springframework.web.bind.annotation.RestController;
  * they never looked at.
  */
 @RestController
-@RequestMapping("/api/admin/users")
-public class AdminUserController {
+@RequestMapping("/api/admin/accounts")
+public class AdminAccountController {
 
     private final AccountAdministrationService accounts;
 
-    public AdminUserController(AccountAdministrationService accounts) {
+    public AdminAccountController(AccountAdministrationService accounts) {
         this.accounts = accounts;
     }
 
     @GetMapping
-    public List<AdminUserResponse> listUsers() {
-        return accounts.listAccounts().stream().map(AdminUserResponse::of).toList();
+    public List<AdminAccountResponse> listAccounts() {
+        return accounts.listAccounts().stream().map(AdminAccountResponse::of).toList();
     }
 
     /**
@@ -52,20 +52,20 @@ public class AdminUserController {
      * on every request.
      */
     @PostMapping("/{username}/disable")
-    public AdminUserResponse disable(@PathVariable String username, Principal principal) {
-        return AdminUserResponse.of(accounts.disable(username, principal.getName()));
+    public AdminAccountResponse disable(@PathVariable String username, Principal principal) {
+        return AdminAccountResponse.of(accounts.disable(username, principal.getName()));
     }
 
     /** Reopens an account to logins, leaving any lockout it is serving standing. */
     @PostMapping("/{username}/enable")
-    public AdminUserResponse enable(@PathVariable String username) {
-        return AdminUserResponse.of(accounts.enable(username));
+    public AdminAccountResponse enable(@PathVariable String username) {
+        return AdminAccountResponse.of(accounts.enable(username));
     }
 
     /** Ends a lockout early. Says nothing about whether the account is enabled. */
     @PostMapping("/{username}/unlock")
-    public AdminUserResponse unlock(@PathVariable String username) {
-        return AdminUserResponse.of(accounts.unlock(username));
+    public AdminAccountResponse unlock(@PathVariable String username) {
+        return AdminAccountResponse.of(accounts.unlock(username));
     }
 
     @ExceptionHandler(UnknownAccountException.class)
@@ -88,19 +88,17 @@ public class AdminUserController {
      * The wire shape. It is built from an {@link AccountSummary}, which has no
      * password hash to copy, so this response cannot carry one.
      */
-    public record AdminUserResponse(
+    public record AdminAccountResponse(
             String username,
-            String email,
             AccountRole role,
             boolean enabled,
             boolean locked,
             Instant lockedUntil,
             Instant createdAt) {
 
-        static AdminUserResponse of(AccountSummary summary) {
-            return new AdminUserResponse(
+        static AdminAccountResponse of(AccountSummary summary) {
+            return new AdminAccountResponse(
                     summary.username(),
-                    summary.email(),
                     summary.role(),
                     summary.enabled(),
                     summary.locked(),

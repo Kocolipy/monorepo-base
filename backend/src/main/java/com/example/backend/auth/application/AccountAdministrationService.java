@@ -129,7 +129,6 @@ public class AccountAdministrationService {
     private static AccountSummary summarize(Account account, Instant now) {
         return new AccountSummary(
                 account.username(),
-                account.email(),
                 account.role(),
                 account.enabled(),
                 account.isLocked(now),

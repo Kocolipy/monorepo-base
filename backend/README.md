@@ -78,14 +78,13 @@ Review who has access. This needs an `ADMIN` session; a `USER` session is
 answered with `403`, and the listing never contains a password hash:
 
 ```bash
-curl -b cookies.txt http://localhost:8080/api/admin/users
+curl -b cookies.txt http://localhost:8080/api/admin/accounts
 ```
 
 ```json
 [
   {
     "username": "admin",
-    "email": "admin@example.com",
     "role": "ADMIN",
     "enabled": true,
     "locked": false,
@@ -104,13 +103,13 @@ CSRF header:
 token=$(awk '/XSRF-TOKEN/{print $7}' cookies.txt)
 
 curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/users/user/disable
+  http://localhost:8080/api/admin/accounts/user/disable
 
 curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/users/user/enable
+  http://localhost:8080/api/admin/accounts/user/enable
 
 curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/users/user/unlock
+  http://localhost:8080/api/admin/accounts/user/unlock
 ```
 
 Each answers `200` with the account as it now stands, `404` for an unknown

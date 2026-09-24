@@ -54,7 +54,7 @@ them:
   `accounts.tsx`). A page requests through `useSessionRequest`, never `apiFetch`
   directly — the `mb-transport-is-behind-the-session-seam` rule enforces it. Free
   to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN account
-  administration page: it reads `GET /api/admin/users` and posts the
+  administration page: it reads `GET /api/admin/accounts` and posts the
   disable / enable / unlock actions, and owns the copy for what each refusal
   status means to an administrator.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts

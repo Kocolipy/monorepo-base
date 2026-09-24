@@ -17,7 +17,7 @@ test.describe("ADMIN user listing", () => {
   // session authenticates this call. No CSRF header is needed: the token is
   // only demanded of unsafe methods.
   test("lists every registered account", async ({ page }) => {
-    const response = await page.request.get("/api/admin/users");
+    const response = await page.request.get("/api/admin/accounts");
 
     expect(response.status()).toBe(200);
 
@@ -30,10 +30,8 @@ test.describe("ADMIN user listing", () => {
     expect(users.map((user) => user.role)).toContain("ADMIN");
   });
 
-  test("reports each account's username, email, role, status, and creation date", async ({
-    page,
-  }) => {
-    const response = await page.request.get("/api/admin/users");
+  test("reports each account's username, role, status, and creation date", async ({ page }) => {
+    const response = await page.request.get("/api/admin/accounts");
     const users = (await response.json()) as Array<Record<string, unknown>>;
 
     const admin = users.find((user) => user.role === "ADMIN");
@@ -41,7 +39,6 @@ test.describe("ADMIN user listing", () => {
 
     expect(Object.keys(admin!).sort()).toEqual([
       "createdAt",
-      "email",
       "enabled",
       "locked",
       "lockedUntil",
@@ -49,7 +46,6 @@ test.describe("ADMIN user listing", () => {
       "username",
     ]);
     expect(admin!.username).toEqual(expect.any(String));
-    expect(admin!.email).toContain("@");
     expect(admin!.enabled).toBe(true);
     expect(admin!.locked).toBe(false);
     // Parseable as a date rather than a fixed value: the timestamp is whenever
@@ -63,7 +59,7 @@ test.describe("ADMIN user listing", () => {
    * object would still be caught.
    */
   test("never returns password hashes", async ({ page }) => {
-    const response = await page.request.get("/api/admin/users");
+    const response = await page.request.get("/api/admin/accounts");
     const body = await response.text();
 
     expect(body).not.toContain("password");
@@ -79,7 +75,7 @@ test.describe("ADMIN account control", () => {
    * shared with the `user` project running beside this one, and two specs
    * toggling it in parallel would race. The endpoint's own contract — status
    * codes, the refusals, the response shape — is covered in
-   * `AdminUserEndpointTests`.
+   * `AdminAccountEndpointTests`.
    */
 
   /**
@@ -102,7 +98,7 @@ test.describe("ADMIN account control", () => {
    * project's session IS the `admin` account, so the self check answers first and
    * the result does not depend on how many administrators the environment
    * happens to have seeded. The last-administrator refusal is covered in
-   * `AdminUserEndpointTests`, where exactly two accounts exist and disabling the
+   * `AdminAccountEndpointTests`, where exactly two accounts exist and disabling the
    * only admin can be provoked deterministically.
    */
   test("refuses to disable the account making the request", async ({ page }) => {
@@ -112,7 +108,7 @@ test.describe("ADMIN account control", () => {
     // refused. A 403 here would mean the role check turned it away instead.
     expect(response.status()).toBe(409);
 
-    const listing = (await (await page.request.get("/api/admin/users")).json()) as Array<
+    const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
       Record<string, unknown>
     >;
     expect(listing.find((account) => account.username === "admin")).toMatchObject({

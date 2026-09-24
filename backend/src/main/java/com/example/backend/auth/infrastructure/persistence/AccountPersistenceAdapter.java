@@ -30,7 +30,6 @@ class AccountPersistenceAdapter implements AccountRepository {
                 account.role(),
                 account.failedLoginAttempts(),
                 account.lockedUntil(),
-                account.email(),
                 account.enabled(),
                 account.createdAt())));
     }
@@ -62,7 +61,6 @@ class AccountPersistenceAdapter implements AccountRepository {
                 entity.getRole(),
                 entity.getFailedLoginAttempts(),
                 entity.getLockedUntil(),
-                entity.getEmail(),
                 entity.getEnabled() == null || entity.getEnabled(),
                 entity.getCreatedAt());
     }

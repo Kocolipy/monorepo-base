@@ -37,10 +37,10 @@ public class AccountService implements UserDetailsService {
      * overwrites one that exists — its password, role and login history are
      * whatever the operator and the login path made them.
      *
-     * <p>One exception: an account that exists but carries no email or no
-     * creation timestamp predates those columns, and the administrative listing
-     * has nothing to report for it. Those two fields alone are backfilled from
-     * configuration, so the listing is complete after one restart.
+     * <p>One exception: an account that exists but carries no creation timestamp
+     * predates that column, and the administrative listing has nothing to report
+     * for it. That one field alone is backfilled, so the listing is complete
+     * after one restart.
      */
     public void seedDefaults(AccountSeed user, AccountSeed admin) {
         seed(user, AccountRole.USER);
@@ -78,20 +78,19 @@ public class AccountService implements UserDetailsService {
                     role,
                     0,
                     null,
-                    seed.email(),
                     true,
                     clock.instant()));
             return;
         }
 
         Account account = existing.get();
-        Account backfilled = account.withProfileBackfilled(seed.email(), clock.instant());
+        Account backfilled = account.withCreatedAtBackfilled(clock.instant());
         if (backfilled != account) {
             accounts.save(backfilled);
         }
     }
 
     /** One configured startup account. The role is this service's to assign. */
-    public record AccountSeed(String username, String password, String email) {
+    public record AccountSeed(String username, String password) {
     }
 }

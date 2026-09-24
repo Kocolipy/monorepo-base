@@ -29,7 +29,7 @@ test.describe("USER user listing", () => {
    * unauthenticated, and the test would be passing for the wrong reason.
    */
   test("is forbidden from listing accounts", async ({ page }) => {
-    const response = await page.request.get("/api/admin/users");
+    const response = await page.request.get("/api/admin/accounts");
 
     expect(response.status()).toBe(403);
     expect(await response.text()).not.toContain("@");

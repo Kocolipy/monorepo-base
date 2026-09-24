@@ -22,12 +22,10 @@ import java.time.Instant;
  *                    its own clock would disagree with the server that enforces it
  * @param lockedUntil when the current lockout lifts; null if none was ever
  *                    imposed, and kept after one expires
- * @param email       null only for a row written before the column existed
- * @param createdAt   null for the same reason
+ * @param createdAt   null only for a row written before the column existed
  */
 public record AccountSummary(
         String username,
-        String email,
         AccountRole role,
         boolean enabled,
         boolean locked,

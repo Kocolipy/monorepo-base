@@ -32,7 +32,7 @@ import org.springframework.web.context.WebApplicationContext;
  * the application's own JSON converters, over the accounts startup seeding
  * created.
  *
- * <p>{@code AdminUserControllerTests} covers what the controller returns and
+ * <p>{@code AdminAccountControllerTests} covers what the controller returns and
  * {@code SecurityConfigTests} covers which paths the chain guards. What neither
  * can see is the two composed — a response that is correct but reachable by the
  * wrong caller, or authorized but carrying the wrong JSON.
@@ -43,7 +43,7 @@ import org.springframework.web.context.WebApplicationContext;
  * then describe a format the running service does not produce.
  */
 @SpringBootTest
-class AdminUserEndpointTests {
+class AdminAccountEndpointTests {
 
     @Autowired
     private WebApplicationContext context;
@@ -66,12 +66,10 @@ class AdminUserEndpointTests {
 
     @Test
     void anAdministratorSeesEveryAccountWithItsRoleStatusAndCreationDate() throws Exception {
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].username")
                         .value(Matchers.hasItems("test-admin", "test-user")))
-                .andExpect(jsonPath("$[?(@.username == 'test-user')].email")
-                        .value(Matchers.contains("test-user@example.com")))
                 .andExpect(jsonPath("$[?(@.username == 'test-user')].role")
                         .value(Matchers.contains("USER")))
                 .andExpect(jsonPath("$[?(@.username == 'test-admin')].role")
@@ -88,7 +86,7 @@ class AdminUserEndpointTests {
     /** The acceptance criterion that matters most: no hash on the wire, ever. */
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(Matchers.not(Matchers.containsString("password"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
@@ -97,13 +95,13 @@ class AdminUserEndpointTests {
 
     @Test
     void anAuthenticatedNonAdministratorIsForbidden() throws Exception {
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_USER")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anUnauthenticatedCallerIsUnauthorized() throws Exception {
-        mvc.perform(get("/api/admin/users"))
+        mvc.perform(get("/api/admin/accounts"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -116,21 +114,21 @@ class AdminUserEndpointTests {
      */
     @Test
     void aControlRequestWithoutACsrfTokenIsRefusedBeforeAuthorization() throws Exception {
-        mvc.perform(post("/api/admin/users/test-user/disable")
+        mvc.perform(post("/api/admin/accounts/test-user/disable")
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anAuthenticatedNonAdministratorCannotDisableAnAccount() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/users/test-user/disable"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
                         .session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/users/nobody/unlock"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/nobody/unlock"))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isNotFound());
     }
@@ -145,18 +143,18 @@ class AdminUserEndpointTests {
     @Test
     void anAdministratorDisablesAndReopensAnAccount() throws Exception {
         try {
-            mvc.perform(withCsrf(post("/api/admin/users/test-user/disable"))
+            mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
                             .session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.username").value("test-user"))
                     .andExpect(jsonPath("$.enabled").value(false))
                     .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
-            mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+            mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(jsonPath("$[?(@.username == 'test-user')].enabled")
                             .value(Matchers.contains(false)));
         } finally {
-            mvc.perform(withCsrf(post("/api/admin/users/test-user/enable"))
+            mvc.perform(withCsrf(post("/api/admin/accounts/test-user/enable"))
                             .session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.enabled").value(true));
@@ -170,18 +168,18 @@ class AdminUserEndpointTests {
      */
     @Test
     void disablingTheLastEnabledAdministratorIsRefused() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/users/test-admin/disable"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/test-admin/disable"))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isConflict());
 
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(jsonPath("$[?(@.username == 'test-admin')].enabled")
                         .value(Matchers.contains(true)));
     }
 
     @Test
     void unlockingAnAccountThatIsNotLockedSucceedsAndReportsItUnlocked() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/users/test-user/unlock"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locked").value(false))

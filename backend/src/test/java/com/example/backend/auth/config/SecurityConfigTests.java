@@ -152,24 +152,24 @@ class SecurityConfigTests {
      * three cover the whole rule: refused for a non-admin, allowed for an admin,
      * and — because the chain answers before any handler — unauthorized rather
      * than forbidden for a caller with no session at all. The path asserted is
-     * the one {@link com.example.backend.auth.controller.AdminUserController}
+     * the one {@link com.example.backend.auth.controller.AdminAccountController}
      * really maps, so the rule is proven against the endpoint it protects.
      */
     @Test
     void userRoleCannotReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_USER")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void adminRoleCanReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk());
     }
 
     @Test
     void anonymousCallerCannotReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/users"))
+        mvc.perform(get("/api/admin/accounts"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -225,7 +225,7 @@ class SecurityConfigTests {
     @RestController
     static class ProbeController {
 
-        @GetMapping({"/", "/api/admin/users"})
+        @GetMapping({"/", "/api/admin/accounts"})
         String index() {
             return "index";
         }

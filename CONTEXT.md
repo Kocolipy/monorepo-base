@@ -68,11 +68,10 @@ counter page, the accounts page at `/accounts`, and the administration API under
 `/api/admin/**`.
 
 **Account** — a database-backed login identity with one username, encoded
-password, role, email, enabled flag, and creation timestamp, plus the state of
-its recent login history. Startup seeding creates the configured User and Admin
-only when their usernames are absent; it does not overwrite an existing account,
-though it does fill in an email or creation timestamp a pre-existing account has
-none of.
+password, role, enabled flag, and creation timestamp, plus the state of its
+recent login history. Startup seeding creates the configured User and Admin only
+when their usernames are absent; it does not overwrite an existing account,
+though it does fill in a creation timestamp a pre-existing account has none of.
 
 **Failure run** — the consecutive rejected logins recorded against one account,
 counted on the account itself as `failed_login_attempts`. A login the backend
@@ -121,8 +120,8 @@ could undo either without direct database access. A _locked_ Admin still counts
 as available, because that lockout ends on its own.
 
 **Account listing** — what account administration may know about an account:
-username, email, role, enabled flag, whether a lockout is in force, when that
-lockout lifts, and the creation timestamp. Never the password hash, which no
+username, role, enabled flag, whether a lockout is in force, when that lockout
+lifts, and the creation timestamp. Never the password hash, which no
 listing type has a field for. Both refusal mechanisms appear because either alone
 would mislead — an account locked out right now looks healthy if only `enabled`
 is shown, and nothing would say which accounts need unlocking. Whether the

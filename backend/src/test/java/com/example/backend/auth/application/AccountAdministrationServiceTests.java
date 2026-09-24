@@ -36,10 +36,8 @@ class AccountAdministrationServiceTests {
         accounts.save(account("bob", AccountRole.USER));
 
         assertThat(service.listAccounts()).containsExactly(
-                new AccountSummary(
-                        "ada", "ada@example.com", AccountRole.ADMIN, true, false, null, NOW),
-                new AccountSummary(
-                        "bob", "bob@example.com", AccountRole.USER, true, false, null, NOW));
+                new AccountSummary("ada", AccountRole.ADMIN, true, false, null, NOW),
+                new AccountSummary("bob", AccountRole.USER, true, false, null, NOW));
     }
 
     @Test
@@ -271,8 +269,7 @@ class AccountAdministrationServiceTests {
     }
 
     private static Account account(String username, AccountRole role) {
-        return new Account(
-                username, "hash", role, 0, null, username + "@example.com", true, NOW);
+        return new Account(username, "hash", role, 0, null, true, NOW);
     }
 
     private static Account locked(String username) {
@@ -280,14 +277,6 @@ class AccountAdministrationServiceTests {
     }
 
     private static Account locked(String username, AccountRole role) {
-        return new Account(
-                username,
-                "hash",
-                role,
-                3,
-                NOW.plus(LOCKOUT),
-                username + "@example.com",
-                true,
-                NOW);
+        return new Account(username, "hash", role, 3, NOW.plus(LOCKOUT), true, NOW);
     }
 }

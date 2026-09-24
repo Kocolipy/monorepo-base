@@ -34,14 +34,6 @@ public class AccountEntity {
     private Instant lockedUntil;
 
     /**
-     * Nullable, unlike {@link #failedLoginAttempts}: there is no sane default for
-     * an address nobody recorded, and a made-up one in an administrative listing
-     * would be worse than an admitted gap. Startup seeding backfills the
-     * configured accounts.
-     */
-    private String email;
-
-    /**
      * Nullable and boxed for that reason: the column was added to a table that
      * already held rows, so a legacy row carries no value. The adapter reads a
      * missing flag as enabled, which is how those rows behaved before the column
@@ -49,7 +41,7 @@ public class AccountEntity {
      */
     private Boolean enabled;
 
-    /** Nullable for the same reason as {@link #email}. */
+    /** Nullable for the same reason as {@link #enabled}. */
     private Instant createdAt;
 
     protected AccountEntity() {
@@ -61,7 +53,6 @@ public class AccountEntity {
             AccountRole role,
             int failedLoginAttempts,
             Instant lockedUntil,
-            String email,
             Boolean enabled,
             Instant createdAt) {
         this.username = username;
@@ -69,7 +60,6 @@ public class AccountEntity {
         this.role = role;
         this.failedLoginAttempts = failedLoginAttempts;
         this.lockedUntil = lockedUntil;
-        this.email = email;
         this.enabled = enabled;
         this.createdAt = createdAt;
     }
@@ -92,10 +82,6 @@ public class AccountEntity {
 
     public Instant getLockedUntil() {
         return lockedUntil;
-    }
-
-    public String getEmail() {
-        return email;
     }
 
     public Boolean getEnabled() {
