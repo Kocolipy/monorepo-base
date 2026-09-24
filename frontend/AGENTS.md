@@ -6,48 +6,29 @@ owns the session, and each page's own `*-api.ts` talks to the backend through
 `src/lib/http.ts`. There is no global state library and no service worker — this
 file describes what is actually here, not what is planned.
 
-Monorepo-wide rules — layout, the path discipline, the SPA contract with the
-backend, line endings, ignore rules, and the shared agent docs and skills — live
-in the root `AGENTS.md`. This file covers only what is specific to this app.
-Run every command below from `frontend/`.
-
-**`npm ci`, never `npm install`** — `install` re-resolves semver ranges and
-rewrites `package-lock.json`, so it is only for a deliberate dependency change.
-Node is pinned in `/.nvmrc` and `/.tool-versions` and declared in
-`package.json`'s `engines`; `.npmrc` sets `engine-strict`, so a wrong Node is a
-hard install failure. Activate the pin from the repo root (`nvm use`, or
-`mise install`) before the first install.
+Monorepo-wide rules — layout, the path discipline, the SPA build contract, the
+`npm ci` pin, line endings, ignore rules, and the shared agent docs — live in the
+root `AGENTS.md`. This file covers only what is specific to this app. Run every
+command below from `frontend/`.
 
 ## Commands
 
+`npm run` lists every script; `package.json` is the source of truth for what each
+one does. The invocations worth caching are the ones you cannot read off that
+list:
+
 ```bash
-npm ci                            # node_modules is often stale — vitest may be missing until you run this
-npm run dev                       # Vite dev server on :5173
-npm run build                     # tsc -b (app, node, and test projects) + vite build
-npm run lint                      # ESLint
-npm run format                    # Prettier, write
-npm run typecheck                 # tsc -b over all three projects, no bundle
-npm test                          # vitest, single pass
-npm run test:watch                # vitest in watch mode
+npm ci                                # run first — node_modules is often stale, so vitest may be missing
+npx playwright install chromium       # first E2E run on a machine only
 npm test src/pages/showcase.test.tsx  # one file
-npm test -- -t "name of test"     # one test by name
-npm run test:coverage             # v8 coverage
-npm run test:arch                 # depcruise + arch vitest suite
-npm run test:e2e                  # playwright E2E tests
-npm run test:e2e:ui               # playwright interactive UI mode
-npm run test:e2e:debug            # playwright debug mode
-npm run test:security             # semgrep, local ruleset in semgrep/rules
-npm run test:mutation             # full-repo Stryker (slow — CI only)
+npm test -- -t "name of test"         # one test by name
 npx stryker run --mutate '<src-glob>,!<test-glob>'   # scoped Stryker (see docs/TESTING_GUIDE.md)
-npx fallow audit                  # dead code / complexity / duplication in the changeset
+npx fallow audit                      # dead code / complexity / duplication in the changeset
 npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers, before deleting it
-npm run analyze                   # bundle visualizer -> dist/stats.html
 ```
 
-**No `.env` is required** — see the root `AGENTS.md` for the repo-wide
-environment rules and the `VITE_` prefix requirement.
-
-First E2E run on a machine also needs `npx playwright install chromium`.
+`npm run test:mutation` is a whole-repo Stryker run — far too slow for an
+implementation loop, so it belongs to CI. Reach for scoped Stryker instead.
 
 ## Architecture
 
@@ -79,20 +60,20 @@ them:
 `test/.dependency-cruiser.cjs` — and all four have to agree, or a change breaks
 a different tool than the one being edited.
 
-Four rules are review-blocking:
+Four rules are review-blocking, and `npm run test:arch` enforces all four:
 
 - **`src/components/ui/` imports only `src/lib/` and its siblings.** A
   primitive that reaches into a page cannot be swapped out for the published
-  package. `npm run test:arch` enforces this.
-- **`src/lib/` imports nothing from `src/`.** Same gate.
+  package.
+- **`src/lib/` imports nothing from `src/`.**
 - **There is no `src/types/`, `src/hooks/` or `src/utils/`.** Types live in the
-  folder that owns them; shared helpers and hooks live in `src/lib/`. Same gate.
+  folder that owns them; shared helpers and hooks live in `src/lib/`.
 - **Colors come from the tokens in `src/index.css`.** Tailwind utilities
-  (`bg-card`, `text-muted-foreground`) in TSX, `var(--color-*)` in CSS. No
-  literal hex, `rgb()`, `hsl()` or `oklch()` belongs anywhere else — a new shade
-  goes in the `:root` / `.dark` pair and the `@theme inline` block.
-  `test/arch/designTokens.test.ts` enforces this; Tailwind compiles
-  `bg-[#0f172a]` without complaint, so nothing else would catch it.
+  (`bg-card`, `text-muted-foreground`) in TSX, `var(--color-*)` in CSS. A new
+  shade goes in the `:root` / `.dark` pair and the `@theme inline` block, which
+  is the only place a raw `oklch()` belongs. `test/arch/designTokens.test.ts`
+  catches a literal hex, `rgb()`, `hsl()` or `oklch()` elsewhere; Tailwind
+  compiles `bg-[#0f172a]` without complaint, so nothing else would.
 
 **Read `docs/ARCHITECTURE.md`** before adding a folder under `src/`, changing
 the path alias, or touching the token pipeline. It has the folder map, the
@@ -100,8 +81,9 @@ reasoning behind each dependency rule, and where a new concern belongs.
 
 ## Backend contract
 
-`/backend/FRONTEND.md` is the authority on the runtime contract — read it before
-changing anything that issues a request. The parts the SPA has to honour:
+This section is the authority on the runtime contract with the backend — read it
+before changing anything that issues a request, and update it here when the
+backend side moves. What the SPA has to honour:
 
 - **Every unsafe request carries `X-XSRF-TOKEN`.** The backend enforces CSRF
   double-submit, so a `POST` / `PUT` / `PATCH` / `DELETE` without the header
@@ -114,24 +96,27 @@ changing anything that issues a request. The parts the SPA has to honour:
   surfaces the failure. Only `401` means the session ended, and only `401` sends
   the user to the login screen — treating `403` as a logout looks like a random
   sign-out to the user.
-- **Never call `fetch` directly from a component or an API module.** Go through
-  `apiFetch`, or the CSRF handling exists in one more place that can drift.
-  Playwright's `page.request` bypasses it too: use `resetCounterViaApi()` in
-  `test/e2e/auth.helpers.ts` as the pattern for an API call from a spec.
+- **Reach the backend through `apiFetch`, from a component and an API module
+  alike.** A direct `fetch` call puts the CSRF handling in one more place that
+  can drift. Playwright's `page.request` bypasses it too: copy
+  `resetCounterViaApi()` in `test/e2e/auth.helpers.ts` for an API call from a
+  spec.
 - **Sessions expire after 15 minutes** of inactivity, the single default in
-  every environment. Nothing in the SPA hardcodes that today; if a countdown or
-  expiry warning is added, it reads 15 minutes from this contract.
+  every environment. Nothing in the SPA hardcodes that today; a countdown or
+  expiry warning reads the 15 minutes from this contract.
 - **The CSP forbids inline script, `eval`, and every third-party origin** for
   scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
-  and avoid Vite plugins that inject inline `<script>`. Inline _styles_ are
-  allowed.
+  and prefer Vite plugins that keep their output out of an inline `<script>`.
+  Inline _styles_ are allowed.
 
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
 family — enough for the two pages to render, and deliberately no more. They
 follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
-override) so that swapping them out is a delete plus an import rewrite.
+override) so that swapping them out is a delete plus an import rewrite. Keep
+them cheap to delete: no `asChild` / Radix `Slot` (the real library owns that),
+and no icon dependency.
 
 **When the in-house shadcn package is published:** add it to `dependencies`,
 delete `src/components/ui/`, and repoint `@/components/ui` at the package (or
@@ -139,9 +124,6 @@ change the imports). `components.json` is already configured for the shadcn CLI
 — `src/index.css` as the token source, `@/lib/utils` as `cn`, `@/components/ui`
 as the component target — so `npx shadcn@latest add <component>` also works if
 a primitive is needed before the package lands.
-
-Two things the placeholders deliberately do not do: no `asChild` / Radix `Slot`
-(the real library owns that), and no icon dependency. Keep them cheap to delete.
 
 ## Testing
 
@@ -151,7 +133,7 @@ Two things the placeholders deliberately do not do: no `asChild` / Radix `Slot`
 | ------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | **baseline**  | `npm run typecheck`, `npm test`, and `npm run test:arch`                     | Before touching code, to establish a green baseline, then after each change — it proves the change broke nothing that was already passing. |
 | **full**      | baseline + `npm run test:e2e` + `npm run test:security` + `npx fallow audit` | Once an implementation is complete, to confirm the whole thing works.                                                                      |
-| **extensive** | full + `npm run test:mutation`                                               | CI only — a whole-repo Stryker run is far too slow to sit in an implementation loop.                                                       |
+| **extensive** | full + `npm run test:mutation`                                               | CI only.                                                                                                                                   |
 
 Scoped Stryker sits outside these levels: it runs per unit test, not per
 changeset.
@@ -175,13 +157,10 @@ covering the DOM injection sinks (`dangerouslySetInnerHTML`, `innerHTML`,
 `document.write`), `eval` / `new Function`, `target="_blank"` without
 `noopener`, and credential-shaped names assigned string literals.
 
-Local rather than a registry pack so the run stays offline and deterministic
-and each rule carries the reason this project cares about it. A wider sweep is
-still worth doing occasionally:
-
-```bash
-npx semgrep scan --config p/typescript --config p/react
-```
+Local rather than a registry pack so the run stays offline and deterministic and
+each rule carries the reason this project cares about it. A wider sweep is still
+worth doing occasionally: `npx semgrep scan --config p/typescript --config
+p/react`.
 
 A new rule goes in `semgrep/rules/` with its reason in a comment and an `fe-`
 prefixed id, so it can never collide with a registry id. Verify it fires: write

@@ -25,10 +25,9 @@ npx playwright install chromium   # first time only, for npm run test:e2e
 npm run dev                       # http://localhost:5173
 ```
 
-Use `npm ci`, not `npm install` — `install` re-resolves semver ranges and
-rewrites the lockfile, which is how two machines end up on different dependency
-trees. Reach for `npm install` only when deliberately adding or upgrading a
-dependency, and commit the lockfile change it produces.
+Use `npm ci`, not `npm install` — the root `README.md` explains why, and
+`npm install` belongs only to a deliberate dependency change whose lockfile
+update you commit.
 
 **No `.env` is required.** Nothing reads `import.meta.env` yet. When that
 changes, the variable must be `VITE_`-prefixed (Vite only exposes that prefix
@@ -39,26 +38,16 @@ to the client) and documented here.
 
 ## Scripts
 
-| Command                  | Description                                             |
-| ------------------------ | ------------------------------------------------------- |
-| `npm run dev`            | Vite dev server on `:5173`                              |
-| `npm run build`          | Type-check all three TS projects (`tsc -b`), then build |
-| `npm run preview`        | Serve the production build locally                      |
-| `npm run lint`           | ESLint                                                  |
-| `npm run format`         | Prettier, write                                         |
-| `npm run format:check`   | Prettier, check only                                    |
-| `npm run typecheck`      | `tsc -b` over app, node, and test projects              |
-| `npm test`               | Vitest, single pass                                     |
-| `npm run test:watch`     | Vitest in watch mode                                    |
-| `npm run test:ui`        | Vitest with the browser UI                              |
-| `npm run test:coverage`  | Vitest with v8 coverage                                 |
-| `npm run test:arch`      | dependency-cruiser + the `test/arch` vitest suite       |
-| `npm run test:e2e`       | Playwright                                              |
-| `npm run test:e2e:ui`    | Playwright interactive UI mode                          |
-| `npm run test:e2e:debug` | Playwright debug mode                                   |
-| `npm run test:security`  | Semgrep, local ruleset in `semgrep/rules/`              |
-| `npm run test:mutation`  | Stryker mutation testing                                |
-| `npm run analyze`        | Bundle visualizer → `dist/stats.html`                   |
+`npm run` prints the full list. The ones whose name does not give them away:
+
+| Command                 | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| `npm run build`         | Type-check all three TS projects (`tsc -b`), then build |
+| `npm run typecheck`     | `tsc -b` over app, node, and test projects              |
+| `npm run test:arch`     | dependency-cruiser + the `test/arch` vitest suite       |
+| `npm run test:security` | Semgrep, local ruleset in `semgrep/rules/`              |
+| `npm run test:mutation` | Stryker mutation testing (whole repo — slow)            |
+| `npm run analyze`       | Bundle visualizer → `dist/stats.html`                   |
 
 Not npm scripts, but part of the gate:
 
@@ -108,27 +97,20 @@ graphify-out/           knowledge graph (tracked; refreshed with the code)
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the two pages to render, and no more. They follow the shadcn
-shape (a `cva` variant table, `cn()` merging a `className` override) so that
-swapping them for the in-house shadcn package is a delete plus an import
-rewrite.
-
-`components.json` is already configured for the shadcn CLI (`src/index.css` as
-the token source, `@/lib/utils` as `cn`), so `npx shadcn@latest add <component>`
-works if a primitive is needed before the package lands.
+family, shaped like shadcn so that swapping them for the in-house package is a
+delete plus an import rewrite. `components.json` is already configured for the
+shadcn CLI, so `npx shadcn@latest add <component>` works if a primitive is
+needed before that package lands. `AGENTS.md` has the swap procedure and the
+constraints that keep the placeholders cheap to delete.
 
 ## Styling
 
 Tailwind CSS v4, CSS-first — there is **no `tailwind.config.js`**.
 `@tailwindcss/vite` is the build-side setup and `src/index.css` is the
 configuration: a `:root` / `.dark` palette in `oklch()`, mapped onto Tailwind
-colour utilities by an `@theme inline` block.
-
-`src/index.css` is the only file in the repo allowed to hold a raw colour
-value. Everything else names a token — `bg-card`, `text-muted-foreground`,
-`var(--color-border)`. `npm run test:arch` fails on a literal hex, `rgb()`,
-`hsl()` or `oklch()` anywhere else, because Tailwind would otherwise compile
-`bg-[#0f172a]` without complaint.
+colour utilities by an `@theme inline` block. That makes `src/index.css` the only
+file allowed to hold a raw colour value; everything else names a token, and
+`npm run test:arch` fails on a literal colour anywhere else.
 
 Dark mode is a `dark` class on an ancestor, not a media query, so it can be
 toggled in-app. Nothing toggles it yet.
@@ -154,18 +136,10 @@ running — see the root `README.md` and `make integration-test`.
 ## Backend contract
 
 The SPA is served by the Spring Boot backend and shares its session cookie.
-`/backend/FRONTEND.md` is the authoritative contract; the short version:
-
-- **CSRF.** Every unsafe request (`POST`/`PUT`/`PATCH`/`DELETE`) must echo the
-  `XSRF-TOKEN` cookie in an `X-XSRF-TOKEN` header, or the backend answers `403`.
-  `src/lib/http.ts` does this in one place — `apiFetch()` reads the cookie per
-  request, adds the header on unsafe methods, retries once after re-seeding the
-  token on a `403`, and never retries a `401`. **Call `apiFetch`, not `fetch`.**
-- **`401` means signed out, `403` means stale token.** Only the first sends the
-  user back to login.
-- **Sessions expire after 15 minutes** of inactivity, in every environment.
-- **A strict CSP is sent**: no inline script, no `eval`, no third-party origin
-  for scripts, styles, fonts, images, or `fetch`. Self-host anything new.
+`AGENTS.md`'s "Backend contract" section is the authoritative version; the short
+form is CSRF double-submit through `apiFetch()`, `401` (signed out) versus `403`
+(stale token), 15-minute sessions, and a CSP that rules out inline script and
+third-party origins. Read it before changing anything that issues a request.
 
 In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 `npm run dev` needs the backend up for anything past the login form.

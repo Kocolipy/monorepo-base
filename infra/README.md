@@ -9,7 +9,6 @@ This directory is the repo-root `infra/` folder — a sibling of `backend/` and
 
 ```bash
 cd infra
-chmod +x get-vpc-info.sh deploy.sh
 
 # 1. Get your VPC details
 ./get-vpc-info.sh vpc-YOUR_VPC_ID
@@ -191,13 +190,13 @@ ALB_URL=$(aws cloudformation describe-stacks \
 curl $ALB_URL/actuator/health
 
 # Login
-curl -X POST $ALB_URL/auth/login \
+curl -X POST $ALB_URL/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
   -c cookies.txt
 
 # Test authenticated endpoint
-curl $ALB_URL/api/counter -b cookies.txt
+curl $ALB_URL/api/count -b cookies.txt
 ```
 
 ---
@@ -275,13 +274,22 @@ aws elbv2 describe-target-health \
 ### Delete Stack
 
 ```bash
-chmod +x cleanup.sh
 ./cleanup.sh
 
 # Or manually:
 aws cloudformation delete-stack \
   --stack-name spring-backend \
   --region ap-southeast-1
+```
+
+### Inspect the Stack
+
+```bash
+aws cloudformation describe-stack-events --stack-name spring-backend \
+  --region ap-southeast-1 --max-items 20
+
+aws cloudformation describe-stacks --stack-name spring-backend \
+  --region ap-southeast-1 --query 'Stacks[0].Outputs' --output table
 ```
 
 ---
@@ -339,42 +347,5 @@ psql -h RDS_ENDPOINT -U backend -d backend
 
 ---
 
-## Files in This Directory
-
-- **infrastructure.yaml** - CloudFormation template
-- **parameters.template.json** - Configuration template
-- **deploy.sh** - Automated deployment script
-- **cleanup.sh** - Stack deletion script
-- **get-vpc-info.sh** - VPC information extractor
-- **QUICKSTART.md** - Condensed command-only walkthrough
-- **README.md** - This file
-
----
-
-## Support
-
-**Stack Events:**
-
-```bash
-aws cloudformation describe-stack-events \
-  --stack-name spring-backend \
-  --region ap-southeast-1 \
-  --max-items 20
-```
-
-**Application Logs:**
-
-```bash
-ssh -i spring-backend-key.pem ec2-user@$EC2_IP
-sudo journalctl -u backend -n 100
-```
-
-**Stack Outputs:**
-
-```bash
-aws cloudformation describe-stacks \
-  --stack-name spring-backend \
-  --region ap-southeast-1 \
-  --query 'Stacks[0].Outputs' \
-  --output table
-```
+`QUICKSTART.md` beside this file is the condensed, command-only walkthrough of
+the same deployment.

@@ -8,11 +8,18 @@ Monorepo holding the frontend SPA and the backend service.
 frontend/   Vite + React + TypeScript SPA
 backend/    Spring Boot 4 service (Java 25, Maven)
 infra/      AWS CloudFormation template + deploy/cleanup scripts
+scripts/    shell layer the Makefile targets call
+Makefile    cross-app orchestration
 ```
 
 Each app is self-contained: its own `README.md`, `AGENTS.md`,
 dependency manifest, and test/quality tooling. Start there for anything
 app-specific — this file only covers the repo as a whole.
+
+Anything spanning both apps goes through the root `Makefile`. `make` on its own
+prints every target with a description, so that list lives there rather than
+here; `make bootstrap`, `make dev`, `make verify`, and `make package` are the
+ones you will reach for.
 
 `infra/` is not an app — it holds the AWS deployment material (CloudFormation
 template, `deploy.sh`, `cleanup.sh`, `get-vpc-info.sh`) and is documented in
@@ -104,8 +111,8 @@ which is off by default — `./mvnw clean verify` in `backend/` stays a pure
 backend build with no Node and no SPA in the JAR. The profile fails the build
 when `frontend/dist/index.html` is missing, rather than packaging a stale SPA.
 
-`backend/FRONTEND.md` documents the runtime contract (CSRF, CSP, sessions) —
-read it before changing either side's request handling.
+`frontend/AGENTS.md`'s "Backend contract" section documents the runtime contract
+(CSRF, CSP, sessions) — read it before changing either side's request handling.
 
 ## Deploying to AWS
 
@@ -117,10 +124,11 @@ cd infra
 ```
 
 `infra/` holds the CloudFormation template (`infrastructure.yaml`) and its
-scripts. They resolve `backend/` from their own location, so they work from any
-working directory, and they build the JAR with `backend/mvnw` rather than a
-system Maven. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache
-Redis in `ap-southeast-1`; details, parameters, and troubleshooting are in
+scripts. They resolve the repo root from their own location, so they work from
+any working directory, and `deploy.sh` builds the shippable JAR by calling
+`scripts/package.sh` — the integrated path, so what reaches the instance has the
+SPA in it. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache Redis
+in `ap-southeast-1`; details, parameters, and troubleshooting are in
 `infra/README.md`.
 
 Deploy artefacts the scripts write locally — `parameters.json`,

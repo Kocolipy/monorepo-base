@@ -183,7 +183,7 @@ time out; shared storage state collapses that to one.
 
 `page.request` shares the browser context's cookie jar but adds **no headers of
 its own**, so it does not satisfy the backend's CSRF contract
-(`/backend/FRONTEND.md`) — an unsafe request made that way returns `403` and the
+(`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way returns `403` and the
 spec fails somewhere unrelated to what it was testing. Read the token out of the
 context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
 does; add new API fixtures beside it rather than inlining a raw

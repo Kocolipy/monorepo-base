@@ -16,22 +16,25 @@ frontend/         Vite + React + TypeScript SPA
 backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
 packages/         shared code, when any appears
+scripts/          shell layer the Makefile targets call
 docs/agents/      agent documentation shared by both apps
-.agents/skills/   agent skills shared by both apps
+Makefile          cross-app orchestration; `make help` lists every target
 ```
 
-There is no top-level package manager, build file, or task runner. Nothing
-builds "the monorepo" — each app is built and tested on its own terms.
+Nothing compiles "the monorepo": each app owns its own dependency manifest,
+build, and test tooling, and the root `Makefile` only drives the two of them in
+sequence. `make help` is the default target, so read the target list from there
+rather than from this file.
 
-`infra/` is deployment material, not an app: it is never built or tested by
-either app's gates, and the Makefile's `infra-up` / `infra-down` / `infra-logs`
-targets are **local Docker dependencies** (Postgres + Redis), unrelated to this
-directory. See `/infra/README.md`.
+`infra/` is deployment material, not an app — neither app's gates build or test
+it. Mind the name clash: `make infra-up` / `infra-down` / `infra-logs` start the
+**local Docker dependencies** (Postgres + Redis) and have nothing to do with
+this directory. See `/infra/README.md`.
 
 ## Paths
 
 **Run every command from the app directory that owns it.** `npm` only works in
-`frontend/`, `mvn` only in `backend/`, and both apps' configs, scripts, and
+`frontend/`, `./mvnw` only in `backend/`, and both apps' configs, scripts, and
 tooling resolve paths relative to their own root.
 
 Two rules follow from that:
@@ -42,65 +45,61 @@ Two rules follow from that:
   the directory moves. The one sanctioned cross-app path is the SPA contract
   below, which is expressed inside `backend/` as a path it owns.
 - **Shared material is referenced from the repo root, not copied.** Paths to
-  `docs/agents/` and `.agents/skills/` in an app's `AGENTS.md` are written
-  root-relative (`/docs/agents/domain.md`) so they cannot be mistaken for a
-  file inside the app.
+  `docs/agents/` in an app's `AGENTS.md` are written root-relative
+  (`/docs/agents/domain.md`) so they cannot be mistaken for a file inside the
+  app.
 
 ## Build and validation
 
-Each app owns its own gates. The entry points:
+Each app owns its own gates, and the Makefile wraps them:
 
-| App        | Build / verify                  | From        |
+| Scope      | Command                         | From        |
 | ---------- | ------------------------------- | ----------- |
 | `frontend` | `npm run typecheck && npm test` | `frontend/` |
 | `frontend` | `npm run build`                 | `frontend/` |
 | `backend`  | `./mvnw clean verify`           | `backend/`  |
+| both       | `make verify`                   | repo root   |
 
-`backend/` carries a **Maven wrapper** — always invoke `./mvnw`, never a bare
-`mvn`: the wrapper downloads and checksum-verifies the one Maven release pinned
-in `backend/.mvn/wrapper/maven-wrapper.properties`, and the build's Enforcer
-rules reject a wrong JDK (`[25,26)`) or an older Maven. A JDK 25 must still be on
-`PATH`; the wrapper only launches Maven.
+Each app defines stricter per-change gates — architecture suites, security
+scans, mutation scoping — in its own `AGENTS.md`. **A change is complete only
+when the owning app's gates are green**, so read that file before declaring work
+done. A change touching only one app runs only that app's gates; a change
+touching the SPA contract runs both. When a gate cannot run, report the exact
+unverified scope and the reason.
 
-`frontend/` needs `npm ci` before a first run (`node_modules` is often stale) —
-**`ci`, not `install`**: `install` re-resolves semver ranges and rewrites the
-lockfile, so it is only for a deliberate dependency change. Node is pinned in
-`/.nvmrc` and `/.tool-versions`; run `nvm use` (or `mise install`) from the repo
-root first, since `frontend/.npmrc` sets `engine-strict` and a wrong Node is a
-hard install failure rather than a warning. The full pin table is in
-`/README.md`.
+Toolchain versions are pinned per tool and enforced by the builds themselves;
+`/README.md` holds the pin table and the activation commands. Two pins bite
+during ordinary work:
 
-**A change is complete only when the owning app's gates are green.** Both apps
-define stricter per-change gates (architecture suites, security scans, mutation
-scoping) in their own `AGENTS.md`; read that file before declaring work done.
-If a gate cannot run, report the exact unverified scope and the reason rather
-than reporting success.
-
-A change touching only one app runs only that app's gates. A change touching
-the SPA contract runs both.
+- **`npm ci` in `frontend/`, never `npm install`** — `install` re-resolves
+  semver ranges and rewrites the lockfile, so it belongs only to a deliberate
+  dependency change. `node_modules` is often stale, and `frontend/.npmrc` sets
+  `engine-strict`, so a wrong Node fails the install outright.
+- **`./mvnw` in `backend/`, never a bare `mvn`** — the wrapper downloads and
+  checksum-verifies the one pinned Maven release, and the build's Enforcer
+  rejects a wrong JDK or an older Maven.
 
 ### Reading a long gate's result
 
-A full scan or build can outlast a shell's foreground window, so run either
-app's gates with the result written where the shell cannot lose it: redirect to
-a log and append a **sentinel** carrying the exit status.
+A full scan or build can outlast a shell's foreground window, and the shell's
+output stream is lossy: **a call that returns no output tells you nothing about
+the run.** So write the result where the shell cannot lose it — redirect to a
+log and append a **sentinel** carrying the exit status:
 
 ```bash
 ./mvnw clean verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 ```
 
-Wait for the sentinel and read the log in one call, rather than polling for
-output:
+Then wait for the sentinel and read the log in one call, rather than polling:
 
 ```bash
 until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
 grep -E "inding|ERROR|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 ```
 
-The gate is green on `GATE_EXIT=0` beside a zero findings count, both quoted
-from the log; report those two lines as the evidence rather than the absence of
-an error. When a call returns no output the run's state is unknown, so read the
-log again — a relaunch only starts a second run competing for the same log.
+The gate is green on `GATE_EXIT=0` beside a zero findings count; report those
+two lines, quoted from the log, as the evidence. On empty output re-read the
+log — a relaunch only starts a second run competing for the same file.
 
 ## Frontend/backend integration
 
@@ -110,22 +109,26 @@ One build contract, and no committed build output anywhere in it:
 frontend source -> frontend/dist -> backend/target/classes/static -> executable JAR
 ```
 
-`frontend/dist/` is generated and ignored. `backend/target/` is generated and
-ignored. **Nothing generated is ever copied back into a source directory**, and
-no compiled SPA is tracked — the source is the only source of truth.
+`frontend/dist/` and `backend/target/` are both generated and ignored.
+**Nothing generated is ever copied back into a source directory**, and no
+compiled SPA is tracked — the source is the only source of truth.
 
-The copy is done by the `with-frontend` Maven profile in `backend/pom.xml`,
-which is **off by default**: `./mvnw clean verify` in `backend/` is a pure backend
-build that needs no Node and packages no SPA. The release path is `make package`
-from the repo root, which builds the SPA and then invokes the profile with an
-explicit `-Dfrontend.dist.dir`. The profile's `validate`-phase enforcer fails the
-build when `index.html` is absent from that directory, so a missing or half-built
-frontend is an error rather than a silently stale SPA.
+The copy is the `with-frontend` Maven profile in `backend/pom.xml`, which is
+**off by default**: `./mvnw clean verify` in `backend/` is a pure backend build
+that needs no Node and packages no SPA. The release path is `make package` from
+the repo root, which builds the SPA and then invokes the profile with an
+explicit `-Dfrontend.dist.dir`. The profile's `validate`-phase enforcer fails
+the build when `index.html` is absent from that directory, so a missing or
+half-built frontend is an error rather than a silently stale SPA.
 
 `frontend.dist.dir` defaults to `${project.basedir}/../frontend/dist`, the one
 sanctioned parent-relative path in the tree: it is inert unless the profile is
-active, so `backend/` stays independently buildable, and the root build step
+active, so `backend/` stays independently buildable, and `make package`
 overrides it explicitly rather than relying on it.
+
+The **runtime** contract — CSRF, CSP, sessions — is a separate agreement, and
+`frontend/AGENTS.md`'s "Backend contract" section is its authority. Read it
+before changing request handling on either side.
 
 ## Line endings
 
@@ -150,19 +153,17 @@ already matches at any depth.
   variables must carry the `VITE_` prefix and be documented in
   `frontend/README.md`.
 - `backend/` requires `.env`; copy `backend/.env.example` first. It also needs
-  Postgres and Redis — `docker compose up` in `backend/`.
+  Postgres and Redis — `make infra-up` from the repo root, or
+  `docker compose up` in `backend/`.
 
 `backend/src/main/resources/application.yaml` carries working default
-credentials as env-var fallbacks. **This remote is public.** Any deployment
-that does not set the env vars ships published credentials, so never rely on
-the fallbacks and never add new ones.
+credentials as env-var fallbacks. **This remote is public.** Any deployment that
+does not set the env vars ships published credentials, so never rely on the
+fallbacks and never add new ones.
 
 ## Agent
 
-`.agents/` is gitignored, so a file added there needs `git add -f` to be
-tracked.
-
-### Agent documentation
+### Documentation
 
 - **`/docs/agents/issue-tracker.md`** — issue creation, lookup, triage,
   comments, labels, closure. Read before acting on an issue or PR. One GitHub
@@ -171,49 +172,43 @@ tracked.
   it before exploring or changing domain behavior, terminology, or
   architecture.
 
-### Skills
-
-`/.agents/skills/` holds skills that apply to both apps:
-
-- **`mutation-testing`** — tool-agnostic; `references/tool-adapters.md` covers
-  Stryker and PIT. Each app's `AGENTS.md` documents its own invocation.
+These two are tracked. **Skills are not**: each runtime's skill directory
+(`.kiro/skills/`, `.claude/skills/`, `.codex/skills/`) and `skills-lock.json`
+are gitignored, so a skill is fetched per machine rather than reviewed here. The
+shared one to know about is **`mutation-testing`** — tool-agnostic, with
+`references/tool-adapters.md` covering Stryker and PIT; each app's `AGENTS.md`
+documents its own invocation.
 
 ### graphify
 
 This project has a knowledge graph at `graphify-out/` with god nodes, community
-structure, and cross-file relationships.
+structure, and cross-file relationships. When the user types `/graphify`, use
+the installed graphify skill before doing anything else.
 
-When the user types `/graphify`, use the installed graphify skill or
-instructions before doing anything else.
+Invoke every Graphify command through the recorded interpreter:
+`$(cat graphify-out/.graphify_python) -m graphify <command>`. If
+`.graphify_python` is missing, follow the Graphify skill's interpreter guard
+first.
 
-Rules:
+**For a codebase question, query the graph before raw search.** With
+`graphify-out/graph.json` present, run `query "<question>"` — or `path "<A>"
+"<B>"` for a relationship and `explain "<concept>"` for a focused concept. Each
+returns a scoped subgraph, usually far smaller than `GRAPH_REPORT.md` or raw
+grep output. Read `graphify-out/GRAPH_REPORT.md` only for broad architecture
+review, or when query/path/explain do not surface enough context. Dirty
+`graphify-out/` files are expected after hooks or incremental updates and are no
+reason to skip the graph; skip it only when the task is about stale graph output
+itself, or the user says not to use it.
 
-- Invoke every Graphify command through the recorded interpreter:
-  `$(cat graphify-out/.graphify_python) -m graphify <command>`. If
-  `.graphify_python` is missing, follow the Graphify skill's interpreter guard
-  first.
-- For codebase questions, first run the `query "<question>"` command when
-  `graphify-out/graph.json` exists. Use `path "<A>" "<B>"` for relationships and
-  `explain "<concept>"` for focused concepts. These return a scoped subgraph,
-  usually much smaller than `GRAPH_REPORT.md` or raw grep output.
-- Dirty `graphify-out/` files are expected after hooks or incremental updates;
-  dirty graph files are not a reason to skip graphify. Only skip graphify if the
-  task is about stale or incorrect graph output, or the user explicitly says not
-  to use it.
-- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review or when
-  query/path/explain do not surface enough context.
-- Before committing modified code, run the `update .` command through the
-  recorded interpreter to keep the graph current (AST-only, no API cost).
-  `graphify-out/` is tracked, so the refresh belongs in the same commit as the
-  change that caused it — refreshing afterwards leaves the graph stranded
-  outside the PR.
-- **Refresh before you report done, not before you commit.** Commits are the
-  human's step, so a commit-triggered rule never fires during an agent's turn
-  and the graph goes stale while the agent stays technically compliant. The
-  binding trigger is the end of a turn in which you changed code or docs.
-  Nothing else in this file needs you to hold a change open for it: `update` is
-  AST-only and spends no API credit.
-- A refresh that FAILS is not cleared with `update --force`: a rebuild with fewer
-  nodes is graphify's shrink guard working as designed, and forcing past it
-  unattended can drop nodes silently. Report it, or hand it to whatever
-  graph-maintenance agent your runtime provides.
+**Refresh before you report done**, by running `update .` through the recorded
+interpreter at the end of any turn in which you changed code or docs. That
+turn-boundary is the binding trigger: a commit-triggered rule never fires during
+an agent's turn, so the graph would go stale while the agent stayed technically
+compliant. `graphify-out/` is tracked, so the refresh belongs with the change
+that caused it, and `update` is AST-only — it spends no API credit, so nothing
+here needs you to hold a change open for it.
+
+A refresh that **fails** is reported, not forced: a rebuild with fewer nodes is
+graphify's shrink guard working as designed, and `update --force` past it
+unattended can drop nodes silently. Hand it to whatever graph-maintenance agent
+your runtime provides.

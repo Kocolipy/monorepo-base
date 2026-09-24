@@ -1,20 +1,19 @@
 # AGENTS.md — backend
 
 Spring Boot 4 service on Java 25, built with Maven through the checked-in
-wrapper. Always `./mvnw`, never a bare `mvn`: the wrapper downloads and
-checksum-verifies the one Maven release pinned in
+wrapper. Always `./mvnw`: the release it pins lives in
 `.mvn/wrapper/maven-wrapper.properties`, and the build's Enforcer rules reject a
 wrong JDK (`[25,26)`) or an older Maven. A JDK 25 must be on `PATH` — the
 wrapper only launches Maven.
 
-Monorepo-wide rules — layout, the path discipline, the SPA contract this service
-serves, line endings, ignore rules, the long-gate sentinel pattern, and the
-shared agent docs and skills — live in the root `AGENTS.md`. This file covers
-only what is specific to this app. Run every command below from `backend/`.
+Monorepo-wide rules — layout, the path discipline, the SPA build contract this
+service serves, line endings, ignore rules, the long-gate sentinel pattern, and
+the shared agent docs — live in the root `AGENTS.md`. This file covers only what
+is specific to this app. Run every command below from `backend/`.
 
 ## Verification
 
-Before completing Java, dependency, or application-configuration changes, run `./mvnw clean verify`. Add or update a focused regression test for every behavior change. If verification cannot run, report the exact unverified scope and reason.
+Before completing Java, dependency, or application-configuration changes, run `./mvnw clean verify`. Add or update a focused regression test for every behavior change.
 
 ### Baseline gates
 
@@ -30,16 +29,13 @@ Changes to Redis-backed session persistence require an integration-level check a
 ### Reading a gate's result
 
 Both gates here can outlast a shell's foreground window, so run them through the
-sentinel-and-log pattern documented in the root `AGENTS.md`:
+sentinel-and-log pattern the root `AGENTS.md` documents:
 
 ```bash
 ./scripts/semgrep.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
 grep -E "inding|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 ```
-
-The gate is green on `GATE_EXIT=0` beside a zero findings count, both quoted
-from the log.
 
 ### Mutation testing
 
@@ -80,6 +76,8 @@ For domain terminology and architectural decisions, follow `/docs/agents/domain.
 ## Security-sensitive changes
 
 Treat authentication, authorization rules, logout, session invalidation, cookie attributes, and credential handling as security-sensitive. Cover changed behavior with tests and keep production secrets out of tracked files.
+
+The SPA depends on several of these at runtime: CSRF double-submit, the `401` versus `403` split, the session window, and the CSP. `frontend/AGENTS.md`'s "Backend contract" section states what it relies on — read it before changing any of the four, and update it in the same change.
 
 ## API contract
 

@@ -43,7 +43,7 @@ second copy of the guard.
 
 ### Why every request goes through `lib/http.ts`
 
-The backend enforces CSRF double-submit (`/backend/FRONTEND.md`), so every
+The backend enforces CSRF double-submit (`/frontend/AGENTS.md`, "Backend contract"), so every
 unsafe request needs the `XSRF-TOKEN` cookie echoed in an `X-XSRF-TOKEN` header
 or it comes back `403`. `apiFetch()` is the single place that knows this: it
 reads the cookie **at call time** (login and logout both rotate the token, so a
@@ -191,7 +191,7 @@ to need it does not have to invent a convention.
 | Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
 | Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
 | Role / permission checks        | `src/auth/`, alongside `ProtectedRoute` — the backend is the authority               |
-| Session-expiry warning          | `src/auth/`, reading the 15-minute window from `/backend/FRONTEND.md`                |
+| Session-expiry warning          | `src/auth/`, reading the 15-minute window from `/frontend/AGENTS.md`                 |
 | Nested layouts, lazy routes     | `src/App.tsx`, when there is a second protected area                                 |
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
