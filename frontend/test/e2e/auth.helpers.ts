@@ -9,7 +9,7 @@ const ADMIN_CREDENTIALS = ["admin", "P@ssw0rd"] as const;
  * holds the token outside the session, which is what lets `expireSession()`
  * below produce a `401` rather than a `403`.
  */
-const SESSION_COOKIE = "JSESSIONID";
+export const SESSION_COOKIE = "JSESSIONID";
 
 /** Fill and submit the login form, without asserting where it lands. */
 export async function submitLogin(page: Page, username: string, password: string) {
@@ -47,6 +47,20 @@ export async function expireSession(context: BrowserContext) {
 
   await context.clearCookies();
   await context.addCookies(surviving);
+}
+
+/**
+ * Read the session cookie out of the jar so a spec can put it back later.
+ *
+ * The counterpart to `expireSession`: that one takes the cookie away to make the
+ * *browser* forget a session the backend still honours, this one keeps a copy so
+ * a spec can hand a *retired* id back to the backend and watch it be refused.
+ */
+export async function captureSessionCookie(context: BrowserContext) {
+  const captured = (await context.cookies()).find((cookie) => cookie.name === SESSION_COOKIE);
+  expect(captured, `the backend should have issued a ${SESSION_COOKIE} cookie`).toBeTruthy();
+
+  return captured!;
 }
 
 /**

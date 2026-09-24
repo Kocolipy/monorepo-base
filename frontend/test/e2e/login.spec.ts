@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { login, submitLogin } from "./auth.helpers";
+import { SESSION_COOKIE, captureSessionCookie, login, submitLogin } from "./auth.helpers";
 
 // The signed-out half of the session contract: who is turned away, what they are
 // told, and that signing out really ends the session rather than only clearing
@@ -57,5 +57,33 @@ test.describe("sessions, signed out", () => {
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
+  });
+
+  test("refuses a session cookie captured before sign out", async ({ page, context }) => {
+    await login(page);
+    const captured = await captureSessionCookie(context);
+
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+
+    // Sign-out clears the cookie, so the test above cannot tell a session the
+    // backend destroyed from one the browser merely forgot. Putting the captured
+    // id back is the replay: the request now carries an id the backend issued and
+    // has since retired.
+    await context.addCookies([captured]);
+
+    // Without this the test could pass vacuously: a request carrying no session
+    // cookie at all is also a 401, so the re-add has to be shown to have landed.
+    const jar = await context.cookies();
+    expect(jar.find((cookie) => cookie.name === SESSION_COOKIE)?.value).toBe(captured.value);
+
+    // Assert on the API rather than the UI. A redirect to the login page would
+    // also follow from the cleared cookie, where a 401 can only mean the backend
+    // refused this id — so dropping `session.invalidate()` from logout fails here
+    // and nowhere else. `page.request` shares the context's jar, and /me is safe,
+    // so no CSRF header is owed.
+    const replayed = await page.request.get("/api/auth/me");
+
+    expect(replayed.status()).toBe(401);
   });
 });
