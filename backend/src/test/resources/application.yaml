@@ -11,8 +11,10 @@ app:
   auth:
     username: test-user
     password: test-password
+    email: test-user@example.com
     secondary-username: test-admin
     secondary-password: test-admin-password
+    secondary-email: test-admin@example.com
     lockout:
       max-attempts: 3
       duration: 5m

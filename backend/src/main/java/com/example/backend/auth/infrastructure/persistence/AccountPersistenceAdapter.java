@@ -3,6 +3,7 @@ package com.example.backend.auth.infrastructure.persistence;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.infrastructure.persistence.entity.AccountEntity;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
@@ -28,15 +29,30 @@ class AccountPersistenceAdapter implements AccountRepository {
                 account.passwordHash(),
                 account.role(),
                 account.failedLoginAttempts(),
-                account.lockedUntil())));
+                account.lockedUntil(),
+                account.email(),
+                account.enabled(),
+                account.createdAt())));
     }
 
+    @Override
+    public List<Account> findAllOrderedByUsername() {
+        return accounts.findAllByOrderByUsernameAsc().stream().map(this::toDomain).toList();
+    }
+
+    /**
+     * A null {@code enabled} column means the row predates the column, and those
+     * rows could authenticate, so they read back as enabled.
+     */
     private Account toDomain(AccountEntity entity) {
         return new Account(
                 entity.getUsername(),
                 entity.getPasswordHash(),
                 entity.getRole(),
                 entity.getFailedLoginAttempts(),
-                entity.getLockedUntil());
+                entity.getLockedUntil(),
+                entity.getEmail(),
+                entity.getEnabled() == null || entity.getEnabled(),
+                entity.getCreatedAt());
     }
 }

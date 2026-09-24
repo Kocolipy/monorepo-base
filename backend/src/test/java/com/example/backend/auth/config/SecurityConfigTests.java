@@ -159,6 +159,31 @@ class SecurityConfigTests {
                 .andExpect(status().isOk());
     }
 
+    /**
+     * {@code /api/admin/**} is a second administrative namespace rather than a
+     * path beneath the first, so the accounts rule above says nothing about it.
+     * These three cover the whole rule: refused for a non-admin, allowed for an
+     * admin, and — because the chain answers before any handler — unauthorized
+     * rather than forbidden for a caller with no session at all.
+     */
+    @Test
+    void userRoleCannotReachTheAdminNamespace() throws Exception {
+        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminRoleCanReachTheAdminNamespace() throws Exception {
+        mvc.perform(get("/api/admin/users").session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void anonymousCallerCannotReachTheAdminNamespace() throws Exception {
+        mvc.perform(get("/api/admin/users"))
+                .andExpect(status().isUnauthorized());
+    }
+
     private MockHttpSession authenticatedSession(String authority) {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new TestingAuthenticationToken("account", null, authority));
@@ -207,7 +232,7 @@ class SecurityConfigTests {
     @RestController
     static class ProbeController {
 
-        @GetMapping({"/", "/api/accounts"})
+        @GetMapping({"/", "/api/accounts", "/api/admin/users"})
         String index() {
             return "index";
         }

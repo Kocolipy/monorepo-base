@@ -57,9 +57,9 @@ curl -b cookies.txt http://localhost:8080/api/auth/me
 ```
 
 All API endpoints other than login and the health check require that cookie.
-Counter and session endpoints accept either authenticated role; future account
-administration endpoints under `/api/accounts/**` require `ADMIN`. Continue
-sending the cookie when using the session API:
+Counter and session endpoints accept either authenticated role; administration
+endpoints under `/api/admin/**` — and the reserved `/api/accounts/**` namespace —
+require `ADMIN`. Continue sending the cookie when using the session API:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/session
@@ -72,6 +72,25 @@ curl -b cookies.txt \
 curl -b cookies.txt http://localhost:8080/api/session
 
 curl -b cookies.txt -X DELETE http://localhost:8080/api/auth/logout
+```
+
+Review who has access. This needs an `ADMIN` session; a `USER` session is
+answered with `403`, and the listing never contains a password hash:
+
+```bash
+curl -b cookies.txt http://localhost:8080/api/admin/users
+```
+
+```json
+[
+  {
+    "username": "admin",
+    "email": "admin@example.com",
+    "role": "ADMIN",
+    "enabled": true,
+    "createdAt": "2026-01-02T03:04:05.123456Z"
+  }
+]
 ```
 
 Increment or reset the count belonging to the authenticated user:

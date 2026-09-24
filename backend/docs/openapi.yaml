@@ -18,6 +18,7 @@ tags:
   - name: Authentication
   - name: Session
   - name: Counter
+  - name: Administration
   - name: Health
 paths:
   /api/auth/login:
@@ -205,6 +206,32 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
+  /api/admin/users:
+    get:
+      tags: [Administration]
+      summary: List every registered account
+      description: |
+        Administrative review of who has access. Requires `ROLE_ADMIN`: an
+        authenticated account with any other role is refused with 403, and the
+        403 is decided by the filter chain before this operation runs.
+
+        The response never contains a password hash. It is serialised from a
+        projection that has no field for one, so the guarantee is structural
+        rather than a matter of review discipline.
+      operationId: listUsers
+      responses:
+        "200":
+          description: Every account, ordered by username.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUserResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
   /actuator/health:
     get:
       tags: [Health]
@@ -255,6 +282,11 @@ components:
         The CSRF token is missing or does not match the XSRF-TOKEN cookie. This is
         decided before authentication, so it is returned even on the public login
         operation.
+    AdminRoleRequired:
+      description: |
+        The session is valid and was accepted; the account's role is what was
+        refused. Distinct from 401, which means no usable session arrived at all —
+        a client must not treat this as a signal to sign in again.
   schemas:
     LoginRequest:
       type: object
@@ -279,6 +311,31 @@ components:
           type: string
           enum: [USER, ADMIN]
           description: The account role used for authorization.
+    AdminUserResponse:
+      type: object
+      required: [username, email, role, enabled, createdAt]
+      properties:
+        username:
+          type: string
+        email:
+          type: [string, "null"]
+          format: email
+          description: |
+            Null only for an account row written before this column existed.
+            Startup seeding backfills the configured accounts, so a deployment
+            reports null at most until its next restart.
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        enabled:
+          type: boolean
+          description: |
+            Whether the account may authenticate. Not decorative: a disabled
+            account is refused at login.
+        createdAt:
+          type: [string, "null"]
+          format: date-time
+          description: Null for the same reason as `email`.
     UpdateSessionRequest:
       type: object
       required: [displayName]

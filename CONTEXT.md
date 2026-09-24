@@ -60,14 +60,19 @@ its own behalf after signing in.
 asking for a protected route records the return destination and sends them there.
 
 **User** — an authenticated account whose role is `USER`. A User may use the
-counter page at `/showcase` but not account administration.
+counter page at `/showcase` but not account administration, in the browser or
+over the API.
 
 **Admin** — an authenticated account whose role is `ADMIN`. An Admin may use the
-counter page and the placeholder accounts page at `/accounts`.
+counter page, the placeholder accounts page at `/accounts`, and the
+administration API under `/api/admin/**`.
 
 **Account** — a database-backed login identity with one username, encoded
-password, and role. Startup seeding creates the configured User and Admin only
-when their usernames are absent; it does not overwrite an existing account.
+password, role, email, enabled flag, and creation timestamp, plus the state of
+its recent login history. Startup seeding creates the configured User and Admin
+only when their usernames are absent; it does not overwrite an existing account,
+though it does fill in an email or creation timestamp a pre-existing account has
+none of.
 
 **Failure run** — the consecutive rejected logins recorded against one account,
 counted on the account itself as `failed_login_attempts`. A login the backend
@@ -85,3 +90,15 @@ penalty — attempts made during it neither count nor extend it — and once it
 expires the next rejected login starts a fresh run rather than re-locking on the
 old count. Enforcement is Spring Security's, which checks account status before
 it compares passwords; the counting is the login path's.
+
+**Disabled account** — an account whose `enabled` flag is false. It is listed by
+account administration and refused at login; the flag is never merely reported.
+Distinct from a lockout: a lockout is automatic, temporary, and imposed by the
+failure run, where this is a standing administrative decision that no passage of
+time reverses.
+
+**Account listing** — what account administration may know about an account:
+username, email, role, enabled flag, creation timestamp. Never the password
+hash, which no listing type has a field for, and not the failure run or lockout
+instant either — those exist for the login path, and nothing has asked for them
+to be shown.

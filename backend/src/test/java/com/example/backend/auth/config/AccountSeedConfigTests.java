@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +33,24 @@ class AccountSeedConfigTests {
         assertThat(admin.role()).isEqualTo(AccountRole.ADMIN);
         assertThat(passwordEncoder.matches("test-password", user.passwordHash())).isTrue();
         assertThat(passwordEncoder.matches("test-admin-password", admin.passwordHash())).isTrue();
+    }
+
+    /**
+     * The three fields the administrative listing reports. Seeding is the only
+     * writer of them, so an account created without them would leave that listing
+     * with nothing to show.
+     */
+    @Test
+    void seedsTheEmailEnabledFlagAndCreationTimestamp() {
+        var user = accounts.findByUsername("test-user").orElseThrow();
+        var admin = accounts.findByUsername("test-admin").orElseThrow();
+
+        assertThat(user.email()).isEqualTo("test-user@example.com");
+        assertThat(admin.email()).isEqualTo("test-admin@example.com");
+        assertThat(user.enabled()).isTrue();
+        assertThat(admin.enabled()).isTrue();
+        assertThat(user.createdAt()).isNotNull().isBeforeOrEqualTo(Instant.now());
+        assertThat(admin.createdAt()).isNotNull().isBeforeOrEqualTo(Instant.now());
     }
 
     @Test

@@ -182,7 +182,16 @@ time out; shared storage state collapses that to one.
 
 ### Calling the API from a spec
 
-`page.request` shares the browser context's cookie jar but adds **no headers of
+A **safe** request needs nothing but the jar: `roles-admin.spec.ts` and
+`roles-user.spec.ts` call `GET /api/admin/users` through `page.request` directly,
+which is how the role policy is asserted on the server rather than only on the
+SPA's redirect. A spec that asserts a role is refused must assert the exact
+status — `403` means the session was accepted and the role refused, where a `401`
+would mean the request arrived unauthenticated and the spec passed for the wrong
+reason.
+
+An **unsafe** request is different. `page.request` shares the browser context's
+cookie jar but adds **no headers of
 its own**, so it does not satisfy the backend's CSRF contract
 (`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way
 returns `403` and the

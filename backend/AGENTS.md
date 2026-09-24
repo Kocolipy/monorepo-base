@@ -67,6 +67,8 @@ Preserve these boundaries:
 - Authentication state is stored in the HTTP session.
 - Spring Session persists sessions in Redis.
 - Login and health endpoints are public; application endpoints require authentication.
+- Authorization by role lives in the filter chain, not in annotations on handlers: `/api/admin/**` and `/api/accounts/**` require `ADMIN` there, so every access rule is readable in one place. A handler under those paths therefore carries no role check of its own.
+- A credential never reaches a web adapter. The application layer hands out projections (`AccountSummary`) that have no field a password hash could be written into, so exposure is prevented structurally rather than by review.
 - Runtime credentials and environment-specific settings remain external configuration.
 
 `src/test/java/arch/ArchitectureTest.java` is the executable form of the structural boundaries: onion layering, package placement, naming, constructor injection, JPA mapping, and package-cycle freedom. The onion model treats `..config..` as an inbound adapter: configuration may wire an application seam, but application and domain code never depend on configuration. Read it before reshaping packages or adding a layer.

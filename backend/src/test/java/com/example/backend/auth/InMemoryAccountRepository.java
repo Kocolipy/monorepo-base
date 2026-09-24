@@ -2,7 +2,9 @@ package com.example.backend.auth;
 
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -29,6 +31,13 @@ public final class InMemoryAccountRepository implements AccountRepository {
         stored.put(nonNullAccount.username(), nonNullAccount);
         saves++;
         return nonNullAccount;
+    }
+
+    @Override
+    public List<Account> findAllOrderedByUsername() {
+        return stored.values().stream()
+                .sorted(Comparator.comparing(Account::username))
+                .toList();
     }
 
     /** The stored account, failing the calling test when there is none. */
