@@ -4,6 +4,7 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Clock;
+import java.util.Optional;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -11,7 +12,12 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-/** Owns account seeding and translates persisted accounts for Spring Security. */
+/**
+ * Serves the login path: startup seeding, and reporting an account to Spring
+ * Security. Administrative review and changes live in
+ * {@link AccountAdministrationService}, so nothing the login path depends on is
+ * also able to mutate an account.
+ */
 @Service
 public class AccountService implements UserDetailsService {
 
@@ -26,20 +32,27 @@ public class AccountService implements UserDetailsService {
         this.clock = clock;
     }
 
-    public void seedDefaults(
-            String username,
-            String password,
-            String adminUsername,
-            String adminPassword) {
-        seedIfAbsent(username, password, AccountRole.USER);
-        seedIfAbsent(adminUsername, adminPassword, AccountRole.ADMIN);
+    /**
+     * Creates the two configured accounts if they are absent, and never
+     * overwrites one that exists — its password, role and login history are
+     * whatever the operator and the login path made them.
+     *
+     * <p>One exception: an account that exists but carries no email or no
+     * creation timestamp predates those columns, and the administrative listing
+     * has nothing to report for it. Those two fields alone are backfilled from
+     * configuration, so the listing is complete after one restart.
+     */
+    public void seedDefaults(AccountSeed user, AccountSeed admin) {
+        seed(user, AccountRole.USER);
+        seed(admin, AccountRole.ADMIN);
     }
 
     /**
      * Reports the account to Spring Security, including whether it is currently
-     * locked. Carrying the lockout here is what rejects a locked account with its
-     * correct password: {@code DaoAuthenticationProvider} checks account status
-     * before it checks the password, so the credentials are never even compared.
+     * locked and whether an administrator has disabled it. Carrying both here is
+     * what rejects such an account with its correct password:
+     * {@code DaoAuthenticationProvider} checks account status before it checks
+     * the password, so the credentials are never even compared.
      */
     @Override
     public UserDetails loadUserByUsername(String username) {
@@ -49,12 +62,36 @@ public class AccountService implements UserDetailsService {
                 .password(account.passwordHash())
                 .roles(account.role().name())
                 .accountLocked(account.isLocked(clock.instant()))
+                // The listing reports this flag, so authentication has to honour
+                // it: an `enabled: false` row a disabled account could still log
+                // in with would make the listing a lie.
+                .disabled(!account.enabled())
                 .build();
     }
 
-    private void seedIfAbsent(String username, String password, AccountRole role) {
-        if (accounts.findByUsername(username).isEmpty()) {
-            accounts.save(new Account(username, passwordEncoder.encode(password), role));
+    private void seed(AccountSeed seed, AccountRole role) {
+        Optional<Account> existing = accounts.findByUsername(seed.username());
+        if (existing.isEmpty()) {
+            accounts.save(new Account(
+                    seed.username(),
+                    passwordEncoder.encode(seed.password()),
+                    role,
+                    0,
+                    null,
+                    seed.email(),
+                    true,
+                    clock.instant()));
+            return;
         }
+
+        Account account = existing.get();
+        Account backfilled = account.withProfileBackfilled(seed.email(), clock.instant());
+        if (backfilled != account) {
+            accounts.save(backfilled);
+        }
+    }
+
+    /** One configured startup account. The role is this service's to assign. */
+    public record AccountSeed(String username, String password, String email) {
     }
 }

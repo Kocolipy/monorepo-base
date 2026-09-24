@@ -83,3 +83,23 @@ export async function resetCounterViaApi(page: Page) {
   });
   expect(response.ok()).toBe(true);
 }
+
+/**
+ * POST an administration action, obeying the CSRF contract.
+ *
+ * Returns the response rather than asserting on it, because both outcomes are
+ * worth testing: an `ADMIN` gets the updated account, and a `USER` must get a
+ * `403` for the *role* — which is only proven when the token is present, since a
+ * missing token earns the same 403 from the CSRF filter first.
+ */
+export async function postAdminAction(page: Page, username: string, action: string) {
+  await page.request.get("/api/auth/me");
+
+  const cookies = await page.context().cookies();
+  const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
+  expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
+
+  return page.request.post(`/api/admin/users/${username}/${action}`, {
+    headers: { "X-XSRF-TOKEN": String(token) },
+  });
+}
