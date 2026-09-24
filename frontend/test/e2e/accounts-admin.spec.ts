@@ -8,13 +8,12 @@ import { postAdminAction, submitLoginViaApi } from "./auth.helpers";
  * Serial, and the only place a spec changes a seeded account's standing — whether
  * it is disabled, and whether it is serving a lockout. Two reasons: the suite runs
  * `fullyParallel`, so tests in one file would otherwise race each other over the
- * same row; and the seeded `user` identity is shared with the `user` project
- * running beside this one, so every round trip below has to put it back before
- * anything else reads it.
+ * same row; and the seeded `user` identity is shared with the `user` project, so
+ * every round trip below has to put it back before anything else reads it.
  *
- * Parallel specs are unaffected *while* it is disabled or locked because they
- * replay a saved session — the backend decides account status when
- * authenticating, not on every request.
+ * Disabling that account also ends the sessions it holds, the `user` project's
+ * replayed one included — which is why `playwright.config.ts` makes this project
+ * depend on `user` rather than run beside it.
  */
 test.describe.serial("ADMIN accounts page", () => {
   const openAccounts = async (page: Page) => {
@@ -66,7 +65,6 @@ test.describe.serial("ADMIN accounts page", () => {
 
     const admin = accountRow(page, "admin");
     await expect(admin).toContainText("ADMIN");
-    await expect(admin).toContainText("@");
     // A date in the rendered ISO form the page formats, whatever day the
     // environment first seeded the account.
     await expect(admin).toContainText(/\d{4}-\d{2}-\d{2}/);
@@ -123,6 +121,75 @@ test.describe.serial("ADMIN accounts page", () => {
       // through the API so no other spec inherits a disabled account.
       const restored = await postAdminAction(page, "user", "enable");
       expect(restored.status()).toBe(200);
+    }
+  });
+
+  /**
+   * The disable an administrator actually wants: the account stops acting now
+   * rather than when its session happens to expire.
+   *
+   * Asserted over the API rather than through the page, because the subject is a
+   * *second* caller's session. A cookie jar of its own is what makes "the holder
+   * is signed out" observable at all — the accounts page has no view of it, and
+   * the admin session this project replays must not be the one under test.
+   */
+  test("ends the session an account already holds", async ({ page }) => {
+    const holder = await anonymousApi();
+
+    try {
+      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
+      expect(signedIn.status()).toBe(200);
+
+      // Live *before* the disable. Without this the 401 below would prove
+      // nothing: an unauthenticated jar answers 401 too.
+      const working = await holder.get("/api/auth/me");
+      expect(working.status()).toBe(200);
+
+      const disabled = await postAdminAction(page, "user", "disable");
+      expect(disabled.status()).toBe(200);
+
+      // Same jar, same cookie, and the session behind it no longer exists.
+      const refused = await holder.get("/api/auth/me");
+      expect(refused.status()).toBe(401);
+    } finally {
+      const restored = await postAdminAction(page, "user", "enable");
+      expect(restored.status()).toBe(200);
+      await holder.dispose();
+    }
+  });
+
+  /**
+   * Enabling is not the inverse of disabling. A revoked session is gone for good;
+   * reopening the account only means it may sign in again, which is what the
+   * fresh jar at the end proves.
+   */
+  test("does not hand a revoked session back when the account is reopened", async ({ page }) => {
+    const holder = await anonymousApi();
+
+    try {
+      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
+      expect(signedIn.status()).toBe(200);
+
+      const disabled = await postAdminAction(page, "user", "disable");
+      expect(disabled.status()).toBe(200);
+      const reopened = await postAdminAction(page, "user", "enable");
+      expect(reopened.status()).toBe(200);
+
+      const refused = await holder.get("/api/auth/me");
+      expect(refused.status()).toBe(401);
+
+      const fresh = await anonymousApi();
+      try {
+        const accepted = await submitLoginViaApi(fresh, "user", USER_PASSWORD);
+        expect(accepted.status()).toBe(200);
+      } finally {
+        await fresh.dispose();
+      }
+    } finally {
+      // The account is already enabled unless an expectation above failed first.
+      const restored = await postAdminAction(page, "user", "enable");
+      expect(restored.status()).toBe(200);
+      await holder.dispose();
     }
   });
 

@@ -254,6 +254,7 @@ public class ArchitectureTest {
             .domainServices("com.example.backend..domain.service..")
             .applicationServices("com.example.backend..application..")
             .adapter("persistence", "com.example.backend..infrastructure.persistence..")
+            .adapter("session", "com.example.backend..infrastructure.session..")
             .adapter("web", "com.example.backend..controller..")
             .adapter("config", "com.example.backend..config..")
             .withOptionalLayers(true)

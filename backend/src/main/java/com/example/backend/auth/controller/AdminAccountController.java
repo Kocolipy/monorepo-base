@@ -47,9 +47,9 @@ public class AdminAccountController {
     }
 
     /**
-     * Closes an account to new logins. A session it already holds survives until
-     * it expires — Spring Security decides account status when authenticating, not
-     * on every request.
+     * Closes an account to new logins and ends the sessions it already holds, so
+     * the next request it makes arrives as a stranger. What exactly that costs the
+     * holder is {@code AccountAdministrationService}'s to define.
      */
     @PostMapping("/{username}/disable")
     public AdminAccountResponse disable(@PathVariable String username, Principal principal) {

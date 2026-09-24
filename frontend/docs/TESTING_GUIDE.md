@@ -212,10 +212,18 @@ lockout and unlocks it, and is `test.describe.serial` so its own tests cannot ra
 each other under `fullyParallel`. `roles-admin.spec.ts` therefore asserts only the
 idempotent actions and the refusals, and the disable/enable contract itself —
 statuses, the `409`s, the response shape — is covered in
-`AdminAccountEndpointTests`, where no shared row is at stake. The parallel `user`
-project is unaffected while the account is disabled or locked only because it
-replays a saved session, and account status is evaluated when authenticating
-rather than per request.
+`AdminAccountEndpointTests`, where no shared row is at stake.
+
+Disabling that account also **revokes the sessions it holds**, the saved session
+the `user` project replays included — so the two projects cannot run beside each
+other, and `playwright.config.ts` gives the `admin` project
+`dependencies: ["setup", "user"]`. The destructive project runs last. The `guest`
+project needs no such ordering: it signs in as the Admin, and disabling the last
+enabled Admin is refused. Proving revocation therefore needs a session of its own
+rather than the page's — sign in through `submitLoginViaApi` on an
+`APIRequestContext` with an empty `storageState`, check it answers 200 _before_
+the disable (an unauthenticated jar answers 401 too, so the assertion is vacuous
+without it), then expect 401 after.
 
 A **lockout** is imposed by failed logins rather than by an endpoint, so provoking
 one means submitting real credentials — and an accepted login rotates the session

@@ -1,11 +1,13 @@
 package com.example.backend.auth.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.auth.InMemoryAccountSessions;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import org.hamcrest.Matchers;
@@ -14,6 +16,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -45,8 +50,31 @@ import org.springframework.web.context.WebApplicationContext;
 @SpringBootTest
 class AdminAccountEndpointTests {
 
+    /**
+     * The session registry, in memory. The deployed one is Redis-backed and this
+     * context has no Redis, but the reason to replace it is not only that: a fake
+     * can be asked what it ended, so the disable below proves the revocation
+     * reached the port rather than merely returning 200.
+     *
+     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it, so
+     * this context keeps failing if the indexed session repository it needs ever
+     * stops being configured.
+     */
+    @TestConfiguration
+    static class SessionRegistryConfiguration {
+
+        @Bean
+        @Primary
+        InMemoryAccountSessions inMemoryAccountSessions() {
+            return new InMemoryAccountSessions();
+        }
+    }
+
     @Autowired
     private WebApplicationContext context;
+
+    @Autowired
+    private InMemoryAccountSessions sessions;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -135,13 +163,15 @@ class AdminAccountEndpointTests {
 
     /**
      * Driven through the chain rather than against the service so the whole
-     * round trip is covered: token, role, path variable, the write, and the
-     * updated row coming back as JSON. The account is enabled again afterwards,
-     * because the seeded accounts are shared with every other test in this
-     * context.
+     * round trip is covered: token, role, path variable, the write, the sessions
+     * the account was holding, and the updated row coming back as JSON. The
+     * account is enabled again afterwards, because the seeded accounts are shared
+     * with every other test in this context.
      */
     @Test
     void anAdministratorDisablesAndReopensAnAccount() throws Exception {
+        sessions.open("test-user", "live-session");
+
         try {
             mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
                             .session(authenticatedSession("ROLE_ADMIN")))
@@ -149,6 +179,8 @@ class AdminAccountEndpointTests {
                     .andExpect(jsonPath("$.username").value("test-user"))
                     .andExpect(jsonPath("$.enabled").value(false))
                     .andExpect(jsonPath("$.passwordHash").doesNotExist());
+
+            assertThat(sessions.sessionsOf("test-user")).isEmpty();
 
             mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(jsonPath("$[?(@.username == 'test-user')].enabled")
@@ -164,13 +196,18 @@ class AdminAccountEndpointTests {
     /**
      * Refusing this is the only thing standing between an administrator and a
      * system nobody can administer. 409 rather than 403: the role is fine, the
-     * action is not.
+     * action is not. It is also the request an administrator is most likely to
+     * make by accident, so it must not cost them the session they are working in.
      */
     @Test
     void disablingTheLastEnabledAdministratorIsRefused() throws Exception {
+        sessions.open("test-admin", "live-session");
+
         mvc.perform(withCsrf(post("/api/admin/accounts/test-admin/disable"))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isConflict());
+
+        assertThat(sessions.sessionsOf("test-admin")).containsExactly("live-session");
 
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(jsonPath("$[?(@.username == 'test-admin')].enabled")

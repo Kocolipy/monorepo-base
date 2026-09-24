@@ -242,11 +242,12 @@ paths:
 
         Leaves the lockout untouched: this is not a penalty, and it says nothing
         about the account's failure run. Idempotent — disabling an already
-        disabled account writes nothing and answers 200.
+        disabled account writes nothing, still revokes its sessions, and answers
+        200.
 
-        A session the account already holds SURVIVES this. Account status is
-        evaluated when authenticating, so the holder keeps working until their
-        session expires.
+        Every session the account already holds is REVOKED. Its next request
+        arrives unauthenticated and earns a `401`, rather than working on until
+        the session expires. A refused disable (`409`) revokes nothing.
       operationId: disableUser
       parameters:
         - $ref: "#/components/parameters/Username"
@@ -269,6 +270,9 @@ paths:
       description: |
         Sets `enabled` back to true. Does NOT lift a lockout the account is
         serving — that is a separate capability, `unlock`. Idempotent.
+
+        Does not restore sessions `disable` revoked either: the account signs in
+        again.
       operationId: enableUser
       parameters:
         - $ref: "#/components/parameters/Username"

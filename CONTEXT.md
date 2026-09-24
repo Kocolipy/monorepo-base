@@ -146,9 +146,21 @@ visible before the click rather than as a `409` after it. The page never decides
 authorization — it renders behind the `ADMIN` guard, and the backend refuses
 `/api/admin/**` to any other role regardless.
 
-**Session survival** — disabling an account does not end a session it already
-holds. Spring Security evaluates account status when authenticating, and later
-requests read their authentication back out of the session, so a disabled account
-keeps working until its session expires. Revoking live sessions would need a
-session repository searchable by principal (`spring.session.redis.repository-type:
-indexed`), which is not configured.
+**Session revocation** — disabling an account ends the sessions it is already
+holding, so its next request arrives as a Guest and the SPA sends it back to
+login. Disabling is the only administrative action that does this: enabling gives
+nothing back (a revoked session is gone; the account signs in again), and
+unlocking touches no session at all. A refused disable — either arm of the
+recovery guard — revokes nothing, which is what keeps an Admin who mis-clicks
+their own row from signing themselves out.
+
+Revocation is possible only because sessions are indexed by principal
+(`spring.session.data.redis.repository-type: indexed`). Without that index a
+session store can be read by id alone, so the ones belonging to a username cannot
+be found; the application refuses to start rather than accept a disable it cannot
+enforce.
+
+It is not a lock. A login already in flight when the disable commits can still
+mint a session that the revocation did not see, because it read the account as
+enabled. Once the write is committed no further login succeeds, so the gap is one
+transaction wide rather than open-ended.

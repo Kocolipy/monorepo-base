@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.auth.InMemoryAccountRepository;
+import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
@@ -19,13 +20,14 @@ class AccountAdministrationServiceTests {
     private static final Duration LOCKOUT = Duration.ofMinutes(5);
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final MutableClock clock = new MutableClock(NOW);
 
     private AccountAdministrationService service;
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, clock);
+        service = new AccountAdministrationService(accounts, sessions, clock);
     }
 
     // Reviewing who has access
@@ -169,6 +171,102 @@ class AccountAdministrationServiceTests {
                 .isInstanceOf(UnsafeAccountChangeException.class);
     }
 
+    /**
+     * The recovery guard is about administrators, and asks about the account being
+     * disabled before it counts anyone. A USER is never the last enabled
+     * administrator, whatever the administrators' standing — and it takes asking:
+     * "every enabled administrator is this account" is vacuously true of no
+     * administrators at all, so a check that counted first would start refusing
+     * every disable the moment the last administrator was closed out of band.
+     */
+    @Test
+    void disablesAUserEvenWhenNoAdministratorIsEnabled() {
+        accounts.save(account("ada", AccountRole.ADMIN).withEnabled(false));
+        accounts.save(account("bob", AccountRole.USER));
+
+        assertThat(service.disable("bob", "ada").enabled()).isFalse();
+    }
+
+    /**
+     * The guard asks whether the account is enabled *now*, which is what keeps a
+     * disable idempotent on an administrator that is already closed: repeating it
+     * takes no recovery route away, so there is nothing to refuse — even when this
+     * is the only administrator there is. Without that clause the vacuous
+     * "every enabled administrator is this one" would refuse it.
+     */
+    @Test
+    void disablingAnAlreadyDisabledAdministratorIsAllowedEvenAsTheOnlyOne() {
+        accounts.save(account("ada", AccountRole.ADMIN).withEnabled(false));
+
+        assertThat(service.disable("ada", "zoe").enabled()).isFalse();
+    }
+
+    /**
+     * The reason this is a use case and not a column write: closing an account
+     * that is signed in somewhere has to reach that session, or the decision does
+     * not take effect until the session expires on its own.
+     */
+    @Test
+    void disablingEndsTheSessionsTheAccountAlreadyHolds() {
+        accounts.save(account("bob", AccountRole.USER));
+        sessions.open("bob", "session-1");
+        sessions.open("bob", "session-2");
+
+        service.disable("bob", "ada");
+
+        assertThat(sessions.sessionsOf("bob")).isEmpty();
+    }
+
+    /** Only that account's. A disable is about one account, and so is its blast radius. */
+    @Test
+    void disablingLeavesEveryOtherAccountSignedIn() {
+        accounts.save(account("bob", AccountRole.USER));
+        accounts.save(account("zoe", AccountRole.USER));
+        sessions.open("bob", "session-1");
+        sessions.open("zoe", "session-2");
+
+        service.disable("bob", "ada");
+
+        assertThat(sessions.sessionsOf("zoe")).containsExactly("session-2");
+    }
+
+    /**
+     * An account already closed is still asked to give up its sessions. Nothing
+     * guarantees the earlier disable revoked anything — it may predate this
+     * behaviour, or have been written straight into the database — and a second
+     * disable is how an administrator acts on that doubt.
+     */
+    @Test
+    void disablingAnAlreadyDisabledAccountStillEndsItsSessions() {
+        accounts.save(account("bob", AccountRole.USER).withEnabled(false));
+        sessions.open("bob", "session-1");
+
+        service.disable("bob", "ada");
+
+        assertThat(sessions.sessionsOf("bob")).isEmpty();
+    }
+
+    @Test
+    void aRefusedDisableEndsNoSessions() {
+        accounts.save(account("ada", AccountRole.ADMIN));
+        sessions.open("ada", "session-1");
+
+        assertThatThrownBy(() -> service.disable("ada", "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+        assertThatThrownBy(() -> service.disable("ada", "zoe"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+
+        assertThat(sessions.revocations()).isEmpty();
+        assertThat(sessions.sessionsOf("ada")).containsExactly("session-1");
+    }
+
+    @Test
+    void disablingAnAccountThatIsSignedInNowhereIsNotAFailure() {
+        accounts.save(account("bob", AccountRole.USER));
+
+        assertThat(service.disable("bob", "ada").enabled()).isFalse();
+    }
+
     // Enabling
 
     @Test
@@ -177,6 +275,32 @@ class AccountAdministrationServiceTests {
 
         assertThat(service.enable("bob").enabled()).isTrue();
         assertThat(accounts.require("bob").enabled()).isTrue();
+    }
+
+    /**
+     * Enabling is not the inverse of disabling. Reopening an account says it may
+     * sign in again, and a session is not something an administrator hands back.
+     */
+    @Test
+    void enablingTouchesNoSessions() {
+        accounts.save(account("bob", AccountRole.USER).withEnabled(false));
+        sessions.open("bob", "session-1");
+
+        service.enable("bob");
+
+        assertThat(sessions.revocations()).isEmpty();
+        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+    }
+
+    @Test
+    void unlockingTouchesNoSessions() {
+        accounts.save(locked("bob"));
+        sessions.open("bob", "session-1");
+
+        service.unlock("bob");
+
+        assertThat(sessions.revocations()).isEmpty();
+        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
     }
 
     /**

@@ -46,7 +46,15 @@ export default defineConfig({
     {
       name: "admin",
       testMatch: /(?:authentication|session|roles-admin|accounts-admin)\.spec\.ts/,
-      dependencies: ["setup"],
+      // After the `user` project, not beside it. Disabling an account now revokes
+      // the sessions it holds, and `accounts-admin.spec.ts` disables the seeded
+      // `user` — which is the very session the `user` project replays. Running
+      // them in parallel would have this project pull that one's session out from
+      // under it, so the destructive project goes last.
+      //
+      // The `guest` project needs no such ordering: it signs in as `admin`, and
+      // disabling the last enabled administrator is refused.
+      dependencies: ["setup", "user"],
       use: {
         ...devices["Desktop Chrome"],
         storageState: "test/e2e/.auth/admin.json",

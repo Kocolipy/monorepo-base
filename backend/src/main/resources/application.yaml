@@ -17,10 +17,26 @@ spring:
       connect-timeout: 2s
       timeout: 2s
   session:
-    redis:
-      namespace: backend:session
-      repository-type: default
-      flush-mode: on-save
+    # `spring.session.data.redis`, not `spring.session.redis`: Boot 4 moved these
+    # keys and the old prefix is deprecated at error level, which means quietly
+    # ignored — the namespace and flush mode below only take effect here.
+    data:
+      redis:
+        namespace: backend:session
+        # Indexed, not default: the indexed repository is the only one that can
+        # be searched by principal, which is what lets disabling an account end
+        # the sessions it already holds (AccountSessionsAdapter). Reverting this
+        # to `default` removes that bean and the application fails to start.
+        repository-type: indexed
+        # The indexed repository normally CONFIG SETs `notify-keyspace-events` on
+        # startup to learn about expiries. ElastiCache disables the CONFIG
+        # command, so leaving that on makes the deployed service fail to start —
+        # and nothing about revoking a session needs the events. Expired sessions
+        # are reaped by the repository's own cleanup cron instead; set
+        # `notify-keyspace-events` in the cache parameter group to get the events
+        # as well.
+        configure-action: none
+        flush-mode: on-save
 
 server:
   port: ${SERVER_PORT:8080}

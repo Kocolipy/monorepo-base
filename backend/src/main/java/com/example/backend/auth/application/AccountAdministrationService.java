@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.auth.domain.AccountSessions;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -28,10 +29,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountAdministrationService {
 
     private final AccountRepository accounts;
+    private final AccountSessions sessions;
     private final Clock clock;
 
-    public AccountAdministrationService(AccountRepository accounts, Clock clock) {
+    public AccountAdministrationService(
+            AccountRepository accounts, AccountSessions sessions, Clock clock) {
         this.accounts = accounts;
+        this.sessions = sessions;
         this.clock = clock;
     }
 
@@ -44,18 +48,21 @@ public class AccountAdministrationService {
     }
 
     /**
-     * Closes an account to logins until someone enables it again. The lockout is
+     * Closes an account to logins and ends the sessions it is already holding, so
+     * it stops acting now rather than when those sessions expire. The lockout is
      * untouched: this is not a penalty and says nothing about the failure run.
      *
      * <p>Two refusals guard against an administrator removing the only means of
      * reversing this. Neither is about authorization — the caller is an admin, and
-     * the action is what is refused.
+     * the action is what is refused. A refused disable revokes nothing: both
+     * checks run before anything is written or ended.
      *
-     * <p>An existing session is NOT ended by this. Spring Security evaluates
-     * account status when authenticating, and later requests read their
-     * authentication back out of the session, so a disabled account keeps working
-     * until its session expires. Revoking those needs a session repository that
-     * can be searched by principal.
+     * <p>The revocation happens after the write, so an account whose row could
+     * not be written keeps its sessions. It is not a lock: a login that is already
+     * in flight reads {@code enabled} as it was before this transaction committed,
+     * and a session it mints afterwards is not in the set revoked here. Once the
+     * write is committed no further login can succeed, so the gap is one
+     * transaction wide rather than open-ended.
      */
     @Transactional
     public AccountSummary disable(String username, String requestedBy) {
@@ -68,13 +75,18 @@ public class AccountAdministrationService {
                     "Disabling the last enabled administrator would leave nobody able to"
                             + " enable it again");
         }
-        return applyEnabled(account, false);
+        AccountSummary disabled = applyEnabled(account, false);
+        sessions.revokeAll(account.username());
+        return disabled;
     }
 
     /**
      * Reopens an account to logins. A lockout it is serving is left standing: the
      * penalty either expires on its own or is lifted by {@link #unlock}, and
      * restoring access is not a finding that the failed logins did not happen.
+     *
+     * <p>Sessions are not given back. {@link #disable} ended them, and a session
+     * is not a thing an administrator can hand over — the account signs in again.
      */
     @Transactional
     public AccountSummary enable(String username) {

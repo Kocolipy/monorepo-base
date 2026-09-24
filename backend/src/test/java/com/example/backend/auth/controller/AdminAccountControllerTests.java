@@ -89,7 +89,7 @@ class AdminAccountControllerTests {
         private final List<String> calls = new java.util.ArrayList<>();
 
         RecordingService(List<AccountSummary> summaries) {
-            super(null, null);
+            super(null, null, null);
             this.summaries = summaries;
         }
 
