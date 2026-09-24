@@ -131,7 +131,6 @@ public class SecurityConfig {
                         .authenticationEntryPoint(unauthorized))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/login", "/actuator/health").permitAll()
-                        .requestMatchers("/api/accounts", "/api/accounts/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin", "/api/admin/**").hasRole("ADMIN")
                         .requestMatchers(this::isFrontendGet).permitAll()
                         .anyRequest().authenticated())

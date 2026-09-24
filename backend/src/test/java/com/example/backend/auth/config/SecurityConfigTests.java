@@ -147,24 +147,13 @@ class SecurityConfigTests {
                 .andExpect(status().isUnauthorized());
     }
 
-    @Test
-    void userRoleCannotReachAccountAdministration() throws Exception {
-        mvc.perform(get("/api/accounts").session(authenticatedSession("ROLE_USER")))
-                .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void adminRoleCanReachAccountAdministration() throws Exception {
-        mvc.perform(get("/api/accounts").session(authenticatedSession("ROLE_ADMIN")))
-                .andExpect(status().isOk());
-    }
-
     /**
-     * {@code /api/admin/**} is a second administrative namespace rather than a
-     * path beneath the first, so the accounts rule above says nothing about it.
-     * These three cover the whole rule: refused for a non-admin, allowed for an
-     * admin, and — because the chain answers before any handler — unauthorized
-     * rather than forbidden for a caller with no session at all.
+     * Account administration is one namespace, {@code /api/admin/**}, and these
+     * three cover the whole rule: refused for a non-admin, allowed for an admin,
+     * and — because the chain answers before any handler — unauthorized rather
+     * than forbidden for a caller with no session at all. The path asserted is
+     * the one {@link com.example.backend.auth.controller.AdminUserController}
+     * really maps, so the rule is proven against the endpoint it protects.
      */
     @Test
     void userRoleCannotReachTheAdminNamespace() throws Exception {
@@ -229,10 +218,14 @@ class SecurityConfigTests {
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"));
     }
 
+    /**
+     * Gives the frontend path and the administration endpoint a handler, so the
+     * chain's own answer is what each assertion observes.
+     */
     @RestController
     static class ProbeController {
 
-        @GetMapping({"/", "/api/accounts", "/api/admin/users"})
+        @GetMapping({"/", "/api/admin/users"})
         String index() {
             return "index";
         }

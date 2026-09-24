@@ -58,8 +58,8 @@ curl -b cookies.txt http://localhost:8080/api/auth/me
 
 All API endpoints other than login and the health check require that cookie.
 Counter and session endpoints accept either authenticated role; administration
-endpoints under `/api/admin/**` — and the reserved `/api/accounts/**` namespace —
-require `ADMIN`. Continue sending the cookie when using the session API:
+endpoints under `/api/admin/**` require `ADMIN`. Continue sending the cookie when
+using the session API:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/session

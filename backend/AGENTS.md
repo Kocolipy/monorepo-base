@@ -67,7 +67,7 @@ Preserve these boundaries:
 - Authentication state is stored in the HTTP session.
 - Spring Session persists sessions in Redis.
 - Login and health endpoints are public; application endpoints require authentication.
-- Authorization by role lives in the filter chain, not in annotations on handlers: `/api/admin/**` and `/api/accounts/**` require `ADMIN` there, so every access rule is readable in one place. A handler under those paths therefore carries no role check of its own.
+- Authorization by role lives in the filter chain, not in annotations on handlers: `/api/admin/**` requires `ADMIN` there, so every access rule is readable in one place. A handler under that path therefore carries no role check of its own. Account administration has one namespace; a rule with no handler behind it is not added, because its only consumer would be a test supplying its own endpoint.
 - A credential never reaches a web adapter. The application layer hands out projections (`AccountSummary`) that have no field a password hash could be written into, so exposure is prevented structurally rather than by review.
 - The login path and the administration path do not share an application service. `AccountService` serves authentication (seeding, `UserDetails`); `AccountAdministrationService` serves an administrator and is the only one that mutates an account. Do not add account writes to the former.
 - Enabling and unlocking are separate capabilities and neither performs the other — see `/CONTEXT.md`. An account may be disabled, locked, both, or neither, and restoring one says nothing about the other.
