@@ -1,11 +1,8 @@
-import { apiFetch, type ApiResult } from "@/lib/http";
+import { apiFetch, CSRF_EXPIRED_MESSAGE, type ApiResult } from "@/lib/http";
 
 export interface AuthUser {
   username: string;
 }
-
-/** Shown when a request still fails CSRF after `apiFetch` retried it. */
-const CSRF_MESSAGE = "Your security token expired. Please try again.";
 
 const decodeUser = (response: Response): Promise<AuthUser> => response.json() as Promise<AuthUser>;
 
@@ -39,7 +36,7 @@ export async function login(username: string, password: string): Promise<AuthUse
     case "unauthenticated":
       throw new Error("The username or password is incorrect.");
     case "csrf-expired":
-      throw new Error(CSRF_MESSAGE);
+      throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
       throw new Error("Unable to sign in. Please try again.");
   }
@@ -52,7 +49,7 @@ export async function logout(): Promise<void> {
     case "unauthenticated":
       return;
     case "csrf-expired":
-      throw new Error(CSRF_MESSAGE);
+      throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
       throw new Error("Unable to sign out. Please try again.");
   }

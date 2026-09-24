@@ -10,13 +10,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { apiFetch, type ApiResult } from "@/lib/http";
+import { apiFetch, CSRF_EXPIRED_MESSAGE, type ApiResult } from "@/lib/http";
 
 interface CountResponse {
   count: number;
 }
-
-const CSRF_MESSAGE = "Your security token expired. Please try again.";
 
 const decodeCount = async (response: Response): Promise<number> => {
   const result = (await response.json()) as CountResponse;
@@ -46,7 +44,7 @@ export function Showcase() {
           expireSession();
           return;
         case "csrf-expired":
-          setError(CSRF_MESSAGE);
+          setError(CSRF_EXPIRED_MESSAGE);
           return;
         case "failed":
           setError(failureMessage);

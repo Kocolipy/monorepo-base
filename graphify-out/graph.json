@@ -73,45 +73,6 @@
       "source_location": "L11"
     },
     {
-      "id": "frontend_src_lib_http_apidecoder",
-      "label": "ApiDecoder",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apidecoder",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L29"
-    },
-    {
-      "id": "frontend_src_lib_http_apirequestinit",
-      "label": "ApiRequestInit",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apirequestinit",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L19"
-    },
-    {
-      "id": "frontend_src_lib_http_apiresult",
-      "label": "ApiResult",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apiresult",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L23"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice_usercounterservice",
       "label": "UserCounterService",
       "_callable": true,
@@ -123,32 +84,6 @@
       "norm_label": "usercounterservice",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
       "source_location": "L12"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_countresponse",
-      "label": "CountResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "countresponse",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L38"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller",
-      "label": "UserCounterController",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "usercountercontroller",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L13"
     },
     {
       "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter",
@@ -177,6 +112,45 @@
       "source_location": "L9"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity",
+      "label": "UserCounterEntity",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterentity",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L11"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository",
+      "label": "UserCounterJpaRepository",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterjparepository",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
+      "source_location": "L15"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter",
+      "label": "UserCounterPersistenceAdapter",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterpersistenceadapter",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L13"
+    },
+    {
       "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests",
       "label": "UserCounterServiceTests",
       "_callable": true,
@@ -188,32 +162,6 @@
       "norm_label": "usercounterservicetests",
       "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
       "source_location": "L10"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice",
-      "label": "RecordingCounterService",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "recordingcounterservice",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L46"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests",
-      "label": "UserCounterControllerTests",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "usercountercontrollertests",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L9"
     },
     {
       "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests_usercountertests",
@@ -229,6 +177,19 @@
       "source_location": "L11"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_loginrequest",
+      "label": "LoginRequest",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "loginrequest",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L116"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_web_spaerrorviewresolver_spaerrorviewresolver",
       "label": "SpaErrorViewResolver",
       "_callable": true,
@@ -240,6 +201,32 @@
       "norm_label": "spaerrorviewresolver",
       "source_file": "backend/src/main/java/com/example/backend/web/SpaErrorViewResolver.java",
       "source_location": "L11"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests",
+      "label": "AuthControllerTests",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "authcontrollertests",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L27"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_probecontroller",
+      "label": "ProbeController",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "probecontroller",
+      "source_file": "backend/src/test/java/com/example/backend/auth/config/SecurityConfigTests.java",
+      "source_location": "L180"
     },
     {
       "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_securityconfigtests",
@@ -333,45 +320,6 @@
       "source_location": "L45"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity",
-      "label": "UserCounterEntity",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterentity",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L11"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository",
-      "label": "UserCounterJpaRepository",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterjparepository",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
-      "source_location": "L15"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter",
-      "label": "UserCounterPersistenceAdapter",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterpersistenceadapter",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L13"
-    },
-    {
       "id": "backend_src_test_java_arch_architecturetest_architecturetest",
       "label": "ArchitectureTest",
       "_callable": true,
@@ -450,6 +398,45 @@
       "source_location": "L33"
     },
     {
+      "id": "frontend_src_lib_http_apidecoder",
+      "label": "ApiDecoder",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apidecoder",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L36"
+    },
+    {
+      "id": "frontend_src_lib_http_apirequestinit",
+      "label": "ApiRequestInit",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apirequestinit",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L19"
+    },
+    {
+      "id": "frontend_src_lib_http_apiresult",
+      "label": "ApiResult",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apiresult",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L23"
+    },
+    {
       "id": "frontend_src_pages_login_loginlocationstate",
       "label": "LoginLocationState",
       "_callable": true,
@@ -474,6 +461,58 @@
       "norm_label": "countresponse",
       "source_file": "frontend/src/pages/showcase.tsx",
       "source_location": "L15"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller",
+      "label": "AuthController",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "authcontroller",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L30"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_userresponse",
+      "label": "UserResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "userresponse",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L119"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_countresponse",
+      "label": "CountResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "countresponse",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L38"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller",
+      "label": "UserCounterController",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "usercountercontroller",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L13"
     },
     {
       "id": "backend_src_main_java_com_example_backend_session_sessioncontroller_sessioncontroller",
@@ -515,17 +554,30 @@
       "source_location": "L54"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_probecontroller",
-      "label": "ProbeController",
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice",
+      "label": "RecordingCounterService",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 7,
       "community_name": "AuthController.java",
       "file_type": "code",
-      "norm_label": "probecontroller",
-      "source_file": "backend/src/test/java/com/example/backend/auth/config/SecurityConfigTests.java",
-      "source_location": "L180"
+      "norm_label": "recordingcounterservice",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L46"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests",
+      "label": "UserCounterControllerTests",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "usercountercontrollertests",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L9"
     },
     {
       "id": "backend_src_test_java_com_example_backend_session_sessioncontrollertests_sessioncontrollertests",
@@ -541,45 +593,6 @@
       "source_location": "L12"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller",
-      "label": "AuthController",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "authcontroller",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L30"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_loginrequest",
-      "label": "LoginRequest",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "loginrequest",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L116"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_userresponse",
-      "label": "UserResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "userresponse",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L119"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig",
       "label": "SecurityConfig",
       "_callable": true,
@@ -591,19 +604,6 @@
       "norm_label": "securityconfig",
       "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
       "source_location": "L30"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests",
-      "label": "AuthControllerTests",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "authcontrollertests",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L27"
     },
     {
       "id": "frontend_test_arch_designtokens_test_blankcomments",
@@ -654,150 +654,6 @@
       "source_location": "L17"
     },
     {
-      "id": "frontend_src_auth_api_decodeuser",
-      "label": "decodeUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "decodeuser()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L10"
-    },
-    {
-      "id": "frontend_src_auth_api_getcurrentuser",
-      "label": "getCurrentUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "getcurrentuser()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L12"
-    },
-    {
-      "id": "frontend_src_auth_api_login",
-      "label": "login()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "login()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L25"
-    },
-    {
-      "id": "frontend_src_auth_api_logout",
-      "label": "logout()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "logout()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L48"
-    },
-    {
-      "id": "frontend_src_auth_api_test_resolvewith",
-      "label": "resolveWith()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "resolvewith()",
-      "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L11"
-    },
-    {
-      "id": "frontend_src_lib_http_apifetch",
-      "label": "apiFetch()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apifetch()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L71"
-    },
-    {
-      "id": "frontend_src_lib_http_csrftoken",
-      "label": "csrfToken()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "csrftoken()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L37"
-    },
-    {
-      "id": "frontend_src_lib_http_isunsafe",
-      "label": "isUnsafe()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "isunsafe()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L44"
-    },
-    {
-      "id": "frontend_src_lib_http_test_clearcookies",
-      "label": "clearCookies()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "clearcookies()",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L9"
-    },
-    {
-      "id": "frontend_src_lib_http_test_decodecount",
-      "label": "decodeCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "decodecount()",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L16"
-    },
-    {
-      "id": "frontend_src_lib_http_test_setcookie",
-      "label": "setCookie()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "setcookie()",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L5"
-    },
-    {
-      "id": "frontend_src_lib_http_withcsrf",
-      "label": "withCsrf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "withcsrf()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L46"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice_usercounterservice_getcount",
       "label": ".getCount()",
       "_callable": true,
@@ -844,84 +700,6 @@
       "norm_label": ".usercounterservice()",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
       "source_location": "L17"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_getcount",
-      "label": ".getCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getName",
-            "receiver_type": "Principal",
-            "lang": "java",
-            "line": "L25"
-          }
-        ]
-      },
-      "norm_label": ".getcount()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L23"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_increment",
-      "label": ".increment()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getName",
-            "receiver_type": "Principal",
-            "lang": "java",
-            "line": "L30"
-          }
-        ]
-      },
-      "norm_label": ".increment()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L28"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_reset",
-      "label": ".reset()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getName",
-            "receiver_type": "Principal",
-            "lang": "java",
-            "line": "L35"
-          }
-        ]
-      },
-      "norm_label": ".reset()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L33"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_usercountercontroller",
-      "label": ".UserCounterController()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".usercountercontroller()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L19"
     },
     {
       "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter_createfor",
@@ -1044,6 +822,126 @@
       "source_location": "L19"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getcount",
+      "label": ".getCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getcount()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L32"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getusername",
+      "label": ".getUsername()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getusername()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L28"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_setcount",
+      "label": ".setCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".setcount()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L36"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_usercounterentity",
+      "label": ".UserCounterEntity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".usercounterentity()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L20"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository_findbyusernameforupdate",
+      "label": ".findByUsernameForUpdate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusernameforupdate()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
+      "source_location": "L17"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusername",
+      "label": ".findByUsername()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusername()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L22"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusernameforupdate",
+      "label": ".findByUsernameForUpdate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusernameforupdate()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L27"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_save",
+      "label": ".save()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".save()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L32"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_todomain",
+      "label": ".toDomain()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".todomain()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L39"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_usercounterpersistenceadapter",
+      "label": ".UserCounterPersistenceAdapter()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".usercounterpersistenceadapter()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L18"
+    },
+    {
       "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_getsexistingcountwithoutchangingit",
       "label": ".getsExistingCountWithoutChangingIt()",
       "_callable": true,
@@ -1104,90 +1002,6 @@
       "source_location": "L38"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_getcount",
-      "label": ".getCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".getcount()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L56"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_increment",
-      "label": ".increment()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".increment()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L62"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_recordingcounterservice",
-      "label": ".RecordingCounterService()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".recordingcounterservice()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L51"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_reset",
-      "label": ".reset()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".reset()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L68"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_getscountforauthenticateduser",
-      "label": ".getsCountForAuthenticatedUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".getscountforauthenticateduser()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L13"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_incrementscountforauthenticateduser",
-      "label": ".incrementsCountForAuthenticatedUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".incrementscountforauthenticateduser()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L24"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_resetscountforauthenticateduser",
-      "label": ".resetsCountForAuthenticatedUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": ".resetscountforauthenticateduser()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
-      "source_location": "L35"
-    },
-    {
       "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests_usercountertests_incrementreturnstheupdatedcount",
       "label": ".incrementReturnsTheUpdatedCount()",
       "_callable": true,
@@ -1236,6 +1050,138 @@
       "source_location": "L27"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_issuecsrftoken",
+      "label": ".issueCsrfToken()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "saveToken",
+            "receiver_type": "CsrfTokenRepository",
+            "lang": "java",
+            "line": "L106"
+          },
+          {
+            "callee": "generateToken",
+            "receiver_type": "CsrfTokenRepository",
+            "lang": "java",
+            "line": "L107"
+          }
+        ]
+      },
+      "norm_label": ".issuecsrftoken()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L105"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_login",
+      "label": ".login()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "authenticate",
+            "receiver_type": "AuthenticationManager",
+            "lang": "java",
+            "line": "L58"
+          },
+          {
+            "callee": "unauthenticated",
+            "receiver_type": "UsernamePasswordAuthenticationToken",
+            "lang": "java",
+            "line": "L59"
+          },
+          {
+            "callee": "onAuthentication",
+            "receiver_type": "SessionAuthenticationStrategy",
+            "lang": "java",
+            "line": "L64"
+          },
+          {
+            "callee": "createEmptyContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L66"
+          },
+          {
+            "callee": "setAuthentication",
+            "receiver_type": "SecurityContext",
+            "lang": "java",
+            "line": "L67"
+          },
+          {
+            "callee": "setContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L68"
+          },
+          {
+            "callee": "saveContext",
+            "receiver_type": "SecurityContextRepository",
+            "lang": "java",
+            "line": "L69"
+          },
+          {
+            "callee": "getName",
+            "receiver_type": "Authentication",
+            "lang": "java",
+            "line": "L73"
+          }
+        ]
+      },
+      "norm_label": ".login()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L53"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_logout",
+      "label": ".logout()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L84"
+          },
+          {
+            "callee": "invalidate",
+            "receiver_type": "HttpSession",
+            "lang": "java",
+            "line": "L86"
+          },
+          {
+            "callee": "clearContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L88"
+          },
+          {
+            "callee": "writeCookieValue",
+            "receiver_type": "CookieSerializer",
+            "lang": "java",
+            "line": "L93"
+          }
+        ]
+      },
+      "norm_label": ".logout()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L81"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_web_spaerrorviewresolver_spaerrorviewresolver_resolveerrorview",
       "label": ".resolveErrorView()",
       "_callable": true,
@@ -1256,6 +1202,374 @@
       "norm_label": ".resolveerrorview()",
       "source_file": "backend/src/main/java/com/example/backend/web/SpaErrorViewResolver.java",
       "source_location": "L14"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_currentuserreportstheprincipalname",
+      "label": ".currentUserReportsThePrincipalName()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": ".currentuserreportstheprincipalname()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L188"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginkeepstheauthenticationintherotatedsession",
+      "label": ".loginKeepsTheAuthenticationInTheRotatedSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L135"
+          },
+          {
+            "callee": "getAuthentication",
+            "receiver_type": "SecurityContext",
+            "lang": "java",
+            "line": "L145"
+          }
+        ]
+      },
+      "norm_label": ".loginkeepstheauthenticationintherotatedsession()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L132"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginpublishesauthenticationonthecurrentthread",
+      "label": ".loginPublishesAuthenticationOnTheCurrentThread()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L182"
+          },
+          {
+            "callee": "getName",
+            "receiver_type": "Authentication",
+            "lang": "java",
+            "line": "L184"
+          },
+          {
+            "callee": "isAuthenticated",
+            "receiver_type": "Authentication",
+            "lang": "java",
+            "line": "L185"
+          }
+        ]
+      },
+      "norm_label": ".loginpublishesauthenticationonthecurrentthread()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L175"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginrejectsinvalidcredentialswithoutcreatingsession",
+      "label": ".loginRejectsInvalidCredentialsWithoutCreatingSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L106"
+          }
+        ]
+      },
+      "norm_label": ".loginrejectsinvalidcredentialswithoutcreatingsession()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L97"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginreplacesacsrftokenmintedbeforeauthentication",
+      "label": ".loginReplacesACsrfTokenMintedBeforeAuthentication()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "setCookies",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L155"
+          },
+          {
+            "callee": "getCookie",
+            "receiver_type": "MockHttpServletResponse",
+            "lang": "java",
+            "line": "L163"
+          },
+          {
+            "callee": "getValue",
+            "receiver_type": "Cookie",
+            "lang": "java",
+            "line": "L165"
+          }
+        ]
+      },
+      "norm_label": ".loginreplacesacsrftokenmintedbeforeauthentication()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L152"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginrotatesthesessionidofapreexistingsession",
+      "label": ".loginRotatesTheSessionIdOfAPreExistingSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L117"
+          }
+        ]
+      },
+      "norm_label": ".loginrotatesthesessionidofapreexistingsession()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L114"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginstoresauthenticateduserinhttpsession",
+      "label": ".loginStoresAuthenticatedUserInHttpSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L74"
+          },
+          {
+            "callee": "getAuthentication",
+            "receiver_type": "SecurityContext",
+            "lang": "java",
+            "line": "L77"
+          }
+        ]
+      },
+      "norm_label": ".loginstoresauthenticateduserinhttpsession()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L65"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutexpiresthesessioncookie",
+      "label": ".logoutExpiresTheSessionCookie()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getCookie",
+            "receiver_type": "MockHttpServletResponse",
+            "lang": "java",
+            "line": "L226"
+          },
+          {
+            "callee": "getValue",
+            "receiver_type": "Cookie",
+            "lang": "java",
+            "line": "L228"
+          },
+          {
+            "callee": "getMaxAge",
+            "receiver_type": "Cookie",
+            "lang": "java",
+            "line": "L229"
+          }
+        ]
+      },
+      "norm_label": ".logoutexpiresthesessioncookie()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L215"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutinvalidatesthesessionandclearsthesecuritycontext",
+      "label": ".logoutInvalidatesTheSessionAndClearsTheSecurityContext()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L202"
+          },
+          {
+            "callee": "isInvalid",
+            "receiver_type": "MockHttpSession",
+            "lang": "java",
+            "line": "L207"
+          },
+          {
+            "callee": "getContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L208"
+          }
+        ]
+      },
+      "norm_label": ".logoutinvalidatesthesessionandclearsthesecuritycontext()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L195"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutreplacesthecsrftokenoftheclosedsession",
+      "label": ".logoutReplacesTheCsrfTokenOfTheClosedSession()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "setCookies",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L239"
+          },
+          {
+            "callee": "getCookie",
+            "receiver_type": "MockHttpServletResponse",
+            "lang": "java",
+            "line": "L248"
+          },
+          {
+            "callee": "getValue",
+            "receiver_type": "Cookie",
+            "lang": "java",
+            "line": "L250"
+          }
+        ]
+      },
+      "norm_label": ".logoutreplacesthecsrftokenoftheclosedsession()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L236"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutwithoutasessionsucceedsandstillclearsthesecuritycontext",
+      "label": ".logoutWithoutASessionSucceedsAndStillClearsTheSecurityContext()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "createEmptyContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L262"
+          },
+          {
+            "callee": "setAuthentication",
+            "receiver_type": "SecurityContext",
+            "lang": "java",
+            "line": "L263"
+          },
+          {
+            "callee": "setContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L265"
+          },
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L270"
+          },
+          {
+            "callee": "getContext",
+            "receiver_type": "SecurityContextHolder",
+            "lang": "java",
+            "line": "L271"
+          }
+        ]
+      },
+      "norm_label": ".logoutwithoutasessionsucceedsandstillclearsthesecuritycontext()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L259"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_secondaryusercanlogin",
+      "label": ".secondaryUserCanLogIn()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getSession",
+            "receiver_type": "MockHttpServletRequest",
+            "lang": "java",
+            "line": "L90"
+          },
+          {
+            "callee": "getAuthentication",
+            "receiver_type": "SecurityContext",
+            "lang": "java",
+            "line": "L93"
+          }
+        ]
+      },
+      "norm_label": ".secondaryusercanlogin()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
+      "source_location": "L81"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_probecontroller_index",
+      "label": ".index()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": ".index()",
+      "source_file": "backend/src/test/java/com/example/backend/auth/config/SecurityConfigTests.java",
+      "source_location": "L183"
     },
     {
       "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_securityconfigtests_actuatorbasepathisnottreatedasafrontendroute",
@@ -1676,6 +1990,40 @@
       "source_location": "L46"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_isfrontendget",
+      "label": ".isFrontendGet()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 24,
+      "community_name": ".servesSpaShell",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getRequestURI",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L165"
+          },
+          {
+            "callee": "getContextPath",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L165"
+          },
+          {
+            "callee": "getMethod",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L166"
+          }
+        ]
+      },
+      "norm_label": ".isfrontendget()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
+      "source_location": "L164"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_isreservedserverpath",
       "label": ".isReservedServerPath()",
       "_callable": true,
@@ -1840,126 +2188,6 @@
       "source_location": "L72"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getcount",
-      "label": ".getCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".getcount()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L32"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getusername",
-      "label": ".getUsername()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".getusername()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L28"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_setcount",
-      "label": ".setCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".setcount()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L36"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_usercounterentity",
-      "label": ".UserCounterEntity()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".usercounterentity()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L20"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository_findbyusernameforupdate",
-      "label": ".findByUsernameForUpdate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".findbyusernameforupdate()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
-      "source_location": "L17"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusername",
-      "label": ".findByUsername()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".findbyusername()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L22"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusernameforupdate",
-      "label": ".findByUsernameForUpdate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".findbyusernameforupdate()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L27"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_save",
-      "label": ".save()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".save()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L32"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_todomain",
-      "label": ".toDomain()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".todomain()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L39"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_usercounterpersistenceadapter",
-      "label": ".UserCounterPersistenceAdapter()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": ".usercounterpersistenceadapter()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L18"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_backendapplication_backendapplication_main",
       "label": ".main()",
       "_callable": true,
@@ -2039,6 +2267,66 @@
       "file_type": "code",
       "norm_label": "app()",
       "source_file": "frontend/src/App.tsx",
+      "source_location": "L11"
+    },
+    {
+      "id": "frontend_src_auth_api_decodeuser",
+      "label": "decodeUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "decodeuser()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L7"
+    },
+    {
+      "id": "frontend_src_auth_api_getcurrentuser",
+      "label": "getCurrentUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "getcurrentuser()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L9"
+    },
+    {
+      "id": "frontend_src_auth_api_login",
+      "label": "login()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "login()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L22"
+    },
+    {
+      "id": "frontend_src_auth_api_logout",
+      "label": "logout()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "logout()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L45"
+    },
+    {
+      "id": "frontend_src_auth_api_test_resolvewith",
+      "label": "resolveWith()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "resolvewith()",
+      "source_file": "frontend/src/auth/api.test.ts",
       "source_location": "L11"
     },
     {
@@ -2162,6 +2450,90 @@
       "source_location": "L22"
     },
     {
+      "id": "frontend_src_lib_http_apifetch",
+      "label": "apiFetch()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apifetch()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L78"
+    },
+    {
+      "id": "frontend_src_lib_http_csrftoken",
+      "label": "csrfToken()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "csrftoken()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L44"
+    },
+    {
+      "id": "frontend_src_lib_http_isunsafe",
+      "label": "isUnsafe()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "isunsafe()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L51"
+    },
+    {
+      "id": "frontend_src_lib_http_test_clearcookies",
+      "label": "clearCookies()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "clearcookies()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L9"
+    },
+    {
+      "id": "frontend_src_lib_http_test_decodecount",
+      "label": "decodeCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "decodecount()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L16"
+    },
+    {
+      "id": "frontend_src_lib_http_test_setcookie",
+      "label": "setCookie()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "setcookie()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L5"
+    },
+    {
+      "id": "frontend_src_lib_http_withcsrf",
+      "label": "withCsrf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "withcsrf()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L53"
+    },
+    {
       "id": "frontend_src_lib_utils_cn",
       "label": "cn()",
       "_callable": true,
@@ -2207,7 +2579,7 @@
       "file_type": "code",
       "norm_label": "decodecount()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L21"
+      "source_location": "L19"
     },
     {
       "id": "frontend_src_pages_showcase_getcount",
@@ -2219,7 +2591,7 @@
       "file_type": "code",
       "norm_label": "getcount()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L26"
+      "source_location": "L24"
     },
     {
       "id": "frontend_src_pages_showcase_incrementcount",
@@ -2231,7 +2603,7 @@
       "file_type": "code",
       "norm_label": "incrementcount()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L27"
+      "source_location": "L25"
     },
     {
       "id": "frontend_src_pages_showcase_resetcount",
@@ -2243,7 +2615,7 @@
       "file_type": "code",
       "norm_label": "resetcount()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L29"
+      "source_location": "L27"
     },
     {
       "id": "frontend_src_pages_showcase_showcase",
@@ -2255,7 +2627,7 @@
       "file_type": "code",
       "norm_label": "showcase()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L33"
+      "source_location": "L31"
     },
     {
       "id": "frontend_src_pages_showcase_test_count",
@@ -2330,6 +2702,18 @@
       "source_location": "L25"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_authcontroller",
+      "label": ".AuthController()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".authcontroller()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L40"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_authenticationfailed",
       "label": ".authenticationFailed()",
       "_callable": true,
@@ -2340,6 +2724,106 @@
       "norm_label": ".authenticationfailed()",
       "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
       "source_location": "L110"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_currentuser",
+      "label": ".currentUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getName",
+            "receiver_type": "Principal",
+            "lang": "java",
+            "line": "L78"
+          }
+        ]
+      },
+      "norm_label": ".currentuser()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
+      "source_location": "L76"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_getcount",
+      "label": ".getCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getName",
+            "receiver_type": "Principal",
+            "lang": "java",
+            "line": "L25"
+          }
+        ]
+      },
+      "norm_label": ".getcount()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L23"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_increment",
+      "label": ".increment()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getName",
+            "receiver_type": "Principal",
+            "lang": "java",
+            "line": "L30"
+          }
+        ]
+      },
+      "norm_label": ".increment()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L28"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_reset",
+      "label": ".reset()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getName",
+            "receiver_type": "Principal",
+            "lang": "java",
+            "line": "L35"
+          }
+        ]
+      },
+      "norm_label": ".reset()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L33"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_usercountercontroller",
+      "label": ".UserCounterController()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".usercountercontroller()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L19"
     },
     {
       "id": "backend_src_main_java_com_example_backend_session_sessioncontroller_sessioncontroller_deletesession",
@@ -2450,16 +2934,88 @@
       "source_location": "L29"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_auth_config_securityconfigtests_probecontroller_index",
-      "label": ".index()",
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_getcount",
+      "label": ".getCount()",
       "_callable": true,
       "_origin": "ast",
       "community": 7,
       "community_name": "AuthController.java",
       "file_type": "code",
-      "norm_label": ".index()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/config/SecurityConfigTests.java",
-      "source_location": "L183"
+      "norm_label": ".getcount()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L56"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_increment",
+      "label": ".increment()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".increment()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L62"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_recordingcounterservice",
+      "label": ".RecordingCounterService()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".recordingcounterservice()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L51"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_recordingcounterservice_reset",
+      "label": ".reset()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".reset()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L68"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_getscountforauthenticateduser",
+      "label": ".getsCountForAuthenticatedUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".getscountforauthenticateduser()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L13"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_incrementscountforauthenticateduser",
+      "label": ".incrementsCountForAuthenticatedUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".incrementscountforauthenticateduser()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L24"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_usercountercontrollertests_resetscountforauthenticateduser",
+      "label": ".resetsCountForAuthenticatedUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".resetscountforauthenticateduser()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/controller/UserCounterControllerTests.java",
+      "source_location": "L35"
     },
     {
       "id": "backend_src_test_java_com_example_backend_session_sessioncontrollertests_sessioncontrollertests_ignoresdeletionwhenthereisnosession",
@@ -2562,172 +3118,6 @@
       "source_location": "L16"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_authcontroller",
-      "label": ".AuthController()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": ".authcontroller()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L40"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_currentuser",
-      "label": ".currentUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getName",
-            "receiver_type": "Principal",
-            "lang": "java",
-            "line": "L78"
-          }
-        ]
-      },
-      "norm_label": ".currentuser()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L76"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_issuecsrftoken",
-      "label": ".issueCsrfToken()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "saveToken",
-            "receiver_type": "CsrfTokenRepository",
-            "lang": "java",
-            "line": "L106"
-          },
-          {
-            "callee": "generateToken",
-            "receiver_type": "CsrfTokenRepository",
-            "lang": "java",
-            "line": "L107"
-          }
-        ]
-      },
-      "norm_label": ".issuecsrftoken()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L105"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_login",
-      "label": ".login()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "authenticate",
-            "receiver_type": "AuthenticationManager",
-            "lang": "java",
-            "line": "L58"
-          },
-          {
-            "callee": "unauthenticated",
-            "receiver_type": "UsernamePasswordAuthenticationToken",
-            "lang": "java",
-            "line": "L59"
-          },
-          {
-            "callee": "onAuthentication",
-            "receiver_type": "SessionAuthenticationStrategy",
-            "lang": "java",
-            "line": "L64"
-          },
-          {
-            "callee": "createEmptyContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L66"
-          },
-          {
-            "callee": "setAuthentication",
-            "receiver_type": "SecurityContext",
-            "lang": "java",
-            "line": "L67"
-          },
-          {
-            "callee": "setContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L68"
-          },
-          {
-            "callee": "saveContext",
-            "receiver_type": "SecurityContextRepository",
-            "lang": "java",
-            "line": "L69"
-          },
-          {
-            "callee": "getName",
-            "receiver_type": "Authentication",
-            "lang": "java",
-            "line": "L73"
-          }
-        ]
-      },
-      "norm_label": ".login()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L53"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_logout",
-      "label": ".logout()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L84"
-          },
-          {
-            "callee": "invalidate",
-            "receiver_type": "HttpSession",
-            "lang": "java",
-            "line": "L86"
-          },
-          {
-            "callee": "clearContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L88"
-          },
-          {
-            "callee": "writeCookieValue",
-            "receiver_type": "CookieSerializer",
-            "lang": "java",
-            "line": "L93"
-          }
-        ]
-      },
-      "norm_label": ".logout()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/AuthController.java",
-      "source_location": "L81"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_authenticationmanager",
       "label": ".authenticationManager()",
       "_callable": true,
@@ -2770,40 +3160,6 @@
       "norm_label": ".csrftokenrepository()",
       "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
       "source_location": "L113"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_isfrontendget",
-      "label": ".isFrontendGet()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getRequestURI",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L165"
-          },
-          {
-            "callee": "getContextPath",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L165"
-          },
-          {
-            "callee": "getMethod",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L166"
-          }
-        ]
-      },
-      "norm_label": ".isfrontendget()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
-      "source_location": "L164"
     },
     {
       "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_passwordencoder",
@@ -2914,362 +3270,6 @@
       "source_location": "L60"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_currentuserreportstheprincipalname",
-      "label": ".currentUserReportsThePrincipalName()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": ".currentuserreportstheprincipalname()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L188"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginkeepstheauthenticationintherotatedsession",
-      "label": ".loginKeepsTheAuthenticationInTheRotatedSession()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L135"
-          },
-          {
-            "callee": "getAuthentication",
-            "receiver_type": "SecurityContext",
-            "lang": "java",
-            "line": "L145"
-          }
-        ]
-      },
-      "norm_label": ".loginkeepstheauthenticationintherotatedsession()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L132"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginpublishesauthenticationonthecurrentthread",
-      "label": ".loginPublishesAuthenticationOnTheCurrentThread()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L182"
-          },
-          {
-            "callee": "getName",
-            "receiver_type": "Authentication",
-            "lang": "java",
-            "line": "L184"
-          },
-          {
-            "callee": "isAuthenticated",
-            "receiver_type": "Authentication",
-            "lang": "java",
-            "line": "L185"
-          }
-        ]
-      },
-      "norm_label": ".loginpublishesauthenticationonthecurrentthread()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L175"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginrejectsinvalidcredentialswithoutcreatingsession",
-      "label": ".loginRejectsInvalidCredentialsWithoutCreatingSession()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L106"
-          }
-        ]
-      },
-      "norm_label": ".loginrejectsinvalidcredentialswithoutcreatingsession()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L97"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginreplacesacsrftokenmintedbeforeauthentication",
-      "label": ".loginReplacesACsrfTokenMintedBeforeAuthentication()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "setCookies",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L155"
-          },
-          {
-            "callee": "getCookie",
-            "receiver_type": "MockHttpServletResponse",
-            "lang": "java",
-            "line": "L163"
-          },
-          {
-            "callee": "getValue",
-            "receiver_type": "Cookie",
-            "lang": "java",
-            "line": "L165"
-          }
-        ]
-      },
-      "norm_label": ".loginreplacesacsrftokenmintedbeforeauthentication()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L152"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginrotatesthesessionidofapreexistingsession",
-      "label": ".loginRotatesTheSessionIdOfAPreExistingSession()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L117"
-          }
-        ]
-      },
-      "norm_label": ".loginrotatesthesessionidofapreexistingsession()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L114"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_loginstoresauthenticateduserinhttpsession",
-      "label": ".loginStoresAuthenticatedUserInHttpSession()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L74"
-          },
-          {
-            "callee": "getAuthentication",
-            "receiver_type": "SecurityContext",
-            "lang": "java",
-            "line": "L77"
-          }
-        ]
-      },
-      "norm_label": ".loginstoresauthenticateduserinhttpsession()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L65"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutexpiresthesessioncookie",
-      "label": ".logoutExpiresTheSessionCookie()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getCookie",
-            "receiver_type": "MockHttpServletResponse",
-            "lang": "java",
-            "line": "L226"
-          },
-          {
-            "callee": "getValue",
-            "receiver_type": "Cookie",
-            "lang": "java",
-            "line": "L228"
-          },
-          {
-            "callee": "getMaxAge",
-            "receiver_type": "Cookie",
-            "lang": "java",
-            "line": "L229"
-          }
-        ]
-      },
-      "norm_label": ".logoutexpiresthesessioncookie()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L215"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutinvalidatesthesessionandclearsthesecuritycontext",
-      "label": ".logoutInvalidatesTheSessionAndClearsTheSecurityContext()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L202"
-          },
-          {
-            "callee": "isInvalid",
-            "receiver_type": "MockHttpSession",
-            "lang": "java",
-            "line": "L207"
-          },
-          {
-            "callee": "getContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L208"
-          }
-        ]
-      },
-      "norm_label": ".logoutinvalidatesthesessionandclearsthesecuritycontext()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L195"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutreplacesthecsrftokenoftheclosedsession",
-      "label": ".logoutReplacesTheCsrfTokenOfTheClosedSession()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "setCookies",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L239"
-          },
-          {
-            "callee": "getCookie",
-            "receiver_type": "MockHttpServletResponse",
-            "lang": "java",
-            "line": "L248"
-          },
-          {
-            "callee": "getValue",
-            "receiver_type": "Cookie",
-            "lang": "java",
-            "line": "L250"
-          }
-        ]
-      },
-      "norm_label": ".logoutreplacesthecsrftokenoftheclosedsession()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L236"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_logoutwithoutasessionsucceedsandstillclearsthesecuritycontext",
-      "label": ".logoutWithoutASessionSucceedsAndStillClearsTheSecurityContext()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "createEmptyContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L262"
-          },
-          {
-            "callee": "setAuthentication",
-            "receiver_type": "SecurityContext",
-            "lang": "java",
-            "line": "L263"
-          },
-          {
-            "callee": "setContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L265"
-          },
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L270"
-          },
-          {
-            "callee": "getContext",
-            "receiver_type": "SecurityContextHolder",
-            "lang": "java",
-            "line": "L271"
-          }
-        ]
-      },
-      "norm_label": ".logoutwithoutasessionsucceedsandstillclearsthesecuritycontext()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L259"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_secondaryusercanlogin",
-      "label": ".secondaryUserCanLogIn()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getSession",
-            "receiver_type": "MockHttpServletRequest",
-            "lang": "java",
-            "line": "L90"
-          },
-          {
-            "callee": "getAuthentication",
-            "receiver_type": "SecurityContext",
-            "lang": "java",
-            "line": "L93"
-          }
-        ]
-      },
-      "norm_label": ".secondaryusercanlogin()",
-      "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
-      "source_location": "L81"
-    },
-    {
       "id": "backend_src_test_java_com_example_backend_auth_authcontrollertests_authcontrollertests_setup",
       "label": ".setUp()",
       "_callable": true,
@@ -3290,17 +3290,6 @@
       "norm_label": ".setup()",
       "source_file": "backend/src/test/java/com/example/backend/auth/AuthControllerTests.java",
       "source_location": "L38"
-    },
-    {
-      "id": "frontend_src_lib_utils_test",
-      "label": "utils.test.ts",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "sources.ts",
-      "file_type": "code",
-      "norm_label": "utils.test.ts",
-      "source_file": "frontend/src/lib/utils.test.ts",
-      "source_location": "L1"
     },
     {
       "id": "frontend_test_arch_designtokens_test",
@@ -3400,215 +3389,6 @@
       "norm_label": "root",
       "source_file": "frontend/test/arch/sources.ts",
       "source_location": "L9"
-    },
-    {
-      "id": "ref_vitest",
-      "label": "vitest",
-      "_origin": "ast",
-      "community": 0,
-      "community_name": "sources.ts",
-      "file_type": "concept",
-      "norm_label": "vitest",
-      "source_file": "frontend/package.json",
-      "source_location": "L70"
-    },
-    {
-      "id": "frontend_src_auth_api",
-      "label": "api.ts",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "api.ts",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_auth_api_test",
-      "label": "api.test.ts",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "api.test.ts",
-      "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_auth_api_test_apifetchmock",
-      "label": "apiFetchMock",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apifetchmock",
-      "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L9"
-    },
-    {
-      "id": "frontend_src_lib_http",
-      "label": "http.ts",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "http.ts",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_lib_http_safe_methods",
-      "label": "SAFE_METHODS",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "safe_methods",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L13"
-    },
-    {
-      "id": "frontend_src_lib_http_test",
-      "label": "http.test.ts",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "http.test.ts",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "architecture_review",
-      "label": "architecture-review.md",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "page",
-      "norm_label": "architecture-review.md",
-      "source_file": "architecture-review.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "architecture_review_02_every_caller_of_apifetch_re_derives_status_meaning_c1573da",
-      "label": "~~02 \u2014 Every caller of `apiFetch` re-derives status meaning~~ \u2705 `c1573da`",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "~~02 \u2014 every caller of `apifetch` re-derives status meaning~~ \u2705 `c1573da`",
-      "source_file": "architecture-review.md",
-      "source_location": "L34"
-    },
-    {
-      "id": "architecture_review_03_the_runtime_configuration_surface_has_no_module_at_all_strong_unchanged",
-      "label": "03 \u2014 The runtime configuration surface has no module at all \u2014 Strong (unchanged)",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "03 \u2014 the runtime configuration surface has no module at all \u2014 strong (unchanged)",
-      "source_file": "architecture-review.md",
-      "source_location": "L107"
-    },
-    {
-      "id": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "label": "04 \u2014 The Counter slice is seven modules over a two-field row \u2014 Worth exploring (unchanged)",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "04 \u2014 the counter slice is seven modules over a two-field row \u2014 worth exploring (unchanged)",
-      "source_file": "architecture-review.md",
-      "source_location": "L167"
-    },
-    {
-      "id": "architecture_review_05_the_auth_session_machine_is_driven_by_its_callers_strong_was_worth_exploring",
-      "label": "05 \u2014 The auth session machine is driven by its callers \u2014 Strong (was: Worth exploring)",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "05 \u2014 the auth session machine is driven by its callers \u2014 strong (was: worth exploring)",
-      "source_file": "architecture-review.md",
-      "source_location": "L64"
-    },
-    {
-      "id": "architecture_review_06_a_template_whose_identity_has_no_seam_speculative_unchanged",
-      "label": "06 \u2014 A template whose identity has no seam \u2014 Speculative (unchanged)",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "06 \u2014 a template whose identity has no seam \u2014 speculative (unchanged)",
-      "source_file": "architecture-review.md",
-      "source_location": "L202"
-    },
-    {
-      "id": "architecture_review_07_user_facing_copy_has_no_owner_worth_exploring_new",
-      "label": "07 \u2014 User-facing copy has no owner \u2014 Worth exploring (new)",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "07 \u2014 user-facing copy has no owner \u2014 worth exploring (new)",
-      "source_file": "architecture-review.md",
-      "source_location": "L144"
-    },
-    {
-      "id": "architecture_review_architecture_review_deepening_opportunities",
-      "label": "Architecture review \u2014 deepening opportunities",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "architecture review \u2014 deepening opportunities",
-      "source_file": "architecture-review.md",
-      "source_location": "L1"
-    },
-    {
-      "id": "architecture_review_open_candidates",
-      "label": "Open candidates",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "open candidates",
-      "source_file": "architecture-review.md",
-      "source_location": "L54"
-    },
-    {
-      "id": "architecture_review_resolved_since_round_1",
-      "label": "Resolved since round 1",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "resolved since round 1",
-      "source_file": "architecture-review.md",
-      "source_location": "L18"
-    },
-    {
-      "id": "architecture_review_top_recommendation",
-      "label": "Top recommendation",
-      "_origin": "ast",
-      "community": 1,
-      "community_name": "apiFetch",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "top recommendation",
-      "source_file": "architecture-review.md",
-      "source_location": "L214"
     },
     {
       "id": "frontend_stryker_config",
@@ -4887,17 +4667,6 @@
       "source_location": "L1"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller",
-      "label": "UserCounterController.java",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "usercountercontroller.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L1"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter",
       "label": "UserCounter.java",
       "_origin": "ast",
@@ -4907,6 +4676,61 @@
       "norm_label": "usercounter.java",
       "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounter.java",
       "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository",
+      "label": "UserCounterRepository.java",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterrepository.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity",
+      "label": "UserCounterEntity.java",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterentity.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository",
+      "label": "UserCounterJpaRepository.java",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterjparepository.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter",
+      "label": "UserCounterPersistenceAdapter.java",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterpersistenceadapter.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_java_override",
+      "label": "Override",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "override",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests",
@@ -4931,17 +4755,6 @@
       "source_location": "L1"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_java_override",
-      "label": "Override",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "override",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests",
       "label": "UserCounterTests.java",
       "_origin": "ast",
@@ -4953,13 +4766,68 @@
       "source_location": "L1"
     },
     {
-      "id": "java_security_principal",
-      "label": "java.security.Principal",
+      "id": "jakarta_persistence_entity",
+      "label": "jakarta.persistence.Entity",
       "_origin": "ast",
       "community": 15,
       "community_name": "UserCounter",
       "file_type": "code",
-      "norm_label": "java.security.principal",
+      "norm_label": "jakarta.persistence.entity",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "jakarta_persistence_table",
+      "label": "jakarta.persistence.Table",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "jakarta.persistence.table",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_data_jpa_repository_jparepository",
+      "label": "org.springframework.data.jpa.repository.JpaRepository",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "org.springframework.data.jpa.repository.jparepository",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_data_jpa_repository_lock",
+      "label": "org.springframework.data.jpa.repository.Lock",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "org.springframework.data.jpa.repository.lock",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_data_jpa_repository_query",
+      "label": "org.springframework.data.jpa.repository.Query",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "org.springframework.data.jpa.repository.query",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_stereotype_repository",
+      "label": "org.springframework.stereotype.Repository",
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "org.springframework.stereotype.repository",
       "source_file": "",
       "source_location": ""
     },
@@ -4982,39 +4850,6 @@
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.transaction.annotation.transactional",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_web_bind_annotation_postmapping",
-      "label": "org.springframework.web.bind.annotation.PostMapping",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "org.springframework.web.bind.annotation.postmapping",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_web_bind_annotation_requestmapping",
-      "label": "org.springframework.web.bind.annotation.RequestMapping",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "org.springframework.web.bind.annotation.requestmapping",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_web_bind_annotation_restcontroller",
-      "label": "org.springframework.web.bind.annotation.RestController",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "org.springframework.web.bind.annotation.restcontroller",
       "source_file": "",
       "source_location": ""
     },
@@ -5871,17 +5706,6 @@
       "source_location": "L1"
     },
     {
-      "id": "backend_src_test_java_com_example_backend_session_sessioncontrollertests",
-      "label": "SessionControllerTests.java",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
-      "file_type": "code",
-      "norm_label": "sessioncontrollertests.java",
-      "source_file": "backend/src/test/java/com/example/backend/session/SessionControllerTests.java",
-      "source_location": "L1"
-    },
-    {
       "id": "backend_src_test_java_com_example_backend_web_spafrontendtests",
       "label": "SpaFrontendTests.java",
       "_origin": "ast",
@@ -5900,6 +5724,28 @@
       "community_name": "org.junit.jupiter.api.Test",
       "file_type": "code",
       "norm_label": "jakarta.servlet.filter",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "jakarta_servlet_http_httpservletrequest",
+      "label": "jakarta.servlet.http.HttpServletRequest",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "jakarta.servlet.http.httpservletrequest",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "jakarta_servlet_http_httpservletresponse",
+      "label": "jakarta.servlet.http.HttpServletResponse",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "jakarta.servlet.http.httpservletresponse",
       "source_file": "",
       "source_location": ""
     },
@@ -6488,18 +6334,6 @@
       "source_location": ""
     },
     {
-      "id": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "label": "~~01 \u2014 \"Is this an SPA route?\" is answered twice, differently~~ \u2705 `ef06929`",
-      "_origin": "ast",
-      "community": 24,
-      "community_name": ".servesSpaShell",
-      "file_type": "document",
-      "node_kind": "heading",
-      "norm_label": "~~01 \u2014 \"is this an spa route?\" is answered twice, differently~~ \u2705 `ef06929`",
-      "source_file": "architecture-review.md",
-      "source_location": "L20"
-    },
-    {
       "id": "context",
       "label": "CONTEXT.md",
       "_origin": "ast",
@@ -6534,61 +6368,6 @@
       "norm_label": "request paths",
       "source_file": "CONTEXT.md",
       "source_location": "L10"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository",
-      "label": "UserCounterRepository.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterrepository.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity",
-      "label": "UserCounterEntity.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterentity.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository",
-      "label": "UserCounterJpaRepository.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterjparepository.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter",
-      "label": "UserCounterPersistenceAdapter.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "usercounterpersistenceadapter.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_java_override",
-      "label": "Override",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "override",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "backend_src_test_java_arch_architecturetest",
@@ -6635,28 +6414,6 @@
       "source_location": ""
     },
     {
-      "id": "jakarta_persistence_entity",
-      "label": "jakarta.persistence.Entity",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "jakarta.persistence.entity",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "jakarta_persistence_table",
-      "label": "jakarta.persistence.Table",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "jakarta.persistence.table",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "org_springframework_context_annotation_configuration",
       "label": "org.springframework.context.annotation.Configuration",
       "_origin": "ast",
@@ -6664,50 +6421,6 @@
       "community_name": "ArchitectureTest.java",
       "file_type": "code",
       "norm_label": "org.springframework.context.annotation.configuration",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_data_jpa_repository_jparepository",
-      "label": "org.springframework.data.jpa.repository.JpaRepository",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.data.jpa.repository.jparepository",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_data_jpa_repository_lock",
-      "label": "org.springframework.data.jpa.repository.Lock",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.data.jpa.repository.lock",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_data_jpa_repository_query",
-      "label": "org.springframework.data.jpa.repository.Query",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.data.jpa.repository.query",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_stereotype_repository",
-      "label": "org.springframework.stereotype.Repository",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.stereotype.repository",
       "source_file": "",
       "source_location": ""
     },
@@ -7479,6 +7192,39 @@
       "source_location": "L1"
     },
     {
+      "id": "frontend_src_auth_api",
+      "label": "api.ts",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "api.ts",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_auth_api_test",
+      "label": "api.test.ts",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "api.test.ts",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_auth_api_test_apifetchmock",
+      "label": "apiFetchMock",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apifetchmock",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L9"
+    },
+    {
       "id": "frontend_src_auth_auth_context",
       "label": "auth-context.tsx",
       "_origin": "ast",
@@ -7556,6 +7302,50 @@
       "source_location": "L1"
     },
     {
+      "id": "frontend_src_lib_http",
+      "label": "http.ts",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "http.ts",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_lib_http_csrf_expired_message",
+      "label": "CSRF_EXPIRED_MESSAGE",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "csrf_expired_message",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L34"
+    },
+    {
+      "id": "frontend_src_lib_http_safe_methods",
+      "label": "SAFE_METHODS",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "safe_methods",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L13"
+    },
+    {
+      "id": "frontend_src_lib_http_test",
+      "label": "http.test.ts",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "http.test.ts",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L1"
+    },
+    {
       "id": "frontend_src_lib_utils",
       "label": "utils.ts",
       "_origin": "ast",
@@ -7564,6 +7354,17 @@
       "file_type": "code",
       "norm_label": "utils.ts",
       "source_file": "frontend/src/lib/utils.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_lib_utils_test",
+      "label": "utils.test.ts",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "utils.test.ts",
+      "source_file": "frontend/src/lib/utils.test.ts",
       "source_location": "L1"
     },
     {
@@ -7719,6 +7520,17 @@
       "norm_label": "@testing-library/user-event",
       "source_file": "frontend/package.json",
       "source_location": "L50"
+    },
+    {
+      "id": "ref_vitest",
+      "label": "vitest",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "showcase.tsx",
+      "file_type": "concept",
+      "norm_label": "vitest",
+      "source_file": "frontend/package.json",
+      "source_location": "L70"
     },
     {
       "id": "scripts_bootstrap",
@@ -8268,6 +8080,17 @@
       "source_location": "L1"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller",
+      "label": "UserCounterController.java",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "usercountercontroller.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L1"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_session_sessioncontroller",
       "label": "SessionController.java",
       "_origin": "ast",
@@ -8277,6 +8100,17 @@
       "norm_label": "sessioncontroller.java",
       "source_file": "backend/src/main/java/com/example/backend/session/SessionController.java",
       "source_location": "L1"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_controller_usercountercontrollertests_java_override",
+      "label": "Override",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "override",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "jakarta_servlet_http_httpsession",
@@ -8290,6 +8124,28 @@
       "source_location": ""
     },
     {
+      "id": "java_security_principal",
+      "label": "java.security.Principal",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "java.security.principal",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_security_authentication_authenticationmanager",
+      "label": "org.springframework.security.authentication.AuthenticationManager",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.security.authentication.authenticationmanager",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "org_springframework_security_core_authenticationexception",
       "label": "org.springframework.security.core.AuthenticationException",
       "_origin": "ast",
@@ -8297,6 +8153,50 @@
       "community_name": "AuthController.java",
       "file_type": "code",
       "norm_label": "org.springframework.security.core.authenticationexception",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_security_web_authentication_session_sessionauthenticationstrategy",
+      "label": "org.springframework.security.web.authentication.session.SessionAuthenticationStrategy",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.security.web.authentication.session.sessionauthenticationstrategy",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_security_web_context_securitycontextrepository",
+      "label": "org.springframework.security.web.context.SecurityContextRepository",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.security.web.context.securitycontextrepository",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_security_web_csrf_csrftokenrepository",
+      "label": "org.springframework.security.web.csrf.CsrfTokenRepository",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.security.web.csrf.csrftokenrepository",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_session_web_http_cookieserializer",
+      "label": "org.springframework.session.web.http.CookieSerializer",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.session.web.http.cookieserializer",
       "source_file": "",
       "source_location": ""
     },
@@ -8334,6 +8234,17 @@
       "source_location": ""
     },
     {
+      "id": "org_springframework_web_bind_annotation_postmapping",
+      "label": "org.springframework.web.bind.annotation.PostMapping",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.web.bind.annotation.postmapping",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "org_springframework_web_bind_annotation_putmapping",
       "label": "org.springframework.web.bind.annotation.PutMapping",
       "_origin": "ast",
@@ -8345,6 +8256,17 @@
       "source_location": ""
     },
     {
+      "id": "org_springframework_web_bind_annotation_requestmapping",
+      "label": "org.springframework.web.bind.annotation.RequestMapping",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.web.bind.annotation.requestmapping",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "org_springframework_web_bind_annotation_responsestatus",
       "label": "org.springframework.web.bind.annotation.ResponseStatus",
       "_origin": "ast",
@@ -8352,6 +8274,17 @@
       "community_name": "AuthController.java",
       "file_type": "code",
       "norm_label": "org.springframework.web.bind.annotation.responsestatus",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "org_springframework_web_bind_annotation_restcontroller",
+      "label": "org.springframework.web.bind.annotation.RestController",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": "org.springframework.web.bind.annotation.restcontroller",
       "source_file": "",
       "source_location": ""
     },
@@ -8378,26 +8311,15 @@
       "source_location": "L1"
     },
     {
-      "id": "jakarta_servlet_http_httpservletrequest",
-      "label": "jakarta.servlet.http.HttpServletRequest",
+      "id": "backend_src_test_java_com_example_backend_session_sessioncontrollertests",
+      "label": "SessionControllerTests.java",
       "_origin": "ast",
       "community": 8,
       "community_name": "SecurityConfig.java",
       "file_type": "code",
-      "norm_label": "jakarta.servlet.http.httpservletrequest",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "jakarta_servlet_http_httpservletresponse",
-      "label": "jakarta.servlet.http.HttpServletResponse",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "jakarta.servlet.http.httpservletresponse",
-      "source_file": "",
-      "source_location": ""
+      "norm_label": "sessioncontrollertests.java",
+      "source_file": "backend/src/test/java/com/example/backend/session/SessionControllerTests.java",
+      "source_location": "L1"
     },
     {
       "id": "org_junit_jupiter_api_aftereach",
@@ -8418,17 +8340,6 @@
       "community_name": "SecurityConfig.java",
       "file_type": "code",
       "norm_label": "org.springframework.context.annotation.bean",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_security_authentication_authenticationmanager",
-      "label": "org.springframework.security.authentication.AuthenticationManager",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.security.authentication.authenticationmanager",
       "source_file": "",
       "source_location": ""
     },
@@ -8462,50 +8373,6 @@
       "community_name": "SecurityConfig.java",
       "file_type": "code",
       "norm_label": "org.springframework.security.crypto.password.passwordencoder",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_security_web_authentication_session_sessionauthenticationstrategy",
-      "label": "org.springframework.security.web.authentication.session.SessionAuthenticationStrategy",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.security.web.authentication.session.sessionauthenticationstrategy",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_security_web_context_securitycontextrepository",
-      "label": "org.springframework.security.web.context.SecurityContextRepository",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.security.web.context.securitycontextrepository",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_security_web_csrf_csrftokenrepository",
-      "label": "org.springframework.security.web.csrf.CsrfTokenRepository",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.security.web.csrf.csrftokenrepository",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "org_springframework_session_web_http_cookieserializer",
-      "label": "org.springframework.session.web.http.CookieSerializer",
-      "_origin": "ast",
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "file_type": "code",
-      "norm_label": "org.springframework.session.web.http.cookieserializer",
       "source_file": "",
       "source_location": ""
     },
@@ -8959,36 +8826,6 @@
       "contributor": null,
       "file_type": "concept",
       "norm_label": "getcount operation",
-      "source_file": "backend/docs/openapi.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "backend_docs_openapi_incrementcount",
-      "label": "incrementCount operation",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "UserCounter",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "incrementcount operation",
-      "source_file": "backend/docs/openapi.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "backend_docs_openapi_resetcount",
-      "label": "resetCount operation",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 15,
-      "community_name": "UserCounter",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "resetcount operation",
       "source_file": "backend/docs/openapi.yaml",
       "source_location": null,
       "source_url": null
@@ -9639,6 +9476,21 @@
       "source_url": null
     },
     {
+      "id": "readme_toolchain_pins",
+      "label": "Toolchain Pin Table",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 26,
+      "community_name": "ALB To EC2 To RDS And Redis Topology",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "toolchain pin table",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "readme_container_digest_pinning",
       "label": "Image Tag Plus Digest Pinning",
       "_origin": "semantic",
@@ -10029,6 +9881,36 @@
       "source_url": null
     },
     {
+      "id": "frontend_docs_architecture_deliberate_absences",
+      "label": "Deliberately Absent Concerns and Where They Go",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "auth.helpers.ts",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "deliberately absent concerns and where they go",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "frontend_docs_architecture_token_pipeline",
+      "label": "Tailwind v4 CSS-First Token Pipeline",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "auth.helpers.ts",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "tailwind v4 css-first token pipeline",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "frontend_docs_testing_guide_flakiness_rules",
       "label": "E2E Flakiness Rules",
       "_origin": "semantic",
@@ -10104,17 +9986,17 @@
       "source_url": null
     },
     {
-      "id": "readme_toolchain_pins",
-      "label": "Toolchain Pin Table",
+      "id": "frontend_docs_architecture",
+      "label": "Frontend Architecture Doc",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
       "community": 4,
       "community_name": "auth.helpers.ts",
       "contributor": null,
-      "file_type": "concept",
-      "norm_label": "toolchain pin table",
-      "source_file": "README.md",
+      "file_type": "document",
+      "norm_label": "frontend architecture doc",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
       "source_location": null,
       "source_url": null
     },
@@ -10224,6 +10106,51 @@
       "source_url": null
     },
     {
+      "id": "frontend_docs_architecture_lib_is_leaf",
+      "label": "lib/ Is a Leaf",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "auth.helpers.ts",
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "lib/ is a leaf",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "frontend_docs_architecture_no_catchall_dirs",
+      "label": "No types/ hooks/ utils/ Catch-All Dirs",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "auth.helpers.ts",
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "no types/ hooks/ utils/ catch-all dirs",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "frontend_docs_architecture_vitest_skips_tailwind",
+      "label": "Vitest Deliberately Omits the Tailwind Vite Plugin",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 4,
+      "community_name": "auth.helpers.ts",
+      "contributor": null,
+      "file_type": "rationale",
+      "norm_label": "vitest deliberately omits the tailwind vite plugin",
+      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "frontend_docs_testing_guide_arch_suite_node_fs",
       "label": "Arch Suite Reads Sources Through node:fs",
       "_origin": "semantic",
@@ -10249,21 +10176,6 @@
       "contributor": null,
       "file_type": "rationale",
       "norm_label": "tohavetextcontent is a substring match",
-      "source_file": "frontend/docs/TESTING_GUIDE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "frontend_docs_testing_guide_coverage_excludes",
-      "label": "Coverage Excludes Are Listed, Not Globbed",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 4,
-      "community_name": "auth.helpers.ts",
-      "contributor": null,
-      "file_type": "rationale",
-      "norm_label": "coverage excludes are listed, not globbed",
       "source_file": "frontend/docs/TESTING_GUIDE.md",
       "source_location": null,
       "source_url": null
@@ -10389,21 +10301,6 @@
       "source_url": null
     },
     {
-      "id": "frontend_docs_architecture_deliberate_absences",
-      "label": "Deliberately Absent Concerns and Where They Go",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "showcase.tsx",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "deliberately absent concerns and where they go",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "frontend_docs_architecture_import_direction",
       "label": "One-Way Import Direction Through the Layers",
       "_origin": "semantic",
@@ -10414,36 +10311,6 @@
       "contributor": null,
       "file_type": "concept",
       "norm_label": "one-way import direction through the layers",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "frontend_docs_architecture_token_pipeline",
-      "label": "Tailwind v4 CSS-First Token Pipeline",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "showcase.tsx",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "tailwind v4 css-first token pipeline",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "frontend_docs_architecture",
-      "label": "Frontend Architecture Doc",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "showcase.tsx",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "frontend architecture doc",
       "source_file": "frontend/docs/ARCHITECTURE.md",
       "source_location": null,
       "source_url": null
@@ -10464,36 +10331,6 @@
       "source_url": null
     },
     {
-      "id": "frontend_docs_architecture_lib_is_leaf",
-      "label": "lib/ Is a Leaf",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "showcase.tsx",
-      "contributor": null,
-      "file_type": "rationale",
-      "norm_label": "lib/ is a leaf",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "frontend_docs_architecture_no_catchall_dirs",
-      "label": "No types/ hooks/ utils/ Catch-All Dirs",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 5,
-      "community_name": "showcase.tsx",
-      "contributor": null,
-      "file_type": "rationale",
-      "norm_label": "no types/ hooks/ utils/ catch-all dirs",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "frontend_docs_architecture_ui_is_placeholder",
       "label": "components/ui Is a Package Placeholder",
       "_origin": "semantic",
@@ -10509,8 +10346,8 @@
       "source_url": null
     },
     {
-      "id": "frontend_docs_architecture_vitest_skips_tailwind",
-      "label": "Vitest Deliberately Omits the Tailwind Vite Plugin",
+      "id": "frontend_docs_testing_guide_coverage_excludes",
+      "label": "Coverage Excludes Are Listed, Not Globbed",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
@@ -10518,8 +10355,8 @@
       "community_name": "showcase.tsx",
       "contributor": null,
       "file_type": "rationale",
-      "norm_label": "vitest deliberately omits the tailwind vite plugin",
-      "source_file": "frontend/docs/ARCHITECTURE.md",
+      "norm_label": "coverage excludes are listed, not globbed",
+      "source_file": "frontend/docs/TESTING_GUIDE.md",
       "source_location": null,
       "source_url": null
     },
@@ -10569,6 +10406,21 @@
       "source_url": null
     },
     {
+      "id": "backend_docs_openapi_getcurrentuser",
+      "label": "getCurrentUser operation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "community_name": "AuthController.java",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "getcurrentuser operation",
+      "source_file": "backend/docs/openapi.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "backend_docs_openapi_gethealth",
       "label": "getHealth operation",
       "_origin": "semantic",
@@ -10599,6 +10451,21 @@
       "source_url": null
     },
     {
+      "id": "backend_docs_openapi_incrementcount",
+      "label": "incrementCount operation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "community_name": "AuthController.java",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "incrementcount operation",
+      "source_file": "backend/docs/openapi.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "backend_docs_openapi_login",
       "label": "login operation",
       "_origin": "semantic",
@@ -10624,6 +10491,21 @@
       "contributor": null,
       "file_type": "concept",
       "norm_label": "logout operation",
+      "source_file": "backend/docs/openapi.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "backend_docs_openapi_resetcount",
+      "label": "resetCount operation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "community_name": "AuthController.java",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "resetcount operation",
       "source_file": "backend/docs/openapi.yaml",
       "source_location": null,
       "source_url": null
@@ -10734,21 +10616,6 @@
       "source_url": null
     },
     {
-      "id": "backend_docs_openapi_getcurrentuser",
-      "label": "getCurrentUser operation",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 8,
-      "community_name": "SecurityConfig.java",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "getcurrentuser operation",
-      "source_file": "backend/docs/openapi.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "ref_node_fs",
       "label": "ref_node_fs",
       "_origin": "semantic",
@@ -10797,26 +10664,50 @@
       "type": "external"
     },
     {
-      "id": "assertthatcode",
-      "label": "assertthatcode",
+      "id": "id",
+      "label": "id",
       "_origin": "semantic",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
+      "community": 15,
+      "community_name": "UserCounter",
       "external": true,
       "file_type": "concept",
-      "norm_label": "assertthatcode",
+      "norm_label": "id",
       "source_file": "",
       "type": "external"
     },
     {
-      "id": "chronounit",
-      "label": "chronounit",
+      "id": "lockmodetype",
+      "label": "lockmodetype",
       "_origin": "semantic",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
+      "community": 15,
+      "community_name": "UserCounter",
       "external": true,
       "file_type": "concept",
-      "norm_label": "chronounit",
+      "norm_label": "lockmodetype",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "optional",
+      "label": "optional",
+      "_origin": "semantic",
+      "community": 15,
+      "community_name": "UserCounter",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "optional",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "param",
+      "label": "param",
+      "_origin": "semantic",
+      "community": 15,
+      "community_name": "UserCounter",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "param",
       "source_file": "",
       "type": "external"
     },
@@ -10841,6 +10732,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "containsstring",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "cookie",
+      "label": "cookie",
+      "_origin": "semantic",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "cookie",
       "source_file": "",
       "type": "external"
     },
@@ -10905,18 +10808,6 @@
       "type": "external"
     },
     {
-      "id": "instant",
-      "label": "instant",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "instant",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "map",
       "label": "map",
       "_origin": "semantic",
@@ -10925,30 +10816,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "map",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "mockhttpservletrequest",
-      "label": "mockhttpservletrequest",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "mockhttpservletrequest",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "mockhttpsession",
-      "label": "mockhttpsession",
-      "_origin": "semantic",
-      "community": 2,
-      "community_name": "org.junit.jupiter.api.Test",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "mockhttpsession",
       "source_file": "",
       "type": "external"
     },
@@ -11109,18 +10976,6 @@
       "type": "external"
     },
     {
-      "id": "id",
-      "label": "id",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "id",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "importoption",
       "label": "importoption",
       "_origin": "semantic",
@@ -11129,18 +10984,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "importoption",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "lockmodetype",
-      "label": "lockmodetype",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "lockmodetype",
       "source_file": "",
       "type": "external"
     },
@@ -11177,30 +11020,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "onionarchitecture",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "optional",
-      "label": "optional",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "optional",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "param",
-      "label": "param",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "ArchitectureTest.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "param",
       "source_file": "",
       "type": "external"
     },
@@ -11265,18 +11084,6 @@
       "type": "external"
     },
     {
-      "id": "authentication",
-      "label": "authentication",
-      "_origin": "semantic",
-      "community": 7,
-      "community_name": "AuthController.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "authentication",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "cookievalue",
       "label": "cookievalue",
       "_origin": "semantic",
@@ -11325,30 +11132,6 @@
       "type": "external"
     },
     {
-      "id": "securitycontext",
-      "label": "securitycontext",
-      "_origin": "semantic",
-      "community": 7,
-      "community_name": "AuthController.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "securitycontext",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "securitycontextholder",
-      "label": "securitycontextholder",
-      "_origin": "semantic",
-      "community": 7,
-      "community_name": "AuthController.java",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "securitycontextholder",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "size",
       "label": "size",
       "_origin": "semantic",
@@ -11385,6 +11168,18 @@
       "type": "external"
     },
     {
+      "id": "assertthatcode",
+      "label": "assertthatcode",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "assertthatcode",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "assertthatnoexception",
       "label": "assertthatnoexception",
       "_origin": "semantic",
@@ -11405,6 +11200,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "assertthatthrownby",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "authentication",
+      "label": "authentication",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "authentication",
       "source_file": "",
       "type": "external"
     },
@@ -11469,14 +11276,14 @@
       "type": "external"
     },
     {
-      "id": "cookie",
-      "label": "cookie",
+      "id": "chronounit",
+      "label": "chronounit",
       "_origin": "semantic",
       "community": 8,
       "community_name": "SecurityConfig.java",
       "external": true,
       "file_type": "concept",
-      "norm_label": "cookie",
+      "norm_label": "chronounit",
       "source_file": "",
       "type": "external"
     },
@@ -11553,6 +11360,30 @@
       "type": "external"
     },
     {
+      "id": "instant",
+      "label": "instant",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "instant",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "mockhttpservletrequest",
+      "label": "mockhttpservletrequest",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "mockhttpservletrequest",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "mockhttpservletresponse",
       "label": "mockhttpservletresponse",
       "_origin": "semantic",
@@ -11561,6 +11392,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "mockhttpservletresponse",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "mockhttpsession",
+      "label": "mockhttpsession",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "mockhttpsession",
       "source_file": "",
       "type": "external"
     },
@@ -11585,6 +11428,30 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "referrerpolicy",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "securitycontext",
+      "label": "securitycontext",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "securitycontext",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "securitycontextholder",
+      "label": "securitycontextholder",
+      "_origin": "semantic",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "securitycontextholder",
       "source_file": "",
       "type": "external"
     },
@@ -13675,7 +13542,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L13",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -13687,7 +13554,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L26",
+      "source_location": "L23",
       "weight": 1.0
     },
     {
@@ -13699,7 +13566,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L49",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -13819,7 +13686,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L77",
+      "source_location": "L84",
       "weight": 1.0
     },
     {
@@ -13831,7 +13698,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L78",
+      "source_location": "L85",
       "weight": 1.0
     },
     {
@@ -13843,7 +13710,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L47",
+      "source_location": "L54",
       "weight": 1.0
     },
     {
@@ -13855,7 +13722,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L49",
+      "source_location": "L56",
       "weight": 1.0
     },
     {
@@ -13879,7 +13746,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L26",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -13891,7 +13758,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L28",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
@@ -13903,7 +13770,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L30",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -13915,7 +13782,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L37",
+      "source_location": "L35",
       "weight": 1.0
     },
     {
@@ -13927,7 +13794,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L59",
+      "source_location": "L57",
       "weight": 1.0
     },
     {
@@ -18107,6 +17974,18 @@
       "weight": 1.0
     },
     {
+      "source": "frontend_src_auth_api",
+      "target": "frontend_src_lib_http_csrf_expired_message",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
       "source": "frontend_src_auth_api_test",
       "target": "frontend_src_auth_api_getcurrentuser",
       "relation": "imports",
@@ -18385,6 +18264,18 @@
     {
       "source": "frontend_src_pages_showcase",
       "target": "frontend_src_lib_http_apiresult",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_lib_http_csrf_expired_message",
       "relation": "imports",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -20597,127 +20488,6 @@
       "weight": 1.0
     },
     {
-      "source": "architecture_review",
-      "target": "architecture_review_architecture_review_deepening_opportunities",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L1",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_architecture_review_deepening_opportunities",
-      "target": "architecture_review_resolved_since_round_1",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L18",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_architecture_review_deepening_opportunities",
-      "target": "architecture_review_top_recommendation",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L214",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_architecture_review_deepening_opportunities",
-      "target": "architecture_review_open_candidates",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L54",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_open_candidates",
-      "target": "architecture_review_03_the_runtime_configuration_surface_has_no_module_at_all_strong_unchanged",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L107",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_open_candidates",
-      "target": "architecture_review_07_user_facing_copy_has_no_owner_worth_exploring_new",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L144",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_open_candidates",
-      "target": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L167",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_open_candidates",
-      "target": "architecture_review_06_a_template_whose_identity_has_no_seam_speculative_unchanged",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L202",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_open_candidates",
-      "target": "architecture_review_05_the_auth_session_machine_is_driven_by_its_callers_strong_was_worth_exploring",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L64",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_resolved_since_round_1",
-      "target": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L20",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_resolved_since_round_1",
-      "target": "architecture_review_02_every_caller_of_apifetch_re_derives_status_meaning_c1573da",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "architecture-review.md",
-      "source_location": "L34",
-      "weight": 1.0
-    },
-    {
       "source": "backend_mvnw",
       "target": "backend_mvnw__entry",
       "relation": "contains",
@@ -22193,35 +21963,13 @@
     },
     {
       "source": "frontend_src_auth_api",
-      "target": "frontend_src_auth_api_decodeuser",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L10",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_auth_api",
-      "target": "frontend_src_auth_api_getcurrentuser",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L12",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_auth_api",
       "target": "frontend_src_auth_api_login",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L25",
+      "source_location": "L22",
       "weight": 1.0
     },
     {
@@ -22243,7 +21991,29 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L48",
+      "source_location": "L45",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api",
+      "target": "frontend_src_auth_api_decodeuser",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api",
+      "target": "frontend_src_auth_api_getcurrentuser",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -22457,13 +22227,24 @@
     },
     {
       "source": "frontend_src_lib_http",
+      "target": "frontend_src_lib_http_csrf_expired_message",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_lib_http",
       "target": "frontend_src_lib_http_apidecoder",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L29",
+      "source_location": "L36",
       "weight": 1.0
     },
     {
@@ -22474,7 +22255,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L37",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -22485,7 +22266,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L44",
+      "source_location": "L51",
       "weight": 1.0
     },
     {
@@ -22496,7 +22277,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L46",
+      "source_location": "L53",
       "weight": 1.0
     },
     {
@@ -22507,7 +22288,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L71",
+      "source_location": "L78",
       "weight": 1.0
     },
     {
@@ -22573,7 +22354,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L21",
+      "source_location": "L19",
       "weight": 1.0
     },
     {
@@ -22584,7 +22365,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L26",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -22595,7 +22376,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L27",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -22606,7 +22387,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L29",
+      "source_location": "L27",
       "weight": 1.0
     },
     {
@@ -22617,7 +22398,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L33",
+      "source_location": "L31",
       "weight": 1.0
     },
     {
@@ -26361,7 +26142,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L13",
+      "source_location": "L10",
       "weight": 1.0
     },
     {
@@ -26373,7 +26154,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L33",
+      "source_location": "L30",
       "weight": 1.0
     },
     {
@@ -26421,7 +26202,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L26",
+      "source_location": "L24",
       "weight": 1.0
     },
     {
@@ -26433,7 +26214,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L28",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
@@ -26445,7 +26226,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L30",
+      "source_location": "L28",
       "weight": 1.0
     },
     {
@@ -26457,7 +26238,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L106",
+      "source_location": "L104",
       "weight": 1.0
     },
     {
@@ -26469,7 +26250,7 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L111",
+      "source_location": "L109",
       "weight": 1.0
     },
     {
@@ -26629,78 +26410,6 @@
       "weight": 1.0
     },
     {
-      "source": "architecture_review_07_user_facing_copy_has_no_owner_worth_exploring_new",
-      "target": "frontend_src_lib_http_apiresult",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "ApiResult",
-      "source_file": "architecture-review.md",
-      "source_location": "L156",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_top_recommendation",
-      "target": "frontend_src_lib_http_apiresult",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "ApiResult",
-      "source_file": "architecture-review.md",
-      "source_location": "L222",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_05_the_auth_session_machine_is_driven_by_its_callers_strong_was_worth_exploring",
-      "target": "frontend_src_auth_auth_context_value_authcontextvalue",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "AuthContextValue",
-      "source_file": "architecture-review.md",
-      "source_location": "L95",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "SecurityConfig",
-      "source_file": "architecture-review.md",
-      "source_location": "L23",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_main_java_com_example_backend_web_spaerrorviewresolver_spaerrorviewresolver",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "SpaErrorViewResolver",
-      "source_file": "architecture-review.md",
-      "source_location": "L23",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_test_java_com_example_backend_web_spafrontendtests_spafrontendtests",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "SpaFrontendTests",
-      "source_file": "architecture-review.md",
-      "source_location": "L32",
-      "weight": 1.0
-    },
-    {
       "source": "context_request_paths",
       "target": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_isreservedserverpath",
       "relation": "references",
@@ -26710,162 +26419,6 @@
       "context": "SpaRoutes.isReservedServerPath",
       "source_file": "CONTEXT.md",
       "source_location": "L15",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_test_java_com_example_backend_web_sparoutestests_sparoutestests",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "SpaRoutesTests",
-      "source_file": "architecture-review.md",
-      "source_location": "L31",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "target": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "UserCounterJpaRepository",
-      "source_file": "architecture-review.md",
-      "source_location": "L171",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "target": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "UserCounterRepository",
-      "source_file": "architecture-review.md",
-      "source_location": "L169",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_02_every_caller_of_apifetch_re_derives_status_meaning_c1573da",
-      "target": "frontend_src_lib_http_apifetch",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "apiFetch",
-      "source_file": "architecture-review.md",
-      "source_location": "L34",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_02_every_caller_of_apifetch_re_derives_status_meaning_c1573da",
-      "target": "frontend_test_e2e_auth_helpers_expiresession",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "expireSession()",
-      "source_file": "architecture-review.md",
-      "source_location": "L40",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_05_the_auth_session_machine_is_driven_by_its_callers_strong_was_worth_exploring",
-      "target": "frontend_test_e2e_auth_helpers_expiresession",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "expireSession()",
-      "source_file": "architecture-review.md",
-      "source_location": "L67",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_top_recommendation",
-      "target": "frontend_test_e2e_auth_helpers_expiresession",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "expireSession()",
-      "source_file": "architecture-review.md",
-      "source_location": "L220",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_isreservedserverpath",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "isReservedServerPath",
-      "source_file": "architecture-review.md",
-      "source_location": "L24",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_lookslikefilerequest",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "looksLikeFileRequest",
-      "source_file": "architecture-review.md",
-      "source_location": "L26",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "target": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter_rehydrate",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "rehydrate",
-      "source_file": "architecture-review.md",
-      "source_location": "L178",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_01_is_this_an_spa_route_is_answered_twice_differently_ef06929",
-      "target": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_servesspashell",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "servesSpaShell",
-      "source_file": "architecture-review.md",
-      "source_location": "L23",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_04_the_counter_slice_is_seven_modules_over_a_two_field_row_worth_exploring_unchanged",
-      "target": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_todomain",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "toDomain",
-      "source_file": "architecture-review.md",
-      "source_location": "L178",
-      "weight": 1.0
-    },
-    {
-      "source": "architecture_review_top_recommendation",
-      "target": "frontend_src_auth_auth_context_value_useauth",
-      "relation": "references",
-      "_origin": "ast",
-      "confidence": "INFERRED",
-      "confidence_score": 0.95,
-      "context": "useAuth",
-      "source_file": "architecture-review.md",
-      "source_location": "L226",
       "weight": 1.0
     },
     {
@@ -28783,5 +28336,5 @@
       "source_file": "AGENTS.md"
     }
   ],
-  "built_at_commit": "4dc0bc144aa709f842f7655cc632704a6d5fdf2b"
+  "built_at_commit": "0ef56cab2c3ca288748a3c18390e9e352a79f6a2"
 }

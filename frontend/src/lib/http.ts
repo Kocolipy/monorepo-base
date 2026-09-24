@@ -26,6 +26,13 @@ export type ApiResult<T> =
   | { kind: "csrf-expired" }
   | { kind: "failed"; status?: number };
 
+/**
+ * Copy for a `csrf-expired` result, owned here because the condition is a
+ * transport one that no feature has an opinion about. Feature-specific copy for
+ * a `failed` result stays with the feature that knows what failed.
+ */
+export const CSRF_EXPIRED_MESSAGE = "Your security token expired. Please try again.";
+
 export type ApiDecoder<T> = (response: Response) => Promise<T> | T;
 
 /**
