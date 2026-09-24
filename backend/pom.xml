@@ -21,6 +21,21 @@
         <java.version>25</java.version>
         <pitest.version>1.30.0</pitest.version>
         <pitest-junit5.version>1.2.3</pitest-junit5.version>
+        <enforcer.version>3.5.0</enforcer.version>
+        <resources-plugin.version>3.3.1</resources-plugin.version>
+        <!--
+          Where the built SPA is read from by the `with-frontend` profile. No
+          generated output is committed anywhere in the tree, and nothing is
+          copied back into a source directory: the profile reads this directory
+          and writes only into target/classes/static.
+
+          The default points at the sibling app so `mvn -Pwith-frontend package`
+          works from backend/ on its own. It is the only parent-relative path in
+          this POM, it is inert unless the profile is active — the default build
+          has no frontend dependency at all — and the root build step overrides
+          it explicitly, so it never has to be trusted for a release.
+        -->
+        <frontend.dist.dir>${project.basedir}/../frontend/dist</frontend.dist.dir>
     </properties>
 
     <dependencies>
@@ -77,12 +92,53 @@
             <resource>
                 <directory>src/main/resources</directory>
             </resource>
-            <resource>
-                <directory>frontend/dist</directory>
-                <targetPath>static</targetPath>
-            </resource>
         </resources>
         <plugins>
+            <!--
+              Toolchain gate. Both rules are about reproducibility, not taste: the
+              code targets Java 25 language features, and the build is only
+              reproducible on the Maven the wrapper pins. This runs in `validate`,
+              so a wrong JDK or a stray older Maven fails in seconds rather than
+              in a confusing compile or plugin error minutes later.
+
+              Keep requireMavenVersion's floor in lockstep with the version in
+              .mvn/wrapper/maven-wrapper.properties and /.tool-versions.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>${enforcer.version}</version>
+                <executions>
+                    <execution>
+                        <id>enforce-toolchain</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <!-- Exactly the 25 line: 24 cannot compile it, 26 is untested here. -->
+                                    <version>[25,26)</version>
+                                    <message>
+                                        This service targets Java ${java.version}. Point JAVA_HOME at a
+                                        JDK 25 (see /.tool-versions) and build through ./mvnw.
+                                    </message>
+                                </requireJavaVersion>
+                                <requireMavenVersion>
+                                    <version>[3.9.11,)</version>
+                                    <message>
+                                        Maven 3.9.11 or newer is required. Build through ./mvnw, which
+                                        downloads and verifies exactly the pinned distribution, instead
+                                        of whatever `mvn` resolves to on this machine.
+                                    </message>
+                                </requireMavenVersion>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -117,4 +173,90 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Integrated build: frontend source -> frontend/dist ->
+          backend/target/classes/static -> executable JAR.
+
+          Off by default, so `mvn clean verify` in backend/ stays a pure backend
+          build with no frontend toolchain and no SPA in the JAR. Activate it for
+          a release: `make package` (root) or
+          `mvn -Pwith-frontend -Dfrontend.dist.dir=<abs path> package`.
+
+          The enforcer step runs in `validate`, before resources are copied, so a
+          missing or half-built frontend fails the build instead of quietly
+          packaging whatever happened to be on disk. There is nothing stale to
+          package either — target/ is not tracked, and no build output lives in a
+          source directory.
+        -->
+        <profile>
+            <id>with-frontend</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <version>${enforcer.version}</version>
+                        <executions>
+                            <execution>
+                                <id>require-frontend-build</id>
+                                <phase>validate</phase>
+                                <goals>
+                                    <goal>enforce</goal>
+                                </goals>
+                                <configuration>
+                                    <rules>
+                                        <requireFilesExist>
+                                            <files>
+                                                <file>${frontend.dist.dir}/index.html</file>
+                                            </files>
+                                            <message>
+                                                No frontend build found at ${frontend.dist.dir}. The
+                                                with-frontend profile packages the SPA from that
+                                                directory and refuses to package a stale or absent
+                                                one. Build it first (`npm run build` in frontend/),
+                                                or run `make package` from the repository root,
+                                                which builds the SPA and then invokes this profile.
+                                            </message>
+                                        </requireFilesExist>
+                                    </rules>
+                                    <fail>true</fail>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <version>${resources-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>copy-frontend-dist</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                                    <overwrite>true</overwrite>
+                                    <resources>
+                                        <resource>
+                                            <directory>${frontend.dist.dir}</directory>
+                                            <!--
+                                              Never filter: the build emits .br and .gz
+                                              siblings, and Maven filtering corrupts binary
+                                              files it rewrites.
+                                            -->
+                                            <filtering>false</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

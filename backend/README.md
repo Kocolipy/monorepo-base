@@ -8,7 +8,8 @@ survive application restarts and be shared by multiple application instances.
 ## Prerequisites
 
 - Java 25
-- Maven 3.9+
+- Maven — not required; the checked-in wrapper (`./mvnw`) downloads and
+  checksum-verifies the pinned 3.9.11 release
 - Docker with Docker Compose (recommended for local Redis and PostgreSQL)
 
 ## Run locally
@@ -22,7 +23,7 @@ docker compose up -d redis postgres
 Start the application:
 
 ```bash
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
 The service listens on `http://localhost:8080`. Its health endpoint is
@@ -83,36 +84,55 @@ real Redis credentials in your deployment's secret manager; do not commit them.
 
 ## Bundle a frontend
 
-Build the frontend separately, then copy the complete static build output into
-`frontend/dist/` in this repository. The directory must contain `index.html` at
-its root, for example:
+The SPA is never committed here. It is copied straight from the frontend's build
+output into `target/classes/static` when the executable JAR is built:
 
 ```text
-frontend/dist/
+frontend source -> frontend/dist -> backend/target/classes/static -> JAR
+```
+
+That copy is the `with-frontend` Maven profile, and it is **off by default**, so
+`./mvnw clean verify` and `./mvnw package` here are pure backend builds requiring no
+Node and packaging no SPA. Turn it on for a release:
+
+```bash
+# from the repository root — builds the SPA first, then packages
+make package
+
+# or directly, against an already-built SPA
+./mvnw -Pwith-frontend -Dfrontend.dist.dir=/abs/path/to/frontend/dist package
+```
+
+`frontend.dist.dir` defaults to `../frontend/dist` (the sibling app in this
+monorepo) and must contain `index.html` at its root, for example:
+
+```text
+dist/
 ├── index.html
 └── assets/
     ├── app.js
     └── app.css
 ```
 
-Maven copies that directory into the Spring Boot static resources when it builds
-the executable JAR. The backend serves static files and forwards client-side
-routes such as `/account/settings` to `index.html`; `/api/**` and `/actuator/**`
-remain backend-only paths.
+If `index.html` is not there, the profile's `validate`-phase enforcer fails the
+build — it will not package a missing or half-built frontend. `.br`/`.gz`
+siblings emitted by the build are copied verbatim (resource filtering is off, so
+binaries are not corrupted).
 
-For a Vite frontend, set its build output to this repository's `frontend/dist/`
-or copy the contents of Vite's `dist/` directory there.
+The backend serves static files and forwards client-side routes such as
+`/account/settings` to `index.html`; `/api/**` and `/actuator/**` remain
+backend-only paths.
 
 ## Build and test
 
 ```bash
-mvn clean verify
+./mvnw clean verify
 ```
 
 Build the container after packaging the application:
 
 ```bash
-mvn clean package
+./mvnw clean package
 docker build -t backend:local .
 ```
 
@@ -129,10 +149,10 @@ the project's structure: onion layering (adapters depend on application,
 application on domain, domain on nothing), package placement for entities and
 configuration, naming conventions, constructor injection, JPA mapping, and
 freedom from package cycles. They run with the rest of the suite under
-`mvn clean verify`. Run them alone while iterating:
+`./mvnw clean verify`. Run them alone while iterating:
 
 ```bash
-mvn -Dtest=ArchitectureTest test
+./mvnw -Dtest=ArchitectureTest test
 ```
 
 A failure names the rule and the offending class. Move the class or adjust the
@@ -173,12 +193,12 @@ Whole-codebase runs belong in a nightly schedule rather than a local loop.
 The `pitest-maven` plugin is already declared in `pom.xml`, with
 `pitest-junit5-plugin` for the JUnit 5 engine. Nothing to install; the first run
 downloads both from Maven Central. The plugin is bound to no lifecycle phase, so
-`mvn clean verify` never runs it.
+`./mvnw clean verify` never runs it.
 
 Point it at the test class you touched and the production class it covers:
 
 ```bash
-mvn org.pitest:pitest-maven:mutationCoverage \
+./mvnw org.pitest:pitest-maven:mutationCoverage \
   -DtargetClasses="com.example.backend.auth.AuthController*" \
   -DtargetTests="com.example.backend.auth.AuthControllerTests"
 ```
@@ -202,7 +222,7 @@ can be both unmutated and untested while the score reads green. Line coverage
 below 100% next to a 100% score points at those lines. Confirm with a wider set:
 
 ```bash
-mvn org.pitest:pitest-maven:mutationCoverage \
+./mvnw org.pitest:pitest-maven:mutationCoverage \
   -DtargetClasses="com.example.backend.auth.AuthController*" \
   -DtargetTests="com.example.backend.auth.AuthControllerTests" \
   -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE

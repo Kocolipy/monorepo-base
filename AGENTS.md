@@ -48,11 +48,21 @@ Each app owns its own gates. The entry points:
 | ---------- | ------------------------------- | ----------- |
 | `frontend` | `npm run typecheck && npm test` | `frontend/` |
 | `frontend` | `npm run build`                 | `frontend/` |
-| `backend`  | `mvn clean verify`              | `backend/`  |
+| `backend`  | `./mvnw clean verify`           | `backend/`  |
 
-`backend/` has **no Maven wrapper** — a locally installed Maven and Java 25 are
-required. `frontend/` needs `npm install` before a first run; `node_modules` is
-often stale.
+`backend/` carries a **Maven wrapper** — always invoke `./mvnw`, never a bare
+`mvn`: the wrapper downloads and checksum-verifies the one Maven release pinned
+in `backend/.mvn/wrapper/maven-wrapper.properties`, and the build's Enforcer
+rules reject a wrong JDK (`[25,26)`) or an older Maven. A JDK 25 must still be on
+`PATH`; the wrapper only launches Maven.
+
+`frontend/` needs `npm ci` before a first run (`node_modules` is often stale) —
+**`ci`, not `install`**: `install` re-resolves semver ranges and rewrites the
+lockfile, so it is only for a deliberate dependency change. Node is pinned in
+`/.nvmrc` and `/.tool-versions`; run `nvm use` (or `mise install`) from the repo
+root first, since `frontend/.npmrc` sets `engine-strict` and a wrong Node is a
+hard install failure rather than a warning. The full pin table is in
+`/README.md`.
 
 **A change is complete only when the owning app's gates are green.** Both apps
 define stricter per-change gates (architecture suites, security scans, mutation
@@ -88,18 +98,28 @@ log again — a relaunch only starts a second run competing for the same log.
 
 ## Frontend/backend integration
 
-The backend serves the built SPA from `backend/frontend/dist/`. That directory
-is tracked, and `backend/pom.xml` packages it.
+One build contract, and no committed build output anywhere in it:
 
-**Read `backend/FRONTEND.md` before changing either side's build output or
-asset paths.** It is the contract. A change to the frontend's `outDir`, base
-path, or asset hashing, or to the backend's resource handler or static mapping,
-breaks the other side silently — the build still succeeds and the app serves a
-blank page.
+```
+frontend source -> frontend/dist -> backend/target/classes/static -> executable JAR
+```
 
-`frontend/dist/` (the frontend's own local build output) is ignored;
-`backend/frontend/dist/` is the tracked artifact the backend serves. They are
-different directories and only the second one belongs in a commit.
+`frontend/dist/` is generated and ignored. `backend/target/` is generated and
+ignored. **Nothing generated is ever copied back into a source directory**, and
+no compiled SPA is tracked — the source is the only source of truth.
+
+The copy is done by the `with-frontend` Maven profile in `backend/pom.xml`,
+which is **off by default**: `mvn clean verify` in `backend/` is a pure backend
+build that needs no Node and packages no SPA. The release path is `make package`
+from the repo root, which builds the SPA and then invokes the profile with an
+explicit `-Dfrontend.dist.dir`. The profile's `validate`-phase enforcer fails the
+build when `index.html` is absent from that directory, so a missing or half-built
+frontend is an error rather than a silently stale SPA.
+
+`frontend.dist.dir` defaults to `${project.basedir}/../frontend/dist`, the one
+sanctioned parent-relative path in the tree: it is inert unless the profile is
+active, so `backend/` stays independently buildable, and the root build step
+overrides it explicitly rather than relying on it.
 
 ## Line endings
 

@@ -43,6 +43,22 @@ locally installed Maven — there is no `mvnw` wrapper checked in.
 
 ## Frontend/backend integration
 
-The backend serves the built SPA from `backend/frontend/dist/`.
-`backend/FRONTEND.md` documents that contract — read it before changing either
-side's build output or asset paths.
+```
+frontend source -> frontend/dist -> backend/target/classes/static -> executable JAR
+```
+
+No build output is committed: `frontend/dist/` and `backend/target/` are both
+generated and ignored, and nothing generated is copied back into a source
+directory.
+
+```bash
+make package     # build the SPA, then package it into the Spring Boot JAR
+```
+
+That is the release path. It runs the backend's `with-frontend` Maven profile,
+which is off by default — `./mvnw clean verify` in `backend/` stays a pure
+backend build with no Node and no SPA in the JAR. The profile fails the build
+when `frontend/dist/index.html` is missing, rather than packaging a stale SPA.
+
+`backend/FRONTEND.md` documents the runtime contract (CSRF, CSP, sessions) —
+read it before changing either side's request handling.
