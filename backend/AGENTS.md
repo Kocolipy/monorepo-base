@@ -1,3 +1,13 @@
+# AGENTS.md — backend
+
+Spring Boot 4 service on Java 25, built with Maven. No Maven wrapper is checked
+in.
+
+Monorepo-wide rules — layout, the path discipline, the SPA contract this service
+serves, line endings, ignore rules, the long-gate sentinel pattern, and the
+shared agent docs and skills — live in the root `AGENTS.md`. This file covers
+only what is specific to this app. Run every command below from `backend/`.
+
 ## Verification
 
 Before completing Java, dependency, or application-configuration changes, run `mvn clean verify`. Add or update a focused regression test for every behavior change. If verification cannot run, report the exact unverified scope and reason.
@@ -15,20 +25,17 @@ Changes to Redis-backed session persistence require an integration-level check a
 
 ### Reading a gate's result
 
-A full scan or build can outlast a shell's foreground window, so run either gate with its result written where the shell cannot lose it: redirect to a log and append a **sentinel** carrying the exit status.
+Both gates here can outlast a shell's foreground window, so run them through the
+sentinel-and-log pattern documented in the root `AGENTS.md`:
 
 ```bash
 ./scripts/semgrep.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
-```
-
-Wait for the sentinel and read the log in one call, rather than polling for output:
-
-```bash
 until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
 grep -E "inding|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 ```
 
-The gate is green on `GATE_EXIT=0` beside a zero findings count, both quoted from the log; report those two lines as the evidence rather than the absence of an error. When a call returns no output the run's state is unknown, so read the log again: a relaunch only starts a second run competing for the same log.
+The gate is green on `GATE_EXIT=0` beside a zero findings count, both quoted
+from the log.
 
 ### Mutation testing
 
@@ -64,7 +71,7 @@ Preserve these boundaries:
 
 `src/test/java/arch/ArchitectureTest.java` is the executable form of the structural boundaries: onion layering, package placement, naming, constructor injection, JPA mapping, and package-cycle freedom. Read it before reshaping packages or adding a layer.
 
-For domain terminology and architectural decisions, follow `docs/agents/domain.md`. Record durable architectural choices as ADRs rather than expanding this file.
+For domain terminology and architectural decisions, follow `/docs/agents/domain.md`. Record durable architectural choices as ADRs rather than expanding this file.
 
 ## Security-sensitive changes
 
@@ -73,27 +80,3 @@ Treat authentication, authorization rules, logout, session invalidation, cookie 
 ## API contract
 
 Before completing changes to controller routes, request or response bodies, status codes, authentication requirements, or validation constraints, update `docs/openapi.yaml`. Verify every affected operation and schema against the implementation.
-
-## Agent skills
-
-### Issue tracker
-
-For issue creation, lookup, triage, comments, labels, or closure, read `docs/agents/issue-tracker.md` before acting.
-
-### Domain docs
-
-Before exploring or changing domain behavior, terminology, or architecture, read `docs/agents/domain.md`.
-
-### graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
-
-Rules:
-
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

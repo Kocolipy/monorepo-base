@@ -1,8 +1,13 @@
-# AGENTS.md
+# AGENTS.md — frontend
 
 React + Vite + Tailwind baseline. One vanilla page, and the full tooling gate
 around it. There is no router, no data layer, no authentication and no service
 worker yet — this file describes what is actually here, not what is planned.
+
+Monorepo-wide rules — layout, the path discipline, the SPA contract with the
+backend, line endings, ignore rules, and the shared agent docs and skills — live
+in the root `AGENTS.md`. This file covers only what is specific to this app.
+Run every command below from `frontend/`.
 
 ## Commands
 
@@ -30,10 +35,8 @@ npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers
 npm run analyze                   # bundle visualizer -> dist/stats.html
 ```
 
-**No `.env` is required.** Nothing in the app reads `import.meta.env`, and the
-E2E suite authenticates against nothing. Add `VITE_`-prefixed variables (Vite
-only exposes that prefix to the client) and document them in README.md when
-that changes.
+**No `.env` is required** — see the root `AGENTS.md` for the repo-wide
+environment rules and the `VITE_` prefix requirement.
 
 First E2E run on a machine also needs `npx playwright install chromium`.
 
@@ -177,45 +180,3 @@ project dropped from either invocation stops being checked at all:
   `test/e2e/**` (Playwright specs are checked by the Playwright run, not here).
 
 Unused _exports_ are past what `tsc` can see — that is fallow's half, above.
-
-## Agent skills
-
-### Issue tracker
-
-Issues are tracked in GitHub on this repository. See
-`docs/agents/issue-tracker.md`.
-
-### Domain docs
-
-This repository uses a single-context domain-documentation layout. See
-`docs/agents/domain.md`.
-
-### graphify
-
-This project has a knowledge graph at `graphify-out/` with god nodes, community
-structure, and cross-file relationships.
-
-When the user types `/graphify`, use the installed graphify skill or
-instructions before doing anything else.
-
-Rules:
-
-- Invoke every Graphify command through the recorded interpreter:
-  `$(cat graphify-out/.graphify_python) -m graphify <command>`. If
-  `.graphify_python` is missing, follow the Graphify skill's interpreter guard
-  first.
-- For codebase questions, first run the `query "<question>"` command when
-  `graphify-out/graph.json` exists. Use `path "<A>" "<B>"` for relationships and
-  `explain "<concept>"` for focused concepts. These return a scoped subgraph,
-  usually much smaller than `GRAPH_REPORT.md` or raw grep output.
-- Dirty `graphify-out/` files are expected after hooks or incremental updates;
-  dirty graph files are not a reason to skip graphify. Only skip graphify if the
-  task is about stale or incorrect graph output, or the user explicitly says not
-  to use it.
-- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review or when
-  query/path/explain do not surface enough context.
-- Before committing modified code, run the `update .` command through the
-  recorded interpreter to keep the graph current (AST-only, no API cost).
-  `graphify-out/` is tracked, so the refresh belongs in the same commit as the
-  change that caused it — refreshing afterwards leaves the graph stranded
-  outside the PR.

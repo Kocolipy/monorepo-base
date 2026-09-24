@@ -1,13 +1,4 @@
 # Monorepo-wide ignore rules.
-#
-# frontend/ and backend/ no longer carry their own .gitignore -- both were
-# merged into this file. Mind git's anchoring rule when editing: a pattern
-# containing a slash anywhere but the end is relative to THIS directory, so
-# app-specific rules need an explicit /frontend/ or /backend/ prefix, and
-# rules that must apply inside both apps need a **/ prefix. A bare name like
-# `node_modules` already matches at any depth.
-
-# ============================================================ anywhere
 
 # Environment
 .env
@@ -52,6 +43,7 @@ playwright-report/
 **/.claude/skills/*
 **/.codex/skills/*
 **/.kiro/skills/*
+**/.kiro/settings/*
 **/.scratch/*
 **/artifacts/*
 skills-lock.json
@@ -65,15 +57,12 @@ skills-lock.json
 **/graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 **/graphify-out/reflections/*
 
+frontend/dist/
+frontend/playwright/.cache/
+frontend/test/e2e/.auth/
+
+backend/cookies.txt
+
 # Scratch
 TODO
-cookies.txt
 
-# ============================================================ frontend
-
-# Anchored on purpose: a bare `dist` would also match backend/frontend/dist/,
-# which is the built SPA the backend serves and is deliberately tracked
-# (see backend/FRONTEND.md).
-/frontend/dist/
-/frontend/playwright/.cache/
-/frontend/test/e2e/.auth/
