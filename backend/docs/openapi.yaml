@@ -232,6 +232,80 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/AdminRoleRequired"
+  /api/admin/users/{username}/disable:
+    post:
+      tags: [Administration]
+      summary: Close an account to logins
+      description: |
+        Sets the account's `enabled` flag to false. A disabled account is refused
+        at login with the same bare `401` as a wrong password.
+
+        Leaves the lockout untouched: this is not a penalty, and it says nothing
+        about the account's failure run. Idempotent — disabling an already
+        disabled account writes nothing and answers 200.
+
+        A session the account already holds SURVIVES this. Account status is
+        evaluated when authenticating, so the holder keeps working until their
+        session expires.
+      operationId: disableUser
+      parameters:
+        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownAccount"
+        "409":
+          $ref: "#/components/responses/UnsafeAccountChange"
+  /api/admin/users/{username}/enable:
+    post:
+      tags: [Administration]
+      summary: Reopen an account to logins
+      description: |
+        Sets `enabled` back to true. Does NOT lift a lockout the account is
+        serving — that is a separate capability, `unlock`. Idempotent.
+      operationId: enableUser
+      parameters:
+        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownAccount"
+  /api/admin/users/{username}/unlock:
+    post:
+      tags: [Administration]
+      summary: End a lockout early
+      description: |
+        Clears the failure run and the recorded `locked_until`, so a lockout ends
+        before its window expires. Says nothing about `enabled`: a disabled
+        account can be unlocked and stays disabled.
+
+        Idempotent — an account serving no lockout is answered 200 with nothing
+        written.
+      operationId: unlockUser
+      parameters:
+        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownAccount"
   /actuator/health:
     get:
       tags: [Health]
@@ -267,6 +341,13 @@ components:
       name: JSESSIONID
       description: HTTP session created by a successful login.
   parameters:
+    Username:
+      name: username
+      in: path
+      required: true
+      description: The account to act on.
+      schema:
+        type: string
     CsrfToken:
       name: X-XSRF-TOKEN
       in: header
@@ -282,6 +363,21 @@ components:
         The CSRF token is missing or does not match the XSRF-TOKEN cookie. This is
         decided before authentication, so it is returned even on the public login
         operation.
+    AdminUser:
+      description: The account as it stands after the change.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdminUserResponse"
+    UnknownAccount:
+      description: |
+        No account has that username. The body is empty; the caller is already an
+        administrator, so this reveals nothing the listing would not.
+    UnsafeAccountChange:
+      description: |
+        The action would leave nobody able to reverse it — an account disabling
+        itself, or the last enabled administrator. Not 403: the caller holds the
+        right role, the action itself is refused.
     AdminRoleRequired:
       description: |
         The session is valid and was accepted; the account's role is what was
@@ -313,7 +409,7 @@ components:
           description: The account role used for authorization.
     AdminUserResponse:
       type: object
-      required: [username, email, role, enabled, createdAt]
+      required: [username, email, role, enabled, locked, lockedUntil, createdAt]
       properties:
         username:
           type: string
@@ -330,8 +426,22 @@ components:
         enabled:
           type: boolean
           description: |
-            Whether the account may authenticate. Not decorative: a disabled
-            account is refused at login.
+            Administrative standing. Not decorative: a disabled account is refused
+            at login. Changed only through the disable and enable operations.
+        locked:
+          type: boolean
+          description: |
+            Whether a lockout is in force, as the server evaluated it when
+            answering. Independent of `enabled` — a lockout is an automatic,
+            expiring penalty for failed logins. A client must not recompute this
+            by comparing `lockedUntil` to its own clock: only the server's clock
+            is the one the login path enforces on.
+        lockedUntil:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            When the current lockout lifts. Null if none was ever imposed, and
+            kept after one expires, so a non-null value does not mean locked.
         createdAt:
           type: [string, "null"]
           format: date-time

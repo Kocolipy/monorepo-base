@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { postAdminAction } from "./auth.helpers";
+
 test.describe("USER route guards", () => {
   test("may view the counter page", async ({ page }) => {
     await page.goto("/showcase");
@@ -31,5 +33,22 @@ test.describe("USER user listing", () => {
 
     expect(response.status()).toBe(403);
     expect(await response.text()).not.toContain("@");
+  });
+
+  /**
+   * The control endpoints matter more than the listing here: a `USER` who could
+   * reach them could disable an administrator. The CSRF token is sent
+   * deliberately — without it the chain answers 403 from the CSRF filter first,
+   * and the test would pass without ever exercising the role check.
+   */
+  test("is forbidden from disabling, enabling, or unlocking an account", async ({ page }) => {
+    // Precondition, so the test cannot pass vacuously on an admin session.
+    expect(await (await page.request.get("/api/auth/me")).json()).toMatchObject({ role: "USER" });
+
+    for (const action of ["disable", "enable", "unlock"]) {
+      const response = await postAdminAction(page, "admin", action);
+
+      expect(response.status(), `a USER must not reach ${action}`).toBe(403);
+    }
   });
 });

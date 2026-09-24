@@ -88,10 +88,35 @@ curl -b cookies.txt http://localhost:8080/api/admin/users
     "email": "admin@example.com",
     "role": "ADMIN",
     "enabled": true,
+    "locked": false,
+    "lockedUntil": null,
     "createdAt": "2026-01-02T03:04:05.123456Z"
   }
 ]
 ```
+
+Control an account. Enabling and unlocking are **separate capabilities**:
+disabling leaves the failure run standing, enabling leaves a lockout standing,
+and unlocking says nothing about `enabled`. Each is a POST, so each needs the
+CSRF header:
+
+```bash
+token=$(awk '/XSRF-TOKEN/{print $7}' cookies.txt)
+
+curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+  http://localhost:8080/api/admin/users/user/disable
+
+curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+  http://localhost:8080/api/admin/users/user/enable
+
+curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+  http://localhost:8080/api/admin/users/user/unlock
+```
+
+Each answers `200` with the account as it now stands, `404` for an unknown
+username, and `409` when the change would leave nobody able to reverse it —
+disabling your own account, or the last enabled administrator. Disabling does
+**not** end a session the account already holds; it only stops new logins.
 
 Increment or reset the count belonging to the authenticated user:
 

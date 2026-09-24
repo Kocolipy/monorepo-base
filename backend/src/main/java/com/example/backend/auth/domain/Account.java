@@ -110,10 +110,7 @@ public record Account(
      * the identity of the result to avoid a pointless write.
      */
     public Account withSuccessfulLogin() {
-        if (failedLoginAttempts == 0 && lockedUntil == null) {
-            return this;
-        }
-        return new Account(username, passwordHash, role, 0, null, email, enabled, createdAt);
+        return withFailureRunCleared();
     }
 
     /**
@@ -134,5 +131,60 @@ public record Account(
                 email == null ? fallbackEmail : email,
                 enabled,
                 createdAt == null ? fallbackCreatedAt : createdAt);
+    }
+
+    /**
+     * The account with its administrative standing changed, and nothing else.
+     *
+     * <p>Notably not the lockout: enabling an account does not unlock it, and
+     * disabling one does not clear its failure run. The two are separate
+     * capabilities because they answer different questions — whether an account
+     * is permitted at all, and whether it is being penalised right now — and an
+     * administrator restoring access after a suspension is not thereby deciding
+     * that a run of failed logins did not happen.
+     *
+     * <p>Returned unchanged when it already stands this way, so a caller can use
+     * the identity of the result to avoid a pointless write.
+     */
+    public Account withEnabled(boolean shouldBeEnabled) {
+        if (enabled == shouldBeEnabled) {
+            return this;
+        }
+        return new Account(
+                username,
+                passwordHash,
+                role,
+                failedLoginAttempts,
+                lockedUntil,
+                email,
+                shouldBeEnabled,
+                createdAt);
+    }
+
+    /**
+     * The account with its lockout lifted: the failure run ends and any recorded
+     * instant is discarded, exactly as an accepted login would leave it.
+     *
+     * <p>This is how a lockout ends early. Left alone it ends by itself when
+     * {@code lockedUntil} passes, so this exists for the case where an
+     * administrator has established that the failures were the account holder's
+     * own mistake and will not make them wait it out. It says nothing about
+     * whether the account is enabled.
+     */
+    public Account withLockoutCleared() {
+        return withFailureRunCleared();
+    }
+
+    /**
+     * The single implementation of "no failures recorded, no lockout standing".
+     * Two callers reach it for unrelated reasons — an accepted login and an
+     * administrator lifting a lockout — and naming it after neither is what keeps
+     * the other from reading as a side effect of the first.
+     */
+    private Account withFailureRunCleared() {
+        if (failedLoginAttempts == 0 && lockedUntil == null) {
+            return this;
+        }
+        return new Account(username, passwordHash, role, 0, null, email, enabled, createdAt);
     }
 }

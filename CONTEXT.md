@@ -91,14 +91,47 @@ expires the next rejected login starts a fresh run rather than re-locking on the
 old count. Enforcement is Spring Security's, which checks account status before
 it compares passwords; the counting is the login path's.
 
-**Disabled account** — an account whose `enabled` flag is false. It is listed by
-account administration and refused at login; the flag is never merely reported.
-Distinct from a lockout: a lockout is automatic, temporary, and imposed by the
-failure run, where this is a standing administrative decision that no passage of
-time reverses.
+**Disabled account** — an account whose `enabled` flag is false, set by an Admin
+through account administration. It is refused at login exactly as a locked
+account is: a bare `401`, indistinguishable from a wrong password, so the
+response reveals nothing. The flag is never merely reported.
+
+**Enabling** and **unlocking** are **two separate capabilities**, and neither
+performs the other. Enabling settles whether an account is permitted at all;
+unlocking settles whether it is being penalised for failed logins right now. So:
+
+- Disabling an account leaves its failure run and `locked_until` as they stand.
+  The run is evidence, and it is most wanted at the moment an account is being
+  closed.
+- Enabling an account leaves a lockout it is serving in force. Restoring access
+  is not a finding that the failed logins did not happen; the lockout still ends
+  when it expires, or when someone unlocks it.
+- Unlocking ends a lockout early and clears the failure run with it, and says
+  nothing about the `enabled` flag. A disabled account can be unlocked and stays
+  disabled.
+
+Restoring an account that was both suspended and locked out therefore takes two
+deliberate calls. That is the point: an Admin should have to say which of the two
+they mean.
+
+**Recovery guard** — account administration refuses two disable requests
+outright, with a `409`: an account disabling itself, and the last enabled Admin.
+Both would leave nobody able to enable anything again, and nothing in the system
+could undo either without direct database access. A *locked* Admin still counts
+as available, because that lockout ends on its own.
 
 **Account listing** — what account administration may know about an account:
-username, email, role, enabled flag, creation timestamp. Never the password
-hash, which no listing type has a field for, and not the failure run or lockout
-instant either — those exist for the login path, and nothing has asked for them
-to be shown.
+username, email, role, enabled flag, whether a lockout is in force, when that
+lockout lifts, and the creation timestamp. Never the password hash, which no
+listing type has a field for. Both refusal mechanisms appear because either alone
+would mislead — an account locked out right now looks healthy if only `enabled`
+is shown, and nothing would say which accounts need unlocking. Whether the
+lockout is in force is the server's own evaluation at the moment it answers, not
+a comparison the client makes against its own clock.
+
+**Session survival** — disabling an account does not end a session it already
+holds. Spring Security evaluates account status when authenticating, and later
+requests read their authentication back out of the session, so a disabled account
+keeps working until its session expires. Revoking live sessions would need a
+session repository searchable by principal (`spring.session.redis.repository-type:
+indexed`), which is not configured.

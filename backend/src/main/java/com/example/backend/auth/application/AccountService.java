@@ -4,7 +4,6 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Clock;
-import java.util.List;
 import java.util.Optional;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -13,7 +12,12 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-/** Owns account seeding and translates persisted accounts for Spring Security. */
+/**
+ * Serves the login path: startup seeding, and reporting an account to Spring
+ * Security. Administrative review and changes live in
+ * {@link AccountAdministrationService}, so nothing the login path depends on is
+ * also able to mutate an account.
+ */
 @Service
 public class AccountService implements UserDetailsService {
 
@@ -41,18 +45,6 @@ public class AccountService implements UserDetailsService {
     public void seedDefaults(AccountSeed user, AccountSeed admin) {
         seed(user, AccountRole.USER);
         seed(admin, AccountRole.ADMIN);
-    }
-
-    /** Every account, for administrative review. Never carries a password hash. */
-    public List<AccountSummary> listAccounts() {
-        return accounts.findAllOrderedByUsername().stream()
-                .map(account -> new AccountSummary(
-                        account.username(),
-                        account.email(),
-                        account.role(),
-                        account.enabled(),
-                        account.createdAt()))
-                .toList();
     }
 
     /**

@@ -198,7 +198,18 @@ returns `403` and the
 spec fails somewhere unrelated to what it was testing. Read the token out of the
 context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
 does; add new API fixtures beside it rather than inlining a raw
-`page.request.post`.
+`page.request.post`. `postAdminAction()` is the fixture for the administration
+endpoints, and it deliberately RETURNS the response instead of asserting on it:
+a `USER` reaching one must be refused for its role, and that is only proven with
+a valid token present, since a missing one earns the same `403` from the CSRF
+filter first.
+
+A spec that changes an account's state must restore it in a `finally`, and must
+not pick an account whose state another project depends on. `roles-admin.spec.ts`
+disables and re-enables the seeded User for this reason; the parallel `user`
+project is unaffected while it is disabled only because it replays a saved
+session, and account status is evaluated when authenticating rather than per
+request.
 
 ### Forcing a refused request
 

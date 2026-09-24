@@ -36,6 +36,17 @@ class AccountPersistenceAdapter implements AccountRepository {
     }
 
     @Override
+    public void updateEnabled(Account account) {
+        accounts.updateEnabled(account.username(), account.enabled());
+    }
+
+    @Override
+    public void updateLockout(Account account) {
+        accounts.updateLockout(
+                account.username(), account.failedLoginAttempts(), account.lockedUntil());
+    }
+
+    @Override
     public List<Account> findAllOrderedByUsername() {
         return accounts.findAllByOrderByUsernameAsc().stream().map(this::toDomain).toList();
     }

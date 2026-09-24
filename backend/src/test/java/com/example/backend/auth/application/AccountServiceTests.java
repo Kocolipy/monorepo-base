@@ -10,7 +10,6 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -105,47 +104,6 @@ class AccountServiceTests {
     }
 
     @Test
-    void listsEveryAccountWithoutItsPasswordHash() {
-        service.seedDefaults(USER_SEED, ADMIN_SEED);
-
-        List<AccountSummary> listed = service.listAccounts();
-
-        assertThat(listed).containsExactly(
-                new AccountSummary("admin", "admin@example.com", AccountRole.ADMIN, true, NOW),
-                new AccountSummary("user", "user@example.com", AccountRole.USER, true, NOW));
-    }
-
-    @Test
-    void listsAccountsOrderedByUsername() {
-        accounts.save(account("zoe", AccountRole.USER));
-        accounts.save(account("ada", AccountRole.ADMIN));
-        accounts.save(account("bob", AccountRole.USER));
-
-        assertThat(service.listAccounts())
-                .extracting(AccountSummary::username)
-                .containsExactly("ada", "bob", "zoe");
-    }
-
-    /**
-     * A lockout is not part of the listing. It is transient state the login path
-     * owns, and an administrator reviewing access is asking a different question.
-     */
-    @Test
-    void listsALockedAccountWithoutMentioningTheLockout() {
-        accounts.save(new Account(
-                "ada", "hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5)),
-                "ada@example.com", true, NOW));
-
-        assertThat(service.listAccounts()).containsExactly(
-                new AccountSummary("ada", "ada@example.com", AccountRole.USER, true, NOW));
-    }
-
-    @Test
-    void listsNoAccountsWhenNoneAreStored() {
-        assertThat(service.listAccounts()).isEmpty();
-    }
-
-    @Test
     void loadsThePersistedAccountAsSpringSecurityUserDetails() {
         accounts.save(new Account("admin", "stored-hash", AccountRole.ADMIN));
 
@@ -207,10 +165,6 @@ class AccountServiceTests {
         assertThatThrownBy(() -> service.loadUserByUsername("missing"))
                 .isInstanceOf(UsernameNotFoundException.class)
                 .hasMessage("Account not found");
-    }
-
-    private static Account account(String username, AccountRole role) {
-        return seeded(username, "hash", role, username + "@example.com");
     }
 
     /** A complete, enabled account created at {@code NOW} — what seeding writes. */
