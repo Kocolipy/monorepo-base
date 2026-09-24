@@ -73,6 +73,15 @@ recent login history. Startup seeding creates the configured User and Admin only
 when their usernames are absent; it does not overwrite an existing account,
 though it does fill in a creation timestamp a pre-existing account has none of.
 
+**Login** — the one operation that turns submitted credentials into an
+authentication or a refusal, and the only thing that records an attempt against
+the failure run. It lives in `LoginService`, so an entry point that authenticates
+submitted credentials without going through it has no **lockout** at all; the
+`/api/auth/login` endpoint adds only the session, the CSRF token, and the bare
+`401`. Why the counting is recorded here rather than driven by Spring Security's
+authentication events is
+`docs/adr/0001-count-login-attempts-on-the-login-path.md`.
+
 **Failure run** — the consecutive rejected logins recorded against one account,
 counted on the account itself as `failed_login_attempts`. A login the backend
 accepts ends the run and returns the count to zero; a login it rejects lengthens

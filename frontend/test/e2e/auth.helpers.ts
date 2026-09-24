@@ -1,4 +1,4 @@
-import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 
 const ADMIN_CREDENTIALS = ["admin", "P@ssw0rd"] as const;
 
@@ -82,6 +82,39 @@ export async function resetCounterViaApi(page: Page) {
     headers: { "X-XSRF-TOKEN": String(token) },
   });
   expect(response.ok()).toBe(true);
+}
+
+/**
+ * POST credentials to the login endpoint, obeying the CSRF contract, and return
+ * the response.
+ *
+ * Takes its own {@link APIRequestContext} rather than a `Page` on purpose: a spec
+ * that drives the login path must not do it through the cookie jar of a browser
+ * context replaying a shared session, because an accepted login rotates that
+ * session's id on the backend and every spec running beside it would lose it.
+ * Build the context with an empty `storageState` — see `lockAccount` in
+ * `accounts-admin.spec.ts`.
+ */
+export async function submitLoginViaApi(
+  api: APIRequestContext,
+  username: string,
+  password: string,
+) {
+  // A safe request first: it seeds an XSRF-TOKEN cookie in this jar even though
+  // nothing here is authenticated.
+  await api.get("/api/auth/me");
+
+  const { cookies } = await api.storageState();
+  const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
+  expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
+
+  return api.post("/api/auth/login", {
+    data: { username, password },
+    // A login refused for the credentials and a login refused for a missing
+    // token are both 401/403 shaped, so the token has to be present for the
+    // response to mean anything about the password.
+    headers: { "X-XSRF-TOKEN": String(token) },
+  });
 }
 
 /**

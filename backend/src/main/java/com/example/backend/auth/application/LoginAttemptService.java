@@ -11,11 +11,17 @@ import org.springframework.transaction.annotation.Transactional;
  * Records how each login attempt ended, so repeated failures lock an account and
  * an accepted login clears the run.
  *
- * <p>The login path calls this explicitly rather than listening for Spring
- * Security's authentication events: the counting is then visible at the one call
- * site that owns logging in, and can be asserted without publishing events.
- * Enforcement is not here — {@link AccountService} reports a locked account to
- * Spring Security, which rejects it before any password is checked.
+ * <p>Its one caller is {@link LoginService}, which records every attempt it
+ * makes; nothing else counts attempts. The counting is explicit rather than
+ * driven by Spring Security's authentication events — see
+ * {@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}. Enforcement
+ * is not here: {@link AccountService} reports a locked account to Spring
+ * Security, which rejects it before any password is checked.
+ *
+ * <p>Each method is its own transaction, and both write the account whole from a
+ * row read inside it, which is what the narrow administrative writes on
+ * {@link com.example.backend.auth.domain.AccountRepository} exist to avoid
+ * racing.
  */
 @Service
 public class LoginAttemptService {

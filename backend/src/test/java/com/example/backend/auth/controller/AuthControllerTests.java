@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
@@ -54,7 +55,7 @@ class AuthControllerTests {
     /**
      * Backs the attempt counter only: the credentials this controller checks come
      * from the in-memory user details manager below. The lockout itself is
-     * exercised in {@link LoginLockoutTests}, over the real account store.
+     * exercised in {@code LoginLockoutTests}, over the real account store.
      */
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
 
@@ -78,15 +79,17 @@ class AuthControllerTests {
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
         controller = new AuthController(
-                manager,
+                new LoginService(
+                        manager,
+                        new LoginAttemptService(
+                                accounts,
+                                new LockoutPolicy(3, Duration.ofMinutes(5)),
+                                Clock.fixed(
+                                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC))),
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
                 csrfTokenRepository,
-                cookieSerializer,
-                new LoginAttemptService(
-                        accounts,
-                        new LockoutPolicy(3, Duration.ofMinutes(5)),
-                        Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)));
+                cookieSerializer);
     }
 
     @AfterEach
@@ -141,11 +144,14 @@ class AuthControllerTests {
     }
 
     /**
-     * The login path, not a security event listener, is what records the attempt,
-     * so a refusal has to leave the count incremented on the way out.
+     * The endpoint does not count attempts itself — it authenticates through the
+     * login module, which does. Asserted here because routing the endpoint around
+     * that module would compile and pass every other test in this class while
+     * silently disabling the lockout. What the counting then does with the
+     * attempt is LoginLockoutTests' subject.
      */
     @Test
-    void loginRecordsARefusedAttemptAgainstTheAccount() {
+    void loginAuthenticatesThroughTheModuleThatCountsTheAttempt() {
         assertThatThrownBy(() -> controller.login(
                 new AuthController.LoginRequest("ada", "wrong-password"),
                 new MockHttpServletRequest(),
@@ -153,19 +159,6 @@ class AuthControllerTests {
                 .isInstanceOf(BadCredentialsException.class);
 
         assertThat(accounts.require("ada").failedLoginAttempts()).isEqualTo(1);
-    }
-
-    @Test
-    void loginClearsTheFailureRunOfTheAccountItAccepts() {
-        accounts.save(new Account(
-                "ada", accounts.require("ada").passwordHash(), AccountRole.USER, 2, null));
-
-        controller.login(
-                new AuthController.LoginRequest("ada", "correct-password"),
-                new MockHttpServletRequest(),
-                new MockHttpServletResponse());
-
-        assertThat(accounts.require("ada").failedLoginAttempts()).isZero();
     }
 
     /**

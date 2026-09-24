@@ -1,19 +1,20 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
 
-import { postAdminAction } from "./auth.helpers";
+import { postAdminAction, submitLoginViaApi } from "./auth.helpers";
 
 /**
  * The accounts page driven as an administrator uses it.
  *
- * Serial, and the only place a spec changes a seeded account's standing through
- * the UI. Two reasons: the suite runs `fullyParallel`, so tests in one file
- * would otherwise race each other over the same row; and the seeded `user`
- * identity is shared with the `user` project running beside this one, so the
- * round trip below has to put it back before anything else reads it.
+ * Serial, and the only place a spec changes a seeded account's standing — whether
+ * it is disabled, and whether it is serving a lockout. Two reasons: the suite runs
+ * `fullyParallel`, so tests in one file would otherwise race each other over the
+ * same row; and the seeded `user` identity is shared with the `user` project
+ * running beside this one, so every round trip below has to put it back before
+ * anything else reads it.
  *
- * Parallel specs are unaffected *while* it is disabled because they replay a
- * saved session — the backend decides account status when authenticating, not on
- * every request.
+ * Parallel specs are unaffected *while* it is disabled or locked because they
+ * replay a saved session — the backend decides account status when
+ * authenticating, not on every request.
  */
 test.describe.serial("ADMIN accounts page", () => {
   const openAccounts = async (page: Page) => {
@@ -28,6 +29,31 @@ test.describe.serial("ADMIN accounts page", () => {
     page
       .getByRole("row")
       .filter({ has: page.getByRole("rowheader", { exact: true, name: username }) });
+
+  /** The seeded `USER` password, as `auth.setup.ts` signs in with it. */
+  const USER_PASSWORD = "P@ssw0rd";
+
+  /** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
+  const REFUSALS_BEFORE_LOCKOUT = 3;
+
+  /**
+   * A cookie jar of its own for the login attempts below, so nothing here
+   * touches the admin session this project replays: an accepted login rotates
+   * the session id of the jar it arrives in.
+   */
+  const anonymousApi = async (): Promise<APIRequestContext> =>
+    request.newContext({
+      baseURL: test.info().project.use.baseURL,
+      storageState: { cookies: [], origins: [] },
+    });
+
+  /** Drive the seeded account into a lockout the way a forgetful person does. */
+  const lockAccount = async (api: APIRequestContext, username: string) => {
+    for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
+      const refused = await submitLoginViaApi(api, username, "not-the-password");
+      expect(refused.status()).toBe(401);
+    }
+  };
 
   test("lists every registered account with its role, status, and creation date", async ({
     page,
@@ -97,6 +123,78 @@ test.describe.serial("ADMIN accounts page", () => {
       // through the API so no other spec inherits a disabled account.
       const restored = await postAdminAction(page, "user", "enable");
       expect(restored.status()).toBe(200);
+    }
+  });
+
+  /**
+   * The lockout as an administrator meets it: nobody imposes it, a run of failed
+   * logins does, and the listing is where it becomes visible. Locking a *seeded*
+   * account is only safe in this file, for the same reason disabling one is — it
+   * is serial, and it puts the account back before anything else reads it.
+   *
+   * The failed logins go through an anonymous cookie jar rather than this page's,
+   * so the admin session the parallel specs share is never in the blast radius.
+   */
+  test("reports an account that has locked itself out, and unlocks it", async ({ page }) => {
+    const api = await anonymousApi();
+
+    try {
+      await lockAccount(api, "user");
+      await openAccounts(page);
+      const row = accountRow(page, "user");
+
+      // The listing reports the lockout the login path imposed, with the instant
+      // it lifts — this is the only place an administrator can see it at all.
+      await expect(row.getByText(/^Locked until \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/)).toBeVisible();
+      // Still enabled: a lockout is not a standing decision, and the page must
+      // not conflate the two refusal mechanisms.
+      await expect(row.getByRole("button", { name: "Disable user" })).toBeEnabled();
+
+      const unlock = row.getByRole("button", { name: "Unlock user" });
+      await expect(unlock).toBeEnabled();
+      await unlock.click();
+
+      await expect(row.getByText("Active")).toBeVisible();
+      await expect(row.getByRole("button", { name: "Unlock user" })).toBeDisabled();
+
+      // The unlock was the backend's, and it cleared the failure run with it: the
+      // correct password is accepted again, and from a fresh jar so this proves
+      // authentication rather than a surviving session.
+      const fresh = await anonymousApi();
+      try {
+        const accepted = await submitLoginViaApi(fresh, "user", USER_PASSWORD);
+        expect(accepted.status()).toBe(200);
+      } finally {
+        await fresh.dispose();
+      }
+    } finally {
+      const restored = await postAdminAction(page, "user", "unlock");
+      expect(restored.status()).toBe(200);
+      await api.dispose();
+    }
+  });
+
+  /**
+   * What the lockout is for: while it holds, the account's own password stops
+   * working. Asserted over the API because the SPA is told nothing that
+   * distinguishes it from a wrong password — that is the point of the bare 401.
+   */
+  test("keeps refusing the correct password while the lockout holds", async ({ page }) => {
+    const api = await anonymousApi();
+
+    try {
+      await lockAccount(api, "user");
+
+      // Same jar as the refusals above: a refused login mints no session, so
+      // there is nothing here for this attempt to sail in on.
+      const refused = await submitLoginViaApi(api, "user", USER_PASSWORD);
+
+      expect(refused.status()).toBe(401);
+      expect(await refused.text()).toBe("");
+    } finally {
+      const restored = await postAdminAction(page, "user", "unlock");
+      expect(restored.status()).toBe(200);
+      await api.dispose();
     }
   });
 });

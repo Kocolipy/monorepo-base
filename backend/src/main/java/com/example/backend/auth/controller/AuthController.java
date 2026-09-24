@@ -1,15 +1,13 @@
 package com.example.backend.auth.controller;
 
-import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.LoginService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -31,39 +29,37 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    private final AuthenticationManager authenticationManager;
+    private final LoginService login;
     private final SecurityContextRepository securityContextRepository;
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final CsrfTokenRepository csrfTokenRepository;
     private final CookieSerializer cookieSerializer;
-    private final LoginAttemptService loginAttempts;
 
     public AuthController(
-            AuthenticationManager authenticationManager,
+            LoginService login,
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             CsrfTokenRepository csrfTokenRepository,
-            CookieSerializer cookieSerializer,
-            LoginAttemptService loginAttempts) {
-        this.authenticationManager = authenticationManager;
+            CookieSerializer cookieSerializer) {
+        this.login = login;
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.csrfTokenRepository = csrfTokenRepository;
         this.cookieSerializer = cookieSerializer;
-        this.loginAttempts = loginAttempts;
     }
 
+    /**
+     * Turns submitted credentials into a session. What counts as a successful
+     * login — including the failure run a refusal lengthens — is
+     * {@link LoginService}'s; everything below it here is the session and CSRF
+     * work that only a web adapter can do.
+     */
     @PostMapping("/login")
     public UserResponse login(
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        Authentication authentication = authenticate(body);
-
-        // The run of failures this login ends is the account's own state, so it is
-        // cleared before any session work: a caller that gets a session back has
-        // by definition not been refused.
-        loginAttempts.recordSuccess(authentication.getName());
+        Authentication authentication = login.logIn(body.username(), body.password());
 
         // Rotate before the context is saved, so the authentication lands in the
         // session the caller will keep using rather than the pre-login one.
@@ -77,23 +73,6 @@ public class AuthController {
         issueCsrfToken(request, response);
 
         return userResponse(authentication);
-    }
-
-    /**
-     * Authenticates the submitted credentials, counting the attempt against the
-     * account when they are refused. The exception is rethrown unchanged so every
-     * refusal — wrong password, unknown username, locked account — still leaves
-     * through the one handler that answers with a bare 401.
-     */
-    private Authentication authenticate(LoginRequest body) {
-        try {
-            return authenticationManager.authenticate(
-                    UsernamePasswordAuthenticationToken.unauthenticated(
-                            body.username(), body.password()));
-        } catch (AuthenticationException refused) {
-            loginAttempts.recordFailure(body.username());
-            throw refused;
-        }
     }
 
     @GetMapping("/me")

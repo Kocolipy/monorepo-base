@@ -207,14 +207,25 @@ filter first.
 A spec that changes an account's state must restore it in a `finally`, and must
 not pick an account whose state another project depends on. **Exactly one spec may
 change a given seeded account**, and `accounts-admin.spec.ts` is that spec for
-the seeded User: it disables and re-enables it through the page and is
-`test.describe.serial` so its own tests cannot race each other under
-`fullyParallel`. `roles-admin.spec.ts` therefore asserts only the idempotent
-actions and the refusals, and the disable/enable contract itself — statuses, the
-`409`s, the response shape — is covered in `AdminAccountEndpointTests`, where no
-shared row is at stake. The parallel `user` project is unaffected while the
-account is disabled only because it replays a saved session, and account status is
-evaluated when authenticating rather than per request.
+the seeded User: it disables and re-enables it through the page, drives it into a
+lockout and unlocks it, and is `test.describe.serial` so its own tests cannot race
+each other under `fullyParallel`. `roles-admin.spec.ts` therefore asserts only the
+idempotent actions and the refusals, and the disable/enable contract itself —
+statuses, the `409`s, the response shape — is covered in
+`AdminAccountEndpointTests`, where no shared row is at stake. The parallel `user`
+project is unaffected while the account is disabled or locked only because it
+replays a saved session, and account status is evaluated when authenticating
+rather than per request.
+
+A **lockout** is imposed by failed logins rather than by an endpoint, so provoking
+one means submitting real credentials — and an accepted login rotates the session
+id of the cookie jar it arrives in, which would destroy the session the other
+specs in this project replay. Submit those attempts through an `APIRequestContext`
+built with an empty `storageState` (`submitLoginViaApi` in `auth.helpers.ts` takes
+one for exactly this reason), never through `page.request`. Unlocking through the
+API in a `finally` is what makes the whole thing self-healing: it ends the lockout
+early _and_ clears the failure run, so the next spec to authenticate as that
+account starts from zero.
 
 Two specs looking at the same listing also have to agree on what they may
 assume: the environment may hold accounts nobody seeded (a stray second admin, in
