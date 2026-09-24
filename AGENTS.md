@@ -207,3 +207,13 @@ Rules:
   `graphify-out/` is tracked, so the refresh belongs in the same commit as the
   change that caused it — refreshing afterwards leaves the graph stranded
   outside the PR.
+- **Refresh before you report done, not before you commit.** Commits are the
+  human's step, so a commit-triggered rule never fires during an agent's turn
+  and the graph goes stale while the agent stays technically compliant. The
+  binding trigger is the end of a turn in which you changed code or docs.
+  Nothing else in this file needs you to hold a change open for it: `update` is
+  AST-only and spends no API credit.
+- A refresh that FAILS is not cleared with `update --force`: a rebuild with fewer
+  nodes is graphify's shrink guard working as designed, and forcing past it
+  unattended can drop nodes silently. Report it, or hand it to whatever
+  graph-maintenance agent your runtime provides.
