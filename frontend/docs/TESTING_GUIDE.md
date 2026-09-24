@@ -183,7 +183,8 @@ time out; shared storage state collapses that to one.
 
 `page.request` shares the browser context's cookie jar but adds **no headers of
 its own**, so it does not satisfy the backend's CSRF contract
-(`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way returns `403` and the
+(`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way
+returns `403` and the
 spec fails somewhere unrelated to what it was testing. Read the token out of the
 context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
 does; add new API fixtures beside it rather than inlining a raw
@@ -192,13 +193,12 @@ does; add new API fixtures beside it rather than inlining a raw
 ### Unit-testing a module that calls the API
 
 Everything under `src/` reaches the backend through `apiFetch` in
-`src/lib/http.ts`, which reads the `XSRF-TOKEN` cookie at call time. A test that
-stubs `fetch` and asserts on the request therefore has to seed that cookie in
-`beforeEach` and clear it in `afterEach`, or the expected `X-XSRF-TOKEN` header
-is absent and the assertion fails for the wrong reason. `src/auth/api.test.ts`
-is the pattern. `src/lib/http.test.ts` owns the header/retry behaviour itself, so
-a feature's own test does not need to re-prove it — assert the request shape it
-sends and let that suite cover the CSRF mechanics.
+`src/lib/http.ts`. That module alone stubs `fetch` and proves credentials, CSRF
+recovery, status classification, and decoding. Feature tests mock `apiFetch`
+with an `ApiResult` (`ok`, `unauthenticated`, `csrf-expired`, or `failed`) and
+assert only their own response to that meaning. This keeps raw `Response`
+construction and cookie setup out of feature suites; `src/auth/api.test.ts` and
+`src/pages/showcase.test.tsx` are the patterns.
 
 ### Flakiness — the rules that keep these tests green
 

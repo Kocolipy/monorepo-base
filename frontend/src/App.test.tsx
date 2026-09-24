@@ -48,6 +48,21 @@ describe("App", () => {
     expect(screen.getByText("Signed in as ada")).toBeInTheDocument();
   });
 
+  it("returns to login when the showcase discovers an expired session", async () => {
+    window.history.replaceState(null, "", "/showcase");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ username: "ada" }))
+        .mockResolvedValueOnce(new Response(null, { status: 401 })),
+    );
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
   it("signs in and sends the guest to the showcase", async () => {
     const [username, password] = ["ada", "correct-password"];
     const fetchMock = vi

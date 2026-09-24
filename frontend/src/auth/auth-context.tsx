@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import * as authApi from "./api";
 import type { AuthUser } from "./api";
@@ -25,8 +25,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const expireSession = useCallback(() => {
+    setUser(null);
+    setStatus("guest");
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
+      expireSession,
       login: async (username, password) => {
         const currentUser = await authApi.login(username, password);
         setUser(currentUser);
@@ -40,7 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
     }),
-    [status, user],
+    [expireSession, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

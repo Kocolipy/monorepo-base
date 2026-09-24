@@ -125,6 +125,45 @@
       "source_location": "L33"
     },
     {
+      "id": "frontend_src_lib_http_apidecoder",
+      "label": "ApiDecoder",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apidecoder",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L29"
+    },
+    {
+      "id": "frontend_src_lib_http_apirequestinit",
+      "label": "ApiRequestInit",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apirequestinit",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L19"
+    },
+    {
+      "id": "frontend_src_lib_http_apiresult",
+      "label": "ApiResult",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apiresult",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L23"
+    },
+    {
       "id": "frontend_src_pages_login_loginlocationstate",
       "label": "LoginLocationState",
       "_callable": true,
@@ -138,30 +177,17 @@
       "source_location": "L8"
     },
     {
-      "id": "frontend_src_lib_http_apirequestinit",
-      "label": "ApiRequestInit",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "apirequestinit",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L24"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_countresponse",
+      "id": "frontend_src_pages_showcase_countresponse",
       "label": "CountResponse",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
+      "community": 1,
+      "community_name": "showcase.tsx",
       "file_type": "code",
       "norm_label": "countresponse",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L3"
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L15"
     },
     {
       "id": "backend_src_main_java_com_example_backend_auth_authcontroller_loginrequest",
@@ -307,13 +333,65 @@
       "source_location": "L45"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice_usercounterservice",
+      "label": "UserCounterService",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterservice",
+      "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
+      "source_location": "L12"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter",
+      "label": "UserCounter",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounter",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounter.java",
+      "source_location": "L6"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository",
+      "label": "UserCounterRepository",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterrepository",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
+      "source_location": "L9"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity",
+      "label": "UserCounterEntity",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterentity",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L11"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository",
       "label": "UserCounterJpaRepository",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterjparepository",
       "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
@@ -325,38 +403,12 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterpersistenceadapter",
       "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
       "source_location": "L13"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice_usercounterservice",
-      "label": "UserCounterService",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": "usercounterservice",
-      "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
-      "source_location": "L12"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository",
-      "label": "UserCounterRepository",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": "usercounterrepository",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
-      "source_location": "L9"
     },
     {
       "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests",
@@ -365,24 +417,11 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterservicetests",
       "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
       "source_location": "L10"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter",
-      "label": "UserCounter",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 31,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "usercounter",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounter.java",
-      "source_location": "L6"
     },
     {
       "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests_usercountertests",
@@ -390,7 +429,7 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercountertests",
@@ -409,19 +448,6 @@
       "norm_label": "backendapplication",
       "source_file": "backend/src/main/java/com/example/backend/BackendApplication.java",
       "source_location": "L6"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity",
-      "label": "UserCounterEntity",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": "usercounterentity",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L11"
     },
     {
       "id": "backend_src_test_java_arch_architecturetest_architecturetest",
@@ -628,6 +654,66 @@
       "source_location": "L11"
     },
     {
+      "id": "frontend_src_auth_api_decodeuser",
+      "label": "decodeUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "decodeuser()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L10"
+    },
+    {
+      "id": "frontend_src_auth_api_getcurrentuser",
+      "label": "getCurrentUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "getcurrentuser()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L12"
+    },
+    {
+      "id": "frontend_src_auth_api_login",
+      "label": "login()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "login()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L25"
+    },
+    {
+      "id": "frontend_src_auth_api_logout",
+      "label": "logout()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "logout()",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L48"
+    },
+    {
+      "id": "frontend_src_auth_api_test_resolvewith",
+      "label": "resolveWith()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "resolvewith()",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L11"
+    },
+    {
       "id": "frontend_src_auth_auth_context_authprovider",
       "label": "AuthProvider()",
       "_callable": true,
@@ -649,7 +735,7 @@
       "file_type": "code",
       "norm_label": "useauth()",
       "source_file": "frontend/src/auth/auth-context-value.ts",
-      "source_location": "L16"
+      "source_location": "L17"
     },
     {
       "id": "frontend_src_auth_protected_route_protectedroute",
@@ -748,6 +834,90 @@
       "source_location": "L22"
     },
     {
+      "id": "frontend_src_lib_http_apifetch",
+      "label": "apiFetch()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apifetch()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L71"
+    },
+    {
+      "id": "frontend_src_lib_http_csrftoken",
+      "label": "csrfToken()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "csrftoken()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L37"
+    },
+    {
+      "id": "frontend_src_lib_http_isunsafe",
+      "label": "isUnsafe()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "isunsafe()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L44"
+    },
+    {
+      "id": "frontend_src_lib_http_test_clearcookies",
+      "label": "clearCookies()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "clearcookies()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L9"
+    },
+    {
+      "id": "frontend_src_lib_http_test_decodecount",
+      "label": "decodeCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "decodecount()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L16"
+    },
+    {
+      "id": "frontend_src_lib_http_test_setcookie",
+      "label": "setCookie()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "setcookie()",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L5"
+    },
+    {
+      "id": "frontend_src_lib_http_withcsrf",
+      "label": "withCsrf()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "withcsrf()",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L46"
+    },
+    {
       "id": "frontend_src_lib_utils_cn",
       "label": "cn()",
       "_callable": true,
@@ -784,6 +954,54 @@
       "source_location": "L30"
     },
     {
+      "id": "frontend_src_pages_showcase_decodecount",
+      "label": "decodeCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "decodecount()",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L21"
+    },
+    {
+      "id": "frontend_src_pages_showcase_getcount",
+      "label": "getCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "getcount()",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L26"
+    },
+    {
+      "id": "frontend_src_pages_showcase_incrementcount",
+      "label": "incrementCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "incrementcount()",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L27"
+    },
+    {
+      "id": "frontend_src_pages_showcase_resetcount",
+      "label": "resetCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "resetcount()",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L29"
+    },
+    {
       "id": "frontend_src_pages_showcase_showcase",
       "label": "Showcase()",
       "_callable": true,
@@ -793,7 +1011,7 @@
       "file_type": "code",
       "norm_label": "showcase()",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L17"
+      "source_location": "L33"
     },
     {
       "id": "frontend_src_pages_showcase_test_count",
@@ -805,7 +1023,7 @@
       "file_type": "code",
       "norm_label": "count()",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L12"
+      "source_location": "L13"
     },
     {
       "id": "frontend_src_pages_showcase_test_increment",
@@ -817,7 +1035,7 @@
       "file_type": "code",
       "norm_label": "increment()",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L13"
+      "source_location": "L14"
     },
     {
       "id": "frontend_src_pages_showcase_test_rendershowcase",
@@ -829,7 +1047,7 @@
       "file_type": "code",
       "norm_label": "rendershowcase()",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L23"
+      "source_location": "L33"
     },
     {
       "id": "frontend_src_pages_showcase_test_reset",
@@ -841,175 +1059,31 @@
       "file_type": "code",
       "norm_label": "reset()",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L14"
+      "source_location": "L15"
     },
     {
-      "id": "frontend_src_auth_api_getcurrentuser",
-      "label": "getCurrentUser()",
+      "id": "frontend_src_pages_showcase_test_resolveoncewith",
+      "label": "resolveOnceWith()",
       "_callable": true,
       "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
+      "community": 1,
+      "community_name": "showcase.tsx",
       "file_type": "code",
-      "norm_label": "getcurrentuser()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L10"
-    },
-    {
-      "id": "frontend_src_auth_api_login",
-      "label": "login()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "login()",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L17"
-    },
-    {
-      "id": "frontend_src_auth_api_logout",
-      "label": "logout()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "logout()",
-      "source_file": "frontend/src/auth/api.ts",
+      "norm_label": "resolveoncewith()",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
       "source_location": "L29"
     },
     {
-      "id": "frontend_src_lib_http_apifetch",
-      "label": "apiFetch()",
+      "id": "frontend_src_pages_showcase_test_resolvewith",
+      "label": "resolveWith()",
       "_callable": true,
       "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
+      "community": 1,
+      "community_name": "showcase.tsx",
       "file_type": "code",
-      "norm_label": "apifetch()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L64"
-    },
-    {
-      "id": "frontend_src_lib_http_csrftoken",
-      "label": "csrfToken()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "csrftoken()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L34"
-    },
-    {
-      "id": "frontend_src_lib_http_isunsafe",
-      "label": "isUnsafe()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "isunsafe()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L41"
-    },
-    {
-      "id": "frontend_src_lib_http_test_clearcookies",
-      "label": "clearCookies()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "clearcookies()",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L9"
-    },
-    {
-      "id": "frontend_src_lib_http_test_setcookie",
-      "label": "setCookie()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "setcookie()",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L5"
-    },
-    {
-      "id": "frontend_src_lib_http_withcsrf",
-      "label": "withCsrf()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "withcsrf()",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L43"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_getcount",
-      "label": "getCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "getcount()",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L22"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_incrementcount",
-      "label": "incrementCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "incrementcount()",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L27"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_readcount",
-      "label": "readCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "readcount()",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L7"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_resetcount",
-      "label": "resetCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "resetcount()",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L31"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_updatecount",
-      "label": "updateCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "updatecount()",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L16"
+      "norm_label": "resolvewith()",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L25"
     },
     {
       "id": "backend_src_main_java_com_example_backend_auth_authcontroller_authcontroller_issuecsrftoken",
@@ -1952,40 +2026,6 @@
       "source_location": "L46"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_isfrontendget",
-      "label": ".isFrontendGet()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 24,
-      "community_name": ".servesSpaShell",
-      "file_type": "code",
-      "metadata": {
-        "unresolved_calls": [
-          {
-            "callee": "getRequestURI",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L165"
-          },
-          {
-            "callee": "getContextPath",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L165"
-          },
-          {
-            "callee": "getMethod",
-            "receiver_type": "HttpServletRequest",
-            "lang": "java",
-            "line": "L166"
-          }
-        ]
-      },
-      "norm_label": ".isfrontendget()",
-      "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
-      "source_location": "L164"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_web_sparoutes_sparoutes_isreservedserverpath",
       "label": ".isReservedServerPath()",
       "_callable": true,
@@ -2150,60 +2190,12 @@
       "source_location": "L72"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository_findbyusernameforupdate",
-      "label": ".findByUsernameForUpdate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
-      "file_type": "code",
-      "norm_label": ".findbyusernameforupdate()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
-      "source_location": "L17"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusername",
-      "label": ".findByUsername()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
-      "file_type": "code",
-      "norm_label": ".findbyusername()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L22"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusernameforupdate",
-      "label": ".findByUsernameForUpdate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
-      "file_type": "code",
-      "norm_label": ".findbyusernameforupdate()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L27"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_usercounterpersistenceadapter",
-      "label": ".UserCounterPersistenceAdapter()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
-      "file_type": "code",
-      "norm_label": ".usercounterpersistenceadapter()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L18"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice_usercounterservice_getcount",
       "label": ".getCount()",
       "_callable": true,
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".getcount()",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
@@ -2215,7 +2207,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".increment()",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
@@ -2227,7 +2219,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".reset()",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
@@ -2239,126 +2231,18 @@
       "_callable": true,
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".usercounterservice()",
       "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
       "source_location": "L17"
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_usercountercontroller",
-      "label": ".UserCounterController()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".usercountercontroller()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
-      "source_location": "L19"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_findbyusername",
-      "label": ".findByUsername()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".findbyusername()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
-      "source_location": "L11"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_findbyusernameforupdate",
-      "label": ".findByUsernameForUpdate()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".findbyusernameforupdate()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
-      "source_location": "L17"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_save",
-      "label": ".save()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".save()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
-      "source_location": "L19"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_getsexistingcountwithoutchangingit",
-      "label": ".getsExistingCountWithoutChangingIt()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".getsexistingcountwithoutchangingit()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L17"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_getszerowhenuserhasnocounteryet",
-      "label": ".getsZeroWhenUserHasNoCounterYet()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".getszerowhenuserhasnocounteryet()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L26"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_maintainsindependentcountsforeachuser",
-      "label": ".maintainsIndependentCountsForEachUser()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".maintainsindependentcountsforeachuser()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L31"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_resetcreatesazerocountwhenuserhasnocounteryet",
-      "label": ".resetCreatesAZeroCountWhenUserHasNoCounterYet()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".resetcreatesazerocountwhenuserhasnocounteryet()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L47"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_resetsetsexistingcounttozero",
-      "label": ".resetSetsExistingCountToZero()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": ".resetsetsexistingcounttozero()",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L38"
-    },
-    {
       "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter_usercounter_createfor",
       "label": ".createFor()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".createfor()",
@@ -2370,7 +2254,7 @@
       "label": ".getCount()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".getcount()",
@@ -2382,7 +2266,7 @@
       "label": ".getUsername()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".getusername()",
@@ -2394,7 +2278,7 @@
       "label": ".increment()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".increment()",
@@ -2406,7 +2290,7 @@
       "label": ".rehydrate()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".rehydrate()",
@@ -2418,7 +2302,7 @@
       "label": ".reset()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".reset()",
@@ -2430,7 +2314,7 @@
       "label": ".UserCounter()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".usercounter()",
@@ -2438,11 +2322,131 @@
       "source_location": "L12"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_findbyusername",
+      "label": ".findByUsername()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusername()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
+      "source_location": "L11"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_findbyusernameforupdate",
+      "label": ".findByUsernameForUpdate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusernameforupdate()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
+      "source_location": "L17"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository_usercounterrepository_save",
+      "label": ".save()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".save()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
+      "source_location": "L19"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getcount",
+      "label": ".getCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getcount()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L32"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getusername",
+      "label": ".getUsername()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getusername()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L28"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_setcount",
+      "label": ".setCount()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".setcount()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L36"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_usercounterentity",
+      "label": ".UserCounterEntity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".usercounterentity()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L20"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository_usercounterjparepository_findbyusernameforupdate",
+      "label": ".findByUsernameForUpdate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusernameforupdate()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
+      "source_location": "L17"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusername",
+      "label": ".findByUsername()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusername()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L22"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_findbyusernameforupdate",
+      "label": ".findByUsernameForUpdate()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".findbyusernameforupdate()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L27"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_save",
       "label": ".save()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".save()",
@@ -2450,11 +2454,95 @@
       "source_location": "L32"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_todomain",
+      "label": ".toDomain()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".todomain()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L39"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_usercounterpersistenceadapter",
+      "label": ".UserCounterPersistenceAdapter()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".usercounterpersistenceadapter()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
+      "source_location": "L18"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_getsexistingcountwithoutchangingit",
+      "label": ".getsExistingCountWithoutChangingIt()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getsexistingcountwithoutchangingit()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
+      "source_location": "L17"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_getszerowhenuserhasnocounteryet",
+      "label": ".getsZeroWhenUserHasNoCounterYet()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".getszerowhenuserhasnocounteryet()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
+      "source_location": "L26"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_maintainsindependentcountsforeachuser",
+      "label": ".maintainsIndependentCountsForEachUser()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".maintainsindependentcountsforeachuser()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
+      "source_location": "L31"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_resetcreatesazerocountwhenuserhasnocounteryet",
+      "label": ".resetCreatesAZeroCountWhenUserHasNoCounterYet()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".resetcreatesazerocountwhenuserhasnocounteryet()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
+      "source_location": "L47"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests_usercounterservicetests_resetsetsexistingcounttozero",
+      "label": ".resetSetsExistingCountToZero()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": ".resetsetsexistingcounttozero()",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
+      "source_location": "L38"
+    },
+    {
       "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests_usercountertests_incrementreturnstheupdatedcount",
       "label": ".incrementReturnsTheUpdatedCount()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".incrementreturnstheupdatedcount()",
@@ -2466,7 +2554,7 @@
       "label": ".newCounterStartsAtZero()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".newcounterstartsatzero()",
@@ -2478,7 +2566,7 @@
       "label": ".rehydratePreservesStoredState()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".rehydratepreservesstoredstate()",
@@ -2490,7 +2578,7 @@
       "label": ".resetReturnsCountToZero()",
       "_callable": true,
       "_origin": "ast",
-      "community": 31,
+      "community": 3,
       "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": ".resetreturnscounttozero()",
@@ -2542,66 +2630,6 @@
       "norm_label": "resetcounterviaapi()",
       "source_file": "frontend/test/e2e/auth.helpers.ts",
       "source_location": "L24"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getcount",
-      "label": ".getCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": ".getcount()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L32"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_getusername",
-      "label": ".getUsername()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": ".getusername()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L28"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_setcount",
-      "label": ".setCount()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": ".setcount()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L36"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity_usercounterentity_usercounterentity",
-      "label": ".UserCounterEntity()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": ".usercounterentity()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L20"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_usercounterpersistenceadapter_todomain",
-      "label": ".toDomain()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": ".todomain()",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
-      "source_location": "L39"
     },
     {
       "id": "frontend_test_arch_designtokens_test_blankcomments",
@@ -2726,6 +2754,18 @@
       "norm_label": ".reset()",
       "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
       "source_location": "L33"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_controller_usercountercontroller_usercountercontroller_usercountercontroller",
+      "label": ".UserCounterController()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "AuthController.java",
+      "file_type": "code",
+      "norm_label": ".usercountercontroller()",
+      "source_file": "backend/src/main/java/com/example/backend/counter/controller/UserCounterController.java",
+      "source_location": "L19"
     },
     {
       "id": "backend_src_main_java_com_example_backend_session_sessioncontroller_sessioncontroller_deletesession",
@@ -3064,6 +3104,40 @@
       "source_location": "L113"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_isfrontendget",
+      "label": ".isFrontendGet()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 8,
+      "community_name": "SecurityConfig.java",
+      "file_type": "code",
+      "metadata": {
+        "unresolved_calls": [
+          {
+            "callee": "getRequestURI",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L165"
+          },
+          {
+            "callee": "getContextPath",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L165"
+          },
+          {
+            "callee": "getMethod",
+            "receiver_type": "HttpServletRequest",
+            "lang": "java",
+            "line": "L166"
+          }
+        ]
+      },
+      "norm_label": ".isfrontendget()",
+      "source_file": "backend/src/main/java/com/example/backend/auth/config/SecurityConfig.java",
+      "source_location": "L164"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_auth_config_securityconfig_securityconfig_passwordencoder",
       "label": ".passwordEncoder()",
       "_callable": true,
@@ -3282,6 +3356,39 @@
       "source_location": "L1"
     },
     {
+      "id": "frontend_src_auth_api",
+      "label": "api.ts",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "api.ts",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_auth_api_test",
+      "label": "api.test.ts",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "api.test.ts",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_auth_api_test_apifetchmock",
+      "label": "apiFetchMock",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apifetchmock",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L9"
+    },
+    {
       "id": "frontend_src_auth_auth_context",
       "label": "auth-context.tsx",
       "_origin": "ast",
@@ -3312,7 +3419,7 @@
       "file_type": "code",
       "norm_label": "authcontext",
       "source_file": "frontend/src/auth/auth-context-value.ts",
-      "source_location": "L14"
+      "source_location": "L15"
     },
     {
       "id": "frontend_src_auth_protected_route",
@@ -3356,6 +3463,39 @@
       "file_type": "code",
       "norm_label": "card.tsx",
       "source_file": "frontend/src/components/ui/card.tsx",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_lib_http",
+      "label": "http.ts",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "http.ts",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L1"
+    },
+    {
+      "id": "frontend_src_lib_http_safe_methods",
+      "label": "SAFE_METHODS",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "safe_methods",
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L13"
+    },
+    {
+      "id": "frontend_src_lib_http_test",
+      "label": "http.test.ts",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "http.test.ts",
+      "source_file": "frontend/src/lib/http.test.ts",
       "source_location": "L1"
     },
     {
@@ -3436,6 +3576,17 @@
       "source_location": "L1"
     },
     {
+      "id": "frontend_src_pages_showcase_test_apifetchmock",
+      "label": "apiFetchMock",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "showcase.tsx",
+      "file_type": "code",
+      "norm_label": "apifetchmock",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L12"
+    },
+    {
       "id": "frontend_src_pages_showcase_test_auth",
       "label": "auth",
       "_origin": "ast",
@@ -3444,7 +3595,7 @@
       "file_type": "code",
       "norm_label": "auth",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L16"
+      "source_location": "L17"
     },
     {
       "id": "ref_clsx",
@@ -4888,83 +5039,6 @@
       "source_location": "L24"
     },
     {
-      "id": "frontend_src_auth_api",
-      "label": "api.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "api.ts",
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_auth_api_test",
-      "label": "api.test.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "api.test.ts",
-      "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_lib_http",
-      "label": "http.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "http.ts",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_lib_http_safe_methods",
-      "label": "SAFE_METHODS",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "safe_methods",
-      "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L14"
-    },
-    {
-      "id": "frontend_src_lib_http_test",
-      "label": "http.test.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "http.test.ts",
-      "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api",
-      "label": "showcase-api.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "showcase-api.ts",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L1"
-    },
-    {
-      "id": "frontend_src_pages_showcase_api_test",
-      "label": "showcase-api.test.ts",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "apiFetch",
-      "file_type": "code",
-      "norm_label": "showcase-api.test.ts",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L1"
-    },
-    {
       "id": "scripts_lib",
       "label": "lib.sh",
       "_origin": "ast",
@@ -5429,6 +5503,17 @@
       "file_type": "code",
       "norm_label": "backendapplicationtests.java",
       "source_file": "backend/src/test/java/com/example/backend/BackendApplicationTests.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests",
+      "label": "UserCounterServiceTests.java",
+      "_origin": "ast",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "file_type": "code",
+      "norm_label": "usercounterservicetests.java",
+      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
       "source_location": "L1"
     },
     {
@@ -6118,22 +6203,55 @@
       "source_location": "L10"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice",
+      "label": "UserCounterService.java",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterservice.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter",
+      "label": "UserCounter.java",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounter.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounter.java",
+      "source_location": "L1"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_counter_domain_usercounterrepository",
       "label": "UserCounterRepository.java",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterrepository.java",
       "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounterRepository.java",
       "source_location": "L1"
     },
     {
+      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity",
+      "label": "UserCounterEntity.java",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercounterentity.java",
+      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
+      "source_location": "L1"
+    },
+    {
       "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterjparepository",
       "label": "UserCounterJpaRepository.java",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterjparepository.java",
       "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterJpaRepository.java",
@@ -6143,8 +6261,8 @@
       "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter",
       "label": "UserCounterPersistenceAdapter.java",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "usercounterpersistenceadapter.java",
       "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/UserCounterPersistenceAdapter.java",
@@ -6154,10 +6272,43 @@
       "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_usercounterpersistenceadapter_java_override",
       "label": "Override",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "override",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests",
+      "label": "UserCounterTests.java",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "usercountertests.java",
+      "source_file": "backend/src/test/java/com/example/backend/counter/domain/UserCounterTests.java",
+      "source_location": "L1"
+    },
+    {
+      "id": "jakarta_persistence_entity",
+      "label": "jakarta.persistence.Entity",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "jakarta.persistence.entity",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "jakarta_persistence_table",
+      "label": "jakarta.persistence.Table",
+      "_origin": "ast",
+      "community": 3,
+      "community_name": "UserCounter",
+      "file_type": "code",
+      "norm_label": "jakarta.persistence.table",
       "source_file": "",
       "source_location": ""
     },
@@ -6165,8 +6316,8 @@
       "id": "org_springframework_data_jpa_repository_jparepository",
       "label": "org.springframework.data.jpa.repository.JpaRepository",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.data.jpa.repository.jparepository",
       "source_file": "",
@@ -6176,8 +6327,8 @@
       "id": "org_springframework_data_jpa_repository_lock",
       "label": "org.springframework.data.jpa.repository.Lock",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.data.jpa.repository.lock",
       "source_file": "",
@@ -6187,8 +6338,8 @@
       "id": "org_springframework_data_jpa_repository_query",
       "label": "org.springframework.data.jpa.repository.Query",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.data.jpa.repository.query",
       "source_file": "",
@@ -6198,41 +6349,19 @@
       "id": "org_springframework_stereotype_repository",
       "label": "org.springframework.stereotype.Repository",
       "_origin": "ast",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.stereotype.repository",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "backend_src_main_java_com_example_backend_counter_application_usercounterservice",
-      "label": "UserCounterService.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": "usercounterservice.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/application/UserCounterService.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_application_usercounterservicetests",
-      "label": "UserCounterServiceTests.java",
-      "_origin": "ast",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "file_type": "code",
-      "norm_label": "usercounterservicetests.java",
-      "source_file": "backend/src/test/java/com/example/backend/counter/application/UserCounterServiceTests.java",
-      "source_location": "L1"
-    },
-    {
       "id": "org_springframework_stereotype_service",
       "label": "org.springframework.stereotype.Service",
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.stereotype.service",
       "source_file": "",
@@ -6243,7 +6372,7 @@
       "label": "org.springframework.transaction.annotation.Transactional",
       "_origin": "ast",
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "file_type": "code",
       "norm_label": "org.springframework.transaction.annotation.transactional",
       "source_file": "",
@@ -6325,17 +6454,6 @@
       "norm_label": "./tsconfig.json",
       "source_file": "frontend/tsconfig.test.json",
       "source_location": "L2"
-    },
-    {
-      "id": "backend_src_test_java_com_example_backend_counter_domain_usercountertests",
-      "label": "UserCounterTests.java",
-      "_origin": "ast",
-      "community": 31,
-      "community_name": "UserCounter",
-      "file_type": "code",
-      "norm_label": "usercountertests.java",
-      "source_file": "backend/src/test/java/com/example/backend/counter/domain/UserCounterTests.java",
-      "source_location": "L1"
     },
     {
       "id": "docs_agents_domain",
@@ -6783,39 +6901,6 @@
       "norm_label": "steps",
       "source_file": ".claude/agents/graphify-runner.md",
       "source_location": "L12"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_infrastructure_persistence_entity_usercounterentity",
-      "label": "UserCounterEntity.java",
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": "usercounterentity.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/infrastructure/persistence/entity/UserCounterEntity.java",
-      "source_location": "L1"
-    },
-    {
-      "id": "jakarta_persistence_entity",
-      "label": "jakarta.persistence.Entity",
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": "jakarta.persistence.entity",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "jakarta_persistence_table",
-      "label": "jakarta.persistence.Table",
-      "_origin": "ast",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "file_type": "code",
-      "norm_label": "jakarta.persistence.table",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "prettier",
@@ -7375,17 +7460,6 @@
       "norm_label": "typescript-eslint",
       "source_file": "frontend/package.json",
       "source_location": "L64"
-    },
-    {
-      "id": "backend_src_main_java_com_example_backend_counter_domain_usercounter",
-      "label": "UserCounter.java",
-      "_origin": "ast",
-      "community": 58,
-      "community_name": "UserCounter.java",
-      "file_type": "code",
-      "norm_label": "usercounter.java",
-      "source_file": "backend/src/main/java/com/example/backend/counter/domain/UserCounter.java",
-      "source_location": "L1"
     },
     {
       "id": "scripts_dev_stop",
@@ -9524,7 +9598,7 @@
       "author": null,
       "captured_at": null,
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "contributor": null,
       "file_type": "concept",
       "norm_label": "getcount operation",
@@ -9533,32 +9607,47 @@
       "source_url": null
     },
     {
-      "id": "backend_docs_openapi_incrementcount",
-      "label": "incrementCount operation",
+      "id": "backend_src_main_resources_application_datasource",
+      "label": "PostgreSQL Datasource",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "contributor": null,
       "file_type": "concept",
-      "norm_label": "incrementcount operation",
-      "source_file": "backend/docs/openapi.yaml",
+      "norm_label": "postgresql datasource",
+      "source_file": "backend/src/main/resources/application.yaml",
       "source_location": null,
       "source_url": null
     },
     {
-      "id": "backend_docs_openapi_resetcount",
-      "label": "resetCount operation",
+      "id": "backend_src_test_resources_application_h2",
+      "label": "H2 In-Memory Test Datasource",
       "_origin": "semantic",
       "author": null,
       "captured_at": null,
       "community": 3,
-      "community_name": "UserCounterService",
+      "community_name": "UserCounter",
       "contributor": null,
       "file_type": "concept",
-      "norm_label": "resetcount operation",
-      "source_file": "backend/docs/openapi.yaml",
+      "norm_label": "h2 in-memory test datasource",
+      "source_file": "backend/src/test/resources/application.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "backend_src_test_resources_application",
+      "label": "Backend Test Configuration",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 3,
+      "community_name": "UserCounter",
+      "contributor": null,
+      "file_type": "document",
+      "norm_label": "backend test configuration",
+      "source_file": "backend/src/test/resources/application.yaml",
       "source_location": null,
       "source_url": null
     },
@@ -10223,51 +10312,6 @@
       "source_url": null
     },
     {
-      "id": "backend_src_main_resources_application_datasource",
-      "label": "PostgreSQL Datasource",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 58,
-      "community_name": "UserCounter.java",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "postgresql datasource",
-      "source_file": "backend/src/main/resources/application.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "backend_src_test_resources_application_h2",
-      "label": "H2 In-Memory Test Datasource",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 58,
-      "community_name": "UserCounter.java",
-      "contributor": null,
-      "file_type": "concept",
-      "norm_label": "h2 in-memory test datasource",
-      "source_file": "backend/src/test/resources/application.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
-      "id": "backend_src_test_resources_application",
-      "label": "Backend Test Configuration",
-      "_origin": "semantic",
-      "author": null,
-      "captured_at": null,
-      "community": 58,
-      "community_name": "UserCounter.java",
-      "contributor": null,
-      "file_type": "document",
-      "norm_label": "backend test configuration",
-      "source_file": "backend/src/test/resources/application.yaml",
-      "source_location": null,
-      "source_url": null
-    },
-    {
       "id": "backend_docs_openapi_csrftoken_parameter",
       "label": "X-XSRF-TOKEN Header Parameter",
       "_origin": "semantic",
@@ -10343,6 +10387,21 @@
       "source_url": null
     },
     {
+      "id": "backend_docs_openapi_incrementcount",
+      "label": "incrementCount operation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "community_name": "AuthController.java",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "incrementcount operation",
+      "source_file": "backend/docs/openapi.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
       "id": "backend_docs_openapi_logout",
       "label": "logout operation",
       "_origin": "semantic",
@@ -10353,6 +10412,21 @@
       "contributor": null,
       "file_type": "concept",
       "norm_label": "logout operation",
+      "source_file": "backend/docs/openapi.yaml",
+      "source_location": null,
+      "source_url": null
+    },
+    {
+      "id": "backend_docs_openapi_resetcount",
+      "label": "resetCount operation",
+      "_origin": "semantic",
+      "author": null,
+      "captured_at": null,
+      "community": 7,
+      "community_name": "AuthController.java",
+      "contributor": null,
+      "file_type": "concept",
+      "norm_label": "resetcount operation",
       "source_file": "backend/docs/openapi.yaml",
       "source_location": null,
       "source_url": null
@@ -10519,6 +10593,18 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "assertthatcode",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "autowired",
+      "label": "autowired",
+      "_origin": "semantic",
+      "community": 2,
+      "community_name": "org.junit.jupiter.api.Test",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "autowired",
       "source_file": "",
       "type": "external"
     },
@@ -10763,11 +10849,35 @@
       "type": "external"
     },
     {
+      "id": "list",
+      "label": "list",
+      "_origin": "semantic",
+      "community": 24,
+      "community_name": ".servesSpaShell",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "list",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "id",
+      "label": "id",
+      "_origin": "semantic",
+      "community": 3,
+      "community_name": "UserCounter",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "id",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "lockmodetype",
       "label": "lockmodetype",
       "_origin": "semantic",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "external": true,
       "file_type": "concept",
       "norm_label": "lockmodetype",
@@ -10778,8 +10888,8 @@
       "id": "optional",
       "label": "optional",
       "_origin": "semantic",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "external": true,
       "file_type": "concept",
       "norm_label": "optional",
@@ -10790,23 +10900,11 @@
       "id": "param",
       "label": "param",
       "_origin": "semantic",
-      "community": 29,
-      "community_name": "UserCounterPersistenceAdapter",
+      "community": 3,
+      "community_name": "UserCounter",
       "external": true,
       "file_type": "concept",
       "norm_label": "param",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "autowired",
-      "label": "autowired",
-      "_origin": "semantic",
-      "community": 3,
-      "community_name": "UserCounterService",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "autowired",
       "source_file": "",
       "type": "external"
     },
@@ -10819,18 +10917,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "springapplication",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "id",
-      "label": "id",
-      "_origin": "semantic",
-      "community": 43,
-      "community_name": "UserCounterEntity",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "id",
       "source_file": "",
       "type": "external"
     },
@@ -11335,17 +11421,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "value",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "list",
-      "label": "list",
-      "community": 24,
-      "community_name": ".servesSpaShell",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "list",
       "source_file": "",
       "type": "external"
     }
@@ -13388,7 +13463,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L11",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -13400,7 +13475,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L18",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
@@ -13412,7 +13487,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L30",
+      "source_location": "L49",
       "weight": 1.0
     },
     {
@@ -13532,7 +13607,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L65",
+      "source_location": "L77",
       "weight": 1.0
     },
     {
@@ -13544,7 +13619,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L66",
+      "source_location": "L78",
       "weight": 1.0
     },
     {
@@ -13556,7 +13631,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L44",
+      "source_location": "L47",
       "weight": 1.0
     },
     {
@@ -13568,7 +13643,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L46",
+      "source_location": "L49",
       "weight": 1.0
     },
     {
@@ -13584,75 +13659,39 @@
       "weight": 1.0
     },
     {
-      "source": "frontend_src_pages_showcase_api_getcount",
+      "source": "frontend_src_pages_showcase_getcount",
       "target": "frontend_src_lib_http_apifetch",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L23",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L26",
       "weight": 1.0
     },
     {
-      "source": "frontend_src_pages_showcase_api_getcount",
-      "target": "frontend_src_pages_showcase_api_readcount",
+      "source": "frontend_src_pages_showcase_incrementcount",
+      "target": "frontend_src_lib_http_apifetch",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L24",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_incrementcount",
-      "target": "frontend_src_pages_showcase_api_updatecount",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
+      "source_file": "frontend/src/pages/showcase.tsx",
       "source_location": "L28",
       "weight": 1.0
     },
     {
-      "source": "frontend_src_pages_showcase_api_resetcount",
-      "target": "frontend_src_pages_showcase_api_updatecount",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L32",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_updatecount",
+      "source": "frontend_src_pages_showcase_resetcount",
       "target": "frontend_src_lib_http_apifetch",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L17",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_updatecount",
-      "target": "frontend_src_pages_showcase_api_readcount",
-      "relation": "calls",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "call",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L19",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L30",
       "weight": 1.0
     },
     {
@@ -13664,19 +13703,19 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L21",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
       "source": "frontend_src_pages_showcase_showcase",
-      "target": "frontend_src_pages_showcase_api_updatecount",
+      "target": "frontend_src_pages_showcase_getcount",
       "relation": "calls",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L82",
+      "source_location": "L59",
       "weight": 1.0
     },
     {
@@ -14244,6 +14283,18 @@
       "weight": 1.0
     },
     {
+      "source": "frontend_src_auth_api_test",
+      "target": "frontend_src_auth_api_test_resolvewith",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
       "source": "frontend_src_lib_http_test",
       "target": "frontend_src_lib_http_test_setcookie",
       "relation": "contains",
@@ -14276,7 +14327,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L12",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -14288,7 +14339,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L13",
+      "source_location": "L14",
       "weight": 1.0
     },
     {
@@ -14300,7 +14351,31 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L14",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_test",
+      "target": "frontend_src_pages_showcase_test_resolvewith",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_test",
+      "target": "frontend_src_pages_showcase_test_resolveoncewith",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L29",
       "weight": 1.0
     },
     {
@@ -14312,7 +14387,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L23",
+      "source_location": "L33",
       "weight": 1.0
     },
     {
@@ -14600,7 +14675,7 @@
       "confidence_score": 1.0,
       "context": "field",
       "source_file": "frontend/src/auth/auth-context-value.ts",
-      "source_location": "L11",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -17796,6 +17871,18 @@
       "weight": 1.0
     },
     {
+      "source": "frontend_src_auth_api",
+      "target": "frontend_src_lib_http_apiresult",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
       "source": "frontend_src_auth_api_test",
       "target": "frontend_src_auth_api_getcurrentuser",
       "relation": "imports",
@@ -17804,7 +17891,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L3",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -17816,7 +17903,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L3",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -17828,7 +17915,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/auth/api.test.ts",
-      "source_location": "L3",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -18061,6 +18148,30 @@
     },
     {
       "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_lib_http_apifetch",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_lib_http_apiresult",
+      "relation": "imports",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
       "target": "frontend_src_auth_auth_context_value_useauth",
       "relation": "imports",
       "_origin": "ast",
@@ -18156,54 +18267,6 @@
       "weight": 1.0
     },
     {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_lib_http_apifetch",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L1",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_test",
-      "target": "frontend_src_pages_showcase_api_getcount",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L3",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_test",
-      "target": "frontend_src_pages_showcase_api_incrementcount",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L3",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_test",
-      "target": "frontend_src_pages_showcase_api_resetcount",
-      "relation": "imports",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L3",
-      "weight": 1.0
-    },
-    {
       "source": "frontend_src_pages_showcase_test",
       "target": "frontend_src_auth_auth_context_value_authcontext",
       "relation": "imports",
@@ -18236,7 +18299,7 @@
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L7",
+      "source_location": "L8",
       "weight": 1.0
     },
     {
@@ -18505,7 +18568,7 @@
     },
     {
       "source": "frontend_src_auth_api_test",
-      "target": "frontend_src_auth_api",
+      "target": "frontend_src_lib_http",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -18513,6 +18576,18 @@
       "context": "import",
       "source_file": "frontend/src/auth/api.test.ts",
       "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api_test",
+      "target": "frontend_src_auth_api",
+      "relation": "imports_from",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "import",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L5",
       "weight": 1.0
     },
     {
@@ -18870,14 +18945,14 @@
     },
     {
       "source": "frontend_src_pages_showcase",
-      "target": "frontend_src_pages_showcase_api",
+      "target": "frontend_src_lib_http",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L14",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -18914,42 +18989,6 @@
       "context": "import",
       "source_file": "frontend/src/pages/showcase.tsx",
       "source_location": "L5",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_lib_http",
-      "relation": "imports_from",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L1",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_test",
-      "target": "ref_vitest",
-      "relation": "imports_from",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L1",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api_test",
-      "target": "frontend_src_pages_showcase_api",
-      "relation": "imports_from",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "context": "import",
-      "source_file": "frontend/src/pages/showcase-api.test.ts",
-      "source_location": "L3",
       "weight": 1.0
     },
     {
@@ -19002,19 +19041,19 @@
     },
     {
       "source": "frontend_src_pages_showcase_test",
-      "target": "frontend_src_pages_showcase",
+      "target": "frontend_src_lib_http",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "context": "import",
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L7",
+      "source_location": "L6",
       "weight": 1.0
     },
     {
       "source": "frontend_src_pages_showcase_test",
-      "target": "frontend_src_pages_showcase_api",
+      "target": "frontend_src_pages_showcase",
       "relation": "imports_from",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -21703,7 +21742,7 @@
     },
     {
       "source": "frontend_src_auth_api",
-      "target": "frontend_src_auth_api_getcurrentuser",
+      "target": "frontend_src_auth_api_decodeuser",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
@@ -21714,24 +21753,24 @@
     },
     {
       "source": "frontend_src_auth_api",
+      "target": "frontend_src_auth_api_getcurrentuser",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api",
       "target": "frontend_src_auth_api_login",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L17",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_auth_api",
-      "target": "frontend_src_auth_api_logout",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/auth/api.ts",
-      "source_location": "L29",
+      "source_location": "L25",
       "weight": 1.0
     },
     {
@@ -21743,6 +21782,28 @@
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/api.ts",
       "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api",
+      "target": "frontend_src_auth_api_logout",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L48",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api_test",
+      "target": "frontend_src_auth_api_test_apifetchmock",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L9",
       "weight": 1.0
     },
     {
@@ -21764,7 +21825,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/auth-context-value.ts",
-      "source_location": "L14",
+      "source_location": "L15",
       "weight": 1.0
     },
     {
@@ -21775,7 +21836,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/auth/auth-context-value.ts",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -21918,7 +21979,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L14",
+      "source_location": "L13",
       "weight": 1.0
     },
     {
@@ -21929,7 +21990,29 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L24",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_lib_http",
+      "target": "frontend_src_lib_http_apiresult",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_lib_http",
+      "target": "frontend_src_lib_http_apidecoder",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/lib/http.ts",
+      "source_location": "L29",
       "weight": 1.0
     },
     {
@@ -21940,7 +22023,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L34",
+      "source_location": "L37",
       "weight": 1.0
     },
     {
@@ -21951,7 +22034,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L41",
+      "source_location": "L44",
       "weight": 1.0
     },
     {
@@ -21962,7 +22045,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L43",
+      "source_location": "L46",
       "weight": 1.0
     },
     {
@@ -21973,7 +22056,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/lib/http.ts",
-      "source_location": "L64",
+      "source_location": "L71",
       "weight": 1.0
     },
     {
@@ -22022,79 +22105,79 @@
     },
     {
       "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_pages_showcase_countresponse",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_pages_showcase_decodecount",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_pages_showcase_getcount",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_pages_showcase_incrementcount",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
+      "target": "frontend_src_pages_showcase_resetcount",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase",
       "target": "frontend_src_pages_showcase_showcase",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.tsx",
-      "source_location": "L17",
+      "source_location": "L33",
       "weight": 1.0
     },
     {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_updatecount",
+      "source": "frontend_src_pages_showcase_test",
+      "target": "frontend_src_pages_showcase_test_apifetchmock",
       "relation": "contains",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L16",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_getcount",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L22",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_incrementcount",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L27",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_countresponse",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L3",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_resetcount",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L31",
-      "weight": 1.0
-    },
-    {
-      "source": "frontend_src_pages_showcase_api",
-      "target": "frontend_src_pages_showcase_api_readcount",
-      "relation": "contains",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "frontend/src/pages/showcase-api.ts",
-      "source_location": "L7",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -22105,7 +22188,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "frontend/src/pages/showcase.test.tsx",
-      "source_location": "L16",
+      "source_location": "L17",
       "weight": 1.0
     },
     {
@@ -25797,6 +25880,42 @@
       "weight": 1.0
     },
     {
+      "source": "frontend_src_auth_api_getcurrentuser",
+      "target": "frontend_src_auth_api_decodeuser",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api_login",
+      "target": "frontend_src_auth_api_decodeuser",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/auth/api.ts",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_auth_api_test",
+      "target": "frontend_src_lib_http_apifetch",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/auth/api.test.ts",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
       "source": "frontend_src_lib_http_test",
       "target": "frontend_src_lib_http_test_clearcookies",
       "relation": "indirect_call",
@@ -25805,7 +25924,91 @@
       "confidence_score": 0.85,
       "context": "argument",
       "source_file": "frontend/src/lib/http.test.ts",
-      "source_location": "L17",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_lib_http_test",
+      "target": "frontend_src_lib_http_test_decodecount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/lib/http.test.ts",
+      "source_location": "L54",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_getcount",
+      "target": "frontend_src_pages_showcase_decodecount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_incrementcount",
+      "target": "frontend_src_pages_showcase_decodecount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_resetcount",
+      "target": "frontend_src_pages_showcase_decodecount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L30",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_showcase",
+      "target": "frontend_src_pages_showcase_incrementcount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_showcase",
+      "target": "frontend_src_pages_showcase_resetcount",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.tsx",
+      "source_location": "L111",
+      "weight": 1.0
+    },
+    {
+      "source": "frontend_src_pages_showcase_test",
+      "target": "frontend_src_lib_http_apifetch",
+      "relation": "indirect_call",
+      "_origin": "ast",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "context": "argument",
+      "source_file": "frontend/src/pages/showcase.test.tsx",
+      "source_location": "L12",
       "weight": 1.0
     },
     {
@@ -27879,5 +28082,5 @@
       "source_file": "AGENTS.md"
     }
   ],
-  "built_at_commit": "81efbf8dd512588bb5a13a7a41366ad144df5b74"
+  "built_at_commit": "c1573daa32c0e364097fd26e8cc6e55dcb7eb927"
 }
