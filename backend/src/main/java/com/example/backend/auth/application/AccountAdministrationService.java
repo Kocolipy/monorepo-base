@@ -4,9 +4,12 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.observability.LogEvent;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +30,12 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class AccountAdministrationService {
+
+    private static final Logger log = LoggerFactory.getLogger(AccountAdministrationService.class);
+
+    private static final String DISABLE_ACTION = "account.disable";
+    private static final String ENABLE_ACTION = "account.enable";
+    private static final String UNLOCK_ACTION = "account.unlock";
 
     private final AccountRepository accounts;
     private final AccountSessions sessions;
@@ -85,15 +94,18 @@ public class AccountAdministrationService {
     public AccountSummary disable(String username, String requestedBy) {
         Account account = require(username);
         if (account.username().equals(requestedBy)) {
-            throw new UnsafeAccountChangeException("An account cannot disable itself");
+            throw refuse(DISABLE_ACTION, "SelfDisable", "An account cannot disable itself");
         }
         if (isLastEnabledAdministrator(account)) {
-            throw new UnsafeAccountChangeException(
+            throw refuse(
+                    DISABLE_ACTION,
+                    "LastEnabledAdministrator",
                     "Disabling the last enabled administrator would leave nobody able to"
                             + " enable it again");
         }
         AccountSummary disabled = applyEnabled(account, false);
         afterCommit.run(() -> sessions.revokeAll(account.username()));
+        succeeded(DISABLE_ACTION);
         return disabled;
     }
 
@@ -107,7 +119,9 @@ public class AccountAdministrationService {
      */
     @Transactional
     public AccountSummary enable(String username) {
-        return applyEnabled(require(username), true);
+        AccountSummary enabled = applyEnabled(require(username), true);
+        succeeded(ENABLE_ACTION);
+        return enabled;
     }
 
     /**
@@ -125,6 +139,7 @@ public class AccountAdministrationService {
         if (unlocked != account) {
             accounts.updateLockout(unlocked);
         }
+        succeeded(UNLOCK_ACTION);
         return summarize(unlocked, clock.instant());
     }
 
@@ -153,6 +168,43 @@ public class AccountAdministrationService {
     private Account require(String username) {
         return accounts.findByUsername(username)
                 .orElseThrow(() -> new UnknownAccountException(username));
+    }
+
+    /**
+     * Records an administrative write that went through.
+     *
+     * <p>The record names the action and nothing else. It deliberately identifies
+     * neither the account acted on nor the administrator who acted: both are
+     * currently identified by {@code username} only, and a {@code userName} is not
+     * something this service writes to a log. Naming who changed what is the audit
+     * trail's responsibility rather than this stream's, and becomes possible here
+     * — as {@code scim.resource.id} in the logging context — once the account
+     * aggregate carries a stable id. Until then a log line says an administrative
+     * change happened and when, which is what an operator watching for unexpected
+     * activity needs, and the API response says which account to the caller who is
+     * entitled to know.
+     */
+    private static void succeeded(String action) {
+        log.atInfo()
+                .addKeyValue(LogEvent.ACTION, action)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                .log("Administrative account change applied");
+    }
+
+    /**
+     * Records a refused administrative write and returns the exception to throw, so
+     * the refusal cannot be logged without being raised or raised without being
+     * logged. {@code reason} is a fixed label from this class, never the message —
+     * a message is written for a human and is free to grow a value in it later.
+     */
+    private static UnsafeAccountChangeException refuse(
+            String action, String reason, String message) {
+        log.atWarn()
+                .addKeyValue(LogEvent.ACTION, action)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .addKeyValue(LogEvent.REASON, reason)
+                .log("Administrative account change refused");
+        return new UnsafeAccountChangeException(message);
     }
 
     private static AccountSummary summarize(Account account, Instant now) {

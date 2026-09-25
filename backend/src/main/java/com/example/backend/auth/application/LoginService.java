@@ -1,5 +1,8 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.observability.LogEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -24,6 +27,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class LoginService {
 
+    private static final Logger log = LoggerFactory.getLogger(LoginService.class);
+
+    /**
+     * Value of {@code event.action} on both records this class emits, so a log
+     * search finds the accepted and the refused attempt together.
+     */
+    private static final String LOGIN_ACTION = "login";
+
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
 
@@ -44,6 +55,16 @@ public class LoginService {
      * returns, so a caller holding an authentication is by definition one whose
      * account was not refused, whatever it does with the authentication next.
      *
+     * <p>Both outcomes are logged, and neither record names the account. The
+     * submitted {@code username} is the single most sensitive value passing
+     * through here — it is half a credential, and on a failed attempt it is very
+     * often a mistyped password — so it stays out of the log, in the message and
+     * in the context alike. What the records do carry is the outcome and, for a
+     * refusal, the type of refusal, which is what tells a run of wrong passwords
+     * from a run against accounts that do not exist. Correlating a record to an
+     * account is the audit trail's job, by stable id, once the account aggregate
+     * has one.
+     *
      * @throws AuthenticationException when the credentials are refused
      */
     public Authentication logIn(String username, String password) {
@@ -53,12 +74,23 @@ public class LoginService {
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
         } catch (AuthenticationException refused) {
             attempts.recordFailure(username);
+            // The exception's own type, not its message: a message can carry the
+            // submitted value, and a type name is this service's own vocabulary.
+            log.atWarn()
+                    .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
+                    .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                    .addKeyValue(LogEvent.REASON, refused.getClass().getSimpleName())
+                    .log("Login refused");
             throw refused;
         }
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
         attempts.recordSuccess(authentication.getName());
+        log.atInfo()
+                .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                .log("Login accepted");
         return authentication;
     }
 }
