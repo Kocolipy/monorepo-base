@@ -133,7 +133,7 @@ The User carries an application-owned `mustChangePassword` flag, also absent fro
 - The flag cannot be set on a credentialless User, which already cannot log in, and cannot be set on the Bootstrap Admin by anyone other than the Bootstrap Admin itself.
 - While the flag is set, an authenticated session receives only the authority to read its own change-password requirement, submit a password change and log out. Every other application endpoint returns `403`, including `/api/admin/**`, so a flagged Admin cannot act until the credential is replaced.
 - The SPA route `/change-password` is reachable by any authenticated User and is the only landing target offered while the flag is set. It submits current password plus new password over the session/CSRF boundary.
-- A submission is accepted only when the current password verifies and the new password satisfies the password policy and differs from the current one. A wrong current password returns `401` and counts toward the same per-User failure run and lockout as Login. At the configured threshold, that one lockout blocks both Login and further self-service password-change attempts until its 20-minute default duration expires or another Admin uses Unlock; a policy violation returns `400` naming the unmet rule without echoing either value.
+- A submission is accepted only when the current password verifies and the new password satisfies the password policy and differs from the current one. A wrong current password returns `401` and counts toward the same per-User failure run and lockout as Login. At the configured threshold, that one lockout blocks both Login and further self-service password-change attempts until an Admin uses Unlock; a policy violation returns `400` naming the unmet rule without echoing either value.
 - A successful change hashes the new password, clears the flag, revokes all of that User's sessions including the one that submitted it, increments the User's SCIM version and appends a redacted audit event. The SPA returns the User to Login.
 - A connector setting `password` through SCIM **sets** the flag rather than clearing it. A credential chosen and transported by a third party is known outside the User, so it must be replaced before it is used for anything else — this is the first-login change requirement, and it applies equally to the first password a provisioned User receives and to any later connector-set password, including one sent to displace a credential an Admin distrusted.
 - A User provisioned without a password is not flagged; the flag is set when a password first arrives.
@@ -329,7 +329,15 @@ The existing 15-minute idle timeout is retained and an **8-hour absolute maximum
 
 ### Lockout policy
 
-Lockout keeps its current shape and its values follow the organisational standard rather than the values currently in the tree: **5 consecutive failed attempts** lock the account for **20 minutes**, lifting automatically, with an Admin Unlock available before expiry. Both values are deployment-configurable, with no enforced floor on either. The failure run is counted per User and never per source address, so rotating addresses cannot dilute it, and it resets to zero on a successful Login. `application.yaml` currently configures 3 attempts and 5 minutes; Slice 0 changes those defaults to `5` and `20m`.
+Lockout is **permanent until an Admin lifts it**. **5 consecutive failed attempts** lock the User, and the only exit is Admin Unlock: there is no duration, no automatic lift, and no configuration key expressing one. The attempt threshold stays deployment-configurable with no enforced floor. The failure run is counted per User and never per source address, so rotating addresses cannot dilute it, and it resets to zero on a successful Login or on Unlock.
+
+Imposing a lockout **revokes every live session** of that User, through the same after-commit revocation path as deactivation — a permanent lock that leaves an already-established session working protects nothing against an attacker who holds one.
+
+The **Bootstrap Admin is exempt from lockout entirely**: its failure run is counted and every failed attempt is audited, but it never locks. With no automatic lift, a locked Bootstrap Admin would be an unrecoverable deployment, and this is the one account that exists to recover the others. The accepted cost is unbounded online guessing against that single account, mitigated by Argon2id verification cost, uniform refusal timing and audited failures — not by a lock.
+
+Lock state remains invisible to the caller: every refusal is the same empty `401`, and lockout is surfaced only in the Admin projection on the Accounts page. A User who cannot get in learns nothing by waiting, which is deliberate — the operational answer is an Admin, not the clock.
+
+Slice 0 shipped the time-bound form (`5` attempts, `20m`, automatic lift); Slice 0a below supersedes it.
 
 ### Uniform authentication timing
 
@@ -434,7 +442,7 @@ Increment the resource version only when its SCIM representation changes:
 - Group profile, membership or connector alias changes increment the Group;
 - membership changes also increment affected Users because their `groups` representation changes;
 - Group display-name changes increment member Users because `groups.display` changes;
-- login attempts, successful Login and lockout expiry do not increment SCIM versions.
+- login attempts, successful Login, lockout and Unlock do not increment SCIM versions.
 
 ## Session-revocation contract
 
@@ -530,7 +538,7 @@ Record every SCIM operation and every connector/token lifecycle operation. Event
 Authentication and credential events are recorded in the same stream, because a provisioning trail that cannot say who then used the credential explains only half of an incident:
 
 - Login success and failure, and logout;
-- lockout set and lockout lift, whether by expiry or by Admin Unlock;
+- lockout set and lockout lift, the lift always carried out by a named Admin through Unlock;
 - forced-change set, self-service change outcome, and each scheduled job's deactivation or authority revocation.
 
 Every event identifies its subject by stable User id and never by `userName`, which is also how audit reads resolve an actor or resource. A reused `userName` therefore cannot merge two identities in the trail, and the tombstone's keyed identifier hashes serve redacted correlation only.
@@ -597,6 +605,13 @@ Users and Groups are one release capability even if developed in ordered slices.
 **Delivers:** explicit migrations, global resource ids, fresh Bootstrap/Admin seeding, username-independent principal/session/counter keys, the Argon2id encoder and password policy, the configuration-driven authorization matrix, authentication and lockout audit events, the standard lockout values, the 8-hour absolute session bound, ECS-structured logging, and unchanged end-user Login behavior.
 
 Acceptance: username can be changed directly in a test fixture without orphaning counter state; sessions are findable by User id; a stored hash carries the `{argon2id}` prefix and a sub-policy password is refused on every setting path; a session is terminated at the absolute bound as well as the idle bound; the matrix loads at startup, fails fast on an unknown authority and denies an unmatched request; a User locks on the fifth consecutive failure and unlocks automatically 20 minutes later; Login, logout and lockout transitions appear in audit by stable User id; current Login, lockout, CSRF and route authorization tests remain green.
+
+### Slice 0a — Permanent lockout
+
+**Blocked by:** none (changes code already merged by Slice 0; runs in parallel with Slice 1).
+**Delivers:** removal of the lockout duration from configuration and from the domain, Admin Unlock as the only lift, session revocation when a lockout is imposed, and a Bootstrap Admin exempt from lockout.
+
+Acceptance: a User locks on the fifth consecutive failure and is still refused with the correct password after an arbitrary clock advance; Unlock is the only lift and clears the failure run with it; imposing the lockout refuses a request on a session held before it; the Bootstrap Admin never locks and each of its failed attempts is audited; no configuration key or domain field expresses a lockout duration; every `LOCKOUT_LIFT` event carries an Admin actor and no expiry lift can be produced.
 
 ### Slice 1 — Connector security and public discovery
 
@@ -686,7 +701,7 @@ Security-sensitive code requires mutation evidence. PIT targets all changed iden
 - A write whose audit insert cannot commit rolls the mutation back and returns an error; a failing failure-event append raises an alert without altering the request's own outcome.
 - SCIM-visible timestamps are UTC while log `@timestamp` is UTC+8, and neither is reconciled to the other.
 - The authorization matrix is loaded from configuration before traffic is served, fails fast on an unknown authority or malformed rule, denies unmatched requests, and cannot be mutated through any endpoint.
-- A second Login invalidates the User's earlier session, and lockout applies at 5 failed attempts for 20 minutes with automatic lift and Admin Unlock.
+- A second Login invalidates the User's earlier session; lockout applies at 5 failed attempts, never lifts on its own, revokes the User's sessions when imposed, ends only through Admin Unlock, and never applies to the Bootstrap Admin.
 - Login refusals for an unknown, inactive or credentialless User perform an equivalent password verification, so refusal timing does not reveal account state.
 - An Admin cannot Unlock or force a change on their own account, and the authenticated self-read returns only the caller's record resolved from the session id, with no lockout or failure-count field.
 - Audit events carry HTTP method, path and request id; a bulk read is audited once with its result count and filter shape and no literal filter value; the application database role cannot `UPDATE` or `DELETE` audit rows.
