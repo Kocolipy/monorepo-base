@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
+import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Duration;
@@ -21,13 +22,14 @@ class AccountAdministrationServiceTests {
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
+    private final PendingCommit transaction = new PendingCommit();
     private final MutableClock clock = new MutableClock(NOW);
 
     private AccountAdministrationService service;
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, sessions, clock);
+        service = new AccountAdministrationService(accounts, sessions, transaction, clock);
     }
 
     // Reviewing who has access
@@ -213,8 +215,50 @@ class AccountAdministrationServiceTests {
         sessions.open("bob", "session-2");
 
         service.disable("bob", "ada");
+        transaction.commit();
 
         assertThat(sessions.sessionsOf("bob")).isEmpty();
+    }
+
+    /**
+     * The ordering the disable promises: the revocation is arranged, not
+     * performed, while the transaction is open. Anything that reads the sessions
+     * before the commit still finds them, which is what makes a rollback able to
+     * leave nothing behind.
+     */
+    @Test
+    void disablingRevokesNothingUntilTheTransactionCommits() {
+        accounts.save(account("bob", AccountRole.USER));
+        sessions.open("bob", "session-1");
+
+        service.disable("bob", "ada");
+
+        assertThat(sessions.revocations()).isEmpty();
+        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+        assertThat(transaction.pending()).isEqualTo(1);
+
+        transaction.commit();
+
+        assertThat(sessions.revocations()).containsExactly("bob");
+        assertThat(sessions.sessionsOf("bob")).isEmpty();
+    }
+
+    /**
+     * Redis is not in the transaction, so a revocation performed before the commit
+     * could not be taken back by a rollback: the account would read {@code Active}
+     * while its holder was signed out, with nothing recording why. Deferring the
+     * revocation is what makes a failed commit leave both halves untouched.
+     */
+    @Test
+    void aDisableWhoseTransactionRollsBackRevokesNothing() {
+        accounts.save(account("bob", AccountRole.USER));
+        sessions.open("bob", "session-1");
+
+        service.disable("bob", "ada");
+        transaction.rollback();
+
+        assertThat(sessions.revocations()).isEmpty();
+        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
     }
 
     /** Only that account's. A disable is about one account, and so is its blast radius. */
@@ -226,6 +270,7 @@ class AccountAdministrationServiceTests {
         sessions.open("zoe", "session-2");
 
         service.disable("bob", "ada");
+        transaction.commit();
 
         assertThat(sessions.sessionsOf("zoe")).containsExactly("session-2");
     }
@@ -242,6 +287,7 @@ class AccountAdministrationServiceTests {
         sessions.open("bob", "session-1");
 
         service.disable("bob", "ada");
+        transaction.commit();
 
         assertThat(sessions.sessionsOf("bob")).isEmpty();
     }
@@ -257,6 +303,7 @@ class AccountAdministrationServiceTests {
                 .isInstanceOf(UnsafeAccountChangeException.class);
 
         assertThat(sessions.revocations()).isEmpty();
+        assertThat(transaction.pending()).isZero();
         assertThat(sessions.sessionsOf("ada")).containsExactly("session-1");
     }
 

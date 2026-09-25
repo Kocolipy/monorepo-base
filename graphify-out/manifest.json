@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/arch/ArchitectureTest.java": {
-    "mtime": 1790245123.5744333,
-    "seen": 1790245463.3754532,
-    "ast_hash": "3f169e2ab2e4826a7ce98a08d643b625",
+    "mtime": 1790299294.5654438,
+    "seen": 1790299485.376228,
+    "ast_hash": "8338563f2d9314e3fee98be9770ddac9",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/BackendApplicationTests.java": {
@@ -624,9 +624,9 @@
     "semantic_hash": ""
   },
   "CONTEXT.md": {
-    "mtime": 1790298092.744108,
-    "seen": 1790298120.0711255,
-    "ast_hash": "ad7e584cccc58c626637826177659868",
+    "mtime": 1790298362.526784,
+    "seen": 1790299485.3762927,
+    "ast_hash": "ef6ca5494b0df5871a239a1bdb2b54e9",
     "semantic_hash": ""
   },
   "frontend/test/e2e/login.spec.ts": {
@@ -672,9 +672,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/AccountAdministrationService.java": {
-    "mtime": 1790244787.3635283,
-    "seen": 1790245463.3754282,
-    "ast_hash": "3991b3d011682a001acb9ff6577b1fd7",
+    "mtime": 1790299220.5981286,
+    "seen": 1790299485.3761928,
+    "ast_hash": "771be4b908a4be0ad2e4568c231e183d",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/AccountService.java": {
@@ -780,9 +780,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/AccountAdministrationServiceTests.java": {
-    "mtime": 1790255595.2228098,
-    "seen": 1790255688.7629473,
-    "ast_hash": "db1c46a66d24d0804c91047790a528c5",
+    "mtime": 1790299274.2375276,
+    "seen": 1790299485.3762324,
+    "ast_hash": "6770dcfa2653d99121ef2ec415ee536e",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/AccountServiceTests.java": {
@@ -876,9 +876,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AdminAccountControllerTests.java": {
-    "mtime": 1790297970.961643,
-    "seen": 1790298120.0710704,
-    "ast_hash": "dd5b92218890c9362e039a0601cc193e",
+    "mtime": 1790299370.222161,
+    "seen": 1790299485.376237,
+    "ast_hash": "beba243c4a0e10a4315b96afe48f82cb",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AdminAccountEndpointTests.java": {
@@ -921,6 +921,42 @@
     "mtime": 1790297240.3152134,
     "seen": 1790297541.4286675,
     "ast_hash": "45b2b8d475ee03e2bc05cc7f27c7d077",
+    "semantic_hash": ""
+  },
+  "backend/src/main/java/com/example/backend/auth/application/AfterCommit.java": {
+    "mtime": 1790299190.0555236,
+    "seen": 1790299485.3761978,
+    "ast_hash": "21cadc276669af173dd47119f6001e29",
+    "semantic_hash": ""
+  },
+  "backend/src/main/java/com/example/backend/auth/infrastructure/transaction/AfterCommitAdapter.java": {
+    "mtime": 1790299199.501549,
+    "seen": 1790299485.3762176,
+    "ast_hash": "3f81c54475230fde81eea38364a2fad9",
+    "semantic_hash": ""
+  },
+  "backend/src/test/java/com/example/backend/auth/PendingCommit.java": {
+    "mtime": 1790299229.8706925,
+    "seen": 1790299485.3762317,
+    "ast_hash": "49b0ac77a8d86070e55ab5b16f32d4c0",
+    "semantic_hash": ""
+  },
+  "backend/src/test/java/com/example/backend/auth/infrastructure/transaction/AfterCommitAdapterTests.java": {
+    "mtime": 1790299376.3141623,
+    "seen": 1790299485.3762407,
+    "ast_hash": "f98342d819ac1450cf5dcd3e50d691ab",
+    "semantic_hash": ""
+  },
+  "docs/adr/0002-revoke-sessions-after-commit.md": {
+    "mtime": 1790299335.9088223,
+    "seen": 1790299485.376302,
+    "ast_hash": "36a300745adb9cb5135e26ddc1fa2f8f",
+    "semantic_hash": ""
+  },
+  "docs/research/scim-v2-account-management-research.md": {
+    "mtime": 1790299362.2350137,
+    "seen": 1790299485.3763041,
+    "ast_hash": "319e8f02143ae5ff1035056073ddbb7a",
     "semantic_hash": ""
   }
 }

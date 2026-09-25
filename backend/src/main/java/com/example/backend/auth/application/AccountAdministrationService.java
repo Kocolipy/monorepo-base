@@ -30,12 +30,17 @@ public class AccountAdministrationService {
 
     private final AccountRepository accounts;
     private final AccountSessions sessions;
+    private final AfterCommit afterCommit;
     private final Clock clock;
 
     public AccountAdministrationService(
-            AccountRepository accounts, AccountSessions sessions, Clock clock) {
+            AccountRepository accounts,
+            AccountSessions sessions,
+            AfterCommit afterCommit,
+            Clock clock) {
         this.accounts = accounts;
         this.sessions = sessions;
+        this.afterCommit = afterCommit;
         this.clock = clock;
     }
 
@@ -57,12 +62,24 @@ public class AccountAdministrationService {
      * the action is what is refused. A refused disable revokes nothing: both
      * checks run before anything is written or ended.
      *
-     * <p>The revocation happens after the write, so an account whose row could
-     * not be written keeps its sessions. It is not a lock: a login that is already
-     * in flight reads {@code enabled} as it was before this transaction committed,
-     * and a session it mints afterwards is not in the set revoked here. Once the
-     * write is committed no further login can succeed, so the gap is one
-     * transaction wide rather than open-ended.
+     * <p>The revocation happens after the transaction commits, so an account
+     * whose row could not be written keeps its sessions — and so does one whose
+     * write was rolled back after this method returned, which is the reason it is
+     * not simply the last statement here: Redis is not in the transaction, and a
+     * revocation already performed cannot be undone by a rollback. A refused or
+     * rolled-back disable therefore revokes nothing, and the listing and the
+     * sessions never disagree.
+     *
+     * <p>It is still not a lock. A login already in flight reads {@code enabled}
+     * as it was before this transaction committed, and a session it mints is
+     * revoked only if it commits before the revocation runs; deferring to after
+     * the commit bounds that window at the commit rather than straddling it, which
+     * is as narrow as it gets without holding a lock on the account.
+     *
+     * <p>The cost of the ordering: if the revocation itself fails, the account is
+     * durably disabled while its sessions survive, and the failure surfaces to the
+     * caller. Repeating the disable is how an administrator acts on that — it
+     * writes nothing and revokes again.
      */
     @Transactional
     public AccountSummary disable(String username, String requestedBy) {
@@ -76,7 +93,7 @@ public class AccountAdministrationService {
                             + " enable it again");
         }
         AccountSummary disabled = applyEnabled(account, false);
-        sessions.revokeAll(account.username());
+        afterCommit.run(() -> sessions.revokeAll(account.username()));
         return disabled;
     }
 
