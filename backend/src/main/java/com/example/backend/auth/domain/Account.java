@@ -21,7 +21,10 @@ import java.time.Instant;
  * <p>{@code passwordHash} is the reason no caller outside this slice receives an
  * {@code Account}: the administrative listing is served as
  * {@link com.example.backend.auth.application.AccountSummary}, which has no
- * field to leak it into.
+ * field to leak it into. It is nullable: a credentialless account — one an
+ * administrator has created or reset without setting a password — carries no
+ * hash at all, and is refused at login like a wrong-password attempt rather
+ * than being unable to exist.
  *
  * <p>{@code createdAt} is nullable for one reason only: a row written before the
  * column existed has no value for it, and inventing one would be worse than

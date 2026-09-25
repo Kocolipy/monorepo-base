@@ -49,8 +49,14 @@ app:
     secondary-password: ${APP_SECONDARY_PASSWORD:P@ssw0rd}
     lockout:
       # Consecutive failures that lock an account, and how long it stays locked.
-      max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:3}
-      duration: ${APP_LOCKOUT_DURATION:5m}
+      max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:5}
+      duration: ${APP_LOCKOUT_DURATION:20m}
+  session:
+    # The fixed ceiling on a session's age from creation, independent of the
+    # idle timeout above (`server.servlet.session.timeout`), which resets on
+    # every request and so never bounds a continuously-active session on its
+    # own.
+    absolute-lifetime: ${APP_SESSION_ABSOLUTE_LIFETIME:8h}
 
 management:
   endpoints:

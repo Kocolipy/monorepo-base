@@ -38,12 +38,21 @@ development defaults are `user` / `P@ssw0rd` and `admin` / `P@ssw0rd`;
 `APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the `ADMIN` seed.
 These published defaults must not be used in production.
 
-Three consecutive refused logins lock an account for five minutes. While the
+Five consecutive refused logins lock an account for twenty minutes. While the
 lockout holds the correct password is refused too, and every refusal — unknown
-username, wrong password, locked account — answers with the same bare `401`, so
-the response cannot be used to find out which accounts exist. An accepted login
-resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` and `APP_LOCKOUT_DURATION` (a
-duration such as `5m` or `30s`) configure the policy.
+username, a credentialless account, wrong password, locked account — answers
+with the same bare `401` after an equivalent Argon2id verification, so the
+response cannot be used to find out which accounts exist or which have a
+password set. An accepted login resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` and
+`APP_LOCKOUT_DURATION` (a duration such as `5m` or `30s`) configure the policy,
+with no enforced floor on either value.
+
+A session is bound by two independent limits. It is dropped after
+`SESSION_TIMEOUT` (default 15 minutes) of inactivity — the servlet container's
+own idle timeout, reset by every request — and separately terminated once it has
+existed for `APP_SESSION_ABSOLUTE_LIFETIME` (default 8 hours), regardless of how
+recently it was used. Both bounds apply to every authenticated session, `ADMIN`
+included; whichever is reached first ends the session.
 
 Log in and keep the returned `JSESSIONID` in a cookie jar:
 

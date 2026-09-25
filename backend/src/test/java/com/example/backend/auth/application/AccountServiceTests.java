@@ -162,6 +162,26 @@ class AccountServiceTests {
                 .hasMessage("Account not found");
     }
 
+    /**
+     * A credentialless account — no password hash ever set — must still produce
+     * {@code UserDetails} with a non-null password: {@code User.withUsername}
+     * throws on {@code null} before {@code DaoAuthenticationProvider} ever
+     * reaches the comparison, which would refuse the login differently (and
+     * detectably) from a wrong-password attempt on an account that does have a
+     * hash. What the marker equals is not the point — only that no submitted
+     * password matches it, so the account is refused the same way any other
+     * wrong password is.
+     */
+    @Test
+    void reportsACredentiallessAccountWithANonNullUnmatchablePassword() {
+        accounts.save(new Account("nopass", null, AccountRole.USER));
+
+        var details = service.loadUserByUsername("nopass");
+
+        assertThat(details.getPassword()).isNotNull();
+        assertThat(details.getPassword()).isNotEqualTo("anything the caller could submit");
+    }
+
     /** A complete, enabled account created at {@code NOW} — what seeding writes. */
     private static Account seeded(String username, String passwordHash, AccountRole role) {
         return new Account(username, passwordHash, role, 0, null, true, NOW);
