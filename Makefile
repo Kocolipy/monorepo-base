@@ -5,8 +5,8 @@
 #   make infra-up           start Postgres + Redis
 #   make infra-down         stop them
 #   make dev                run backend + frontend together
-#   make verify-frontend    format, lint, typecheck, unit, arch, security
-#   make verify-backend     ./mvnw clean verify + Semgrep
+#   make verify-frontend    the frontend app's own baseline gate
+#   make verify-backend     the backend app's own baseline gate
 #   make verify             both gates, serially
 #   make integration-test   deps + both apps + Playwright
 #   make package            build the SPA into the Spring Boot JAR
@@ -62,19 +62,14 @@ dev: ## Run backend and frontend together (Ctrl-C stops both)
 dev-stop: ## Kill leftover backend/Vite processes from an earlier dev run
 	@scripts/dev-stop.sh
 
-# Serial on purpose: each sub-gate's failure should be the thing that stops the
-# run, and the security scan is the slowest, so it goes last.
-verify-frontend: ## Frontend gate: format, lint, typecheck, unit, arch, security
-	cd frontend && $(NPM) run format:check
-	cd frontend && $(NPM) run lint
-	cd frontend && $(NPM) run typecheck
-	cd frontend && $(NPM) test
-	cd frontend && $(NPM) run test:arch
-	cd frontend && $(NPM) run test:security
+# Each app owns its own baseline gate; these targets only invoke it, so the
+# sub-gate list lives in one place per app and cannot drift from the app's docs.
+# Serial on purpose: each app's failure should be the thing that stops the run.
+verify-frontend: ## Frontend gate: frontend/ baseline (npm run verify)
+	cd frontend && $(NPM) run verify
 
-verify-backend: ## Backend gate: ./mvnw clean verify + Semgrep
-	cd backend && $(MVN) -B clean verify
-	cd backend && ./scripts/semgrep.sh
+verify-backend: ## Backend gate: backend/ baseline (scripts/verify.sh)
+	cd backend && ./scripts/verify.sh
 
 verify: verify-frontend verify-backend ## Run both app gates, serially
 

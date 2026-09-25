@@ -138,9 +138,9 @@
     "semantic_hash": "8b4cc2bed67a811edb85960ef460a072"
   },
   "frontend/package.json": {
-    "mtime": 1790228724.732061,
-    "seen": 1790316700.985165,
-    "ast_hash": "1ff36ef5ca153acb216182e0476225dd",
+    "mtime": 1790318211.189825,
+    "seen": 1790318552.3737235,
+    "ast_hash": "36aaf63fc49ae283a60b1f269e1f2092",
     "semantic_hash": ""
   },
   "frontend/playwright.config.ts": {
@@ -342,9 +342,9 @@
     "semantic_hash": ""
   },
   "backend/AGENTS.md": {
-    "mtime": 1790297332.8232875,
-    "seen": 1790316700.9852076,
-    "ast_hash": "680ddd729f88ee0e2c9c422af4d7e6f5",
+    "mtime": 1790318303.4065769,
+    "seen": 1790318552.3737705,
+    "ast_hash": "1e32ceeee3299134a7b2bae9ae4a089a",
     "semantic_hash": ""
   },
   "backend/README.md": {
@@ -384,9 +384,9 @@
     "semantic_hash": "33980509e358fc6eee7fe67bd11af4a2"
   },
   "frontend/AGENTS.md": {
-    "mtime": 1790316255.4440124,
-    "seen": 1790316700.9852176,
-    "ast_hash": "37b3717d07447d9c0af8fe71466e88a6",
+    "mtime": 1790318391.091725,
+    "seen": 1790318552.3737817,
+    "ast_hash": "a8e18458cbfb5027b043e216a541934f",
     "semantic_hash": ""
   },
   "frontend/README.md": {
@@ -474,9 +474,9 @@
     "semantic_hash": "639376f6263912b1b24e69e2eb202bf1"
   },
   "AGENTS.md": {
-    "mtime": 1790221327.0424557,
-    "seen": 1790316700.9852037,
-    "ast_hash": "dd1377c5b9baadaf50b18af6acae4433",
+    "mtime": 1790318260.3010066,
+    "seen": 1790318552.3737674,
+    "ast_hash": "c936c5fe4c535c561ece5dc50cc973f5",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
@@ -1043,16 +1043,10 @@
     "ast_hash": "e7b25432229705609cf104c7eb0c116e",
     "semantic_hash": ""
   },
-  "architecture-review.html": {
-    "mtime": 1790256126.8247519,
-    "seen": 1790316700.9852064,
-    "ast_hash": "07f72fef951282b8535fceb3624ae046",
-    "semantic_hash": ""
-  },
-  "architecture-review.md": {
-    "mtime": 1790298112.3818133,
-    "seen": 1790316700.9852068,
-    "ast_hash": "aacc2699c7d7629653aff5308a5033d6",
+  "backend/scripts/verify.sh": {
+    "mtime": 1790318201.8548942,
+    "seen": 1790318552.3736572,
+    "ast_hash": "cdbed771ab2eda6527bce88b76abd372",
     "semantic_hash": ""
   }
 }

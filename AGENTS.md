@@ -51,21 +51,29 @@ Two rules follow from that:
 
 ## Build and validation
 
-Each app owns its own gates, and the Makefile wraps them:
+Each app owns **one baseline gate** — a single command, named in the app's own
+`AGENTS.md`, that decides whether a change to that app is complete. The root
+holds no copy of what it runs: the command itself is the source of truth, and
+this file only routes you to it.
 
-| Scope      | Command                         | From        |
-| ---------- | ------------------------------- | ----------- |
-| `frontend` | `npm run typecheck && npm test` | `frontend/` |
-| `frontend` | `npm run build`                 | `frontend/` |
-| `backend`  | `./mvnw clean verify`           | `backend/`  |
-| both       | `make verify`                   | repo root   |
+| Scope | Command        | From      |
+| ----- | -------------- | --------- |
+| both  | `make verify`  | repo root |
 
-Each app defines stricter per-change gates — architecture suites, security
-scans, mutation scoping — in its own `AGENTS.md`. **A change is complete only
-when the owning app's gates are green**, so read that file before declaring work
-done. A change touching only one app runs only that app's gates; a change
-touching the SPA contract runs both. When a gate cannot run, report the exact
-unverified scope and the reason.
+`make verify` invokes each app's baseline gate in sequence; it adds nothing of
+its own, so it is exactly the two app gates and never a stricter superset.
+
+Beside the baseline each app defines **conditional gates** — mutation testing,
+end-to-end suites — which carry their own trigger and their own completion
+criterion rather than running on every change. The distinction matters: a
+baseline gate is unconditional and binary, while a conditional gate is worth
+nothing without the trigger that says when it applies. Both kinds live in the
+owning app's `AGENTS.md`; read it before declaring work done.
+
+**A change is complete only when the owning app's baseline gate is green, plus
+every conditional gate whose trigger the change pulled.** A change touching only
+one app runs only that app's gates; a change touching the SPA contract runs
+both. When a gate cannot run, report the exact unverified scope and the reason.
 
 Toolchain versions are pinned per tool and enforced by the builds themselves;
 `/README.md` holds the pin table and the activation commands. Two pins bite
@@ -87,7 +95,7 @@ the run.** So write the result where the shell cannot lose it — redirect to a
 log and append a **sentinel** carrying the exit status:
 
 ```bash
-./mvnw clean verify > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
+./scripts/verify.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 ```
 
 Then wait for the sentinel and read the log in one call, rather than polling:
@@ -97,9 +105,10 @@ until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
 grep -E "inding|ERROR|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 ```
 
-The gate is green on `GATE_EXIT=0` beside a zero findings count; report those
-two lines, quoted from the log, as the evidence. On empty output re-read the
-log — a relaunch only starts a second run competing for the same file.
+The gate is green on `GATE_EXIT=0`, and a gate that includes a scan is green
+only with a zero findings count beside it. Report those lines, quoted from the
+log, as the evidence. On empty output re-read the log — a relaunch only starts a
+second run competing for the same file.
 
 ## Frontend/backend integration
 

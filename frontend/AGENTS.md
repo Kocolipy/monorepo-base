@@ -28,7 +28,8 @@ npx fallow dead-code --trace <file>:<export>         # a symbol's real consumers
 ```
 
 `npm run test:mutation` is a whole-repo Stryker run — far too slow for an
-implementation loop, so it belongs to CI. Reach for scoped Stryker instead.
+implementation loop, so it belongs to CI. Reach for scoped Stryker instead, which
+"Testing" below specifies as a conditional gate.
 
 ## Architecture
 
@@ -145,20 +146,32 @@ a primitive is needed before the package lands.
 
 ## Testing
 
-**Three levels, and where you are decides which one you run.**
+### Baseline gate
 
-| Level         | Command                                                                      | When                                                                                                                                       |
-| ------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **baseline**  | `npm run typecheck`, `npm test`, and `npm run test:arch`                     | Before touching code, to establish a green baseline, then after each change — it proves the change broke nothing that was already passing. |
-| **full**      | baseline + `npm run test:e2e` + `npm run test:security` + `npx fallow audit` | Once an implementation is complete, to confirm the whole thing works.                                                                      |
-| **extensive** | full + `npm run test:mutation`                                               | CI only.                                                                                                                                   |
+`npm run verify` is the baseline gate: one command, and a frontend change is
+complete only when it exits zero. It runs the format check, lint, typecheck, the
+unit tests, the architecture suite and the Semgrep scan. **`package.json` is the
+source of truth for that list** — the root `Makefile`'s `verify-frontend` target
+invokes the script rather than re-listing the steps, so the two cannot drift.
 
-Scoped Stryker sits outside these levels: it runs per unit test, not per
-changeset.
+While iterating, run the pieces instead of the whole gate: `npm run typecheck`,
+`npm test` and `npm run test:arch` are the fast inner loop, and establishing them
+green _before_ touching code is what proves a later failure is yours. The suite
+is small today, so it runs in seconds in the foreground. The ten-minute
+`timeout: 600000` habit is worth keeping anyway, so a growing suite never gets
+cut off mid-run.
 
-The suite is small today, so the baseline runs in seconds; run it in the
-foreground. The ten-minute `timeout: 600000` habit is worth keeping anyway, so
-a growing suite never gets cut off mid-run.
+### Conditional gates
+
+Each carries its own trigger and its own completion criterion, and none of them
+belongs in the baseline — a gate that runs on every change needs a binary bound,
+and these three do not have one until their trigger narrows the scope.
+
+| Gate               | Command                                              | Trigger                                                   | Done when                                                                                                                                                                                                               |
+| ------------------ | ---------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **scoped Stryker** | `npx stryker run --mutate '<src-glob>,!<test-glob>'` | you wrote a unit test or changed an existing one          | every mutant killed, or a survivor carrying a justification earned by reading the mutated line and confirming the mutation leaves observable behavior unchanged — the survivor plus its reason go in the change summary |
+| **Playwright E2E** | `npm run test:e2e`                                   | routes, request handling, or the session contract changed | the suite is green against live dependencies                                                                                                                                                                            |
+| **fallow audit**   | `npx fallow audit`                                   | you added or deleted an export, a file, or a dependency   | zero findings — dead code sits at zero, so any it reports is one this changeset introduced                                                                                                                              |
 
 **Read `docs/TESTING_GUIDE.md`** before writing or changing a unit test, adding
 an architecture rule, suppressing a fallow finding, adding a file nothing
@@ -195,7 +208,7 @@ unused. `npx fallow dead-code --trace <file>:<export>` (or
 `--trace-dependency <name>`) prints the real consumer list in under a second —
 delete on that evidence, never on a summary line.
 
-`npx fallow audit` is the `full`-level gate because it fails only on findings
+`npx fallow audit` is the conditional gate above because it fails only on findings
 **this changeset introduced**, where a bare `npx fallow` also reports the
 duplication and complexity the repo already carries. Dead code is the
 exception: it sits at zero, so an unused export, file, or dependency in an

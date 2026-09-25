@@ -13,33 +13,38 @@ is specific to this app. Run every command below from `backend/`.
 
 ## Verification
 
-Before completing Java, dependency, or application-configuration changes, run `./mvnw clean verify`. Add or update a focused regression test for every behavior change.
+### Baseline gate
 
-### Baseline gates
+`./scripts/verify.sh` is the baseline gate: one command, and a backend change is
+complete only when it exits zero. It runs the build, the tests, the ArchUnit
+rules and the Semgrep scan. **The script is the source of truth for that list** —
+the root `Makefile`'s `verify-backend` target invokes it rather than re-listing
+the steps, so the two cannot drift. Add or update a focused regression test for
+every behavior change.
 
-Implementation work is complete only when both baseline gates are green, alongside the build and the tests:
+Two halves are worth knowing separately, because each has its own iteration loop:
 
 - ArchUnit rules in `src/test/java/arch/ArchitectureTest.java`, which run inside `./mvnw clean verify`. Iterate with `./mvnw -Dtest=ArchitectureTest test`.
 - `./scripts/semgrep.sh`, which scans **this app only** and exits non-zero on any finding. It runs two halves: the checked-in local rules in `semgrep/rules/` (offline and deterministic, each rule carrying the reason this service cares about it) and the `p/*` registry packs for generic Java and OWASP coverage. The pack _list_ is fixed in the script, but the packs' _contents_ resolve from the registry at run time and track upstream, so a pack gaining a rule can turn this gate red with no commit here. The script owns both config lists; `.semgrepignore` owns the skipped paths. The frontend scans itself separately via `npm run test:security` — nothing scans the monorepo as a whole.
 
-Run both as part of finishing the work, not as a separate pre-commit step. A red gate is a defect in the change, not in the gate. Move the class, adjust the design, or fix the flagged code. Suppress a Semgrep finding with `// nosemgrep: RULE_ID` plus a reason only when it is a false positive. Edit a rule, the ruleset list, or `.semgrepignore` only when the user asks for the architecture or the scan policy itself to change, and say so explicitly.
+Run the gate as part of finishing the work, not as a separate pre-commit step. A red gate is a defect in the change, not in the gate. Move the class, adjust the design, or fix the flagged code. Suppress a Semgrep finding with `// nosemgrep: RULE_ID` plus a reason only when it is a false positive. Edit a rule, the ruleset list, or `.semgrepignore` only when the user asks for the architecture or the scan policy itself to change, and say so explicitly.
 
 Changes to Redis-backed session persistence require an integration-level check against Redis; the controller tests use servlet mocks and do not exercise Redis.
 
 ### Reading a gate's result
 
-Both gates here can outlast a shell's foreground window, so run them through the
+The baseline gate can outlast a shell's foreground window, so run it through the
 sentinel-and-log pattern the root `AGENTS.md` documents:
 
 ```bash
-./scripts/semgrep.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
+./scripts/verify.sh > "${TMPDIR:-/tmp}/gate.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/gate.log"
 until grep -q GATE_EXIT "${TMPDIR:-/tmp}/gate.log" 2>/dev/null; do sleep 5; done
 grep -E "inding|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 ```
 
-### Mutation testing
+### Conditional gate: mutation testing
 
-Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gates, and runs when you write a unit test or change an existing one, scoped to the tests you touched. PIT is configured in `pom.xml` and bound to no lifecycle phase, so `./mvnw clean verify` never runs it.
+Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gate, and its **trigger** is writing a unit test or changing an existing one — scoped to the tests you touched, never the whole module. PIT is configured in `pom.xml` and bound to no lifecycle phase, so the baseline gate never runs it.
 
 Target the touched test class and the production class it covers:
 
