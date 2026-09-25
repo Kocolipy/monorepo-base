@@ -33,7 +33,7 @@ test.describe.serial("ADMIN accounts page", () => {
   const USER_PASSWORD = "P@ssw0rd";
 
   /** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
-  const REFUSALS_BEFORE_LOCKOUT = 3;
+  const REFUSALS_BEFORE_LOCKOUT = 5;
 
   /**
    * A cookie jar of its own for the login attempts below, so nothing here
@@ -210,9 +210,10 @@ test.describe.serial("ADMIN accounts page", () => {
       await openAccounts(page);
       const row = accountRow(page, "user");
 
-      // The listing reports the lockout the login path imposed, with the instant
-      // it lifts — this is the only place an administrator can see it at all.
-      await expect(row.getByText(/^Locked until \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/)).toBeVisible();
+      // The listing reports the lockout the login path imposed — this is the only
+      // place an administrator can see it at all, and there is no expiry to show
+      // because nothing but Unlock ends it.
+      await expect(row.getByText("Locked")).toBeVisible();
       // Still enabled: a lockout is not a standing decision, and the page must
       // not conflate the two refusal mechanisms.
       await expect(row.getByRole("button", { name: "Disable user" })).toBeEnabled();

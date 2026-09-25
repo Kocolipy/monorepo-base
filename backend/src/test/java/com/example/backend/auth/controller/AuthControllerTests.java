@@ -17,7 +17,6 @@ import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.auth.domain.LockoutPolicy;
 import jakarta.servlet.http.Cookie;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterEach;
@@ -91,7 +90,11 @@ class AuthControllerTests {
                         manager,
                         new LoginAttemptService(
                                 accounts,
-                                new LockoutPolicy(3, Duration.ofMinutes(5)),
+                                new com.example.backend.auth.InMemoryAccountSessions(),
+                                new com.example.backend.auth.PendingCommit(),
+                                new LockoutPolicy(3),
+                                new com.example.backend.auth.domain.BootstrapAdmin(
+                                        "recovery-admin"),
                                 audit,
                                 Clock.fixed(
                                         Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),

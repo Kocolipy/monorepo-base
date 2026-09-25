@@ -8,16 +8,22 @@ import java.util.UUID;
  *
  * <p>Besides its credentials an account carries two unrelated kinds of state.
  * Its recent login history — how many consecutive failures have been recorded,
- * and, once the policy's limit is reached, the instant its lockout expires — is
+ * and, once the policy's limit is reached, the instant it was locked — is
  * behaviour here rather than in the caller, so "what counts as locked" has one
  * answer that a unit test can reach. Its administrative profile — whether it is
  * enabled, when it was created — is plain data that only account administration
  * reads.
  *
- * <p>The two are deliberately separate. A lockout is automatic, temporary, and
- * imposed by the failure run; {@code enabled} is a standing decision that no
- * passage of time reverses. Collapsing them would make one of those two
- * behaviours unexpressible.
+ * <p>The two are deliberately separate. A lockout is imposed by the failure run
+ * and lifted only by an administrator's Unlock; {@code enabled} is a standing
+ * decision an administrator takes directly. Collapsing them would make one of
+ * those two behaviours unexpressible.
+ *
+ * <p>{@code lockedAt} records <em>when</em> the lock was imposed and nothing
+ * about when it ends, because it does not end on its own: there is no duration,
+ * no expiry and no clock in the decision. That is what makes {@link #isLocked()}
+ * a question about the row alone — a lock cannot be "in the past", so no caller
+ * has to agree with the server about the time to agree about the state.
  *
  * <p>{@code id} is the account's stable, non-reassignable identity: assigned once
  * at creation and carried unchanged through every transition below — no
@@ -45,7 +51,7 @@ public record Account(
         String passwordHash,
         AccountRole role,
         int failedLoginAttempts,
-        Instant lockedUntil,
+        Instant lockedAt,
         boolean enabled,
         Instant createdAt) {
 
@@ -69,14 +75,14 @@ public record Account(
             String passwordHash,
             AccountRole role,
             int failedLoginAttempts,
-            Instant lockedUntil) {
+            Instant lockedAt) {
         this(
                 UUID.randomUUID(),
                 username,
                 passwordHash,
                 role,
                 failedLoginAttempts,
-                lockedUntil,
+                lockedAt,
                 true,
                 null);
     }
@@ -92,7 +98,7 @@ public record Account(
             String passwordHash,
             AccountRole role,
             int failedLoginAttempts,
-            Instant lockedUntil,
+            Instant lockedAt,
             boolean enabled,
             Instant createdAt) {
         this(
@@ -101,52 +107,80 @@ public record Account(
                 passwordHash,
                 role,
                 failedLoginAttempts,
-                lockedUntil,
+                lockedAt,
                 enabled,
                 createdAt);
     }
 
     /**
-     * Whether the account is closed to logins at {@code now}. A lockout that has
-     * run out is not a lockout: the recorded instant is kept until the next login
-     * either resets it or replaces it, so expiry has to be decided by comparison
-     * rather than by the field being absent.
+     * Whether the account is closed to logins. A lock stands until an
+     * administrator lifts it, so the recorded instant being present <em>is</em>
+     * the state: nothing has to be compared to a clock, and no passage of time
+     * changes the answer.
      */
-    public boolean isLocked(Instant now) {
-        return lockedUntil != null && lockedUntil.isAfter(now);
+    public boolean isLocked() {
+        return lockedAt != null;
     }
 
     /**
      * The account as it stands after one rejected login attempt.
      *
-     * <p>A locked account is returned unchanged: the window is a fixed penalty,
-     * so attempts made during it neither count nor extend it. Otherwise the
-     * failure is counted — from zero when an earlier lockout has since expired,
-     * so the account gets a fresh run of attempts — and reaching the policy's
-     * limit locks the account from {@code now}.
+     * <p>A locked account is returned unchanged: the lock is already in force, so
+     * attempts made against it neither count nor deepen it. Otherwise the failure
+     * is counted, and reaching the policy's limit locks the account as of
+     * {@code now} — permanently, in the sense that no later call here and no
+     * elapsed time lifts it. Only {@link #withLockoutCleared()} does.
      */
     public Account withFailureRecorded(LockoutPolicy policy, Instant now) {
-        if (isLocked(now)) {
+        if (isLocked()) {
             return this;
         }
-        int attempts = (lockedUntil == null ? failedLoginAttempts : 0) + 1;
-        boolean limitReached = attempts >= policy.maxAttempts();
+        int attempts = failedLoginAttempts + 1;
         return new Account(
                 id,
                 username,
                 passwordHash,
                 role,
                 attempts,
-                limitReached ? now.plus(policy.lockDuration()) : null,
+                attempts >= policy.maxAttempts() ? now : null,
+                enabled,
+                createdAt);
+    }
+
+    /**
+     * The account as it stands after one rejected login attempt that must never
+     * lock it: the failure run lengthens and no lock is imposed, whatever the
+     * policy's limit says.
+     *
+     * <p>This is the Bootstrap Admin's path, and the reason it is a transition of
+     * its own rather than a flag on {@link #withFailureRecorded}: with no
+     * automatic lift, a locked recovery identity is an unrecoverable deployment,
+     * so "counted but never locked" is a distinct rule and is named as one. The
+     * run is still counted because the failures are still evidence — the audit
+     * trail records each of them either way.
+     */
+    public Account withFailureCounted() {
+        return new Account(
+                id,
+                username,
+                passwordHash,
+                role,
+                failedLoginAttempts + 1,
+                lockedAt,
                 enabled,
                 createdAt);
     }
 
     /**
      * The account as it stands after a login it accepted: the failure run is
-     * over, so the count returns to zero and any expired lockout is discarded.
-     * An account with nothing to clear is returned as-is, so a caller can use
-     * the identity of the result to avoid a pointless write.
+     * over, so the count returns to zero. An account with nothing to clear is
+     * returned as-is, so a caller can use the identity of the result to avoid a
+     * pointless write.
+     *
+     * <p>A locked account never reaches here — it is refused before its password
+     * is compared — so this clears a run rather than a lock in practice; it
+     * clears both for the same reason {@link #withLockoutCleared()} does, namely
+     * that "no failures recorded, no lock standing" is one state.
      */
     public Account withSuccessfulLogin() {
         return withFailureRunCleared();
@@ -167,7 +201,7 @@ public record Account(
                 passwordHash,
                 role,
                 failedLoginAttempts,
-                lockedUntil,
+                lockedAt,
                 enabled,
                 fallbackCreatedAt);
     }
@@ -178,9 +212,9 @@ public record Account(
      * <p>Notably not the lockout: enabling an account does not unlock it, and
      * disabling one does not clear its failure run. The two are separate
      * capabilities because they answer different questions — whether an account
-     * is permitted at all, and whether it is being penalised right now — and an
-     * administrator restoring access after a suspension is not thereby deciding
-     * that a run of failed logins did not happen.
+     * is permitted at all, and whether it is being penalised for failed logins —
+     * and an administrator restoring access after a suspension is not thereby
+     * deciding that a run of failed logins did not happen.
      *
      * <p>Returned unchanged when it already stands this way, so a caller can use
      * the identity of the result to avoid a pointless write.
@@ -195,20 +229,19 @@ public record Account(
                 passwordHash,
                 role,
                 failedLoginAttempts,
-                lockedUntil,
+                lockedAt,
                 shouldBeEnabled,
                 createdAt);
     }
 
     /**
-     * The account with its lockout lifted: the failure run ends and any recorded
-     * instant is discarded, exactly as an accepted login would leave it.
+     * The account with its lockout lifted: the recorded instant is discarded and
+     * the failure run ends with it, exactly as an accepted login would leave it.
      *
-     * <p>This is how a lockout ends early. Left alone it ends by itself when
-     * {@code lockedUntil} passes, so this exists for the case where an
-     * administrator has established that the failures were the account holder's
-     * own mistake and will not make them wait it out. It says nothing about
-     * whether the account is enabled.
+     * <p>This is the <em>only</em> way a lockout ends. Left alone a lock stands
+     * indefinitely, so an administrator's Unlock is not an early release from a
+     * penalty that would have expired — it is the whole mechanism. It says
+     * nothing about whether the account is enabled.
      */
     public Account withLockoutCleared() {
         return withFailureRunCleared();
@@ -221,7 +254,7 @@ public record Account(
      * the other from reading as a side effect of the first.
      */
     private Account withFailureRunCleared() {
-        if (failedLoginAttempts == 0 && lockedUntil == null) {
+        if (failedLoginAttempts == 0 && lockedAt == null) {
             return this;
         }
         return new Account(id, username, passwordHash, role, 0, null, enabled, createdAt);

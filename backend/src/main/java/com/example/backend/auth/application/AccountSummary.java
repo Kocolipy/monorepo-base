@@ -14,26 +14,26 @@ import java.time.Instant;
  *
  * <p>It is also the shape the administrative endpoints put on the wire, serialised
  * as-is by {@code AdminAccountController} rather than copied into a response
- * record of the same six fields. So a field added here is published: the openapi
+ * record of the same five fields. So a field added here is published: the openapi
  * {@code AccountSummary} schema is this record's documented counterpart.
  *
  * <p>Both refusal mechanisms are reported, because either one alone would
  * mislead. An account locked out right now looks healthy if only {@code enabled}
  * is shown, and there would be no way to tell which accounts need unlocking.
  *
- * @param enabled     administrative standing: false until someone enables it again
- * @param locked      whether the lockout is in force, as the server evaluated it
- *                    when answering — a client comparing {@code lockedUntil} to
- *                    its own clock would disagree with the server that enforces it
- * @param lockedUntil when the current lockout lifts; null if none was ever
- *                    imposed, and kept after one expires
- * @param createdAt   null only for a row written before the column existed
+ * <p>There is no field for when a lockout lifts, because a lockout does not lift
+ * on its own: it ends when an administrator unlocks the account. {@code locked} is
+ * therefore the whole of the lock state, and the only remaining question about it
+ * is whose action will end it.
+ *
+ * @param enabled   administrative standing: false until someone enables it again
+ * @param locked    whether a lockout is in force, which stands until Unlock
+ * @param createdAt null only for a row written before the column existed
  */
 public record AccountSummary(
         String username,
         AccountRole role,
         boolean enabled,
         boolean locked,
-        Instant lockedUntil,
         Instant createdAt) {
 }

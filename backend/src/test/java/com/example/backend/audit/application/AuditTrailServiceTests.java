@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -129,22 +128,21 @@ class AuditTrailServiceTests {
         assertThat(event.errorCode()).isEqualTo("UNKNOWN_ACCOUNT");
     }
 
+    /**
+     * There is one lift and so no cause to carry: an unlock is the only way a
+     * lockout ends, and the event names the administrator who performed it rather
+     * than which kind of lift it was.
+     */
     @Test
-    void theTwoLockoutLiftsAreOneOperationCarryingTheirCause() {
-        trail.recordLockoutLiftedByExpiry(SUBJECT);
+    void theOnlyLockoutLiftNamesItsAdministratorAndCarriesNoCause() {
         trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
 
-        assertThat(events.appended).hasSize(2);
-        assertThat(events.appended).allSatisfy(event ->
-                assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT));
-        assertThat(events.appended.get(0).errorCode())
-                .isEqualTo(AuditLockoutLift.EXPIRY.name());
-        assertThat(events.appended.get(0).actorId()).isNull();
-        assertThat(events.appended.get(1).errorCode())
-                .isEqualTo(AuditLockoutLift.UNLOCK.name());
-        assertThat(events.appended.get(1).actorId()).isEqualTo(ACTOR);
-        assertThat(events.appended.get(1).changedPaths())
-                .containsExactly("failedLoginAttempts", "lockedUntil");
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
+        assertThat(event.errorCode()).isNull();
+        assertThat(event.actorId()).isEqualTo(ACTOR);
+        assertThat(event.subjectId()).isEqualTo(SUBJECT);
+        assertThat(event.changedPaths()).containsExactly("failedLoginAttempts", "lockedAt");
     }
 
     @Test
@@ -201,12 +199,10 @@ class AuditTrailServiceTests {
 
         trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
         trail.recordLockoutSet(SUBJECT);
-        trail.recordLockoutLiftedByExpiry(SUBJECT);
 
         assertThat(alerts.raised).containsExactly(
                 AuditOperation.LOGIN_FAILURE,
-                AuditOperation.LOCKOUT_SET,
-                AuditOperation.LOCKOUT_LIFT);
+                AuditOperation.LOCKOUT_SET);
     }
 
     @Test

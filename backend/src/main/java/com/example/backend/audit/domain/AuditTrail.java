@@ -41,10 +41,15 @@ public interface AuditTrail {
     /** Records a failure run reaching the configured limit. */
     void recordLockoutSet(UUID accountId);
 
-    /** Records a lockout that ran out, observed at the next attempt. */
-    void recordLockoutLiftedByExpiry(UUID accountId);
-
-    /** Records an administrator ending a lockout early. */
+    /**
+     * Records an administrator ending a lockout.
+     *
+     * <p>The only lift there is, which is why it is the only one declared: a lock
+     * does not expire, so there is no unrequested lift to record and no code path
+     * that could record one. {@code actorId} is required by the signature for the
+     * same reason — a lift that named no administrator would be describing
+     * something this application cannot do.
+     */
     void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId);
 
     /** Records an account closed to logins. */

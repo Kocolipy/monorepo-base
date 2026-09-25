@@ -2,7 +2,6 @@ package com.example.backend.audit.application;
 
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -47,7 +46,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *       change this service cannot account for does not happen.
  *   <li><strong>Fail-open with an alert</strong> for an event on a path that is
  *       already refusing the request — a rejected login and the lockout it may
- *       impose, and a lockout expiry, which nobody requested at all. Here the
+ *       impose. Here the
  *       original outcome is a bare {@code 401}, and it must stay one: turning a
  *       refused login into a {@code 500} because the trail is unavailable would
  *       tell an attacker something about the state of the service, and would
@@ -63,7 +62,7 @@ public class AuditTrailService implements AuditTrail {
 
     /** The lockout columns, as the paths an event reports as changed. */
     private static final List<String> LOCKOUT_PATHS =
-            List.of("failedLoginAttempts", "lockedUntil");
+            List.of("failedLoginAttempts", "lockedAt");
 
     /** The administrative standing column. */
     private static final List<String> ENABLED_PATHS = List.of("enabled");
@@ -193,25 +192,13 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records a lockout that ran out, observed at the next login attempt against
-     * the account. Fail-open: nobody performed this, so there is no request
-     * outcome it would be honest to change.
-     */
-    @Override
-    public void recordLockoutLiftedByExpiry(UUID accountId) {
-        appendRaisingAlertOnFailure(event(
-                AuditOperation.LOCKOUT_LIFT,
-                AuditOutcome.SUCCESS,
-                null,
-                accountId,
-                LOCKOUT_PATHS,
-                AuditEvent.STATUS_OK,
-                AuditLockoutLift.EXPIRY.name()));
-    }
-
-    /**
-     * Records an administrator ending a lockout early. Fail-closed: the unlock is
-     * a change an administrator asked for and it does not happen unrecorded.
+     * Records a lockout an administrator lifted. Fail-closed: the unlock is a
+     * change an administrator asked for and it does not happen unrecorded.
+     *
+     * <p>No expiry counterpart exists. A lock has no duration, so the only lift is
+     * this one and every {@code LOCKOUT_LIFT} event therefore carries the
+     * administrator who performed it; the event needs no detail saying which kind
+     * of lift it was, because there is only one kind.
      */
     @Transactional
     @Override
@@ -223,7 +210,7 @@ public class AuditTrailService implements AuditTrail {
                 subjectId,
                 LOCKOUT_PATHS,
                 AuditEvent.STATUS_OK,
-                AuditLockoutLift.UNLOCK.name()));
+                null));
     }
 
     /** Records an account closed to logins. Fail-closed. */

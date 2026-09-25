@@ -1,6 +1,5 @@
 package com.example.backend.audit;
 
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
@@ -61,18 +60,8 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordLockoutLiftedByExpiry(UUID accountId) {
-        recorded.add(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, null, accountId, AuditLockoutLift.EXPIRY.name()));
-    }
-
-    @Override
     public void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId) {
-        recorded.add(new Recorded(
-                AuditOperation.LOCKOUT_LIFT,
-                actorId,
-                subjectId,
-                AuditLockoutLift.UNLOCK.name()));
+        recorded.add(new Recorded(AuditOperation.LOCKOUT_LIFT, actorId, subjectId, null));
     }
 
     @Override

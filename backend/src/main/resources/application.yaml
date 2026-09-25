@@ -88,9 +88,10 @@ app:
     secondary-username: ${APP_SECONDARY_USERNAME:admin}
     secondary-password: ${APP_SECONDARY_PASSWORD:P@ssw0rd}
     lockout:
-      # Consecutive failures that lock an account, and how long it stays locked.
+      # Consecutive failures that lock an account. There is deliberately no
+      # duration setting: a lockout is lifted by an Admin's Unlock and by nothing
+      # else, so a window here would describe a lift no code performs.
       max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:5}
-      duration: ${APP_LOCKOUT_DURATION:20m}
   session:
     # The fixed ceiling on a session's age from creation, independent of the
     # idle timeout above (`server.servlet.session.timeout`), which resets on

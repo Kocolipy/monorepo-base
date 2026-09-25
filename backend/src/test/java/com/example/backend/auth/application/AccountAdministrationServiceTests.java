@@ -7,7 +7,6 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -27,7 +26,8 @@ class AccountAdministrationServiceTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    private static final Duration LOCKOUT = Duration.ofMinutes(5);
+    /** Ten years: far past any window the former expiring lockout could have had. */
+    private static final Duration A_LONG_TIME = Duration.ofDays(3650);
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
@@ -39,7 +39,7 @@ class AccountAdministrationServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, sessions, transaction, audit, clock);
+        service = new AccountAdministrationService(accounts, sessions, transaction, audit);
     }
 
     // Reviewing who has access
@@ -50,8 +50,8 @@ class AccountAdministrationServiceTests {
         accounts.save(account("bob", AccountRole.USER));
 
         assertThat(service.listAccounts()).containsExactly(
-                new AccountSummary("ada", AccountRole.ADMIN, true, false, null, NOW),
-                new AccountSummary("bob", AccountRole.USER, true, false, null, NOW));
+                new AccountSummary("ada", AccountRole.ADMIN, true, false, NOW),
+                new AccountSummary("bob", AccountRole.USER, true, false, NOW));
     }
 
     @Test
@@ -71,22 +71,23 @@ class AccountAdministrationServiceTests {
     }
 
     /**
-     * Whether a lockout is in force is the server's answer, not a comparison the
-     * client makes: only the server's clock is the one the login path enforces on.
+     * The listing reports the lock and no expiry, because there is none: the state
+     * does not change with the clock, so a reader has nothing to compare and no
+     * reason to wait.
      */
     @Test
-    void reportsALockoutAsInForceUntilItExpires() {
+    void reportsALockoutAsInForceHoweverLongItHasStood() {
         accounts.save(locked("ada"));
 
         assertThat(service.listAccounts()).first()
-                .extracting(AccountSummary::locked, AccountSummary::lockedUntil)
-                .containsExactly(true, NOW.plus(LOCKOUT));
+                .extracting(AccountSummary::locked)
+                .isEqualTo(true);
 
-        clock.advanceBy(LOCKOUT);
+        clock.advanceBy(A_LONG_TIME);
 
         assertThat(service.listAccounts()).first()
-                .extracting(AccountSummary::locked, AccountSummary::lockedUntil)
-                .containsExactly(false, NOW.plus(LOCKOUT));
+                .extracting(AccountSummary::locked)
+                .isEqualTo(true);
     }
 
     // Disabling
@@ -114,8 +115,8 @@ class AccountAdministrationServiceTests {
 
         Account stored = accounts.require("bob");
         assertThat(stored.failedLoginAttempts()).isEqualTo(3);
-        assertThat(stored.lockedUntil()).isEqualTo(NOW.plus(LOCKOUT));
-        assertThat(stored.isLocked(NOW)).isTrue();
+        assertThat(stored.lockedAt()).isEqualTo(NOW);
+        assertThat(stored.isLocked()).isTrue();
     }
 
     @Test
@@ -403,7 +404,7 @@ class AccountAdministrationServiceTests {
         AccountSummary unlocked = service.unlock("bob", "root");
 
         assertThat(unlocked.locked()).isFalse();
-        assertThat(unlocked.lockedUntil()).isNull();
+        assertThat(accounts.require("bob").lockedAt()).isNull();
         assertThat(accounts.require("bob").failedLoginAttempts()).isZero();
     }
 
@@ -429,18 +430,17 @@ class AccountAdministrationServiceTests {
     }
 
     /**
-     * An expired lockout leaves its instant behind, so "not locked" is not the
-     * same as "nothing to clear" — unlocking such an account still tidies the run
-     * that would otherwise carry into the next failure.
+     * Time is not a lift, so an account locked long ago is still locked and the
+     * unlock is what clears it — both the recorded instant and the run behind it.
      */
     @Test
-    void unlockingClearsAnExpiredLockoutThatIsStillRecorded() {
+    void unlockingClearsALockoutHoweverLongItHasStood() {
         accounts.save(locked("bob"));
-        clock.advanceBy(LOCKOUT);
+        clock.advanceBy(A_LONG_TIME);
 
         service.unlock("bob", "root");
 
-        assertThat(accounts.require("bob").lockedUntil()).isNull();
+        assertThat(accounts.require("bob").lockedAt()).isNull();
         assertThat(accounts.require("bob").failedLoginAttempts()).isZero();
     }
 
@@ -505,7 +505,7 @@ class AccountAdministrationServiceTests {
                 AuditOperation.LOCKOUT_LIFT,
                 accounts.require("root").id(),
                 accounts.require("bob").id(),
-                AuditLockoutLift.UNLOCK.name()));
+                null));
     }
 
     /**
@@ -596,6 +596,6 @@ class AccountAdministrationServiceTests {
     }
 
     private static Account locked(String username, AccountRole role) {
-        return new Account(username, "hash", role, 3, NOW.plus(LOCKOUT), true, NOW);
+        return new Account(username, "hash", role, 3, NOW, true, NOW);
     }
 }

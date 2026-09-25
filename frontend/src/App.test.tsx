@@ -147,7 +147,6 @@ describe("App", () => {
                   createdAt: "2026-01-02T03:04:05Z",
                   enabled: true,
                   locked: false,
-                  lockedUntil: null,
                   role: "ADMIN",
                   username: "grace",
                 },

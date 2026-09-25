@@ -35,12 +35,15 @@ going to return**, not by whether a row was written:
   written takes the mutation with it. A change this service cannot account for does
   not happen, and a session it cannot account for is not issued.
 - **Fail-open with an operational alert** where the request is **already being
-  refused**: the `LOGIN_FAILURE` event, the `LOCKOUT_SET` it may be accompanied by,
-  and `LOCKOUT_LIFT` by expiry — which nobody performed at all, so there is no
-  request outcome it would be honest to change. These appends run in a transaction
-  of their own (`PROPAGATION_REQUIRES_NEW`), so a rollback there cannot take the
-  caller's failure-run write with it, and a failure raises
+  refused**: the `LOGIN_FAILURE` event and the `LOCKOUT_SET` it may be accompanied
+  by. These appends run in a transaction of their own
+  (`PROPAGATION_REQUIRES_NEW`), so a rollback there cannot take the caller's
+  failure-run write with it, and a failure raises
   `OperationalAlerts.auditAppendFailed` instead of propagating.
+
+  There is no fail-open lift. A lockout has no duration, so `LOCKOUT_LIFT` is only
+  ever an administrator's unlock, which is a request that would otherwise succeed
+  and is therefore fail-closed with everything else in that group.
 
 The alert is a port with a logging adapter rather than a log call in the use case,
 so "an alert was raised" is a claim a test can check without reading log bytes, and

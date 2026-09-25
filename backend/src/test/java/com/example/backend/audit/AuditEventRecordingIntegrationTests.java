@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.ContainerTestConfiguration;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -215,7 +214,7 @@ class AuditEventRecordingIntegrationTests {
         assertThat(event).containsEntry("subject_id", idOf(USER));
         assertThat(event).containsEntry("actor_id", null);
         assertThat(event).containsEntry(
-                "changed_paths", "failedLoginAttempts,lockedUntil");
+                "changed_paths", "failedLoginAttempts,lockedAt");
         assertThat(rows(AuditOperation.LOGIN_FAILURE)).hasSize(6);
         assertThat(rows(AuditOperation.LOGIN_FAILURE))
                 .extracting(row -> row.get("error_code"))
@@ -223,13 +222,12 @@ class AuditEventRecordingIntegrationTests {
     }
 
     /**
-     * An expiry is the one audited transition nobody performs. The account is left
-     * holding a lockout that has already run out — which is what a real account
-     * looks like when its window passes while nobody is watching — and the next
-     * attempt against it is where the service first acts on that.
+     * A lockout imposed long ago is still in force, and no login attempt against it
+     * records a lift — there is no unrequested lift left to record, so the only
+     * {@code LOCKOUT_LIFT} row any flow can produce is an administrator's unlock.
      */
     @Test
-    void aLockoutThatRanOutIsRecordedAtTheNextAttempt() throws Exception {
+    void aLockoutStandingSinceLongAgoProducesNoLiftAtTheNextAttempt() throws Exception {
         Account account = accounts.findByUsername(USER).orElseThrow();
         transactions.executeWithoutResult(status -> accounts.updateLockout(new Account(
                 account.id(),
@@ -242,12 +240,10 @@ class AuditEventRecordingIntegrationTests {
                 account.createdAt())));
         clearRecordedEvents();
 
-        logIn(USER, "not-the-password").andExpect(status().isUnauthorized());
+        logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
 
-        Map<String, Object> event = only(AuditOperation.LOCKOUT_LIFT);
-        assertThat(event).containsEntry("error_code", AuditLockoutLift.EXPIRY.name());
-        assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("actor_id", null);
+        assertThat(rows(AuditOperation.LOCKOUT_LIFT)).isEmpty();
+        assertThat(accounts.findByUsername(USER).orElseThrow().isLocked()).isTrue();
     }
 
     @Test
@@ -284,7 +280,7 @@ class AuditEventRecordingIntegrationTests {
                 .andExpect(status().isOk());
 
         Map<String, Object> event = only(AuditOperation.LOCKOUT_LIFT);
-        assertThat(event).containsEntry("error_code", AuditLockoutLift.UNLOCK.name());
+        assertThat(event).containsEntry("error_code", null);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
     }

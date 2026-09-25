@@ -121,32 +121,34 @@ class AccountServiceTests {
     /**
      * Carrying the lockout into {@code UserDetails} is what rejects a locked
      * account before its password is compared, so the flag has to reflect the
-     * stored instant rather than only the attempt count.
+     * stored lock state rather than only the attempt count.
      */
     @Test
     void reportsALockedAccountAsLockedToSpringSecurity() {
         accounts.save(new Account(
-                "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5)),
-                true, NOW));
+                "ada", "stored-hash", AccountRole.USER, 3, NOW, true, NOW));
 
         assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
     }
 
+    /**
+     * And keeps reporting it locked however long it has stood: nothing but an
+     * administrator's Unlock changes the answer, so the clock is not consulted.
+     */
     @Test
-    void reportsAnAccountWhoseLockoutHasExpiredAsUsableAgain() {
+    void keepsReportingALockedAccountAsLockedHoweverMuchTimeHasPassed() {
         accounts.save(new Account(
-                "ada", "stored-hash", AccountRole.USER, 3, NOW.plus(Duration.ofMinutes(5)),
-                true, NOW));
+                "ada", "stored-hash", AccountRole.USER, 3, NOW, true, NOW));
 
-        clock.advanceBy(Duration.ofMinutes(5));
+        clock.advanceBy(Duration.ofDays(3650));
 
-        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isTrue();
+        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
     }
 
     /**
      * The listing reports {@code enabled}, so authentication has to act on it —
      * otherwise the field is decoration and a disabled account still logs in.
-     * Unlike a lockout, no passage of time lifts this.
+     * Like a lockout, no passage of time lifts this.
      */
     @Test
     void reportsADisabledAccountAsDisabled() {

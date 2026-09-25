@@ -11,7 +11,10 @@ class AccountTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    private static final LockoutPolicy POLICY = new LockoutPolicy(3, Duration.ofMinutes(5));
+    /** Far enough past any window the old, expiring lockout ever had. */
+    private static final Duration A_LONG_TIME = Duration.ofDays(3650);
+
+    private static final LockoutPolicy POLICY = new LockoutPolicy(3);
 
     private static final Account ACCOUNT =
             new Account("ada", "hash", AccountRole.USER);
@@ -19,8 +22,8 @@ class AccountTests {
     @Test
     void aNewAccountHasNoFailuresAndNoLockout() {
         assertThat(ACCOUNT.failedLoginAttempts()).isZero();
-        assertThat(ACCOUNT.lockedUntil()).isNull();
-        assertThat(ACCOUNT.isLocked(NOW)).isFalse();
+        assertThat(ACCOUNT.lockedAt()).isNull();
+        assertThat(ACCOUNT.isLocked()).isFalse();
     }
 
     @Test
@@ -30,63 +33,89 @@ class AccountTests {
 
         assertThat(afterOne.failedLoginAttempts()).isEqualTo(1);
         assertThat(afterTwo.failedLoginAttempts()).isEqualTo(2);
-        assertThat(afterTwo.lockedUntil()).isNull();
-        assertThat(afterTwo.isLocked(NOW)).isFalse();
+        assertThat(afterTwo.lockedAt()).isNull();
+        assertThat(afterTwo.isLocked()).isFalse();
     }
 
     @Test
-    void reachingTheLimitLocksTheAccountForThePolicyDuration() {
+    void reachingTheLimitLocksTheAccountAsOfThatMoment() {
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
         assertThat(locked.failedLoginAttempts()).isEqualTo(3);
-        assertThat(locked.lockedUntil()).isEqualTo(NOW.plus(Duration.ofMinutes(5)));
-        assertThat(locked.isLocked(NOW)).isTrue();
+        assertThat(locked.lockedAt()).isEqualTo(NOW);
+        assertThat(locked.isLocked()).isTrue();
     }
 
-    /** The penalty is a fixed window, so attempts made inside it change nothing. */
+    /** The lock is already in force, so attempts made against it change nothing. */
     @Test
-    void aFailureDuringTheLockoutNeitherCountsNorExtendsIt() {
+    void aFailureDuringTheLockoutNeitherCountsNorDeepensIt() {
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
         Account afterAnotherTry = locked.withFailureRecorded(
                 POLICY, NOW.plus(Duration.ofMinutes(1)));
 
-        assertThat(afterAnotherTry).isEqualTo(locked);
-    }
-
-    @Test
-    void theLockoutIsOverOnceItsInstantHasPassed() {
-        Account locked = failTimes(ACCOUNT, 3, NOW);
-
-        assertThat(locked.isLocked(locked.lockedUntil().minusMillis(1))).isTrue();
-        assertThat(locked.isLocked(locked.lockedUntil())).isFalse();
-        assertThat(locked.isLocked(locked.lockedUntil().plusMillis(1))).isFalse();
+        assertThat(afterAnotherTry).isSameAs(locked);
     }
 
     /**
-     * An account whose lockout has expired gets a fresh run of attempts, rather
-     * than being re-locked by the next single mistake on a count left at the limit.
+     * The heart of the change: there is no instant at which the lock has lifted.
+     * A test that only advanced a clock a little could pass against an expiring
+     * lockout with a long window, so the advance here is a decade.
      */
     @Test
-    void aFailureAfterAnExpiredLockoutStartsANewRun() {
+    void theLockoutIsStillInForceHoweverMuchTimeHasPassed() {
         Account locked = failTimes(ACCOUNT, 3, NOW);
-        Instant afterExpiry = locked.lockedUntil().plusSeconds(1);
 
-        Account afterOneMore = locked.withFailureRecorded(POLICY, afterExpiry);
+        assertThat(locked.isLocked()).isTrue();
+        assertThat(locked.withFailureRecorded(POLICY, NOW.plus(A_LONG_TIME)))
+                .isSameAs(locked);
+        assertThat(locked.isLocked()).isTrue();
+    }
 
-        assertThat(afterOneMore.failedLoginAttempts()).isEqualTo(1);
-        assertThat(afterOneMore.lockedUntil()).isNull();
-        assertThat(afterOneMore.isLocked(afterExpiry)).isFalse();
+    /**
+     * A locked account has nothing but Unlock ahead of it, so a later failure
+     * cannot start a fresh run — the whole "expired lockout gets a new run"
+     * branch is gone with the expiry it depended on.
+     */
+    @Test
+    void noFailureAfterALockoutEverStartsANewRun() {
+        Account locked = failTimes(ACCOUNT, 3, NOW);
+
+        Account afterOneMore = locked.withFailureRecorded(POLICY, NOW.plus(A_LONG_TIME));
+
+        assertThat(afterOneMore.failedLoginAttempts()).isEqualTo(3);
+        assertThat(afterOneMore.lockedAt()).isEqualTo(NOW);
     }
 
     @Test
-    void aSuccessfulLoginClearsTheFailureRunAndAnyExpiredLockout() {
+    void clearingTheLockoutIsWhatEndsItAndTheFailureRunWithIt() {
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
-        Account afterLogin = locked.withSuccessfulLogin();
+        Account unlocked = locked.withLockoutCleared();
+
+        assertThat(unlocked.isLocked()).isFalse();
+        assertThat(unlocked.lockedAt()).isNull();
+        assertThat(unlocked.failedLoginAttempts()).isZero();
+    }
+
+    /** Unlocking leaves the credentials alone, so the same password still logs in. */
+    @Test
+    void clearingTheLockoutKeepsTheCredentialsAndRole() {
+        Account unlocked = failTimes(ACCOUNT, 3, NOW).withLockoutCleared();
+
+        assertThat(unlocked.username()).isEqualTo("ada");
+        assertThat(unlocked.passwordHash()).isEqualTo("hash");
+        assertThat(unlocked.role()).isEqualTo(AccountRole.USER);
+    }
+
+    @Test
+    void aSuccessfulLoginClearsTheFailureRun() {
+        Account afterTwoFailures = failTimes(ACCOUNT, 2, NOW);
+
+        Account afterLogin = afterTwoFailures.withSuccessfulLogin();
 
         assertThat(afterLogin.failedLoginAttempts()).isZero();
-        assertThat(afterLogin.lockedUntil()).isNull();
+        assertThat(afterLogin.lockedAt()).isNull();
     }
 
     /** Identity signals "nothing to write", which the caller uses to skip a save. */
@@ -96,44 +125,63 @@ class AccountTests {
     }
 
     /**
-     * The guard has to test both halves: an account carrying a lockout instant but
-     * no counted failures still has something to clear, so it must not be mistaken
+     * The guard has to test both halves: an account carrying a lock instant but no
+     * counted failures still has something to clear, so it must not be mistaken
      * for one that was never touched.
      */
     @Test
-    void aSuccessfulLoginClearsALockoutEvenWhenNoFailuresAreCounted() {
-        Account oddlyLocked = new Account(
-                "ada", "hash", AccountRole.USER, 0, NOW.plus(Duration.ofMinutes(5)));
+    void clearingALockoutWorksEvenWhenNoFailuresAreCounted() {
+        Account oddlyLocked = new Account("ada", "hash", AccountRole.USER, 0, NOW);
 
-        Account afterLogin = oddlyLocked.withSuccessfulLogin();
+        Account unlocked = oddlyLocked.withLockoutCleared();
 
-        assertThat(afterLogin.lockedUntil()).isNull();
-        assertThat(afterLogin.isLocked(NOW)).isFalse();
+        assertThat(unlocked.lockedAt()).isNull();
+        assertThat(unlocked.isLocked()).isFalse();
+    }
+
+    // Counted but never locked — the Bootstrap Admin's transition
+
+    @Test
+    void aCountedFailureLengthensTheRunWithoutEverLocking() {
+        Account account = ACCOUNT;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            account = account.withFailureCounted();
+        }
+
+        assertThat(account.failedLoginAttempts()).isEqualTo(10);
+        assertThat(account.lockedAt()).isNull();
+        assertThat(account.isLocked()).isFalse();
     }
 
     @Test
-    void aSuccessfulLoginKeepsTheCredentialsAndRole() {
-        Account afterLogin = failTimes(ACCOUNT, 1, NOW).withSuccessfulLogin();
+    void aCountedFailureCarriesTheCredentialsAndProfileThrough() {
+        Account seeded = new Account("ada", "hash", AccountRole.ADMIN, 0, null, false, NOW);
 
-        assertThat(afterLogin.username()).isEqualTo("ada");
-        assertThat(afterLogin.passwordHash()).isEqualTo("hash");
-        assertThat(afterLogin.role()).isEqualTo(AccountRole.USER);
+        Account afterFailure = seeded.withFailureCounted();
+
+        assertThat(afterFailure.username()).isEqualTo("ada");
+        assertThat(afterFailure.passwordHash()).isEqualTo("hash");
+        assertThat(afterFailure.role()).isEqualTo(AccountRole.ADMIN);
+        assertThat(afterFailure.enabled()).isFalse();
+        assertThat(afterFailure.createdAt()).isEqualTo(NOW);
+    }
+
+    /** An accepted login clears the run this transition built up, as for anyone else. */
+    @Test
+    void aSuccessfulLoginClearsARunOfCountedFailures() {
+        Account afterFailures = ACCOUNT.withFailureCounted().withFailureCounted();
+
+        assertThat(afterFailures.withSuccessfulLogin().failedLoginAttempts()).isZero();
     }
 
     @Test
-    void aPolicyMustAllowAtLeastOneAttemptAndLockForAPositiveTime() {
-        assertThatThrownBy(() -> new LockoutPolicy(0, Duration.ofMinutes(5)))
+    void aPolicyMustAllowAtLeastOneAttempt() {
+        assertThatThrownBy(() -> new LockoutPolicy(0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("A lockout policy needs at least one attempt");
-        assertThatThrownBy(() -> new LockoutPolicy(3, Duration.ZERO))
+        assertThatThrownBy(() -> new LockoutPolicy(-1))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("A lockout needs a positive duration");
-        assertThatThrownBy(() -> new LockoutPolicy(3, Duration.ofMinutes(-1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("A lockout needs a positive duration");
-        assertThatThrownBy(() -> new LockoutPolicy(3, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("A lockout needs a positive duration");
+                .hasMessage("A lockout policy needs at least one attempt");
     }
 
     /**
@@ -142,12 +190,12 @@ class AccountTests {
      */
     @Test
     void aPolicyOfOneAttemptLocksOnTheFirstFailure() {
-        LockoutPolicy strict = new LockoutPolicy(1, Duration.ofMinutes(5));
+        LockoutPolicy strict = new LockoutPolicy(1);
 
         Account afterOne = ACCOUNT.withFailureRecorded(strict, NOW);
 
-        assertThat(afterOne.isLocked(NOW)).isTrue();
-        assertThat(afterOne.lockedUntil()).isEqualTo(NOW.plus(Duration.ofMinutes(5)));
+        assertThat(afterOne.isLocked()).isTrue();
+        assertThat(afterOne.lockedAt()).isEqualTo(NOW);
     }
 
     private static Account failTimes(Account account, int times, Instant now) {
@@ -197,8 +245,8 @@ class AccountTests {
         Account backfilled = locked.withCreatedAtBackfilled(NOW);
 
         assertThat(backfilled.failedLoginAttempts()).isEqualTo(3);
-        assertThat(backfilled.lockedUntil()).isEqualTo(locked.lockedUntil());
-        assertThat(backfilled.isLocked(NOW)).isTrue();
+        assertThat(backfilled.lockedAt()).isEqualTo(locked.lockedAt());
+        assertThat(backfilled.isLocked()).isTrue();
     }
 
     /** The two refusal mechanisms are independent; neither implies the other. */
@@ -207,8 +255,20 @@ class AccountTests {
         Account disabled = new Account("ada", "hash", AccountRole.USER, 0, null, false, NOW);
         Account locked = failTimes(ACCOUNT, 3, NOW);
 
-        assertThat(disabled.isLocked(NOW)).isFalse();
+        assertThat(disabled.isLocked()).isFalse();
         assertThat(locked.enabled()).isTrue();
+    }
+
+    /** Enabling and disabling leave the lock exactly as it stands. */
+    @Test
+    void changingTheAdministrativeStandingLeavesTheLockoutInForce() {
+        Account locked = failTimes(ACCOUNT, 3, NOW);
+
+        Account disabled = locked.withEnabled(false);
+
+        assertThat(disabled.isLocked()).isTrue();
+        assertThat(disabled.lockedAt()).isEqualTo(NOW);
+        assertThat(disabled.withEnabled(true).isLocked()).isTrue();
     }
 
     @Test
@@ -235,7 +295,7 @@ class AccountTests {
         Account credentialless = new Account("nopass", null, AccountRole.USER);
 
         assertThat(credentialless.passwordHash()).isNull();
-        assertThat(credentialless.isLocked(NOW)).isFalse();
+        assertThat(credentialless.isLocked()).isFalse();
 
         Account afterFailure = credentialless.withFailureRecorded(POLICY, NOW);
 

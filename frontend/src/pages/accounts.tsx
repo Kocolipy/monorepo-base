@@ -18,15 +18,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
  * `enabled` and `locked` are two separate refusal mechanisms and both are shown:
  * an account serving a lockout right now looks healthy if only `enabled` is
  * rendered, and an administrator would have no way to tell which accounts need
- * unlocking. `createdAt` is null only for a row written before that column
- * existed.
+ * unlocking. A lockout carries no expiry: it stands until an administrator
+ * unlocks the account, so there is nothing to count down to. `createdAt` is null
+ * only for a row written before that column existed.
  */
 export interface AdminAccount {
   username: string;
   role: AuthRole;
   enabled: boolean;
   locked: boolean;
-  lockedUntil: string | null;
   createdAt: string | null;
 }
 
@@ -46,9 +46,6 @@ const decodeAccount = (response: Response): Promise<AdminAccount> =>
  */
 const formatDate = (instant: string | null): string =>
   instant === null ? "—" : instant.slice(0, 10);
-
-const formatInstant = (instant: string | null): string =>
-  instant === null ? "—" : `${instant.slice(0, 10)} ${instant.slice(11, 16)} UTC`;
 
 /** Copy for a refused action, keyed on what the backend refused. */
 function actionFailure(action: AccountAction, username: string, status?: number): string {
@@ -71,11 +68,7 @@ function StatusCell({ account }: { account: AdminAccount }) {
       {account.enabled ? null : (
         <span className="text-sm font-medium text-destructive">Disabled</span>
       )}
-      {account.locked ? (
-        <span className="text-sm font-medium text-destructive">
-          Locked until {formatInstant(account.lockedUntil)}
-        </span>
-      ) : null}
+      {account.locked ? <span className="text-sm font-medium text-destructive">Locked</span> : null}
     </span>
   );
 }

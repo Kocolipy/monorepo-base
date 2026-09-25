@@ -33,10 +33,10 @@ interface AccountJpaRepository extends JpaRepository<AccountEntity, UUID> {
     @Query("""
             update AccountEntity a
                set a.failedLoginAttempts = :failedLoginAttempts,
-                   a.lockedUntil = :lockedUntil
+                   a.lockedAt = :lockedAt
              where a.id = :id""")
     int updateLockout(
             @Param("id") UUID id,
             @Param("failedLoginAttempts") int failedLoginAttempts,
-            @Param("lockedUntil") Instant lockedUntil);
+            @Param("lockedAt") Instant lockedAt);
 }

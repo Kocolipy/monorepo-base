@@ -27,10 +27,9 @@ public enum AuditOperation {
     LOCKOUT_SET,
 
     /**
-     * A lockout ended. Whether it ran out or an administrator lifted it is
-     * carried as the event's error code, from {@link AuditLockoutLift} — the two
-     * are the same state transition reached two ways, and collapsing them into
-     * one operation while keeping the cause would lose nothing a reader needs.
+     * An administrator lifted a lockout. There is one cause and so no cause to
+     * carry: a lockout has no duration, so it never ends unrequested, and every
+     * event of this operation names the administrator who ended it.
      */
     LOCKOUT_LIFT,
 

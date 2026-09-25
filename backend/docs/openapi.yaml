@@ -311,11 +311,12 @@ paths:
   /api/admin/accounts/{username}/unlock:
     post:
       tags: [Administration]
-      summary: End a lockout early
+      summary: End a lockout
       description: |
-        Clears the failure run and the recorded `locked_until`, so a lockout ends
-        before its window expires. Says nothing about `enabled`: a disabled
-        account can be unlocked and stays disabled.
+        Clears the failure run and the recorded `locked_at`, which is the only way
+        a lockout ends: a lockout has no duration and never lifts on its own. Says
+        nothing about `enabled`: a disabled account can be unlocked and stays
+        disabled.
 
         Idempotent — an account serving no lockout is answered 200 with nothing
         written.
@@ -999,7 +1000,7 @@ components:
           description: The account role used for authorization.
     AccountSummary:
       type: object
-      required: [username, role, enabled, locked, lockedUntil, createdAt]
+      required: [username, role, enabled, locked, createdAt]
       properties:
         username:
           type: string
@@ -1014,17 +1015,10 @@ components:
         locked:
           type: boolean
           description: |
-            Whether a lockout is in force, as the server evaluated it when
-            answering. Independent of `enabled` — a lockout is an automatic,
-            expiring penalty for failed logins. A client must not recompute this
-            by comparing `lockedUntil` to its own clock: only the server's clock
-            is the one the login path enforces on.
-        lockedUntil:
-          type: [string, "null"]
-          format: date-time
-          description: |
-            When the current lockout lifts. Null if none was ever imposed, and
-            kept after one expires, so a non-null value does not mean locked.
+            Whether a lockout is in force. Independent of `enabled` — a lockout is
+            imposed automatically by a run of failed logins. It has no expiry and
+            there is no field for one: the lockout stands until an administrator
+            calls the unlock operation, so this flag is the whole lock state.
         createdAt:
           type: [string, "null"]
           format: date-time

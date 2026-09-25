@@ -75,7 +75,7 @@ public final class InMemoryAccountRepository implements AccountRepository {
                 current.passwordHash(),
                 current.role(),
                 account.failedLoginAttempts(),
-                account.lockedUntil(),
+                account.lockedAt(),
                 current.enabled(),
                 current.createdAt()));
         saves++;
