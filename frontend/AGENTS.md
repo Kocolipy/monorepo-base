@@ -115,6 +115,13 @@ backend side moves. What the SPA has to honour:
 - **Sessions expire after 15 minutes** of inactivity, the single default in
   every environment. Nothing in the SPA hardcodes that today; a countdown or
   expiry warning reads the 15 minutes from this contract.
+- **Sessions are also capped at 8 hours from creation**, independent of the
+  15-minute idle bound above: a session kept continuously active is still
+  ended once it has existed that long. Both bounds apply to every
+  authenticated session, `ADMIN` included, and whichever is reached first ends
+  it — there is no way to distinguish the two from the SPA's side; either one
+  simply presents as the ordinary `401` → `unauthenticated` → sign-out path
+  described above.
 - **The CSP forbids inline script, `eval`, and every third-party origin** for
   scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
   and prefer Vite plugins that keep their output out of an inline `<script>`.

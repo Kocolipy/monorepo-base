@@ -36,7 +36,7 @@ class LoginLockoutTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    private static final Duration LOCKOUT = Duration.ofMinutes(5);
+    private static final Duration LOCKOUT = Duration.ofMinutes(20);
 
     private static final String CORRECT_PASSWORD = "correct-password";
 
@@ -54,7 +54,7 @@ class LoginLockoutTests {
         AccountService users = new AccountService(accounts, passwordEncoder, clock);
         login = new LoginService(
                 config.authenticationManager(users, passwordEncoder),
-                new LoginAttemptService(accounts, new LockoutPolicy(3, LOCKOUT), clock));
+                new LoginAttemptService(accounts, new LockoutPolicy(5, LOCKOUT), clock));
     }
 
     @Test
@@ -89,7 +89,9 @@ class LoginLockoutTests {
     }
 
     @Test
-    void theThirdRefusalLocksTheAccount() {
+    void theFifthRefusalLocksTheAccount() {
+        submit("wrong");
+        submit("wrong");
         submit("wrong");
         submit("wrong");
         submit("wrong");
@@ -120,7 +122,7 @@ class LoginLockoutTests {
         submit(CORRECT_PASSWORD);
 
         assertThat(accounts.require("ada").lockedUntil()).isEqualTo(lockedUntil);
-        assertThat(accounts.require("ada").failedLoginAttempts()).isEqualTo(3);
+        assertThat(accounts.require("ada").failedLoginAttempts()).isEqualTo(5);
     }
 
     @Test
@@ -158,6 +160,8 @@ class LoginLockoutTests {
 
         submit("wrong");
         submit("wrong");
+        submit("wrong");
+        submit("wrong");
         AuthenticationException locked = submit(CORRECT_PASSWORD);
 
         assertThat(locked).isInstanceOf(AuthenticationException.class);
@@ -175,6 +179,8 @@ class LoginLockoutTests {
     }
 
     private void lockTheAccount() {
+        submit("wrong");
+        submit("wrong");
         submit("wrong");
         submit("wrong");
         submit("wrong");

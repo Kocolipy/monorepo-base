@@ -17,6 +17,7 @@ public class AccountEntity {
     @Id
     private String username;
 
+    /** Nullable: a credentialless account has no hash to store. */
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)

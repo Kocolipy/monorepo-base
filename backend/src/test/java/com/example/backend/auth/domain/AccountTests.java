@@ -223,4 +223,23 @@ class AccountTests {
         assertThat(afterSuccess.createdAt()).isEqualTo(NOW);
         assertThat(afterSuccess.enabled()).isFalse();
     }
+
+    /**
+     * A credentialless account — no password ever set — is a real, constructible
+     * state, not an invariant violation: an administrator may create or reset an
+     * account before issuing it a password. It behaves like any other account for
+     * every transition that has nothing to do with the hash.
+     */
+    @Test
+    void anAccountMayCarryNoPasswordHash() {
+        Account credentialless = new Account("nopass", null, AccountRole.USER);
+
+        assertThat(credentialless.passwordHash()).isNull();
+        assertThat(credentialless.isLocked(NOW)).isFalse();
+
+        Account afterFailure = credentialless.withFailureRecorded(POLICY, NOW);
+
+        assertThat(afterFailure.passwordHash()).isNull();
+        assertThat(afterFailure.failedLoginAttempts()).isEqualTo(1);
+    }
 }
