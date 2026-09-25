@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.auth.application.AccountAdministrationService;
 import com.example.backend.auth.application.AccountSummary;
-import com.example.backend.auth.controller.AdminAccountController.AdminAccountResponse;
 import com.example.backend.auth.domain.AccountRole;
 import java.lang.reflect.RecordComponent;
 import java.security.Principal;
@@ -24,11 +23,11 @@ class AdminAccountControllerTests {
                 summary("ada", AccountRole.ADMIN, true, false),
                 summary("bob", AccountRole.USER, false, true))));
 
-        List<AdminAccountResponse> response = controller.listAccounts();
+        List<AccountSummary> response = controller.listAccounts();
 
         assertThat(response).containsExactly(
-                new AdminAccountResponse("ada", AccountRole.ADMIN, true, false, null, CREATED_AT),
-                new AdminAccountResponse("bob", AccountRole.USER, false, true, null, CREATED_AT));
+                new AccountSummary("ada", AccountRole.ADMIN, true, false, null, CREATED_AT),
+                new AccountSummary("bob", AccountRole.USER, false, true, null, CREATED_AT));
     }
 
     @Test
@@ -48,7 +47,7 @@ class AdminAccountControllerTests {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        AdminAccountResponse response = controller.disable("bob", principal);
+        AccountSummary response = controller.disable("bob", principal);
 
         assertThat(service.calls).containsExactly("disable:bob:ada");
         assertThat(response.username()).isEqualTo("bob");
@@ -66,13 +65,14 @@ class AdminAccountControllerTests {
     }
 
     /**
-     * The guarantee the whole endpoint exists to respect. Asserting the shape of
-     * the response type covers every future field too: a hash added to the wire
-     * shape fails here rather than in review.
+     * The guarantee the whole endpoint exists to respect. It is asserted here, on
+     * the adapter that publishes the type, because this is where a field reaching
+     * a client becomes a disclosure: a hash added to {@link AccountSummary} fails
+     * here rather than in review.
      */
     @Test
     void theResponseShapeHasNoFieldThatCouldCarryACredential() {
-        assertThat(AdminAccountResponse.class.getRecordComponents())
+        assertThat(AccountSummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly(
                         "username", "role", "enabled", "locked", "lockedUntil", "createdAt");

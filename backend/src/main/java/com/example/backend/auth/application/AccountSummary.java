@@ -12,6 +12,11 @@ import java.time.Instant;
  * added to {@link com.example.backend.auth.domain.Account} and simply not
  * mirrored here.
  *
+ * <p>It is also the shape the administrative endpoints put on the wire, serialised
+ * as-is by {@code AdminAccountController} rather than copied into a response
+ * record of the same six fields. So a field added here is published: the openapi
+ * {@code AccountSummary} schema is this record's documented counterpart.
+ *
  * <p>Both refusal mechanisms are reported, because either one alone would
  * mislead. An account locked out right now looks healthy if only {@code enabled}
  * is shown, and there would be no way to tell which accounts need unlocking.

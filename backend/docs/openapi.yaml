@@ -227,7 +227,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/AdminAccountResponse"
+                  $ref: "#/components/schemas/AccountSummary"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -372,7 +372,7 @@ components:
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/AdminAccountResponse"
+            $ref: "#/components/schemas/AccountSummary"
     UnknownAccount:
       description: |
         No account has that username. The body is empty; the caller is already an
@@ -411,7 +411,7 @@ components:
           type: string
           enum: [USER, ADMIN]
           description: The account role used for authorization.
-    AdminAccountResponse:
+    AccountSummary:
       type: object
       required: [username, role, enabled, locked, lockedUntil, createdAt]
       properties:

@@ -1,17 +1,17 @@
 # Graph Report - monorepo-base  (2026-09-25)
 
 ## Corpus Check
-- 143 files · ~70,173 words
+- 143 files · ~70,453 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 14 file(s) not represented in the graph (top: (none) 9, .example 1, .properties 1)
 
 ## Summary
-- 1274 nodes · 2825 edges · 84 communities (67 shown, 17 thin omitted)
+- 1272 nodes · 2814 edges · 80 communities (62 shown, 18 thin omitted)
 - Extraction: 85% EXTRACTED · 15% INFERRED · 0% AMBIGUOUS · INFERRED: 410 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d431d67c`
+- Built from commit: `c8295c81`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -23,7 +23,7 @@
 - auth.helpers.ts
 - api.ts
 - Workflow
-- SessionController.java
+- Backend API Contract (OpenAPI 3.1)
 - AccountTests
 - devDependencies
 - stryker.config.json
@@ -43,9 +43,9 @@
 - .servesSpaShell
 - EC2Instance
 - DBInstance RDS PostgreSQL
-- route-guards.tsx
+- App.tsx
 - infra/ Is Deployment Material Not An App
-- showcase.test.tsx
+- accounts.test.tsx
 - tsconfig.test.json
 - auth-context-value.ts
 - Domain Documentation Guide
@@ -53,7 +53,7 @@
 - Baseline Full Extensive Test Levels
 - PIT Scoped To Touched Tests
 - Graphify Runner Agent
-- UserCounter
+- UserCounterService
 - cleanup.sh
 - get-vpc-info.sh
 - Backend Semgrep Baseline Gate
@@ -71,57 +71,53 @@
 - Test Static index.html Stub
 - com.example:backend
 - org.junit.jupiter.api.Test
-- SecurityConfig.java
-- 1. Count login attempts on the login path
+- AuthController.java
+- .require
 - dev-stop.sh
 - graphify-guard.sh
 - graphify-refresh.sh
 - AccountRole
-- SessionControllerTests.java
+- UserCounterEntity
 - accounts.tsx
+- java.security.Principal
 - ArchitectureTest.java
 - Account
-- SpaFrontendTests
-- AccountService
-- InMemoryAccountRepository.java
-- MutableClock
+- LockoutPolicy
+- UserCounter
+- AccountService.java
+- SecurityConfig.java
 - eslint.config.js
-- AccountServiceTests
+- org.junit.jupiter.api.BeforeEach
 - dependencies
 - vite.config.ts
 - engines
 - overrides
 - @testing-library/jest-dom
 - AuthControllerTests.java
-- SecurityConfigTests
-- use-session-request.test.tsx
-- org.springframework.boot.test.context.SpringBootTest
-- App.tsx
-- .inMemoryAccountSessions
 
 ## God Nodes (most connected - your core abstractions)
 1. `Account` - 47 edges
-2. `AccountAdministrationServiceTests` - 39 edges
-3. `AccountRole` - 28 edges
-4. `AdminAccountEndpointTests` - 24 edges
-5. `SecurityConfigTests` - 23 edges
-6. `AccountTests` - 22 edges
-7. `AccountSummary` - 21 edges
+2. `AccountAdministrationServiceTests` - 40 edges
+3. `AccountRole` - 26 edges
+4. `AccountSummary` - 24 edges
+5. `AdminAccountEndpointTests` - 24 edges
+6. `SecurityConfigTests` - 23 edges
+7. `AccountTests` - 22 edges
 8. `AccountRepository` - 21 edges
 9. `AuthControllerTests` - 21 edges
 10. `InMemoryAccountRepository` - 20 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Consequences` --references--> `LoginLockoutTests`  [INFERRED]
-  docs/adr/0001-count-login-attempts-on-the-login-path.md → backend/src/test/java/com/example/backend/auth/application/LoginLockoutTests.java
 - `getCurrentUser operation` --shares_data_with--> `getCurrentUser()`  [INFERRED]
-  backend/docs/openapi.yaml → frontend/src/auth/api.ts
-- `logout operation` --shares_data_with--> `logout()`  [INFERRED]
   backend/docs/openapi.yaml → frontend/src/auth/api.ts
 - `Sessions` --references--> `resolveSessionRoute()`  [INFERRED]
   CONTEXT.md → frontend/src/auth/session-route.ts
 - `Frontend Local Semgrep Ruleset` --semantically_similar_to--> `Backend Semgrep Baseline Gate`  [INFERRED] [semantically similar]
   frontend/AGENTS.md → backend/AGENTS.md
+- `Top recommendation` --references--> `AccountSummary`  [INFERRED]
+  architecture-review.md → backend/src/main/java/com/example/backend/auth/application/AccountSummary.java
+- `08 — Seeded accounts are identified by position, not by role — Strong (narrowed)` --references--> `AccountRole`  [INFERRED]
+  architecture-review.md → backend/src/main/java/com/example/backend/auth/domain/AccountRole.java
 
 ## Import Cycles
 - None detected.
@@ -132,23 +128,23 @@
 - **Local Compose Versus Cloud Datastores** — backend_compose_postgres_service, backend_compose_redis_service, infra_infrastructure_dbinstance, infra_infrastructure_rediscluster [INFERRED 0.85]
 - **Published Credential Exposure Surface** — agents_published_credentials_warning, backend_readme_dev_default_credentials, infra_infrastructure_app_credential_parameters, backend_semgrep_rules_service_security_be_hardcoded_credential_literal [INFERRED 0.85]
 
-## Communities (84 total, 17 thin omitted)
+## Communities (80 total, 18 thin omitted)
 
 ### Community 0 - "sources.ts"
 Cohesion: 0.17
 Nodes (13): blankComments(), files, sources, configSource, routes, testFiles, readSource(), readSources() (+5 more)
 
 ### Community 1 - "AccountRepository"
-Cohesion: 0.19
-Nodes (3): AccountRepository, AccountSeedConfigTests, org.springframework.security.crypto.password.PasswordEncoder
+Cohesion: 0.14
+Nodes (7): AccountRepository, AccountSeedConfigTests, comparator, hashmap, list, objects, optional
 
 ### Community 2 - "AdminAccountEndpointTests.java"
-Cohesion: 0.12
-Nodes (23): containsstring, content, cookie, csrftoken, filter, filterchainproxy, forwardedurl, get (+15 more)
+Cohesion: 0.05
+Nodes (46): assertthatcode, autowired, Override, SpaErrorViewResolver, SessionRegistryConfiguration, BackendApplicationTests, SpaFrontendTests, chronounit (+38 more)
 
 ### Community 3 - "showcase.tsx"
-Cohesion: 0.26
-Nodes (14): One-Way Import Direction Through the Layers, components/ui Is a Package Placeholder, Button(), ButtonProps, buttonVariants, Card(), CardContent(), CardDescription() (+6 more)
+Cohesion: 0.24
+Nodes (16): One-Way Import Direction Through the Layers, components/ui Is a Package Placeholder, Button(), ButtonProps, buttonVariants, Card(), CardContent(), CardDescription() (+8 more)
 
 ### Community 4 - "auth.helpers.ts"
 Cohesion: 0.05
@@ -156,15 +152,15 @@ Nodes (46): Colors Come From index.css Tokens, aliases, components, hooks, lib, 
 
 ### Community 5 - "api.ts"
 Cohesion: 0.17
-Nodes (18): decodeUser(), getCurrentUser(), login(), logout(), apiFetchMock, TEST_LOGIN, useAuthState(), SessionRequest (+10 more)
+Nodes (14): logout operation, decodeUser(), getCurrentUser(), login(), logout(), apiFetchMock, TEST_LOGIN, apiFetch() (+6 more)
 
 ### Community 6 - "Workflow"
 Cohesion: 0.08
 Nodes (22): Fix Recommendation Patterns, Report Template, Trend Comparison (`--history`), Cosmic Ray / Python, Custom, mutmut / Python, PIT / JVM, Stryker.NET / .NET (+14 more)
 
-### Community 7 - "SessionController.java"
-Cohesion: 0.09
-Nodes (25): Backend API Contract (OpenAPI 3.1), X-XSRF-TOKEN Header Parameter, deleteSession operation, getCurrentUser operation, getHealth operation, getSession operation, login operation, logout operation (+17 more)
+### Community 7 - "Backend API Contract (OpenAPI 3.1)"
+Cohesion: 0.14
+Nodes (15): Backend API Contract (OpenAPI 3.1), X-XSRF-TOKEN Header Parameter, getCurrentUser operation, getHealth operation, getSession operation, login operation, JSESSIONID Session Cookie Security Scheme, updateSession operation (+7 more)
 
 ### Community 9 - "devDependencies"
 Cohesion: 0.07
@@ -183,24 +179,24 @@ Cohesion: 0.25
 Nodes (8): Frontend Local Semgrep Ruleset, fe-dangerously-set-inner-html, fe-document-write, fe-eval-or-dynamic-function, fe-hardcoded-credential, fe-inner-html-assignment, fe-target-blank-without-noopener, Local Ruleset Keeps the Scan Offline and Deterministic
 
 ### Community 13 - "package.json"
-Cohesion: 0.09
-Nodes (22): name, packageManager, private, type, version, class-variance-authority, clsx, dependency-cruiser (+14 more)
+Cohesion: 0.10
+Nodes (20): name, packageManager, private, type, version, class-variance-authority, dependency-cruiser, eslint (+12 more)
 
 ### Community 14 - "scripts"
 Cohesion: 0.11
 Nodes (19): scripts, analyze, build, dev, format, format:check, lint, preview (+11 more)
 
 ### Community 15 - "AccountSummary"
-Cohesion: 0.07
-Nodes (25): 03 — The runtime configuration surface has no module at all — Strong (new load-bearing keys), 04 — The Counter slice is seven modules over a two-field row — Worth exploring (contrast sharpened again), 06 — A template whose identity has no seam — Speculative (unchanged), 10 — The role vocabulary is authored on both sides of the contract — Speculative (unchanged), 12 — The account row is still copied for the wire — Strong (narrowed), 13 — Schema evolution has no module — Strong (scope halved, core untouched), Architecture review — deepening opportunities, Open candidates (+17 more)
+Cohesion: 0.10
+Nodes (18): 03 — The runtime configuration surface has no module at all — Strong (new load-bearing keys), 04 — The Counter slice is seven modules over a two-field row — Worth exploring (contrast sharpened again), 06 — A template whose identity has no seam — Speculative (unchanged), 10 — The role vocabulary is authored on both sides of the contract — Speculative (unchanged), ~~12 — The account row is still copied for the wire~~ ✅ (uncommitted), 13 — Schema evolution has no module — Strong (scope halved, core untouched), Architecture review — deepening opportunities, Open candidates (+10 more)
 
 ### Community 16 - "compilerOptions"
 Cohesion: 0.12
 Nodes (16): compilerOptions, allowImportingTsExtensions, isolatedModules, lib, module, moduleDetection, moduleResolution, noEmit (+8 more)
 
 ### Community 17 - "IndexedSessions"
-Cohesion: 0.14
-Nodes (14): arraylist, AccountSessionsAdapter, Override, AccountSessionsAdapterTests, IndexedSessions, Override, collectors, linkedhashmap (+6 more)
+Cohesion: 0.15
+Nodes (13): arraylist, AccountSessionsAdapter, Override, AccountSessionsAdapterTests, IndexedSessions, Override, collectors, linkedhashmap (+5 more)
 
 ### Community 18 - "lib.sh"
 Cohesion: 0.24
@@ -227,7 +223,7 @@ Cohesion: 0.25
 Nodes (9): ALBListener, ALBTargetGroup, TargetGroupAttachment, ALB To EC2 To RDS And Redis Topology, AWS CloudFormation Deployment Guide, Stack Parameters Reference, Existing VPC Prerequisite, Infra Troubleshooting Runbook (+1 more)
 
 ### Community 24 - ".servesSpaShell"
-Cohesion: 0.12
+Cohesion: 0.13
 Nodes (13): SpaRoutes, ReservedServerPaths, SpaRoutesTests, SpaShell, Accounts and identity provisioning, CONTEXT, Current account model, Request paths (+5 more)
 
 ### Community 25 - "EC2Instance"
@@ -238,25 +234,25 @@ Nodes (16): No Parent-Relative Paths From An App, SPA Build Contract, with-front
 Cohesion: 0.29
 Nodes (8): docs/openapi.yaml API Contract, Postgres Compose Service, Auth API Endpoints, Count API Endpoints, Per-User Counts In PostgreSQL, Session API Endpoints, DBInstance RDS PostgreSQL, DBSubnetGroup
 
-### Community 27 - "route-guards.tsx"
-Cohesion: 0.23
-Nodes (11): AuthRole, AuthStatus, useAuth(), SessionRoute(), DEFAULT_DESTINATION, LOGIN_PATH, resolveSessionRoute(), SessionRequirement (+3 more)
+### Community 27 - "App.tsx"
+Cohesion: 0.15
+Nodes (17): AuthRole, AuthStatus, useAuth(), GuestRoute(), ProtectedRoute(), SessionRoute(), DEFAULT_DESTINATION, LOGIN_PATH (+9 more)
 
 ### Community 28 - "infra/ Is Deployment Material Not An App"
 Cohesion: 0.29
 Nodes (7): infra/ Is Deployment Material Not An App, infra-up Targets Are Local Docker Deps, Monorepo Layout Contract, CONTEXT.md Domain Glossary, gh CLI Conventions, GitHub Issues As Issue Tracker, PRs As Request Surface Flag
 
-### Community 29 - "showcase.test.tsx"
-Cohesion: 0.13
-Nodes (5): apiFetchMock, auth, @testing-library/react, @testing-library/user-event, vitest
+### Community 29 - "accounts.test.tsx"
+Cohesion: 0.09
+Nodes (12): Frontend SPA Entry HTML, App(), frontend_src_index, container, apiFetchMock, auth, apiFetchMock, auth (+4 more)
 
 ### Community 30 - "tsconfig.test.json"
 Cohesion: 0.29
 Nodes (6): compilerOptions, types, exclude, extends, include, ./tsconfig.json
 
 ### Community 31 - "auth-context-value.ts"
-Cohesion: 0.22
-Nodes (7): AuthUser, AuthContext, AuthContextState, AuthContextValue, AdminAccount, apiFetchMock, auth
+Cohesion: 0.26
+Nodes (9): AuthUser, AuthProvider(), AuthContext, AuthContextState, AuthContextValue, apiFetchMock, request(), state (+1 more)
 
 ### Community 32 - "Domain Documentation Guide"
 Cohesion: 0.33
@@ -274,9 +270,9 @@ Nodes (8): ArchUnit Baseline Gate, Always ./mvnw Never Bare mvn, Trace Before Yo
 Cohesion: 0.40
 Nodes (5): Graphify Runner Agent, Recorded Interpreter Guard, Graph Shrink Refusal, Graphify Refresh Before Commit, CLAUDE.md Graphify Override
 
-### Community 37 - "UserCounter"
-Cohesion: 0.05
-Nodes (26): getCount operation, incrementCount operation, resetCount operation, UserCounterService, CountResponse, UserCounterController, UserCounter, UserCounterRepository (+18 more)
+### Community 37 - "UserCounterService"
+Cohesion: 0.16
+Nodes (6): incrementCount operation, UserCounterService, UserCounterRepository, UserCounterServiceTests, org.springframework.boot.test.context.SpringBootTest, org.springframework.transaction.annotation.Transactional
 
 ### Community 38 - "cleanup.sh"
 Cohesion: 0.70
@@ -303,68 +299,68 @@ Cohesion: 0.33
 Nodes (7): Backend Architecture Boundaries, Redis Compose Service, Spring Session In Redis, Flag ADR Conflicts Explicitly, docs/adr Decision Records, RedisCluster ElastiCache, RedisSubnetGroup
 
 ### Community 50 - "AccountEntity"
-Cohesion: 0.10
-Nodes (15): AccountJpaRepository, AccountPersistenceAdapter, Override, AccountEntity, column, enumerated, enumtype, id (+7 more)
+Cohesion: 0.11
+Nodes (11): AccountJpaRepository, AccountPersistenceAdapter, Override, AccountEntity, column, enumerated, enumtype, id (+3 more)
 
 ### Community 56 - "org.junit.jupiter.api.Test"
-Cohesion: 0.07
-Nodes (16): ~~09 — The login path must remember to count its own attempts~~ ✅ `d72e3c5`, ~~11 — Two administrative namespaces, one of them dead~~ ✅ `c74b917` + `fa2da47`, ~~14 — Account status is enforced only at authentication~~ ✅ `d431d67`, ~~15 — The indexed-session fact is authored five times, one of them wrongly~~ ✅ (uncommitted), 16 — Session revocation is a non-transactional write inside a transaction — Worth exploring (new), What shipped, and how well, AccountAdministrationService, AccountSessions (+8 more)
+Cohesion: 0.06
+Nodes (16): ~~11 — Two administrative namespaces, one of them dead~~ ✅ `c74b917` + `fa2da47`, ~~14 — Account status is enforced only at authentication~~ ✅ `d431d67`, ~~15 — The indexed-session fact is authored five times, one of them wrongly~~ ✅ (uncommitted), 16 — Session revocation is a non-transactional write inside a transaction — Worth exploring (new), What shipped, and how well, AccountAdministrationService, Override, AccountSessions (+8 more)
 
-### Community 57 - "SecurityConfig.java"
-Cohesion: 0.07
-Nodes (33): authenticationentrypoint, authenticationexception, LoginService, LoginLockoutConfig, SecurityConfig, AuthController, LoginRequest, UserResponse (+25 more)
+### Community 57 - "AuthController.java"
+Cohesion: 0.06
+Nodes (36): deleteSession operation, UnknownAccountException, UnsafeAccountChangeException, AdminAccountController, AuthController, LoginRequest, UserResponse, UserCounterController (+28 more)
 
-### Community 58 - "1. Count login attempts on the login path"
-Cohesion: 0.29
-Nodes (6): 1. Count login attempts on the login path, Alternatives considered, Consequences, Context, Decision, Status
+### Community 58 - ".require"
+Cohesion: 0.12
+Nodes (10): ~~09 — The login path must remember to count its own attempts~~ ✅ `d72e3c5`, LoginAttemptServiceTests, LoginLockoutTests, 1. Count login attempts on the login path, Alternatives considered, Consequences, Context, Decision (+2 more)
 
 ### Community 59 - "dev-stop.sh"
 Cohesion: 0.60
 Nodes (3): pid_in_repo(), dev-stop.sh script, terminate()
 
 ### Community 62 - "AccountRole"
-Cohesion: 0.19
-Nodes (11): assertthat, assertthatthrownby, AccountRole, ADMIN, USER, LockoutPolicy, duration, instant (+3 more)
+Cohesion: 0.18
+Nodes (11): assertthat, assertthatthrownby, AccountRole, ADMIN, USER, Override, MutableClock, duration (+3 more)
 
-### Community 63 - "SessionControllerTests.java"
-Cohesion: 0.40
-Nodes (4): assertthatcode, chronounit, mockhttpservletrequest, mockhttpsession
+### Community 63 - "UserCounterEntity"
+Cohesion: 0.16
+Nodes (10): UserCounterEntity, UserCounterJpaRepository, Override, UserCounterPersistenceAdapter, lockmodetype, org.springframework.data.jpa.repository.JpaRepository, org.springframework.data.jpa.repository.Lock, org.springframework.data.jpa.repository.Query (+2 more)
 
 ### Community 64 - "accounts.tsx"
-Cohesion: 0.36
-Nodes (8): AccountAction, Accounts(), actionFailure(), decodeAccount(), decodeAccounts(), formatDate(), formatInstant(), StatusCell()
+Cohesion: 0.20
+Nodes (14): useAuthState(), SessionRequest, SessionResult, useSessionRequest(), ApiDecoder, ApiRequestInit, AccountAction, Accounts() (+6 more)
+
+### Community 65 - "java.security.Principal"
+Cohesion: 0.18
+Nodes (7): getCount operation, resetCount operation, CountResponse, Override, RecordingCounterService, UserCounterControllerTests, java.security.Principal
 
 ### Community 66 - "ArchitectureTest.java"
 Cohesion: 0.10
 Nodes (21): ArchitectureTest, classes, com.tngtech.archunit.junit.AnalyzeClasses, com.tngtech.archunit.lang.ArchRule, component, configuration, controller, entity (+13 more)
 
 ### Community 67 - "Account"
-Cohesion: 0.24
+Cohesion: 0.38
 Nodes (3): Account, InMemoryAccountRepository, Override
 
-### Community 69 - "SpaFrontendTests"
-Cohesion: 0.20
-Nodes (7): Override, SpaErrorViewResolver, SpaFrontendTests, org.springframework.boot.webmvc.autoconfigure.error.ErrorViewResolver, org.springframework.http.HttpStatus, org.springframework.web.servlet.ModelAndView, requestdispatcher
+### Community 68 - "LockoutPolicy"
+Cohesion: 0.28
+Nodes (5): LoginLockoutConfig, SecurityConfig, LockoutPolicy, org.springframework.context.annotation.Bean, org.springframework.context.annotation.Configuration
 
-### Community 70 - "AccountService"
-Cohesion: 0.36
-Nodes (7): accountseed, 08 — Seeded accounts are identified by position, not by role — Strong (narrowed), AccountSeed, AccountService, AccountSeedConfig, org.springframework.boot.ApplicationRunner, value
+### Community 70 - "AccountService.java"
+Cohesion: 0.19
+Nodes (12): accountseed, 08 — Seeded accounts are identified by position, not by role — Strong (narrowed), AccountSeed, AccountService, AccountSeedConfig, org.springframework.boot.ApplicationRunner, org.springframework.security.core.userdetails.UserDetails, org.springframework.security.core.userdetails.UserDetailsService (+4 more)
 
-### Community 71 - "InMemoryAccountRepository.java"
-Cohesion: 0.32
-Nodes (5): comparator, hashmap, list, objects, optional
-
-### Community 72 - "MutableClock"
-Cohesion: 0.29
-Nodes (4): Override, MutableClock, zoneid, zoneoffset
+### Community 71 - "SecurityConfig.java"
+Cohesion: 0.18
+Nodes (10): authenticationentrypoint, bcryptpasswordencoder, changesessionidauthenticationstrategy, cookiecsrftokenrepository, daoauthenticationprovider, httpmethod, httpsessionsecuritycontextrepository, providermanager (+2 more)
 
 ### Community 73 - "eslint.config.js"
 Cohesion: 0.33
 Nodes (5): @eslint/js, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, typescript-eslint
 
-### Community 75 - "AccountServiceTests"
+### Community 75 - "org.junit.jupiter.api.BeforeEach"
 Cohesion: 0.24
-Nodes (4): Override, AccountServiceTests, Override, PrefixPasswordEncoder
+Nodes (3): Override, PrefixPasswordEncoder, org.junit.jupiter.api.BeforeEach
 
 ### Community 76 - "dependencies"
 Cohesion: 0.29
@@ -379,28 +375,8 @@ Cohesion: 0.67
 Nodes (3): engines, node, npm
 
 ### Community 82 - "AuthControllerTests.java"
-Cohesion: 0.14
-Nodes (15): assertthatnoexception, authentication, authenticationmanager, LoginAttemptService, badcredentialsexception, clock, defaultcookieserializer, inmemoryuserdetailsmanager (+7 more)
-
-### Community 84 - "SecurityConfigTests"
-Cohesion: 0.12
-Nodes (5): ProbeController, SecurityConfigTests, org.springframework.mock.web.MockHttpSession, org.springframework.test.web.servlet.MockMvc, org.springframework.web.bind.annotation.GetMapping
-
-### Community 85 - "use-session-request.test.tsx"
-Cohesion: 0.28
-Nodes (7): apiFetchMock, request(), state, wrapper(), useSessionRequest(), decodeCount(), Showcase()
-
-### Community 87 - "org.springframework.boot.test.context.SpringBootTest"
-Cohesion: 0.36
-Nodes (6): autowired, BackendApplicationTests, classmode, org.springframework.boot.test.context.SpringBootTest, org.springframework.security.web.SecurityFilterChain, org.springframework.test.annotation.DirtiesContext
-
-### Community 89 - "App.tsx"
-Cohesion: 0.17
-Nodes (10): Frontend SPA Entry HTML, App(), AuthProvider(), GuestRoute(), ProtectedRoute(), frontend_src_index, container, Login() (+2 more)
-
-### Community 90 - ".inMemoryAccountSessions"
-Cohesion: 0.50
-Nodes (3): SessionRegistryConfiguration, org.springframework.boot.test.context.TestConfiguration, org.springframework.context.annotation.Primary
+Cohesion: 0.13
+Nodes (18): assertthatnoexception, authentication, authenticationexception, authenticationmanager, LoginAttemptService, LoginService, badcredentialsexception, clock (+10 more)
 
 ## Ambiguous Edges - Review These
 - `Frontend Technology Stack` → `Claim: No Router Data Layer Or Auth`  [AMBIGUOUS]
@@ -411,7 +387,7 @@ Nodes (3): SessionRegistryConfiguration, org.springframework.boot.test.context.T
 ## Knowledge Gaps
 - **254 isolated node(s):** `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend`, `semgrep.sh script`, `USER` (+249 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 399 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **18 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -420,13 +396,13 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **What is the exact relationship between `Shared Playwright storageState for Auth` and `login operation`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `Backend API Contract (OpenAPI 3.1)` connect `SessionController.java` to `UserCounter`?**
-  _High betweenness centrality (0.285) - this node is a cross-community bridge._
-- **Why does `login operation` connect `SessionController.java` to `auth.helpers.ts`, `api.ts`?**
-  _High betweenness centrality (0.171) - this node is a cross-community bridge._
-- **Why does `Shared Playwright storageState for Auth` connect `auth.helpers.ts` to `SessionController.java`?**
-  _High betweenness centrality (0.131) - this node is a cross-community bridge._
-- **Are the 2 inferred relationships involving `AccountAdministrationServiceTests` (e.g. with `~~14 — Account status is enforced only at authentication~~ ✅ `d431d67`` and `16 — Session revocation is a non-transactional write inside a transaction — Worth exploring (new)`) actually correct?**
-  _`AccountAdministrationServiceTests` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `~~12 — The account row is still copied for the wire~~ ✅ (uncommitted)` connect `AccountSummary` to `org.junit.jupiter.api.Test`, `ArchitectureTest.java`?**
+  _High betweenness centrality (0.222) - this node is a cross-community bridge._
+- **Why does `AdminAccount` connect `AccountSummary` to `accounts.tsx`, `App.tsx`, `accounts.test.tsx`?**
+  _High betweenness centrality (0.218) - this node is a cross-community bridge._
+- **Why does `Backend API Contract (OpenAPI 3.1)` connect `Backend API Contract (OpenAPI 3.1)` to `java.security.Principal`, `AuthController.java`, `api.ts`, `UserCounterService`?**
+  _High betweenness centrality (0.089) - this node is a cross-community bridge._
+- **Are the 3 inferred relationships involving `AccountAdministrationServiceTests` (e.g. with `~~12 — The account row is still copied for the wire~~ ✅ (uncommitted)` and `~~14 — Account status is enforced only at authentication~~ ✅ `d431d67``) actually correct?**
+  _`AccountAdministrationServiceTests` has 3 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `graphify-guard.sh script`, `graphify-refresh.sh script`, `com.example:backend` to the rest of the system?**
   _254 weakly-connected nodes found - possible documentation gaps or missing edges._

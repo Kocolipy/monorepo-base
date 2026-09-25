@@ -360,9 +360,9 @@
     "semantic_hash": "eef7ccea4acd3f0f56110172775d8910"
   },
   "backend/docs/openapi.yaml": {
-    "mtime": 1790245250.4968133,
-    "seen": 1790245463.375513,
-    "ast_hash": "c9eef8a337585631e69465c3958a5738",
+    "mtime": 1790297977.3154294,
+    "seen": 1790298120.07113,
+    "ast_hash": "0207c5f7fdb5307038123804eb340cb7",
     "semantic_hash": ""
   },
   "backend/src/main/resources/application.yaml": {
@@ -624,9 +624,9 @@
     "semantic_hash": ""
   },
   "CONTEXT.md": {
-    "mtime": 1790297535.6378355,
-    "seen": 1790297541.4286566,
-    "ast_hash": "c77a95f1a40e4d43258a4667d7a16839",
+    "mtime": 1790298092.744108,
+    "seen": 1790298120.0711255,
+    "ast_hash": "ad7e584cccc58c626637826177659868",
     "semantic_hash": ""
   },
   "frontend/test/e2e/login.spec.ts": {
@@ -684,9 +684,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/AccountSummary.java": {
-    "mtime": 1790240018.3772197,
-    "seen": 1790241494.5152597,
-    "ast_hash": "5d9fe886fb416bcd0855eea5e578b067",
+    "mtime": 1790297985.306075,
+    "seen": 1790298120.0710347,
+    "ast_hash": "aa450711d5bbc09ac39bb0a2a16334d7",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginAttemptService.java": {
@@ -852,9 +852,9 @@
     "semantic_hash": ""
   },
   "architecture-review.md": {
-    "mtime": 1790297527.90178,
-    "seen": 1790297541.42866,
-    "ast_hash": "82000b6fa18bfb10127a6ff4eda0f828",
+    "mtime": 1790298112.3818133,
+    "seen": 1790298120.0711277,
+    "ast_hash": "aacc2699c7d7629653aff5308a5033d6",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginService.java": {
@@ -864,9 +864,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/controller/AdminAccountController.java": {
-    "mtime": 1790244793.5938792,
-    "seen": 1790245463.3754375,
-    "ast_hash": "3683de8afa520f52b878a311e1cd5aa3",
+    "mtime": 1790297946.325704,
+    "seen": 1790298120.0710437,
+    "ast_hash": "870868cd9b92c1ef9b89a3b00b02e985",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/application/LoginLockoutTests.java": {
@@ -876,9 +876,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AdminAccountControllerTests.java": {
-    "mtime": 1790245004.2510777,
-    "seen": 1790245463.3754601,
-    "ast_hash": "1b06f882bca4c5d620acc6034d23a2cb",
+    "mtime": 1790297970.961643,
+    "seen": 1790298120.0710704,
+    "ast_hash": "dd5b92218890c9362e039a0601cc193e",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AdminAccountEndpointTests.java": {

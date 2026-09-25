@@ -4,9 +4,7 @@ import com.example.backend.auth.application.AccountAdministrationService;
 import com.example.backend.auth.application.AccountSummary;
 import com.example.backend.auth.application.UnknownAccountException;
 import com.example.backend.auth.application.UnsafeAccountChangeException;
-import com.example.backend.auth.domain.AccountRole;
 import java.security.Principal;
-import java.time.Instant;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,6 +28,13 @@ import org.springframework.web.bind.annotation.RestController;
  * whether it is being penalised for failed logins right now. Collapsing them
  * would make an administrator restoring access silently forgive a failure run
  * they never looked at.
+ *
+ * <p>{@link AccountSummary} is returned as the wire shape rather than copied into
+ * a response type of this adapter's own. The copy would have been field-identical
+ * and would have had no property to enforce: the guarantee that no password hash
+ * can reach a client belongs to {@code AccountSummary}, which has no field one
+ * could be written into, and a second record restating its fields only adds a
+ * place for the two to drift.
  */
 @RestController
 @RequestMapping("/api/admin/accounts")
@@ -42,8 +47,8 @@ public class AdminAccountController {
     }
 
     @GetMapping
-    public List<AdminAccountResponse> listAccounts() {
-        return accounts.listAccounts().stream().map(AdminAccountResponse::of).toList();
+    public List<AccountSummary> listAccounts() {
+        return accounts.listAccounts();
     }
 
     /**
@@ -52,20 +57,20 @@ public class AdminAccountController {
      * holder is {@code AccountAdministrationService}'s to define.
      */
     @PostMapping("/{username}/disable")
-    public AdminAccountResponse disable(@PathVariable String username, Principal principal) {
-        return AdminAccountResponse.of(accounts.disable(username, principal.getName()));
+    public AccountSummary disable(@PathVariable String username, Principal principal) {
+        return accounts.disable(username, principal.getName());
     }
 
     /** Reopens an account to logins, leaving any lockout it is serving standing. */
     @PostMapping("/{username}/enable")
-    public AdminAccountResponse enable(@PathVariable String username) {
-        return AdminAccountResponse.of(accounts.enable(username));
+    public AccountSummary enable(@PathVariable String username) {
+        return accounts.enable(username);
     }
 
     /** Ends a lockout early. Says nothing about whether the account is enabled. */
     @PostMapping("/{username}/unlock")
-    public AdminAccountResponse unlock(@PathVariable String username) {
-        return AdminAccountResponse.of(accounts.unlock(username));
+    public AccountSummary unlock(@PathVariable String username) {
+        return accounts.unlock(username);
     }
 
     @ExceptionHandler(UnknownAccountException.class)
@@ -82,28 +87,5 @@ public class AdminAccountController {
     @ExceptionHandler(UnsafeAccountChangeException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public void unsafeChange() {
-    }
-
-    /**
-     * The wire shape. It is built from an {@link AccountSummary}, which has no
-     * password hash to copy, so this response cannot carry one.
-     */
-    public record AdminAccountResponse(
-            String username,
-            AccountRole role,
-            boolean enabled,
-            boolean locked,
-            Instant lockedUntil,
-            Instant createdAt) {
-
-        static AdminAccountResponse of(AccountSummary summary) {
-            return new AdminAccountResponse(
-                    summary.username(),
-                    summary.role(),
-                    summary.enabled(),
-                    summary.locked(),
-                    summary.lockedUntil(),
-                    summary.createdAt());
-        }
     }
 }
