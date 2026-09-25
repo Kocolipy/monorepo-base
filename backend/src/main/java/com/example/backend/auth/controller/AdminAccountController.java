@@ -63,14 +63,14 @@ public class AdminAccountController {
 
     /** Reopens an account to logins, leaving any lockout it is serving standing. */
     @PostMapping("/{username}/enable")
-    public AccountSummary enable(@PathVariable String username) {
-        return accounts.enable(username);
+    public AccountSummary enable(@PathVariable String username, Principal principal) {
+        return accounts.enable(username, principal.getName());
     }
 
     /** Ends a lockout early. Says nothing about whether the account is enabled. */
     @PostMapping("/{username}/unlock")
-    public AccountSummary unlock(@PathVariable String username) {
-        return accounts.unlock(username);
+    public AccountSummary unlock(@PathVariable String username, Principal principal) {
+        return accounts.unlock(username, principal.getName());
     }
 
     @ExceptionHandler(UnknownAccountException.class)

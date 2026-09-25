@@ -54,7 +54,11 @@ class LoginLockoutTests {
         AccountService users = new AccountService(accounts, passwordEncoder, clock);
         login = new LoginService(
                 config.authenticationManager(users, passwordEncoder),
-                new LoginAttemptService(accounts, new LockoutPolicy(5, LOCKOUT), clock),
+                new LoginAttemptService(
+                        accounts,
+                        new LockoutPolicy(5, LOCKOUT),
+                        new com.example.backend.audit.RecordingAuditTrail(),
+                        clock),
                 users);
     }
 

@@ -1,10 +1,14 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.observability.LogEvent;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
@@ -79,7 +83,7 @@ public class LoginService {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
         } catch (AuthenticationException refused) {
-            attempts.recordFailure(username);
+            attempts.recordFailure(username, refusalReason(refused));
             // The exception's own type, not its message: a message can carry the
             // submitted value, and a type name is this service's own vocabulary.
             log.atWarn()
@@ -98,6 +102,30 @@ public class LoginService {
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("Login accepted");
         return new LoginOutcome(authentication, accounts.resolveAccountId(authentication.getName()));
+    }
+
+    /**
+     * The refusal as the audit trail's own vocabulary.
+     *
+     * <p>Translated here, at the one place a Spring Security
+     * {@code AuthenticationException} is caught, so no other layer has to know the
+     * library's exception hierarchy and no exception object — whose message may
+     * name the submitted username — travels further than this method.
+     *
+     * <p>{@link AuditRefusalReason#UNKNOWN_ACCOUNT} is deliberately not produced
+     * here. Spring Security hides a missing account behind
+     * {@code BadCredentialsException} so that the two are indistinguishable to the
+     * caller, which is the behaviour this service wants; whether the username named
+     * an account is settled by {@link LoginAttemptService}, which has to look the
+     * account up anyway and can tell without guessing from an exception type.
+     */
+    private static AuditRefusalReason refusalReason(AuthenticationException refused) {
+        return switch (refused) {
+            case LockedException locked -> AuditRefusalReason.ACCOUNT_LOCKED;
+            case DisabledException disabled -> AuditRefusalReason.ACCOUNT_DISABLED;
+            case BadCredentialsException wrong -> AuditRefusalReason.BAD_CREDENTIALS;
+            default -> AuditRefusalReason.OTHER;
+        };
     }
 
     /**

@@ -33,6 +33,26 @@ public final class LogEvent {
 
     public static final String FAILURE = "failure";
 
+    /**
+     * Which audit operation a record is about, as an
+     * {@link com.example.backend.audit.domain.AuditOperation} name. Carried by the
+     * operational alert raised when an event could not be appended, so the alert
+     * says which record is missing from the trail.
+     */
+    public static final String AUDIT_OPERATION = "audit.operation";
+
+    /** The configured audit retention window, as an ISO-8601 duration. */
+    public static final String RETENTION_PERIOD = "audit.retention.period";
+
+    /** The cron expression the retention job runs on. */
+    public static final String RETENTION_SCHEDULE = "audit.retention.schedule";
+
+    /** How many aged-out events one retention run removed. */
+    public static final String RETENTION_DELETED_ROWS = "audit.retention.deleted_rows";
+
+    /** How long one retention run took, in milliseconds. */
+    public static final String RETENTION_DURATION_MS = "audit.retention.duration_ms";
+
     private LogEvent() {
     }
 }

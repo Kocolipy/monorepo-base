@@ -3,6 +3,10 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.RecordingAuditTrail.Recorded;
+import com.example.backend.audit.domain.AuditLockoutLift;
+import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -25,12 +29,13 @@ class AccountAdministrationServiceTests {
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
     private final MutableClock clock = new MutableClock(NOW);
+    private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private AccountAdministrationService service;
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, sessions, transaction, clock);
+        service = new AccountAdministrationService(accounts, sessions, transaction, audit, clock);
     }
 
     // Reviewing who has access
@@ -328,7 +333,7 @@ class AccountAdministrationServiceTests {
     void enablingReopensTheAccount() {
         accounts.save(account("bob", AccountRole.USER).withEnabled(false));
 
-        assertThat(service.enable("bob").enabled()).isTrue();
+        assertThat(service.enable("bob", "root").enabled()).isTrue();
         assertThat(accounts.require("bob").enabled()).isTrue();
     }
 
@@ -342,7 +347,7 @@ class AccountAdministrationServiceTests {
         UUID bobId = accounts.require("bob").id();
         sessions.open(bobId, "session-1");
 
-        service.enable("bob");
+        service.enable("bob", "root");
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
@@ -354,7 +359,7 @@ class AccountAdministrationServiceTests {
         UUID bobId = accounts.require("bob").id();
         sessions.open(bobId, "session-1");
 
-        service.unlock("bob");
+        service.unlock("bob", "root");
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
@@ -369,7 +374,7 @@ class AccountAdministrationServiceTests {
     void enablingDoesNotLiftALockout() {
         accounts.save(locked("bob").withEnabled(false));
 
-        AccountSummary enabled = service.enable("bob");
+        AccountSummary enabled = service.enable("bob", "root");
 
         assertThat(enabled.enabled()).isTrue();
         assertThat(enabled.locked()).isTrue();
@@ -381,7 +386,7 @@ class AccountAdministrationServiceTests {
         accounts.save(account("bob", AccountRole.USER));
         int before = accounts.saves();
 
-        assertThat(service.enable("bob").enabled()).isTrue();
+        assertThat(service.enable("bob", "root").enabled()).isTrue();
         assertThat(accounts.saves()).isEqualTo(before);
     }
 
@@ -391,7 +396,7 @@ class AccountAdministrationServiceTests {
     void unlockingEndsTheLockoutAndTheFailureRun() {
         accounts.save(locked("bob"));
 
-        AccountSummary unlocked = service.unlock("bob");
+        AccountSummary unlocked = service.unlock("bob", "root");
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.lockedUntil()).isNull();
@@ -403,7 +408,7 @@ class AccountAdministrationServiceTests {
     void unlockingDoesNotEnableADisabledAccount() {
         accounts.save(locked("bob").withEnabled(false));
 
-        AccountSummary unlocked = service.unlock("bob");
+        AccountSummary unlocked = service.unlock("bob", "root");
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.enabled()).isFalse();
@@ -415,7 +420,7 @@ class AccountAdministrationServiceTests {
         accounts.save(account("bob", AccountRole.USER));
         int before = accounts.saves();
 
-        assertThat(service.unlock("bob").locked()).isFalse();
+        assertThat(service.unlock("bob", "root").locked()).isFalse();
         assertThat(accounts.saves()).isEqualTo(before);
     }
 
@@ -429,7 +434,7 @@ class AccountAdministrationServiceTests {
         accounts.save(locked("bob"));
         clock.advanceBy(LOCKOUT);
 
-        service.unlock("bob");
+        service.unlock("bob", "root");
 
         assertThat(accounts.require("bob").lockedUntil()).isNull();
         assertThat(accounts.require("bob").failedLoginAttempts()).isZero();
@@ -442,15 +447,113 @@ class AccountAdministrationServiceTests {
         assertThatThrownBy(() -> service.disable("nobody", "ada"))
                 .isInstanceOf(UnknownAccountException.class)
                 .hasMessage("No account named nobody");
-        assertThatThrownBy(() -> service.enable("nobody"))
+        assertThatThrownBy(() -> service.enable("nobody", "root"))
                 .isInstanceOf(UnknownAccountException.class);
-        assertThatThrownBy(() -> service.unlock("nobody"))
+        assertThatThrownBy(() -> service.unlock("nobody", "root"))
                 .isInstanceOf(UnknownAccountException.class);
         assertThat(accounts.findByUsername("nobody")).isEmpty();
     }
 
+    // What the trail is told
+
+    /**
+     * Both parties by stable id: the administrator who acted, and the account acted
+     * on. The administrator's username is what the caller passes in and what must
+     * not be what gets recorded.
+     */
+    @Test
+    void disablingIsRecordedNamingBothPartiesByStableId() {
+        accounts.save(account("ada", AccountRole.ADMIN));
+        accounts.save(account("root", AccountRole.ADMIN));
+        accounts.save(account("bob", AccountRole.USER));
+
+        service.disable("bob", "root");
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.ACCOUNT_DISABLE,
+                accounts.require("root").id(),
+                accounts.require("bob").id(),
+                null));
+    }
+
+    @Test
+    void enablingIsRecordedNamingBothPartiesByStableId() {
+        accounts.save(account("root", AccountRole.ADMIN));
+        accounts.save(disabled("bob"));
+
+        service.enable("bob", "root");
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.ACCOUNT_ENABLE,
+                accounts.require("root").id(),
+                accounts.require("bob").id(),
+                null));
+    }
+
+    @Test
+    void unlockingIsRecordedAsALiftCausedByAnAdministrator() {
+        accounts.save(account("root", AccountRole.ADMIN));
+        accounts.save(locked("bob"));
+
+        service.unlock("bob", "root");
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT,
+                accounts.require("root").id(),
+                accounts.require("bob").id(),
+                AuditLockoutLift.UNLOCK.name()));
+    }
+
+    /**
+     * An unlock that writes nothing — the account is serving no lockout — is still
+     * an action an administrator took, so it is still recorded. The row is the
+     * evidence that someone looked.
+     */
+    @Test
+    void anIdempotentUnlockIsStillRecorded() {
+        accounts.save(account("root", AccountRole.ADMIN));
+        accounts.save(account("bob", AccountRole.USER));
+
+        service.unlock("bob", "root");
+
+        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).hasSize(1);
+    }
+
+    /**
+     * A refused disable records nothing: no change happened, and the refusal is
+     * reported to the caller and to the log stream instead.
+     */
+    @Test
+    void aRefusedDisableIsNotRecordedAsAChange() {
+        accounts.save(account("ada", AccountRole.ADMIN));
+
+        assertThatThrownBy(() -> service.disable("ada", "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+
+        assertThat(audit.recorded()).isEmpty();
+    }
+
+    /**
+     * An administrator whose own row cannot be resolved — renamed between
+     * authenticating and acting — still produces an event, with no actor rather than
+     * with the name.
+     */
+    @Test
+    void anUnresolvableAdministratorIsRecordedAsNoActorRatherThanAName() {
+        accounts.save(account("bob", AccountRole.USER));
+
+        service.enable("bob", "vanished");
+
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.ACCOUNT_ENABLE, null, accounts.require("bob").id(), null));
+    }
+
     private static Account account(String username, AccountRole role) {
         return new Account(username, "hash", role, 0, null, true, NOW);
+    }
+
+    private static Account disabled(String username) {
+        return new Account(username, "hash", AccountRole.USER, 0, null, false, NOW);
     }
 
     private static Account locked(String username) {

@@ -11,6 +11,19 @@ spring:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME:backend}
     password: ${DATABASE_PASSWORD:backend}
+    hikari:
+      # Every runtime connection assumes `backend_app`, the least-privilege role
+      # the V3 migration creates: full DML on the tables the application owns the
+      # lifecycle of, and INSERT/SELECT only on `audit_events`. That is what makes
+      # the audit trail append-only for THIS application rather than only by
+      # convention — an UPDATE or DELETE from application code is refused by the
+      # server with SQLSTATE 42501, whatever the code intended.
+      #
+      # Runs once per physical connection, and SET ROLE is session-scoped, so it
+      # holds for every statement that connection ever carries. The retention job
+      # is the one exception and arranges it itself, with a transaction-scoped
+      # `SET LOCAL ROLE` that reverts on commit.
+      connection-init-sql: SET ROLE backend_app
   jpa:
     hibernate:
       # Flyway migrations (src/main/resources/db/migration) are the only source
@@ -20,6 +33,18 @@ spring:
     open-in-view: false
   flyway:
     baseline-on-migrate: false
+    # Naming a user here is what gives Flyway a connection of its own, outside the
+    # Hikari pool and therefore outside the `SET ROLE` above. It has to be outside
+    # it: `backend_app` cannot create a table, and the role does not exist at all
+    # until the migration that creates it has run — a migration through the pool
+    # would fail on its own first connection, before it could create the role that
+    # connection was told to assume.
+    #
+    # The credentials are the same owning login role the datasource connects as;
+    # what differs is that this connection keeps its privileges instead of
+    # dropping to the runtime role.
+    user: ${DATABASE_USERNAME:backend}
+    password: ${DATABASE_PASSWORD:backend}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -63,6 +88,18 @@ app:
     # every request and so never bounds a continuously-active session on its
     # own.
     absolute-lifetime: ${APP_SESSION_ABSOLUTE_LIFETIME:8h}
+  audit:
+    retention:
+      # `period` and `schedule` are deliberately absent, not forgotten. Both
+      # defaults — one year, and 03:30 daily — belong to AuditRetentionPolicy,
+      # which is also where the 90-day floor is enforced, so writing a default
+      # here would be a second copy of a number the domain owns and the two would
+      # drift. An unset setting has to reach the policy as unset for "the default
+      # is one year" to be a fact about the rule rather than about this file.
+      #
+      # Override with APP_AUDIT_RETENTION_PERIOD (e.g. 400d) and
+      # APP_AUDIT_RETENTION_SCHEDULE; see README.md's Configuration section for
+      # the exact default and floor. A value below 90 days fails startup.
 
 management:
   endpoints:

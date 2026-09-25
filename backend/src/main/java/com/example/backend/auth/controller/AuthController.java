@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import jakarta.servlet.http.HttpServletRequest;
@@ -7,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final LoginService login;
+    private final AuditTrail audit;
     private final SecurityContextRepository securityContextRepository;
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
     private final CsrfTokenRepository csrfTokenRepository;
@@ -39,11 +42,13 @@ public class AuthController {
 
     public AuthController(
             LoginService login,
+            AuditTrail audit,
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             CsrfTokenRepository csrfTokenRepository,
             CookieSerializer cookieSerializer) {
         this.login = login;
+        this.audit = audit;
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
         this.csrfTokenRepository = csrfTokenRepository;
@@ -102,6 +107,13 @@ public class AuthController {
     public void logout(HttpServletRequest request, HttpServletResponse response) {
         HttpSession session = request.getSession(false);
         if (session != null) {
+            // Recorded before the session is invalidated, and from the session
+            // itself: the principal index holds the account's stable id, which is
+            // what an event may name, while the security context names it by
+            // username, which is what an event may not. Fail-closed, so a logout
+            // this service cannot account for leaves the session standing rather
+            // than ending it silently.
+            recordLogout(session);
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
@@ -112,6 +124,20 @@ public class AuthController {
         cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
 
         issueCsrfToken(request, response);
+    }
+
+    /**
+     * Records the logout against the account the session belongs to.
+     *
+     * <p>A session carrying no principal index is one minted before it was signed
+     * in to — there is no account to name, and nothing was logged out — so nothing
+     * is recorded rather than an event with an invented subject.
+     */
+    private void recordLogout(HttpSession session) {
+        if (session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
+                instanceof String accountId) {
+            audit.recordLogout(UUID.fromString(accountId));
+        }
     }
 
     /**

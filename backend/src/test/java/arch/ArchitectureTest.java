@@ -1,7 +1,11 @@
 package arch;
 
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import jakarta.persistence.Entity;
@@ -17,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.library.Architectures.onionArchitecture;
@@ -274,6 +279,63 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Public-facing ports belong in an api or port package, never in an impl package");
 
+    /**
+     * The audit trail's boundary admits no free text.
+     *
+     * <p>Every audit-worthy event's actor and subject must be the account's stable
+     * id, and no event body may carry a username, a password or a bearer value.
+     * That is a property of every present and future call site at once, so it cannot
+     * be held by reviewing them — the leak that matters is the event someone records
+     * next year in a flow no test covers. It can be held by a signature: a username,
+     * a password and a bearer value are all {@code String}s, so a boundary that
+     * declares no {@code String} parameter cannot be handed one.
+     *
+     * <p>The event's own textual fields are filled in behind this boundary, from
+     * vocabularies the audit slice owns — a resource type, a status class, an error
+     * code that is a reason name, a route template. Adding a {@code String} parameter
+     * to {@link com.example.backend.audit.domain.AuditTrail} to pass one of them in
+     * from outside is what this rule refuses.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_audit_trail_boundary_admits_no_free_text =
+        methods()
+            .that().areDeclaredInClassesThat()
+                .haveFullyQualifiedName("com.example.backend.audit.domain.AuditTrail")
+            .should(new ArchCondition<JavaMethod>("declare no String parameter") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    method.getRawParameterTypes().stream()
+                        .filter(parameter -> parameter.getName().equals("java.lang.String"))
+                        .forEach(parameter -> events.add(SimpleConditionEvent.violated(
+                            method,
+                            method.getFullName() + " declares a String parameter; an audit"
+                                + " event's actor, subject and classification are ids and"
+                                + " closed sets, and a String is how a username or a"
+                                + " credential would get in")));
+                }
+            })
+            .allowEmptyShould(true)
+            .because("A username, a password and a bearer value are all Strings, so the one"
+                    + " boundary that records events admits none");
+
+    /**
+     * An audit event is constructed inside the audit slice and nowhere else.
+     *
+     * <p>The boundary rule above is only worth having while
+     * {@link com.example.backend.audit.domain.AuditEvent} is unreachable from
+     * outside: a caller that could build an event itself could put anything in the
+     * textual fields the boundary keeps it away from.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule audit_events_are_built_only_inside_the_audit_slice =
+        noClasses()
+            .that().resideOutsideOfPackage("com.example.backend.audit..")
+            .should().dependOnClassesThat()
+                .haveFullyQualifiedName("com.example.backend.audit.domain.AuditEvent")
+            .allowEmptyShould(true)
+            .because("The audit slice owns what goes into an event body; a caller says only"
+                    + " what happened, through AuditTrail");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule onion_architecture =
         onionArchitecture()
@@ -283,6 +345,8 @@ public class ArchitectureTest {
             .adapter("persistence", "com.example.backend..infrastructure.persistence..")
             .adapter("session", "com.example.backend..infrastructure.session..")
             .adapter("transaction", "com.example.backend..infrastructure.transaction..")
+            .adapter("request", "com.example.backend..infrastructure.request..")
+            .adapter("alert", "com.example.backend..infrastructure.alert..")
             .adapter("web", "com.example.backend..controller..")
             .adapter("config", "com.example.backend..config..")
             .withOptionalLayers(true)

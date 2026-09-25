@@ -232,3 +232,69 @@ rules:
       - pattern: org.slf4j.MDC.put(...)
       - pattern: org.slf4j.MDC.putCloseable(...)
       - pattern: org.slf4j.MDC.setContextMap(...)
+
+  # ---------------------------------------------------------------------------
+  # Audit trail redaction and the append-only arrangement. The audit trail is read
+  # by an administrator investigating account activity and is retained for a year,
+  # so a readable identifier written into an event body outlives every other copy
+  # of it. Two rules, for the two ways that could happen.
+  #
+  # The structural half of this is a signature: no method on
+  # com.example.backend.audit.domain.AuditTrail declares a String parameter, so a
+  # username, password or bearer value cannot be handed to it at all, and
+  # ArchitectureTest.the_audit_trail_boundary_admits_no_free_text holds that. These
+  # rules cover what a signature cannot — a value reaching the boundary through a
+  # method someone adds, and the retention role being assumed somewhere new.
+  # ---------------------------------------------------------------------------
+
+  - id: be-audit-sensitive-value
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A value whose name says it is a credential or a readable identifier is being
+      passed to the audit trail. An audit event names an actor and a subject by the
+      account's stable id and nothing else — no userName, no password, no bearer
+      value, no hash, not even in a reason or a detail field. Resolve the stable id
+      and pass that; if the id cannot be resolved, record no subject rather than
+      the name, which is what AuditTrail.recordLoginFailure(null, ...) is for.
+    patterns:
+      - pattern-either:
+          - pattern: $AUDIT.recordLoginSuccess(..., $VALUE, ...)
+          - pattern: $AUDIT.recordLoginFailure(..., $VALUE, ...)
+          - pattern: $AUDIT.recordLogout(..., $VALUE, ...)
+          - pattern: $AUDIT.recordLockoutSet(..., $VALUE, ...)
+          - pattern: $AUDIT.recordLockoutLiftedByExpiry(..., $VALUE, ...)
+          - pattern: $AUDIT.recordLockoutLiftedByUnlock(..., $VALUE, ...)
+          - pattern: $AUDIT.recordAccountDisabled(..., $VALUE, ...)
+          - pattern: $AUDIT.recordAccountEnabled(..., $VALUE, ...)
+          - pattern: new AuditEvent(..., $VALUE, ...)
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: (?i).*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie).*
+      # The audit slice's own closed sets are not values a caller supplied, and two
+      # of their members read as credential words — AuditRefusalReason.BAD_CREDENTIALS
+      # most of all. Excluding references to those types by name keeps the rule
+      # pointed at what it is for: an identifier or a secret from outside the slice.
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: ^(?!.*\b(AuditRefusalReason|AuditLockoutLift|AuditOperation|AuditOutcome)\b).*$
+
+  - id: be-audit-retention-role-outside-its-adapter
+    languages: [java]
+    severity: ERROR
+    message: >-
+      The backend_audit_retention database role is the only role permitted to
+      update or delete a recorded audit event, and AuditEventRetentionAdapter is
+      the only place that may assume it. A second place that does is a second way
+      for the application to mutate the trail, which is exactly what the split
+      roles and the table's append-only trigger exist to prevent. If retention
+      needs to do something new, it belongs behind the AuditEventRetention port.
+    paths:
+      exclude:
+        # The adapter that owns the role, and the tests that prove the split is
+        # enforced at the database — which they can only do by speaking as each
+        # role in turn.
+        - "**/AuditEventRetentionAdapter.java"
+        - "**/AuditAppendOnlyIntegrationTests.java"
+        - "**/AuditEventRecordingIntegrationTests.java"
+    pattern-regex: SET\s+(LOCAL\s+)?ROLE\s+backend_audit_retention
