@@ -143,3 +143,92 @@ rules:
       - pattern: |
           public boolean verify(...) { return true; }
       - pattern: $B.setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
+
+  # ---------------------------------------------------------------------------
+  # Log redaction. The three rules below are one requirement: a log record's
+  # variable parts are named structured fields carrying ids, and a userName,
+  # filter expression, password, bearer value, hash or cookie value never reaches
+  # a record at all. A log store is read by more people, retained longer, and
+  # shipped further than the database the value came from, so a leak there is
+  # wider than the one it was copied from.
+  #
+  # Checked statically rather than only by test because the property is about
+  # every call site at once: a test can only assert about the flows it drives, and
+  # the leak that matters is the log line someone adds next year in a flow no test
+  # covers. See /docs/adr/0003-ecs-structured-logging-with-redaction.md.
+  # ---------------------------------------------------------------------------
+
+  - id: be-log-message-concatenation
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A value is being concatenated into a log message. Two things break at once:
+      the value stops being a queryable field and becomes text inside a sentence,
+      and a value carrying a newline can end this record and forge the next one
+      (CWE-117). Emit it as a structured field instead —
+      log.atInfo().addKeyValue("event.action", action).log("...") — with a
+      constant message, and only after confirming the value is not one this
+      service refuses to log at all.
+    patterns:
+      - pattern-either:
+          - pattern: $LOG.trace($A + $B, ...)
+          - pattern: $LOG.debug($A + $B, ...)
+          - pattern: $LOG.info($A + $B, ...)
+          - pattern: $LOG.warn($A + $B, ...)
+          - pattern: $LOG.error($A + $B, ...)
+          - pattern: $LOG.log($A + $B, ...)
+          - pattern: $LOG.setMessage($A + $B, ...)
+      - metavariable-regex:
+          metavariable: $LOG
+          regex: (?i).*log.*
+
+  - id: be-log-sensitive-value
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A value whose name says it is an identifier or a secret is being passed to a
+      logging call. None of these belong in a log record — not as a {} parameter,
+      not as a structured field, not in the logging context. Correlate by stable
+      id instead (LogContext's three keys), and let the audit trail, not the log
+      stream, be what names a subject.
+    patterns:
+      - pattern-either:
+          - pattern: $LOG.trace(..., $VALUE, ...)
+          - pattern: $LOG.debug(..., $VALUE, ...)
+          - pattern: $LOG.info(..., $VALUE, ...)
+          - pattern: $LOG.warn(..., $VALUE, ...)
+          - pattern: $LOG.error(..., $VALUE, ...)
+          - pattern: $LOG.log(..., $VALUE, ...)
+          - pattern: $LOG.addKeyValue(..., $VALUE, ...)
+          - pattern: $LOG.setMessage(..., $VALUE, ...)
+      - metavariable-regex:
+          metavariable: $LOG
+          regex: (?i).*log.*
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: (?i).*(user_?name|password|passwd|credential|secret|bearer|token|hash|cookie|filter).*
+
+  - id: be-mdc-direct-access
+    languages: [java]
+    severity: ERROR
+    message: >-
+      The logging context is written through
+      com.example.backend.observability.LogContext and nowhere else. It exposes
+      three named setters — request id, connector id, resource id — and no
+      general-purpose one, which is what makes "the permitted keys are the only
+      keys" true of the whole service rather than of the call sites someone
+      happened to review. ArchitectureTest holds the same line.
+    paths:
+      exclude:
+        # The class that owns the contract, and the test that holds it to leaving
+        # a key it does not own alone — which it can only assert by putting one
+        # there itself.
+        - "**/LogContext.java"
+        - "**/LogContextTests.java"
+    pattern-either:
+      - pattern: MDC.put(...)
+      - pattern: MDC.putCloseable(...)
+      - pattern: MDC.setContextMap(...)
+      - pattern: org.slf4j.MDC.put(...)
+      - pattern: org.slf4j.MDC.putCloseable(...)
+      - pattern: org.slf4j.MDC.setContextMap(...)

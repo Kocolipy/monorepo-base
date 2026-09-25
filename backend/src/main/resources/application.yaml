@@ -2,10 +2,11 @@ spring:
   application:
     name: backend
   config:
-    # The session repository type and configure-action live in `session.yaml`, so
-    # the test resources' `application.yaml` — which shadows this file entirely —
-    # can import the same document instead of restating it.
-    import: classpath:session.yaml
+    # The session repository type and configure-action live in `session.yaml`, and
+    # the structured log format in `logging.yaml`, so the test resources'
+    # `application.yaml` — which shadows this file entirely — can import the same
+    # documents instead of restating them.
+    import: classpath:session.yaml,classpath:logging.yaml
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME:backend}

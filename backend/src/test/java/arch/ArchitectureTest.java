@@ -165,6 +165,33 @@ public class ArchitectureTest {
         GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS
             .allowEmptyShould(true);
 
+    /**
+     * The logging context is written through one class or not at all.
+     *
+     * <p>Logs must carry correlation ids and never a userName, filter expression,
+     * password, bearer value, hash or cookie value. That is a property of every
+     * call site at once, so it cannot be held by reviewing them: scattered
+     * {@code MDC.put} calls would each need checking, and a new one would be added
+     * by someone who never read this rule. {@code LogContext} exposes three named
+     * setters and no general-purpose one, so with this rule in force "what can
+     * enter the logging context" has a single, readable answer.
+     *
+     * <p>The exemption is written as a name pattern rather than one fully qualified
+     * name because {@code LogContext.Scope} — the nested class whose {@code close()}
+     * restores a key's previous value — is a class of its own to ArchUnit. Naming
+     * only the outer class would fail the rule on the contract's own
+     * implementation, so the pattern covers {@code LogContext} and its nested
+     * classes and nothing else.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule mdc_is_only_touched_by_the_log_context =
+        noClasses()
+            .that().haveNameNotMatching("com\\.example\\.backend\\.observability\\.LogContext(\\$.*)?")
+            .should().dependOnClassesThat().haveFullyQualifiedName("org.slf4j.MDC")
+            .allowEmptyShould(true)
+            .because("LogContext is the only way anything writes to the logging context, so"
+                    + " the three permitted keys are the only keys that exist");
+
     // JPA / Persistence
     
     @com.tngtech.archunit.junit.ArchTest

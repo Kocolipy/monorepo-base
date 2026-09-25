@@ -1,0 +1,24 @@
+# Log formatting, in its own document for the same reason `session.yaml` is: the
+# test resources' `application.yaml` shadows the main one entirely, so a setting
+# stated only there is a setting no test can see. This file's name is never
+# shadowed, which is what lets `EcsLogFormatTests` assert the deployed value
+# rather than a copy of it.
+logging:
+  structured:
+    format:
+      # ECS (Elastic Common Schema) JSON on stdout, one object per record. Not
+      # cosmetic: the redaction rule this service is held to — no userName,
+      # filter expression, password, bearer value, hash or cookie value in a log
+      # line, in the message or in the context — is enforceable because every
+      # record is structured and nothing is concatenated into a message. A
+      # record's variable parts are named fields, so a value a caller influenced
+      # cannot change the shape of a record or forge the next one.
+      #
+      # See /docs/adr/0003-ecs-structured-logging-with-redaction.md.
+      #
+      # Overridable so a developer can set it empty for the human-readable
+      # pattern while working locally. A deployment leaves it alone: a collector
+      # cannot parse the pattern layout. The redaction property does not depend
+      # on the format either way — nothing anywhere is allowed to log the values
+      # above, whichever layout is in force.
+      console: ${LOG_STRUCTURED_FORMAT:ecs}
