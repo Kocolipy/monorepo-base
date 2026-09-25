@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.auth.InMemoryAccountSessions;
+import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import org.hamcrest.Matchers;
@@ -27,6 +28,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -56,9 +58,9 @@ class AdminAccountEndpointTests {
      * can be asked what it ended, so the disable below proves the revocation
      * reached the port rather than merely returning 200.
      *
-     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it, so
-     * this context keeps failing if the indexed session repository it needs ever
-     * stops being configured.
+     * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —
+     * {@link #theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds()}
+     * is what holds that.
      */
     @TestConfiguration
     static class SessionRegistryConfiguration {
@@ -90,6 +92,19 @@ class AdminAccountEndpointTests {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(springSecurityFilterChain)
                 .build();
+    }
+
+    /**
+     * The configuration this endpoint's disable path depends on, asserted rather
+     * than assumed: a plain session repository cannot be searched by principal, so
+     * {@code AccountSessionsAdapter} has nothing to inject and the deployed service
+     * does not start. The fake registry above is {@code @Primary}, so it would hide
+     * the adapter's absence from every other test here.
+     */
+    @Test
+    void theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds() {
+        assertThat(context.getBean(FindByIndexNameSessionRepository.class)).isNotNull();
+        assertThat(context.getBean(AccountSessionsAdapter.class)).isNotNull();
     }
 
     @Test

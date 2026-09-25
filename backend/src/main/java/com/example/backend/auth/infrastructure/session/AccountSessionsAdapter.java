@@ -12,11 +12,11 @@ import org.springframework.stereotype.Component;
  *
  * <p>The index is what makes this possible at all, and it is not free: a plain
  * session store can only be read by id, so the sessions belonging to a username
- * cannot be found. {@code spring.session.redis.repository-type: indexed} is
- * therefore load-bearing configuration rather than a preference — with the
- * default repository this class has no bean to inject and the application does
- * not start, which is the intended failure. It is loud, and it happens at
- * startup, rather than a disable quietly leaving sessions running.
+ * cannot be found. This class therefore requires the indexed session repository,
+ * configured in {@code session.yaml} — with the default repository there is no
+ * bean to inject and the application does not start, which is the intended
+ * failure. It is loud, and it happens at startup, rather than a disable quietly
+ * leaving sessions running.
  *
  * <p>The index is populated from the session's Spring Security context, so it
  * only ever names accounts that authenticated through the login path.

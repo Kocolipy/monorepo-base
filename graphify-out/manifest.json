@@ -342,15 +342,15 @@
     "semantic_hash": ""
   },
   "backend/AGENTS.md": {
-    "mtime": 1790245386.900295,
-    "seen": 1790245463.3755114,
-    "ast_hash": "811d35e2e882cd1abc715c082e81d1c4",
+    "mtime": 1790297332.8232875,
+    "seen": 1790297541.428661,
+    "ast_hash": "680ddd729f88ee0e2c9c422af4d7e6f5",
     "semantic_hash": ""
   },
   "backend/README.md": {
-    "mtime": 1790245311.428168,
-    "seen": 1790245463.375512,
-    "ast_hash": "294b59fa0674fff09ed498bfc302103e",
+    "mtime": 1790297314.770196,
+    "seen": 1790297541.428662,
+    "ast_hash": "6421dbc5ec8df63d0be195a138f45867",
     "semantic_hash": ""
   },
   "backend/compose.yaml": {
@@ -366,15 +366,15 @@
     "semantic_hash": ""
   },
   "backend/src/main/resources/application.yaml": {
-    "mtime": 1790245301.1004694,
-    "seen": 1790245463.3755143,
-    "ast_hash": "c24cb0ac46a78accceb5acfa270bfa27",
+    "mtime": 1790297253.5991147,
+    "seen": 1790297541.428666,
+    "ast_hash": "c36487b25b0cd40cdd0b3ccd5b108702",
     "semantic_hash": ""
   },
   "backend/src/test/resources/application.yaml": {
-    "mtime": 1790245185.7779484,
-    "seen": 1790245463.375515,
-    "ast_hash": "ae9d863124ae17c15e6d7b2f6f53965d",
+    "mtime": 1790297262.0886698,
+    "seen": 1790297541.4286692,
+    "ast_hash": "fd7a334136ad7dc03408a3d90ad50f54",
     "semantic_hash": ""
   },
   "backend/src/test/resources/static/index.html": {
@@ -624,9 +624,9 @@
     "semantic_hash": ""
   },
   "CONTEXT.md": {
-    "mtime": 1790245233.433568,
-    "seen": 1790245463.3755088,
-    "ast_hash": "fe579c1a584390606befb95cb47d579e",
+    "mtime": 1790297535.6378355,
+    "seen": 1790297541.4286566,
+    "ast_hash": "c77a95f1a40e4d43258a4667d7a16839",
     "semantic_hash": ""
   },
   "frontend/test/e2e/login.spec.ts": {
@@ -846,15 +846,15 @@
     "semantic_hash": ""
   },
   "architecture-review.html": {
-    "mtime": 1790239151.3660898,
-    "seen": 1790239299.7621877,
-    "ast_hash": "3b6cd46ad262a892fea123829d8f42d1",
+    "mtime": 1790256126.8247519,
+    "seen": 1790297541.428659,
+    "ast_hash": "07f72fef951282b8535fceb3624ae046",
     "semantic_hash": ""
   },
   "architecture-review.md": {
-    "mtime": 1790239006.0819945,
-    "seen": 1790239299.7621884,
-    "ast_hash": "53dfcb14381fed201b5dc7e9cb61d21c",
+    "mtime": 1790297527.90178,
+    "seen": 1790297541.42866,
+    "ast_hash": "82000b6fa18bfb10127a6ff4eda0f828",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/application/LoginService.java": {
@@ -882,9 +882,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/controller/AdminAccountEndpointTests.java": {
-    "mtime": 1790244949.2179413,
-    "seen": 1790245463.3754606,
-    "ast_hash": "e03381c11873bf9ad9b4a99dba3236a6",
+    "mtime": 1790297307.722135,
+    "seen": 1790297541.4285781,
+    "ast_hash": "4f94582fcd059a00ae441abf499768f8",
     "semantic_hash": ""
   },
   "docs/adr/0001-count-login-attempts-on-the-login-path.md": {
@@ -900,9 +900,9 @@
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/infrastructure/session/AccountSessionsAdapter.java": {
-    "mtime": 1790244752.5163696,
-    "seen": 1790245463.3754454,
-    "ast_hash": "22e62cd1fdd2c7ca8e3560674eeb243c",
+    "mtime": 1790297270.4487998,
+    "seen": 1790297541.4285517,
+    "ast_hash": "037add6c1f39eab71d2b423d08d66515",
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/auth/InMemoryAccountSessions.java": {
@@ -915,6 +915,12 @@
     "mtime": 1790244875.8818803,
     "seen": 1790245463.3754623,
     "ast_hash": "d1258afd06eb9291a729eccd302dc8e7",
+    "semantic_hash": ""
+  },
+  "backend/src/main/resources/session.yaml": {
+    "mtime": 1790297240.3152134,
+    "seen": 1790297541.4286675,
+    "ast_hash": "45b2b8d475ee03e2bc05cc7f27c7d077",
     "semantic_hash": ""
   }
 }

@@ -1,0 +1,31 @@
+# The session repository contract, in one place.
+#
+# This file is imported by both `application.yaml` and the test resources'
+# `application.yaml` (`spring.config.import`), because the test file shadows the
+# main one wholesale: two copies of these settings would have to be kept in
+# agreement by hand, and "the test context runs the deployed repository type"
+# would be asserted by copy rather than by construction. Anything here that must
+# hold in every context belongs here; per-environment values stay in the file
+# that imports this one.
+#
+# `spring.session.data.redis`, not `spring.session.redis`: Boot 4 moved these
+# keys and the old prefix is deprecated at error level, which means quietly
+# ignored — the settings below only take effect under this prefix.
+spring:
+  session:
+    data:
+      redis:
+        # Indexed, not default: the indexed repository is the only one that can
+        # be searched by principal, which is what lets disabling an account end
+        # the sessions it already holds (AccountSessionsAdapter). Reverting this
+        # to `default` removes that bean and the application fails to start.
+        repository-type: indexed
+        # The indexed repository normally CONFIG SETs `notify-keyspace-events` on
+        # startup to learn about expiries. ElastiCache disables the CONFIG
+        # command, so leaving that on makes the deployed service fail to start —
+        # and nothing about revoking a session needs the events. Expired sessions
+        # are reaped by the repository's own cleanup cron instead; set
+        # `notify-keyspace-events` in the cache parameter group to get the events
+        # as well. In tests it additionally keeps startup from reaching for a
+        # Redis that is not running.
+        configure-action: none

@@ -141,7 +141,9 @@ real Redis credentials in your deployment's secret manager; do not commit them.
 Sessions are stored through Spring Session's **indexed** Redis repository, which
 keeps a per-principal index. That index is what lets disabling an account revoke
 the sessions it holds, so the setting is a requirement rather than a preference:
-with the default repository the application does not start. Two consequences for
+with the default repository the application does not start. It is configured in
+`src/main/resources/session.yaml`, imported by both the main and the test
+`application.yaml` so the two cannot drift. Two consequences for
 a deployment — the Redis instance is not interchangeable with a plain cache
 (session keys and one index set per signed-in account), and startup does not try
 to `CONFIG SET notify-keyspace-events`, because ElastiCache refuses `CONFIG`. Set

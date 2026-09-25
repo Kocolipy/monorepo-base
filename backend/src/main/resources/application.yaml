@@ -1,6 +1,11 @@
 spring:
   application:
     name: backend
+  config:
+    # The session repository type and configure-action live in `session.yaml`, so
+    # the test resources' `application.yaml` — which shadows this file entirely —
+    # can import the same document instead of restating it.
+    import: classpath:session.yaml
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME:backend}
@@ -23,19 +28,6 @@ spring:
     data:
       redis:
         namespace: backend:session
-        # Indexed, not default: the indexed repository is the only one that can
-        # be searched by principal, which is what lets disabling an account end
-        # the sessions it already holds (AccountSessionsAdapter). Reverting this
-        # to `default` removes that bean and the application fails to start.
-        repository-type: indexed
-        # The indexed repository normally CONFIG SETs `notify-keyspace-events` on
-        # startup to learn about expiries. ElastiCache disables the CONFIG
-        # command, so leaving that on makes the deployed service fail to start —
-        # and nothing about revoking a session needs the events. Expired sessions
-        # are reaped by the repository's own cleanup cron instead; set
-        # `notify-keyspace-events` in the cache parameter group to get the events
-        # as well.
-        configure-action: none
         flush-mode: on-save
 
 server:

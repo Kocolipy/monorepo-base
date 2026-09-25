@@ -1,15 +1,11 @@
 spring:
-  # The same repository type the deployed service runs (see the main
-  # application.yaml): this file shadows that one entirely, so without it these
-  # contexts would wire a session repository that cannot be searched by principal
-  # and AccountSessionsAdapter would have nothing to inject. `configure-action:
-  # none` keeps startup from reaching for the Redis that is not running here —
-  # nothing in these tests reads or writes a session through Redis.
-  session:
-    data:
-      redis:
-        repository-type: indexed
-        configure-action: none
+  config:
+    # This file shadows the main `application.yaml` entirely, so the session
+    # repository type it needs is imported from the same document the deployed
+    # service reads rather than copied here. Without it these contexts would wire
+    # a session repository that cannot be searched by principal and
+    # AccountSessionsAdapter would have nothing to inject.
+    import: classpath:session.yaml
   datasource:
     url: jdbc:h2:mem:backend;DB_CLOSE_DELAY=-1
     username: sa
