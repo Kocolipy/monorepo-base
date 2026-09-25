@@ -11,10 +11,15 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.domain.ScimConnectorTokenRepository;
+import com.example.backend.scim.domain.ScimExternalIdRepository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,6 +49,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
@@ -100,6 +106,11 @@ class ScimConnectorLifecycleIntegrationTests {
     private static final String TOKEN_ROWS =
             "SELECT * FROM scim_connector_tokens WHERE connector_id = ?";
 
+    /** The token a rotation superseded, which is the one carrying the overlap window. */
+    private static final String ROTATED_AWAY_TOKEN_ROW =
+            "SELECT * FROM scim_connector_tokens"
+            + " WHERE connector_id = ? AND replaced_by_token_id IS NOT NULL";
+
     /** The session registry, in memory: this context has no Redis. */
     @TestConfiguration
     static class SessionRegistryConfiguration {
@@ -119,6 +130,15 @@ class ScimConnectorLifecycleIntegrationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ScimConnectorTokenRepository tokens;
+
+    @Autowired
+    private ScimExternalIdRepository aliases;
+
+    @Autowired
+    private TransactionTemplate transactions;
 
     @Autowired
     private CsrfTokenRepository csrfTokenRepository;
@@ -273,6 +293,9 @@ class ScimConnectorLifecycleIntegrationTests {
         assertThat(jdbc.queryForList(TOKEN_ROWS, connectorId))
                 .hasSize(2)
                 .allSatisfy(row -> assertThat(row.get("revoked_at")).isNotNull());
+        // One revocation event per token actually taken down — the count the cascade
+        // reported, not a fixed number and not one event for the whole act.
+        assertThat(eventsOf(AuditOperation.CONNECTOR_TOKEN_REVOKE, connectorId)).hasSize(2);
     }
 
     /**
@@ -328,6 +351,62 @@ class ScimConnectorLifecycleIntegrationTests {
         assertThat(jdbc.queryForList(TOKEN_ROWS, connectorId)).hasSize(2).allSatisfy(row ->
                 assertThat((java.sql.Timestamp) row.get("expires_at"))
                         .isBeforeOrEqualTo((java.sql.Timestamp) row.get("original_expires_at")));
+    }
+
+    /**
+     * The overlap the Admin ASKED for is the one the old token gets.
+     *
+     * <p>Separate from the test above, which asserts only that the expiry never moves
+     * later. That bound holds just as well when the request body is ignored entirely and
+     * the old token is ended at the rotation instant — so on its own it cannot tell a
+     * working overlap from a discarded one. Here the window itself is the claim: seven
+     * requested days land as seven days, materially later than "now" and materially
+     * earlier than the year the token was issued with.
+     */
+    @Test
+    void the_requested_overlap_is_the_one_the_old_token_keeps() throws Exception {
+        UUID connectorId = createConnector("Okta");
+        issueToken(connectorId, "READ_WRITE");
+        Instant beforeRotation = Instant.now();
+
+        rotateFirstToken(connectorId);
+
+        Map<String, Object> rotatedAway =
+                jdbc.queryForMap(ROTATED_AWAY_TOKEN_ROW, connectorId);
+        Instant expiry = ((Timestamp) rotatedAway.get("expires_at")).toInstant();
+        assertThat(expiry)
+                .as("seven requested days, not the rotation instant and not the issued year")
+                .isAfter(beforeRotation.plus(Duration.ofDays(6)))
+                .isBefore(beforeRotation.plus(Duration.ofDays(8)));
+    }
+
+    /**
+     * The cascade's two bulk operations report what they actually touched.
+     *
+     * <p>Asserted through the ports rather than only through the DELETE endpoint, because
+     * the counts are the only evidence either statement matched the rows it was aimed at:
+     * a {@code WHERE} clause that matched nothing returns zero and raises nothing, so a
+     * caller reading the return value is what distinguishes "revoked two" from "revoked
+     * silently none". The unknown-connector case pins the other direction, so the counts
+     * cannot be a constant.
+     */
+    @Test
+    void the_cascade_reports_how_many_tokens_and_aliases_it_touched() throws Exception {
+        UUID connectorId = createConnector("Okta");
+        issueToken(connectorId, "READ_ONLY");
+        issueToken(connectorId, "READ_WRITE");
+        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-1");
+        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-2");
+
+        UUID neverExisted = UUID.randomUUID();
+        // The bulk statements are @Modifying queries, so they need a transaction of
+        // their own here — the DELETE endpoint supplies one in the production path.
+        transactions.executeWithoutResult(status -> {
+            assertThat(tokens.revokeAllForConnector(connectorId, Instant.now())).isEqualTo(2);
+            assertThat(aliases.deleteAllForConnector(connectorId)).isEqualTo(2);
+            assertThat(tokens.revokeAllForConnector(neverExisted, Instant.now())).isZero();
+            assertThat(aliases.deleteAllForConnector(neverExisted)).isZero();
+        });
     }
 
     /** Discovery is readable without a credential; the resource endpoints are not. */
