@@ -3,6 +3,7 @@ package com.example.backend.counter.infrastructure.persistence.entity;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.util.UUID;
 
 /**
  * JPA representation of a counter. Kept separate from the domain type so that
@@ -13,20 +14,20 @@ import jakarta.persistence.Table;
 public class UserCounterEntity {
 
     @Id
-    private String username;
+    private UUID accountId;
 
     private long count;
 
     protected UserCounterEntity() {
     }
 
-    public UserCounterEntity(String username, long count) {
-        this.username = username;
+    public UserCounterEntity(UUID accountId, long count) {
+        this.accountId = accountId;
         this.count = count;
     }
 
-    public String getUsername() {
-        return username;
+    public UUID getAccountId() {
+        return accountId;
     }
 
     public long getCount() {

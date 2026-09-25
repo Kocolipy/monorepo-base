@@ -54,12 +54,13 @@ class LoginLockoutTests {
         AccountService users = new AccountService(accounts, passwordEncoder, clock);
         login = new LoginService(
                 config.authenticationManager(users, passwordEncoder),
-                new LoginAttemptService(accounts, new LockoutPolicy(5, LOCKOUT), clock));
+                new LoginAttemptService(accounts, new LockoutPolicy(5, LOCKOUT), clock),
+                users);
     }
 
     @Test
     void anAcceptedLoginReportsTheAccountAndItsRole() {
-        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD);
+        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).authentication();
 
         assertThat(authentication.isAuthenticated()).isTrue();
         assertThat(authentication.getName()).isEqualTo("ada");
@@ -130,7 +131,7 @@ class LoginLockoutTests {
         lockTheAccount();
 
         clock.advanceBy(LOCKOUT);
-        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD);
+        Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).authentication();
 
         assertThat(authentication.getName()).isEqualTo("ada");
         assertThat(accounts.require("ada").failedLoginAttempts()).isZero();

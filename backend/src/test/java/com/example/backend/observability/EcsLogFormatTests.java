@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
@@ -51,6 +52,7 @@ import tools.jackson.databind.JsonNode;
  * three whose inputs are sensitive.
  */
 @SpringBootTest
+@Import(com.example.backend.ContainerTestConfiguration.class)
 class EcsLogFormatTests {
 
     /**

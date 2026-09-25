@@ -1,6 +1,7 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.LoginService.LoginOutcome;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -14,6 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
 import org.springframework.session.web.http.CookieSerializer.CookieValue;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -59,7 +61,8 @@ public class AuthController {
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        Authentication authentication = login.logIn(body.username(), body.password());
+        LoginOutcome outcome = login.logIn(body.username(), body.password());
+        Authentication authentication = outcome.authentication();
 
         // Rotate before the context is saved, so the authentication lands in the
         // session the caller will keep using rather than the pre-login one.
@@ -69,6 +72,20 @@ public class AuthController {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
+
+        // Overrides Spring Session's default principal-index population (which
+        // reads Authentication.getName(), i.e. the username) with the account's
+        // stable id, so AccountSessionsAdapter — and any future stable-id-keyed
+        // session lookup — finds this session by an id that survives a later
+        // username change. Authentication.getName() itself is untouched: the
+        // security context still names the account by username, which is what
+        // userResponse() below reports.
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.setAttribute(
+                    FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+                    outcome.accountId().toString());
+        }
 
         issueCsrfToken(request, response);
 

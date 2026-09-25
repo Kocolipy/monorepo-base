@@ -36,10 +36,12 @@ class AccountServiceTests {
     void seedsUserAndAdminAccountsWithEncodedPasswords() {
         service.seedDefaults(USER_SEED, ADMIN_SEED);
 
-        assertThat(accounts.findByUsername("user")).contains(
-                seeded("user", "encoded:user-password", AccountRole.USER));
-        assertThat(accounts.findByUsername("admin")).contains(
-                seeded("admin", "encoded:admin-password", AccountRole.ADMIN));
+        Account user = accounts.require("user");
+        Account admin = accounts.require("admin");
+        assertThat(user).isEqualTo(
+                seeded(user.id(), "user", "encoded:user-password", AccountRole.USER));
+        assertThat(admin).isEqualTo(
+                seeded(admin.id(), "admin", "encoded:admin-password", AccountRole.ADMIN));
     }
 
     @Test
@@ -61,12 +63,14 @@ class AccountServiceTests {
      */
     @Test
     void seedingBackfillsAnExistingAccountThatPredatesTheCreatedAtColumn() {
-        accounts.save(new Account("user", "existing-hash", AccountRole.ADMIN));
+        Account created = accounts.save(new Account("user", "existing-hash", AccountRole.ADMIN));
 
         service.seedDefaults(USER_SEED, ADMIN_SEED);
 
         assertThat(accounts.require("user")).isEqualTo(
-                new Account("user", "existing-hash", AccountRole.ADMIN, 0, null, true, NOW));
+                new Account(
+                        created.id(), "user", "existing-hash", AccountRole.ADMIN,
+                        0, null, true, NOW));
     }
 
     /** A backfill touches the timestamp only; nothing else about the account. */
@@ -185,6 +189,12 @@ class AccountServiceTests {
     /** A complete, enabled account created at {@code NOW} — what seeding writes. */
     private static Account seeded(String username, String passwordHash, AccountRole role) {
         return new Account(username, passwordHash, role, 0, null, true, NOW);
+    }
+
+    /** The seeded account with a caller-supplied id, for comparing against a stored row. */
+    private static Account seeded(
+            java.util.UUID id, String username, String passwordHash, AccountRole role) {
+        return new Account(id, username, passwordHash, role, 0, null, true, NOW);
     }
 
     private static final class PrefixPasswordEncoder implements PasswordEncoder {

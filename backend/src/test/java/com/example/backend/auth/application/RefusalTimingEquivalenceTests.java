@@ -54,7 +54,8 @@ class RefusalTimingEquivalenceTests {
         login = new LoginService(
                 config.authenticationManager(users, passwordEncoder),
                 new LoginAttemptService(accounts, new LockoutPolicy(5, Duration.ofMinutes(20)),
-                        clock));
+                        clock),
+                users);
     }
 
     @Test

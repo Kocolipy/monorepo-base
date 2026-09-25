@@ -6,13 +6,14 @@ spring:
     # a session repository that cannot be searched by principal and
     # AccountSessionsAdapter would have nothing to inject.
     import: classpath:session.yaml
-  datasource:
-    url: jdbc:h2:mem:backend;DB_CLOSE_DELAY=-1
-    username: sa
-    password:
+  # No spring.datasource.* here: ContainerTestConfiguration's @ServiceConnection
+  # Postgres container registers the URL, username and password onto the context
+  # directly, and Flyway migrations are PostgreSQL syntax that only a real
+  # Postgres — not an in-memory substitute — can run as the deployed service
+  # does.
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
 
 app:
   auth:

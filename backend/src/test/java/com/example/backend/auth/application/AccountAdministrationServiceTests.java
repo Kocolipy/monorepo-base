@@ -11,6 +11,7 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -211,13 +212,14 @@ class AccountAdministrationServiceTests {
     @Test
     void disablingEndsTheSessionsTheAccountAlreadyHolds() {
         accounts.save(account("bob", AccountRole.USER));
-        sessions.open("bob", "session-1");
-        sessions.open("bob", "session-2");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
+        sessions.open(bobId, "session-2");
 
         service.disable("bob", "ada");
         transaction.commit();
 
-        assertThat(sessions.sessionsOf("bob")).isEmpty();
+        assertThat(sessions.sessionsOf(bobId)).isEmpty();
     }
 
     /**
@@ -229,18 +231,19 @@ class AccountAdministrationServiceTests {
     @Test
     void disablingRevokesNothingUntilTheTransactionCommits() {
         accounts.save(account("bob", AccountRole.USER));
-        sessions.open("bob", "session-1");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
 
         service.disable("bob", "ada");
 
         assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+        assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
         assertThat(transaction.pending()).isEqualTo(1);
 
         transaction.commit();
 
-        assertThat(sessions.revocations()).containsExactly("bob");
-        assertThat(sessions.sessionsOf("bob")).isEmpty();
+        assertThat(sessions.revocations()).containsExactly(bobId);
+        assertThat(sessions.sessionsOf(bobId)).isEmpty();
     }
 
     /**
@@ -252,13 +255,14 @@ class AccountAdministrationServiceTests {
     @Test
     void aDisableWhoseTransactionRollsBackRevokesNothing() {
         accounts.save(account("bob", AccountRole.USER));
-        sessions.open("bob", "session-1");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
 
         service.disable("bob", "ada");
         transaction.rollback();
 
         assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+        assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
     }
 
     /** Only that account's. A disable is about one account, and so is its blast radius. */
@@ -266,13 +270,15 @@ class AccountAdministrationServiceTests {
     void disablingLeavesEveryOtherAccountSignedIn() {
         accounts.save(account("bob", AccountRole.USER));
         accounts.save(account("zoe", AccountRole.USER));
-        sessions.open("bob", "session-1");
-        sessions.open("zoe", "session-2");
+        UUID bobId = accounts.require("bob").id();
+        UUID zoeId = accounts.require("zoe").id();
+        sessions.open(bobId, "session-1");
+        sessions.open(zoeId, "session-2");
 
         service.disable("bob", "ada");
         transaction.commit();
 
-        assertThat(sessions.sessionsOf("zoe")).containsExactly("session-2");
+        assertThat(sessions.sessionsOf(zoeId)).containsExactly("session-2");
     }
 
     /**
@@ -284,18 +290,20 @@ class AccountAdministrationServiceTests {
     @Test
     void disablingAnAlreadyDisabledAccountStillEndsItsSessions() {
         accounts.save(account("bob", AccountRole.USER).withEnabled(false));
-        sessions.open("bob", "session-1");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
 
         service.disable("bob", "ada");
         transaction.commit();
 
-        assertThat(sessions.sessionsOf("bob")).isEmpty();
+        assertThat(sessions.sessionsOf(bobId)).isEmpty();
     }
 
     @Test
     void aRefusedDisableEndsNoSessions() {
         accounts.save(account("ada", AccountRole.ADMIN));
-        sessions.open("ada", "session-1");
+        UUID adaId = accounts.require("ada").id();
+        sessions.open(adaId, "session-1");
 
         assertThatThrownBy(() -> service.disable("ada", "ada"))
                 .isInstanceOf(UnsafeAccountChangeException.class);
@@ -304,7 +312,7 @@ class AccountAdministrationServiceTests {
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(transaction.pending()).isZero();
-        assertThat(sessions.sessionsOf("ada")).containsExactly("session-1");
+        assertThat(sessions.sessionsOf(adaId)).containsExactly("session-1");
     }
 
     @Test
@@ -331,23 +339,25 @@ class AccountAdministrationServiceTests {
     @Test
     void enablingTouchesNoSessions() {
         accounts.save(account("bob", AccountRole.USER).withEnabled(false));
-        sessions.open("bob", "session-1");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
 
         service.enable("bob");
 
         assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+        assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
     }
 
     @Test
     void unlockingTouchesNoSessions() {
         accounts.save(locked("bob"));
-        sessions.open("bob", "session-1");
+        UUID bobId = accounts.require("bob").id();
+        sessions.open(bobId, "session-1");
 
         service.unlock("bob");
 
         assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf("bob")).containsExactly("session-1");
+        assertThat(sessions.sessionsOf(bobId)).containsExactly("session-1");
     }
 
     /**

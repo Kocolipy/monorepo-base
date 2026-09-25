@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
@@ -50,6 +51,7 @@ import org.springframework.web.context.WebApplicationContext;
  * then describe a format the running service does not produce.
  */
 @SpringBootTest
+@Import(com.example.backend.ContainerTestConfiguration.class)
 class AdminAccountEndpointTests {
 
     /**
@@ -77,6 +79,9 @@ class AdminAccountEndpointTests {
 
     @Autowired
     private InMemoryAccountSessions sessions;
+
+    @Autowired
+    private com.example.backend.auth.domain.AccountRepository accounts;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -185,7 +190,8 @@ class AdminAccountEndpointTests {
      */
     @Test
     void anAdministratorDisablesAndReopensAnAccount() throws Exception {
-        sessions.open("test-user", "live-session");
+        java.util.UUID testUserId = accounts.findByUsername("test-user").orElseThrow().id();
+        sessions.open(testUserId, "live-session");
 
         try {
             mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
@@ -195,7 +201,7 @@ class AdminAccountEndpointTests {
                     .andExpect(jsonPath("$.enabled").value(false))
                     .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
-            assertThat(sessions.sessionsOf("test-user")).isEmpty();
+            assertThat(sessions.sessionsOf(testUserId)).isEmpty();
 
             mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(jsonPath("$[?(@.username == 'test-user')].enabled")
@@ -216,13 +222,14 @@ class AdminAccountEndpointTests {
      */
     @Test
     void disablingTheLastEnabledAdministratorIsRefused() throws Exception {
-        sessions.open("test-admin", "live-session");
+        java.util.UUID testAdminId = accounts.findByUsername("test-admin").orElseThrow().id();
+        sessions.open(testAdminId, "live-session");
 
         mvc.perform(withCsrf(post("/api/admin/accounts/test-admin/disable"))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isConflict());
 
-        assertThat(sessions.sessionsOf("test-admin")).containsExactly("live-session");
+        assertThat(sessions.sessionsOf(testAdminId)).containsExactly("live-session");
 
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(jsonPath("$[?(@.username == 'test-admin')].enabled")

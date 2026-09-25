@@ -49,7 +49,7 @@ class UserCounterControllerTests {
         private String username;
 
         RecordingCounterService(long result) {
-            super(null);
+            super(null, null);
             this.result = result;
         }
 

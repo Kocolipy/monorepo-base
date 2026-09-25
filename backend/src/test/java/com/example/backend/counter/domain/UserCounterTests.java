@@ -2,6 +2,7 @@ package com.example.backend.counter.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -10,14 +11,16 @@ import org.junit.jupiter.api.Test;
  */
 class UserCounterTests {
 
+    private static final UUID ACCOUNT_ID = UUID.randomUUID();
+
     @Test
     void newCounterStartsAtZero() {
-        assertThat(UserCounter.createFor("ada").getCount()).isZero();
+        assertThat(UserCounter.createFor(ACCOUNT_ID).getCount()).isZero();
     }
 
     @Test
     void incrementReturnsTheUpdatedCount() {
-        UserCounter counter = UserCounter.createFor("ada");
+        UserCounter counter = UserCounter.createFor(ACCOUNT_ID);
 
         assertThat(counter.increment()).isEqualTo(1);
         assertThat(counter.increment()).isEqualTo(2);
@@ -26,7 +29,7 @@ class UserCounterTests {
 
     @Test
     void resetReturnsCountToZero() {
-        UserCounter counter = UserCounter.createFor("ada");
+        UserCounter counter = UserCounter.createFor(ACCOUNT_ID);
         counter.increment();
 
         counter.reset();
@@ -36,9 +39,9 @@ class UserCounterTests {
 
     @Test
     void rehydratePreservesStoredState() {
-        UserCounter counter = UserCounter.rehydrate("ada", 7L);
+        UserCounter counter = UserCounter.rehydrate(ACCOUNT_ID, 7L);
 
-        assertThat(counter.getUsername()).isEqualTo("ada");
+        assertThat(counter.getAccountId()).isEqualTo(ACCOUNT_ID);
         assertThat(counter.getCount()).isEqualTo(7L);
         assertThat(counter.increment()).isEqualTo(8L);
     }

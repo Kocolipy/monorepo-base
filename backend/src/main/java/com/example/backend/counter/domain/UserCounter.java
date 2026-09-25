@@ -1,27 +1,33 @@
 package com.example.backend.counter.domain;
 
+import java.util.UUID;
+
 /**
  * A per-user tally. Pure domain: no persistence or framework concerns.
+ *
+ * <p>Keyed by the account's stable, non-reassignable id rather than its
+ * username: a username may be renamed, and the tally must keep pointing at the
+ * same account afterward.
  */
 public class UserCounter {
 
-    private final String username;
+    private final UUID accountId;
 
     private long count;
 
-    private UserCounter(String username, long count) {
-        this.username = username;
+    private UserCounter(UUID accountId, long count) {
+        this.accountId = accountId;
         this.count = count;
     }
 
     /** A brand new counter, starting at zero. */
-    public static UserCounter createFor(String username) {
-        return new UserCounter(username, 0L);
+    public static UserCounter createFor(UUID accountId) {
+        return new UserCounter(accountId, 0L);
     }
 
     /** Rebuilds a counter from previously stored state. */
-    public static UserCounter rehydrate(String username, long count) {
-        return new UserCounter(username, count);
+    public static UserCounter rehydrate(UUID accountId, long count) {
+        return new UserCounter(accountId, count);
     }
 
     public long increment() {
@@ -36,7 +42,7 @@ public class UserCounter {
         return count;
     }
 
-    public String getUsername() {
-        return username;
+    public UUID getAccountId() {
+        return accountId;
     }
 }

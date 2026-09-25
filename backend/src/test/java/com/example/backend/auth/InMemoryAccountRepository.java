@@ -3,32 +3,44 @@ package com.example.backend.auth;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import java.util.Comparator;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Account store for tests, standing in for the JPA adapter. Shared so the
  * lockout can be asserted against one persistence behaviour rather than against
  * a slightly different fake per test class.
+ *
+ * <p>Keyed by the account's stable id, exactly as the real adapter's table is:
+ * {@code username} is a mutable attribute looked up with a linear scan, not the
+ * row's identity.
  */
 public final class InMemoryAccountRepository implements AccountRepository {
 
-    private final Map<String, Account> stored = new HashMap<>();
+    private final Map<UUID, Account> stored = new LinkedHashMap<>();
 
     private int saves;
 
     @Override
     public Optional<Account> findByUsername(String username) {
-        return Optional.ofNullable(stored.get(username));
+        return stored.values().stream()
+                .filter(account -> account.username().equals(username))
+                .findFirst();
+    }
+
+    @Override
+    public Optional<Account> findById(UUID id) {
+        return Optional.ofNullable(stored.get(id));
     }
 
     @Override
     public Account save(Account account) {
         Account nonNullAccount = Objects.requireNonNull(account);
-        stored.put(nonNullAccount.username(), nonNullAccount);
+        stored.put(nonNullAccount.id(), nonNullAccount);
         saves++;
         return nonNullAccount;
     }
@@ -48,16 +60,17 @@ public final class InMemoryAccountRepository implements AccountRepository {
      */
     @Override
     public void updateEnabled(Account account) {
-        Account current = require(account.username());
-        stored.put(current.username(), current.withEnabled(account.enabled()));
+        Account current = requireById(account.id());
+        stored.put(current.id(), current.withEnabled(account.enabled()));
         saves++;
     }
 
     /** The lockout columns only, for the same reason as {@link #updateEnabled}. */
     @Override
     public void updateLockout(Account account) {
-        Account current = require(account.username());
-        stored.put(current.username(), new Account(
+        Account current = requireById(account.id());
+        stored.put(current.id(), new Account(
+                current.id(),
                 current.username(),
                 current.passwordHash(),
                 current.role(),
@@ -72,6 +85,11 @@ public final class InMemoryAccountRepository implements AccountRepository {
     public Account require(String username) {
         return findByUsername(username).orElseThrow(
                 () -> new AssertionError("No account stored for " + username));
+    }
+
+    private Account requireById(UUID id) {
+        return findById(id).orElseThrow(
+                () -> new AssertionError("No account stored with id " + id));
     }
 
     /**

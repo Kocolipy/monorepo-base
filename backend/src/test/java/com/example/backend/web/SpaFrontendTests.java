@@ -15,6 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
@@ -29,6 +30,7 @@ import org.springframework.web.servlet.ModelAndView;
  * case here is one representative rather than a matrix.
  */
 @SpringBootTest
+@Import(com.example.backend.ContainerTestConfiguration.class)
 class SpaFrontendTests {
 
     @Autowired

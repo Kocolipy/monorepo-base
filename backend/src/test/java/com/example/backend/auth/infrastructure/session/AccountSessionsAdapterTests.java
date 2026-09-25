@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -17,8 +18,16 @@ import org.springframework.session.MapSession;
  * <p>What is worth pinning here is narrow and easy to get wrong: that it deletes
  * every session it found rather than the first, that it deletes nobody else's,
  * and that an account signed in nowhere is a no-op rather than an error.
+ *
+ * <p>The fake indexes sessions by the same value {@link AccountSessionsAdapter}
+ * writes and searches: the account's stable id, stringified. A session
+ * belonging to one account is opened under that account's id rather than under
+ * a username, since the adapter never sees or compares usernames.
  */
 class AccountSessionsAdapterTests {
+
+    private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
+    private static final UUID ZOE = UUID.fromString("00000000-0000-0000-0000-0000000000e0");
 
     private final IndexedSessions sessions = new IndexedSessions();
 
@@ -26,30 +35,30 @@ class AccountSessionsAdapterTests {
 
     @Test
     void endsEverySessionTheAccountHolds() {
-        sessions.open("bob");
-        sessions.open("bob");
+        sessions.open(BOB);
+        sessions.open(BOB);
 
-        assertThat(adapter.revokeAll("bob")).isEqualTo(2);
+        assertThat(adapter.revokeAll(BOB)).isEqualTo(2);
         assertThat(sessions.principals()).isEmpty();
     }
 
     @Test
     void endsNoSessionBelongingToAnotherAccount() {
-        String survivor = sessions.open("zoe");
-        sessions.open("bob");
+        String survivor = sessions.open(ZOE);
+        sessions.open(BOB);
 
-        adapter.revokeAll("bob");
+        adapter.revokeAll(BOB);
 
         assertThat(sessions.findById(survivor)).isNotNull();
-        assertThat(sessions.principals()).containsExactly("zoe");
+        assertThat(sessions.principals()).containsExactly(ZOE.toString());
     }
 
     @Test
     void reportsNoSessionsForAnAccountSignedInNowhere() {
-        sessions.open("zoe");
+        sessions.open(ZOE);
 
-        assertThat(adapter.revokeAll("bob")).isZero();
-        assertThat(sessions.principals()).containsExactly("zoe");
+        assertThat(adapter.revokeAll(BOB)).isZero();
+        assertThat(sessions.principals()).containsExactly(ZOE.toString());
     }
 
     /** A session store that can be searched by principal, and nothing more. */
@@ -59,9 +68,9 @@ class AccountSessionsAdapterTests {
         private final Map<String, MapSession> stored = new LinkedHashMap<>();
 
         /** Register a session for this account, as an accepted login would. */
-        String open(String username) {
+        String open(UUID accountId) {
             MapSession session = createSession();
-            session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, username);
+            session.setAttribute(PRINCIPAL_NAME_INDEX_NAME, accountId.toString());
             save(session);
             return session.getId();
         }

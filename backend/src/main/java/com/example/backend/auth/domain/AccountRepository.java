@@ -2,11 +2,21 @@ package com.example.backend.auth.domain;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /** Persistence port for database-backed login accounts. */
 public interface AccountRepository {
 
     Optional<Account> findByUsername(String username);
+
+    /**
+     * Looks up an account by its stable, non-reassignable id rather than its
+     * mutable {@code username}. Anything that must keep resolving to the same
+     * account across a username change — the disable/enable/unlock path acting
+     * on a caller's own id, a stable-id-keyed lookup elsewhere — reaches the
+     * account through this method instead of {@link #findByUsername}.
+     */
+    Optional<Account> findById(UUID id);
 
     /**
      * Writes the whole account. For creating one, and for seeding's backfill of a

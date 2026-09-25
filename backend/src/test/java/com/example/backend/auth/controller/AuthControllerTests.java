@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.application.LoginAttemptService;
+import com.example.backend.auth.application.AccountService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.Account;
@@ -74,10 +75,15 @@ class AuthControllerTests {
                         .build());
         accounts.save(new Account("ada", passwordEncoder.encode("correct-password"),
                 AccountRole.USER));
+        accounts.save(new Account("grace", passwordEncoder.encode("another-correct-password"),
+                AccountRole.ADMIN));
         AuthenticationManager manager = config.authenticationManager(users, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
+        AccountService accountService = new AccountService(
+                accounts, passwordEncoder, Clock.fixed(
+                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC));
         controller = new AuthController(
                 new LoginService(
                         manager,
@@ -85,7 +91,8 @@ class AuthControllerTests {
                                 accounts,
                                 new LockoutPolicy(3, Duration.ofMinutes(5)),
                                 Clock.fixed(
-                                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC))),
+                                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
+                        accountService),
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
                 csrfTokenRepository,

@@ -1,6 +1,7 @@
 package com.example.backend.auth.domain;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * A login account as understood by authentication, independent of persistence.
@@ -18,6 +19,13 @@ import java.time.Instant;
  * passage of time reverses. Collapsing them would make one of those two
  * behaviours unexpressible.
  *
+ * <p>{@code id} is the account's stable, non-reassignable identity: assigned once
+ * at creation and carried unchanged through every transition below — no
+ * {@code with...} method takes or produces a different one. {@code username} is
+ * a mutable display and login attribute only; anything this application owns
+ * that must keep pointing at the same account after a rename (session indexing,
+ * the counter feature) is keyed by {@code id}, never by {@code username}.
+ *
  * <p>{@code passwordHash} is the reason no caller outside this slice receives an
  * {@code Account}: the administrative listing is served as
  * {@link com.example.backend.auth.application.AccountSummary}, which has no
@@ -32,6 +40,7 @@ import java.time.Instant;
  * {@link com.example.backend.auth.application.AccountService#seedDefaults}).
  */
 public record Account(
+        UUID id,
         String username,
         String passwordHash,
         AccountRole role,
@@ -41,14 +50,14 @@ public record Account(
         Instant createdAt) {
 
     /**
-     * A newly registered account: nothing failed yet, nothing locked, and no
-     * creation timestamp recorded. Kept because most callers — every test of the
-     * lockout rule among them — have no interest in the profile fields, and
-     * spelling out seven arguments there would bury what each case is actually
-     * about.
+     * A newly registered account: a freshly generated stable id, nothing failed
+     * yet, nothing locked, and no creation timestamp recorded. Kept because most
+     * callers — every test of the lockout rule among them — have no interest in
+     * the profile fields, and spelling out eight arguments there would bury what
+     * each case is actually about.
      */
     public Account(String username, String passwordHash, AccountRole role) {
-        this(username, passwordHash, role, 0, null, true, null);
+        this(UUID.randomUUID(), username, passwordHash, role, 0, null, true, null);
     }
 
     /**
@@ -61,7 +70,40 @@ public record Account(
             AccountRole role,
             int failedLoginAttempts,
             Instant lockedUntil) {
-        this(username, passwordHash, role, failedLoginAttempts, lockedUntil, true, null);
+        this(
+                UUID.randomUUID(),
+                username,
+                passwordHash,
+                role,
+                failedLoginAttempts,
+                lockedUntil,
+                true,
+                null);
+    }
+
+    /**
+     * An account with every profile field spelled out and a freshly generated
+     * stable id. Kept for tests that need to control {@code enabled} or
+     * {@code createdAt} directly without wiring up an existing account and
+     * calling a {@code with...} transition on it.
+     */
+    public Account(
+            String username,
+            String passwordHash,
+            AccountRole role,
+            int failedLoginAttempts,
+            Instant lockedUntil,
+            boolean enabled,
+            Instant createdAt) {
+        this(
+                UUID.randomUUID(),
+                username,
+                passwordHash,
+                role,
+                failedLoginAttempts,
+                lockedUntil,
+                enabled,
+                createdAt);
     }
 
     /**
@@ -90,6 +132,7 @@ public record Account(
         int attempts = (lockedUntil == null ? failedLoginAttempts : 0) + 1;
         boolean limitReached = attempts >= policy.maxAttempts();
         return new Account(
+                id,
                 username,
                 passwordHash,
                 role,
@@ -119,6 +162,7 @@ public record Account(
             return this;
         }
         return new Account(
+                id,
                 username,
                 passwordHash,
                 role,
@@ -146,6 +190,7 @@ public record Account(
             return this;
         }
         return new Account(
+                id,
                 username,
                 passwordHash,
                 role,
@@ -179,6 +224,6 @@ public record Account(
         if (failedLoginAttempts == 0 && lockedUntil == null) {
             return this;
         }
-        return new Account(username, passwordHash, role, 0, null, enabled, createdAt);
+        return new Account(id, username, passwordHash, role, 0, null, enabled, createdAt);
     }
 }

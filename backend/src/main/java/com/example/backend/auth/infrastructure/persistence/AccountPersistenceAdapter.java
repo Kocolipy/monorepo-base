@@ -5,6 +5,7 @@ import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.infrastructure.persistence.entity.AccountEntity;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Repository;
 
 /** Maps the account repository port onto JPA entities. */
@@ -19,12 +20,18 @@ class AccountPersistenceAdapter implements AccountRepository {
 
     @Override
     public Optional<Account> findByUsername(String username) {
-        return accounts.findById(username).map(this::toDomain);
+        return accounts.findByUsername(username).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<Account> findById(UUID id) {
+        return accounts.findById(id).map(this::toDomain);
     }
 
     @Override
     public Account save(Account account) {
         return toDomain(accounts.save(new AccountEntity(
+                account.id(),
                 account.username(),
                 account.passwordHash(),
                 account.role(),
@@ -36,13 +43,13 @@ class AccountPersistenceAdapter implements AccountRepository {
 
     @Override
     public void updateEnabled(Account account) {
-        accounts.updateEnabled(account.username(), account.enabled());
+        accounts.updateEnabled(account.id(), account.enabled());
     }
 
     @Override
     public void updateLockout(Account account) {
         accounts.updateLockout(
-                account.username(), account.failedLoginAttempts(), account.lockedUntil());
+                account.id(), account.failedLoginAttempts(), account.lockedUntil());
     }
 
     @Override
@@ -56,6 +63,7 @@ class AccountPersistenceAdapter implements AccountRepository {
      */
     private Account toDomain(AccountEntity entity) {
         return new Account(
+                entity.getId(),
                 entity.getUsername(),
                 entity.getPasswordHash(),
                 entity.getRole(),

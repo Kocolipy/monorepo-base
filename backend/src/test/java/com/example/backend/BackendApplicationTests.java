@@ -2,14 +2,19 @@ package com.example.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import javax.sql.DataSource;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.annotation.DirtiesContext.ClassMode;
 
 @SpringBootTest
+@Import(com.example.backend.ContainerTestConfiguration.class)
 // The assertion below is about how the context is built, not about a context
 // that happens to be lying around: Spring's context cache is per JVM, so a
 // reused instance would report on wiring performed by some earlier test class.
@@ -26,9 +31,38 @@ class BackendApplicationTests {
     @Autowired
     private SecurityFilterChain securityFilterChain;
 
+    @Autowired
+    private DataSource dataSource;
+
     @Test
     void contextLoadsWithTheApplicationSecurityFilterChain() {
         assertThat(securityFilterChain).isNotNull();
         assertThat(securityFilterChain.getFilters()).isNotEmpty();
+    }
+
+    /**
+     * The acceptance criterion this app boots against: a fresh database, with
+     * {@code ddl-auto: validate} refusing to start if the schema disagreed with
+     * the entities, and {@code flyway_schema_history} recording the migrations
+     * that actually built it rather than a generated schema. Reading the table
+     * directly — not just trusting that the context started — is what tells
+     * "Flyway ran V1 and V2" apart from "some other mechanism happened to leave
+     * a schema Hibernate's validation was satisfied by".
+     */
+    @Test
+    void theSchemaCameFromFlywayMigrationsAloneOnAFreshDatabase() throws Exception {
+        try (var connection = dataSource.getConnection();
+                Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(
+                        "select version, script, success"
+                                + " from flyway_schema_history"
+                                + " order by installed_rank")) {
+            java.util.List<String> versions = new java.util.ArrayList<>();
+            while (rows.next()) {
+                assertThat(rows.getBoolean("success")).isTrue();
+                versions.add(rows.getString("version"));
+            }
+            assertThat(versions).containsExactly("1", "2");
+        }
     }
 }
