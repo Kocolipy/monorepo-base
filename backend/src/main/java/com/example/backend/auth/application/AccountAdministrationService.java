@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
@@ -8,6 +9,7 @@ import com.example.backend.observability.LogEvent;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,16 +42,19 @@ public class AccountAdministrationService {
     private final AccountRepository accounts;
     private final AccountSessions sessions;
     private final AfterCommit afterCommit;
+    private final AuditTrail audit;
     private final Clock clock;
 
     public AccountAdministrationService(
             AccountRepository accounts,
             AccountSessions sessions,
             AfterCommit afterCommit,
+            AuditTrail audit,
             Clock clock) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.afterCommit = afterCommit;
+        this.audit = audit;
         this.clock = clock;
     }
 
@@ -104,6 +109,7 @@ public class AccountAdministrationService {
                             + " enable it again");
         }
         AccountSummary disabled = applyEnabled(account, false);
+        audit.recordAccountDisabled(actorId(requestedBy), account.id());
         afterCommit.run(() -> sessions.revokeAll(account.id()));
         succeeded(DISABLE_ACTION);
         return disabled;
@@ -118,8 +124,10 @@ public class AccountAdministrationService {
      * is not a thing an administrator can hand over — the account signs in again.
      */
     @Transactional
-    public AccountSummary enable(String username) {
-        AccountSummary enabled = applyEnabled(require(username), true);
+    public AccountSummary enable(String username, String requestedBy) {
+        Account account = require(username);
+        AccountSummary enabled = applyEnabled(account, true);
+        audit.recordAccountEnabled(actorId(requestedBy), account.id());
         succeeded(ENABLE_ACTION);
         return enabled;
     }
@@ -133,14 +141,29 @@ public class AccountAdministrationService {
      * nothing is written.
      */
     @Transactional
-    public AccountSummary unlock(String username) {
+    public AccountSummary unlock(String username, String requestedBy) {
         Account account = require(username);
         Account unlocked = account.withLockoutCleared();
         if (unlocked != account) {
             accounts.updateLockout(unlocked);
         }
+        audit.recordLockoutLiftedByUnlock(actorId(requestedBy), account.id());
         succeeded(UNLOCK_ACTION);
         return summarize(unlocked, clock.instant());
+    }
+
+    /**
+     * The stable id behind the administrator's username, for the event's actor
+     * reference.
+     *
+     * <p>{@code null} when the name resolves to no account, which is not a case
+     * worth refusing the operation over: the caller is an authenticated
+     * administrator whose own row could have been renamed between authentication
+     * and this call, and an event recorded with no actor is more use than no event
+     * at all. What it never becomes is the username itself.
+     */
+    private UUID actorId(String requestedBy) {
+        return accounts.findByUsername(requestedBy).map(Account::id).orElse(null);
     }
 
     private AccountSummary applyEnabled(Account account, boolean shouldBeEnabled) {

@@ -147,6 +147,52 @@ environments.
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
 
+### Audit trail retention
+
+| Variable                       | Default        | Meaning                                       |
+| ------------------------------ | -------------- | --------------------------------------------- |
+| `APP_AUDIT_RETENTION_PERIOD`   | `365d` (1 year)| How long a recorded audit event is kept       |
+| `APP_AUDIT_RETENTION_SCHEDULE` | `0 30 3 * * *` | When the retention job runs (Spring cron)     |
+
+The **floor is 90 days**, and it is enforced rather than advised: a configured
+period below it fails startup with the value in the message, instead of quietly
+keeping less history than an investigation needs. `90d` itself is allowed. Neither
+value appears in `application.yaml` — both defaults belong to
+`AuditRetentionPolicy`, so an unset variable reaches the rule as unset and "the
+default is one year" is a fact about the rule rather than about a config file.
+
+Each run logs its schedule at startup and, per run, the rows it deleted and how
+long it took (`event.action: audit.retention`). A run that deleted nothing is
+logged too — "nothing had aged out" and "the job has not run for a month" are
+different facts.
+
+### Audit trail database roles
+
+The audit table is append-only, and that is a property of the database rather than
+of the code writing to it. The `V3` migration creates two roles:
+
+- **`backend_app`** — what every runtime connection assumes, through
+  `spring.datasource.hikari.connection-init-sql`. It holds full DML on `accounts`
+  and `user_counters`, and `INSERT`/`SELECT` only on `audit_events`. An `UPDATE` or
+  `DELETE` of a recorded event from application code is refused by the server.
+- **`backend_audit_retention`** — holds `UPDATE`/`DELETE` on `audit_events` and is
+  reserved for the retention job, which assumes it with a transaction-scoped
+  `SET LOCAL ROLE` and reverts on commit.
+
+Beside the grants the table carries a `BEFORE UPDATE OR DELETE` trigger that
+refuses the statement whatever role issues it, the owning role included, unless
+that role is the retention role. Grants say nothing about a connection that arrives
+as the owner — a console session, or a deployment that never set the runtime role —
+so the trigger is what makes append-only survive a misconfiguration.
+
+Because the runtime role cannot create tables, and does not exist until the
+migration that creates it has run, **Flyway connects separately**:
+`spring.flyway.user`/`password` default to the same `DATABASE_USERNAME` /
+`DATABASE_PASSWORD` credentials, giving migrations a connection outside the pool
+that keeps its privileges. Override them if your deployment migrates as a different
+role than it serves as. A later migration that adds a table the application writes
+must grant `backend_app` on it.
+
 Sessions are stored through Spring Session's **indexed** Redis repository, which
 keeps a per-principal index. That index is what lets disabling an account revoke
 the sessions it holds, so the setting is a requirement rather than a preference:

@@ -59,6 +59,8 @@ class AuthControllerTests {
      * exercised in {@code LoginLockoutTests}, over the real account store.
      */
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final com.example.backend.audit.RecordingAuditTrail audit =
+            new com.example.backend.audit.RecordingAuditTrail();
 
     @BeforeEach
     void setUp() {
@@ -90,9 +92,11 @@ class AuthControllerTests {
                         new LoginAttemptService(
                                 accounts,
                                 new LockoutPolicy(3, Duration.ofMinutes(5)),
+                                audit,
                                 Clock.fixed(
                                         Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
                         accountService),
+                audit,
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
                 csrfTokenRepository,

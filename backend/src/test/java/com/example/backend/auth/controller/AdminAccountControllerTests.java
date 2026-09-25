@@ -58,10 +58,10 @@ class AdminAccountControllerTests {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        controller.enable("bob");
-        controller.unlock("bob");
+        controller.enable("bob", principal);
+        controller.unlock("bob", principal);
 
-        assertThat(service.calls).containsExactly("enable:bob", "unlock:bob");
+        assertThat(service.calls).containsExactly("enable:bob:ada", "unlock:bob:ada");
     }
 
     /**
@@ -89,7 +89,7 @@ class AdminAccountControllerTests {
         private final List<String> calls = new java.util.ArrayList<>();
 
         RecordingService(List<AccountSummary> summaries) {
-            super(null, null, null, null);
+            super(null, null, null, null, null);
             this.summaries = summaries;
         }
 
@@ -105,14 +105,14 @@ class AdminAccountControllerTests {
         }
 
         @Override
-        public AccountSummary enable(String username) {
-            calls.add("enable:" + username);
+        public AccountSummary enable(String username, String requestedBy) {
+            calls.add("enable:" + username + ":" + requestedBy);
             return summary(username, AccountRole.USER, true, false);
         }
 
         @Override
-        public AccountSummary unlock(String username) {
-            calls.add("unlock:" + username);
+        public AccountSummary unlock(String username, String requestedBy) {
+            calls.add("unlock:" + username + ":" + requestedBy);
             return summary(username, AccountRole.USER, true, false);
         }
     }
