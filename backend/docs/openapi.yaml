@@ -11,6 +11,15 @@ info:
     cookie is readable by JavaScript and is issued on any response from the API,
     including anonymous ones. Login and logout both replace it, so the value has
     to be read at request time rather than cached.
+
+    **This document covers the session-authenticated application API only.** The
+    service also serves a second, separate security chain at `/scim/v2/**`: a
+    stateless SCIM v2 interface authenticated per request by an opaque connector
+    bearer token, with no session, no CSRF and no cookie. Its resource endpoints
+    and their schemas arrive with the SCIM inbound adapter; the operations below
+    under the Connectors tag are how an administrator mints and retires the
+    credentials that chain accepts. A connector token buys nothing here, and a
+    session buys nothing there.
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -19,6 +28,7 @@ tags:
   - name: Session
   - name: Counter
   - name: Administration
+  - name: Connectors
   - name: Health
 paths:
   /api/auth/login:
@@ -310,6 +320,203 @@ paths:
           $ref: "#/components/responses/AdminRoleRequired"
         "404":
           $ref: "#/components/responses/UnknownAccount"
+  /api/admin/connectors:
+    get:
+      tags: [Connectors]
+      summary: List SCIM connectors and the state of their tokens
+      description: |
+        Every live connector, alphabetically, each with every token it has ever
+        held (newest issue first). A deleted connector is omitted.
+
+        The response never contains a token value or its hash. It is serialised
+        from a projection that has no field for either, so the guarantee is
+        structural rather than a matter of review discipline — the same
+        arrangement `AccountSummary` uses for the password hash.
+
+        `active` is the server's own evaluation at the moment it answers, not a
+        comparison the client makes against its own clock.
+      operationId: listConnectors
+      responses:
+        "200":
+          description: Every live connector.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConnectorSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+    post:
+      tags: [Connectors]
+      summary: Create a SCIM connector
+      description: |
+        Creates a connector holding no tokens. `displayName` is the
+        administrator's own label and carries no authority: scope is a property of
+        each token, not of the connector.
+      operationId: createConnector
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "201":
+          description: The connector as created, holding no tokens.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorSummary"
+        "400":
+          description: The display name is missing or longer than 200 characters.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectorRequest"
+  /api/admin/connectors/{connectorId}:
+    delete:
+      tags: [Connectors]
+      summary: Delete a SCIM connector
+      description: |
+        Revokes every token the connector holds and deletes every one of its
+        connector-scoped `externalId` aliases, in ONE transaction. Users and
+        Groups are untouched — an alias is a connector's name for a resource, not
+        the resource.
+
+        One transaction is the requirement rather than an optimisation: aliases
+        gone with tokens still live would leave a credential able to write to a
+        directory it can no longer address its own resources in, and the reverse
+        would leave a namespace reserved by nobody.
+
+        The connector row survives with a deletion timestamp, so an audit event
+        that names it still resolves a year later. It stops being listed and stops
+        authenticating immediately, and its `externalId` namespace becomes
+        available to a future connector.
+
+        Not idempotent: deleting an already-deleted connector is 404, because an
+        administrator repeating a delete is likelier to have the wrong id than to
+        want a second no-op.
+      operationId: deleteConnector
+      parameters:
+        - $ref: "#/components/parameters/ConnectorId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: The connector, its tokens and its aliases are gone.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownConnector"
+  /api/admin/connectors/{connectorId}/tokens:
+    post:
+      tags: [Connectors]
+      summary: Issue a connector token
+      description: |
+        Mints a token and returns its plaintext. **This is the only time that value
+        exists.** What is stored is a SHA-256 digest of it, so there is no
+        operation that returns it again and no support path that can recover it —
+        a lost token is rotated, not retrieved.
+
+        The response carries `Cache-Control: no-store`, so the credential is not
+        written to a shared cache on its way to the browser.
+
+        `lifetimeDays` defaults to 365 and may not exceed it. A longer request is
+        400 rather than a silently shortened token, so an administrator never
+        walks away believing their integration has longer than it does.
+      operationId: issueConnectorToken
+      parameters:
+        - $ref: "#/components/parameters/ConnectorId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "201":
+          $ref: "#/components/responses/IssuedConnectorToken"
+        "400":
+          description: |
+            `scope` is missing, or `lifetimeDays` is not positive or exceeds 365.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownConnector"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueTokenRequest"
+  /api/admin/connectors/{connectorId}/tokens/{tokenId}/rotate:
+    post:
+      tags: [Connectors]
+      summary: Replace a connector token, with a bounded overlap
+      description: |
+        Mints a replacement of the same scope with a fresh full lifetime, and
+        brings the OLD token's expiry forward to the end of the overlap window so
+        an integration can be redeployed before its current credential stops
+        working.
+
+        The overlap ends at the EARLIER of the requested window and the expiry the
+        old token already had, capped at 14 days. Three consequences worth
+        stating: a request longer than 14 days is clamped rather than refused; an
+        overlap longer than the token had left ends at the token's own expiry, so
+        rotation can never lengthen a token's life; and a second rotation cannot
+        undo the first one's shortening. `overlapDays` absent or zero ends the old
+        token at this instant.
+
+        The response discloses the replacement's plaintext once, under
+        `Cache-Control: no-store`, exactly as issue does.
+      operationId: rotateConnectorToken
+      parameters:
+        - $ref: "#/components/parameters/ConnectorId"
+        - $ref: "#/components/parameters/TokenId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "201":
+          $ref: "#/components/responses/IssuedConnectorToken"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownConnector"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateTokenRequest"
+  /api/admin/connectors/{connectorId}/tokens/{tokenId}/revoke:
+    post:
+      tags: [Connectors]
+      summary: Revoke a connector token
+      description: |
+        Effective immediately: the next SCIM request presenting it is refused with
+        `401` and `WWW-Authenticate: Bearer error="invalid_token"`, the same answer
+        a token that never existed gets.
+
+        Idempotent — a token already revoked keeps its original revocation time
+        and nothing is written, though the attempt is still audited.
+      operationId: revokeConnectorToken
+      parameters:
+        - $ref: "#/components/parameters/ConnectorId"
+        - $ref: "#/components/parameters/TokenId"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "204":
+          description: The token is no longer accepted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+        "404":
+          $ref: "#/components/responses/UnknownConnector"
   /actuator/health:
     get:
       tags: [Health]
@@ -359,6 +566,24 @@ components:
       description: The current value of the XSRF-TOKEN cookie, echoed back unchanged.
       schema:
         type: string
+    ConnectorId:
+      name: connectorId
+      in: path
+      required: true
+      description: The connector's stable id.
+      schema:
+        type: string
+        format: uuid
+    TokenId:
+      name: tokenId
+      in: path
+      required: true
+      description: |
+        The token's stable id, as the listing reports it. Not the token value — the
+        value is never sent to this service in a URL.
+      schema:
+        type: string
+        format: uuid
   responses:
     Unauthorized:
       description: A valid authenticated session is required.
@@ -382,6 +607,24 @@ components:
         The action would leave nobody able to reverse it — an account disabling
         itself, or the last enabled administrator. Not 403: the caller holds the
         right role, the action itself is refused.
+    UnknownConnector:
+      description: |
+        No live connector or token has that id. The body is empty, and "never
+        existed" and "already deleted" are the same answer: the caller is an
+        administrator who can read either from the listing.
+    IssuedConnectorToken:
+      description: |
+        The token, including its plaintext — the only time that value is disclosed.
+        Sent with `Cache-Control: no-store`.
+      headers:
+        Cache-Control:
+          description: Always `no-store`; a credential may not be cached.
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IssuedConnectorToken"
     AdminRoleRequired:
       description: |
         The session is valid and was accepted; the account's role is what was
@@ -484,3 +727,120 @@ components:
         status:
           type: string
       additionalProperties: true
+    ConnectorTokenScope:
+      type: string
+      enum: [READ_ONLY, READ_WRITE]
+      description: |
+        Directory-wide. `READ_WRITE` implies read, so there is no scope that can
+        mutate a resource it cannot retrieve. Enforced in the SCIM chain's filter
+        from the method and path alone, not by a check inside a handler.
+    CreateConnectorRequest:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: The administrator's own label. Carries no authority.
+    IssueTokenRequest:
+      type: object
+      required: [scope]
+      properties:
+        scope:
+          $ref: "#/components/schemas/ConnectorTokenScope"
+        lifetimeDays:
+          type: [integer, "null"]
+          format: int32
+          minimum: 1
+          maximum: 365
+          description: Defaults to 365, which is also the hard maximum.
+    RotateTokenRequest:
+      type: object
+      properties:
+        overlapDays:
+          type: [integer, "null"]
+          format: int32
+          description: |
+            How long the old token keeps working. Clamped to 14 days and to the life
+            the old token had left; absent or zero ends it immediately.
+    ConnectorTokenSummary:
+      type: object
+      required: [id, scope, issuedAt, expiresAt, originalExpiresAt, active]
+      description: |
+        Has no property a token value or its hash could occupy, and that is
+        deliberate: the serialised projection has no such field, so a listing cannot
+        disclose a credential even by mistake.
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/ConnectorTokenScope"
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          description: As it currently stands; a rotation may have brought it forward.
+        originalExpiresAt:
+          type: string
+          format: date-time
+          description: |
+            The expiry it was issued with, so a shortened overlap window is visible
+            as one. Never earlier than `expiresAt`.
+        revokedAt:
+          type: [string, "null"]
+          format: date-time
+        active:
+          type: boolean
+          description: |
+            Whether the token would be accepted right now — the server's own
+            evaluation, not a comparison the client makes against its own clock.
+    ConnectorSummary:
+      type: object
+      required: [id, displayName, createdAt, tokens]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        tokens:
+          type: array
+          description: Every token the connector has held, newest issue first.
+          items:
+            $ref: "#/components/schemas/ConnectorTokenSummary"
+    IssuedConnectorToken:
+      type: object
+      required: [connectorId, tokenId, scope, issuedAt, expiresAt, presentedValue]
+      description: |
+        The only schema that carries a token value, returned only by issue and
+        rotate. A type of its own rather than a nullable field on
+        `ConnectorTokenSummary`, so the shape a listing uses has no property for a
+        credential at all.
+      properties:
+        connectorId:
+          type: string
+          format: uuid
+        tokenId:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/ConnectorTokenScope"
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        presentedValue:
+          type: string
+          description: |
+            The complete opaque bearer value, sent to the SCIM interface as
+            `Authorization: Bearer <value>`. Store it now — this service holds only
+            a digest and cannot show it again.

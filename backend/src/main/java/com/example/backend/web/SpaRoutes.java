@@ -23,8 +23,17 @@ public final class SpaRoutes {
      * Path prefixes the server answers for itself. Each reserves both the exact
      * path and everything beneath it, so {@code /api} is as reserved as
      * {@code /api/count}.
+     *
+     * <p>{@code /scim} is here because an unknown path beneath it must stay a
+     * {@code 404} and must never be authenticated as a frontend GET. Without the
+     * entry, a mistyped SCIM path — {@code /scim/v2/User} for {@code /scim/v2/Users}
+     * — would be read as a client-side route and answered with the HTML shell and a
+     * {@code 200}, which a provisioning client would parse as a successful empty
+     * response. The SCIM chain matches first and so decides these requests today;
+     * this entry is what keeps that true if the chain ordering ever changes.
      */
-    private static final List<String> RESERVED_PREFIXES = List.of("/api", "/actuator");
+    private static final List<String> RESERVED_PREFIXES =
+            List.of("/api", "/actuator", "/scim");
 
     private SpaRoutes() {
     }

@@ -336,6 +336,53 @@ public class ArchitectureTest {
             .because("The audit slice owns what goes into an event body; a caller says only"
                     + " what happened, through AuditTrail");
 
+    /**
+     * A connector token's stored form never reaches a web adapter.
+     *
+     * <p>{@link com.example.backend.scim.domain.ConnectorTokenDigest} and the token
+     * aggregate that holds one are the two types a credential's stored form lives in. A
+     * controller that depended on either could render it, and a token hash in a response
+     * body is a credential leak even though it is not the credential: it is offline-
+     * crackable in a way the 256-bit value is not only because nothing else about the
+     * value is known.
+     *
+     * <p>Held as a rule rather than by review because the safe shape already exists —
+     * {@code ConnectorTokenSummary} has no field a digest could occupy — and what a rule
+     * adds is that a future adapter cannot reach around it by taking the domain type
+     * directly. The exemptions are written as name PATTERNS because ArchUnit treats a
+     * nested class as its own class, so an exact name would miss a record nested in a
+     * controller.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_connector_token_digest_never_reaches_a_web_adapter =
+        noClasses()
+            .that().resideInAPackage("..controller..")
+            .should().dependOnClassesThat()
+                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\."
+                        + "(ConnectorTokenDigest|ScimConnectorToken)(\\$.*)?")
+            .allowEmptyShould(true)
+            .because("A web adapter returns projections that have no field a token digest"
+                    + " could be written into; reaching the domain type directly is how"
+                    + " that guarantee would be bypassed");
+
+    /**
+     * A connector token's stored form does not reach the audit slice either.
+     *
+     * <p>The audit boundary already refuses a {@code String}, which is what a plaintext
+     * value is. This closes the other shape: an event body cannot be handed a digest or
+     * a token aggregate to render, so "no bearer value in an audit event" holds for the
+     * hash as well as for the value.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_audit_slice_never_sees_a_connector_token =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.audit..")
+            .should().dependOnClassesThat()
+                .resideInAPackage("com.example.backend.scim..")
+            .allowEmptyShould(true)
+            .because("The audit slice records a connector by its stable id and has no"
+                    + " reason to reach the credential types at all");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule onion_architecture =
         onionArchitecture()

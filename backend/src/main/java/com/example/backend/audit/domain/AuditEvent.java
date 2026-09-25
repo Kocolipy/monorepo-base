@@ -58,8 +58,20 @@ public record AuditEvent(
         String httpPath,
         String requestId) {
 
-    /** The only resource type this service audits today. */
+    /** The login identity, as the audit trail names it. */
     public static final String ACCOUNT_RESOURCE_TYPE = "Account";
+
+    /**
+     * A SCIM connector, as the audit trail names it.
+     *
+     * <p>A token lifecycle event carries this type and the CONNECTOR's id, not the
+     * token's. The connector is what an administrator investigates and what
+     * survives a rotation; a token id identifies a credential that may already be
+     * gone, and grouping a connector's history by it would split one integration's
+     * story across every token it ever held. Which token an event is about is the
+     * operation plus the timestamp, on a stream that is append-only.
+     */
+    public static final String CONNECTOR_RESOURCE_TYPE = "ScimConnector";
 
     /** The request succeeded. */
     public static final String STATUS_OK = "ok";
