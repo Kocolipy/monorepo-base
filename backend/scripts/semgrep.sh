@@ -33,9 +33,13 @@ fi
 
 cd "$(dirname "$0")/.."
 
+# `--project-root .` pins Semgrep's project root to backend/. Semgrep otherwise
+# resolves it from git — the monorepo root — and then `.semgrepignore` here no
+# longer replaces the built-in default skip list, which silently drops all of
+# `src/test/java` from the scan. See the comments in `.semgrepignore`.
 config_args=(--config "${LOCAL_RULES}")
 for ruleset in "${REGISTRY_RULESETS[@]}"; do
   config_args+=(--config "${ruleset}")
 done
 
-exec semgrep scan "${config_args[@]}" --error "$@"
+exec semgrep scan "${config_args[@]}" --project-root . --error "$@" .

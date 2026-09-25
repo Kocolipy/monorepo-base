@@ -1,8 +1,21 @@
-# Paths Semgrep skips. Replaces Semgrep's built-in defaults, so src/test/java is scanned.
-:include .gitignore
+# Paths Semgrep skips. Replaces Semgrep's built-in default list, which would
+# otherwise skip `src/test/java`.
+#
+# That replacement only happens when this file sits at the project root Semgrep
+# resolved, and Semgrep resolves that root from git — which is the monorepo
+# root, not `backend/`. So `scripts/semgrep.sh` passes `--project-root .` to
+# pin the root to this directory. Without that flag this file is read but the
+# built-in defaults stay in force and every test source is silently skipped.
+#
+# Two consequences of pinning the root here:
+#   - patterns resolve against `backend/`, so a path outside it cannot be named;
+#   - the monorepo's root `.gitignore` is no longer consulted, so anything
+#     generated must be listed below rather than relied on being git-ignored.
 
 # Generated and vendored output
 graphify-out/
-frontend/dist/
 node_modules/
 target/
+
+# Local secrets — real credentials, and not ours to print in a finding
+.env

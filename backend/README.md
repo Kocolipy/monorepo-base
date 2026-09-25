@@ -235,7 +235,11 @@ green means zero findings. The first run downloads registry rules and caches
 them, so it needs network access. Extra flags reach Semgrep directly, for
 example `./scripts/semgrep.sh --json --output semgrep.json`. `.semgrepignore`
 lists the skipped paths; it replaces Semgrep's built-in default list, which would
-otherwise skip `src/test/java`.
+otherwise skip `src/test/java`. That replacement is why the script passes
+`--project-root .`: Semgrep resolves the project root from git, which is the
+monorepo root, and an ignore file below that root is read but no longer cancels
+the defaults — so without the flag the whole test tree is skipped silently. The
+scan covers 94 files, 73 of them Java (39 main, 34 test).
 
 Mutation testing is a third, non-gate check that PIT runs on demand:
 
