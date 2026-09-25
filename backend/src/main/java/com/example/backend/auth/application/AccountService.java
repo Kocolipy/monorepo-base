@@ -5,6 +5,7 @@ import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import java.time.Clock;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -79,6 +80,13 @@ public class AccountService implements UserDetailsService {
      * exists and may be enabled and unlocked, but nothing submitted can match a
      * hash nobody wrote, so it is refused on the password check like any other
      * wrong password, in the same amount of work.
+     *
+     * <p>The returned {@code UserDetails} still names the account by its
+     * {@code username} — that stays Spring Security's own vocabulary, and the
+     * login/{@code /me} response continues to report it. What is keyed by the
+     * stable id instead is application-owned state reached separately: the
+     * session index ({@code AuthController} records {@link #resolveAccountId}
+     * into it after authentication) and the counter feature.
      */
     @Override
     public UserDetails loadUserByUsername(String username) {
@@ -95,6 +103,17 @@ public class AccountService implements UserDetailsService {
                 // in with would make the listing a lie.
                 .disabled(!account.enabled())
                 .build();
+    }
+
+    /**
+     * The stable id behind a username, for a caller that has just authenticated
+     * it and needs to key application-owned state (the session index) by that id
+     * rather than by the username Spring Security itself keeps using.
+     */
+    public UUID resolveAccountId(String username) {
+        return accounts.findByUsername(username)
+                .map(Account::id)
+                .orElseThrow(() -> new UsernameNotFoundException("Account not found"));
     }
 
     /**
@@ -120,6 +139,7 @@ public class AccountService implements UserDetailsService {
         Optional<Account> existing = accounts.findByUsername(seed.username());
         if (existing.isEmpty()) {
             accounts.save(new Account(
+                    UUID.randomUUID(),
                     seed.username(),
                     passwordEncoder.encode(seed.password()),
                     role,

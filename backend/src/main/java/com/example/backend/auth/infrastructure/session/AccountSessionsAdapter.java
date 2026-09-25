@@ -2,6 +2,7 @@ package com.example.backend.auth.infrastructure.session;
 
 import com.example.backend.auth.domain.AccountSessions;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Component;
@@ -11,15 +12,22 @@ import org.springframework.stereotype.Component;
  * principal-name index.
  *
  * <p>The index is what makes this possible at all, and it is not free: a plain
- * session store can only be read by id, so the sessions belonging to a username
+ * session store can only be read by id, so the sessions belonging to an account
  * cannot be found. This class therefore requires the indexed session repository,
  * configured in {@code session.yaml} — with the default repository there is no
  * bean to inject and the application does not start, which is the intended
  * failure. It is loud, and it happens at startup, rather than a disable quietly
  * leaving sessions running.
  *
- * <p>The index is populated from the session's Spring Security context, so it
- * only ever names accounts that authenticated through the login path.
+ * <p>The index name says "principal name" because that is Spring Session's own
+ * vocabulary, and by default it is populated from the security context's
+ * {@code Authentication.getName()} — the login username. This application
+ * overrides that: {@code AuthController} writes the account's stable id into the
+ * session attribute {@link FindByIndexNameSessionRepository#PRINCIPAL_NAME_INDEX_NAME}
+ * explicitly on login, so the index this adapter searches is keyed by the stable
+ * id and survives a later username change, while {@code Authentication.getName()}
+ * — and everything that reads it, including the login/{@code /me} response — is
+ * untouched and keeps naming the username.
  */
 @Component
 public class AccountSessionsAdapter implements AccountSessions {
@@ -31,11 +39,11 @@ public class AccountSessionsAdapter implements AccountSessions {
     }
 
     @Override
-    public int revokeAll(String username) {
+    public int revokeAll(UUID accountId) {
         // Copied out of the returned map before deleting: the lookup's result is
         // the repository's own view, and deleting through it while iterating is
         // not something the interface promises to tolerate.
-        Set<String> ids = Set.copyOf(sessions.findByPrincipalName(username).keySet());
+        Set<String> ids = Set.copyOf(sessions.findByPrincipalName(accountId.toString()).keySet());
         ids.forEach(sessions::deleteById);
         return ids.size();
     }

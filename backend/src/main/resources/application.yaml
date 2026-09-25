@@ -13,8 +13,13 @@ spring:
     password: ${DATABASE_PASSWORD:backend}
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway migrations (src/main/resources/db/migration) are the only source
+      # of schema; `validate` fails startup on drift instead of silently
+      # generating DDL, which is what `update`/`create*` would do here.
+      ddl-auto: validate
     open-in-view: false
+  flyway:
+    baseline-on-migrate: false
   data:
     redis:
       host: ${REDIS_HOST:localhost}

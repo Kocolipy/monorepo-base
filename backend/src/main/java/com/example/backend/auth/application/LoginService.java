@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.observability.LogEvent;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -37,10 +38,15 @@ public class LoginService {
 
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
+    private final AccountService accounts;
 
-    public LoginService(AuthenticationManager authenticationManager, LoginAttemptService attempts) {
+    public LoginService(
+            AuthenticationManager authenticationManager,
+            LoginAttemptService attempts,
+            AccountService accounts) {
         this.authenticationManager = authenticationManager;
         this.attempts = attempts;
+        this.accounts = accounts;
     }
 
     /**
@@ -67,7 +73,7 @@ public class LoginService {
      *
      * @throws AuthenticationException when the credentials are refused
      */
-    public Authentication logIn(String username, String password) {
+    public LoginOutcome logIn(String username, String password) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
@@ -91,6 +97,16 @@ public class LoginService {
                 .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("Login accepted");
-        return authentication;
+        return new LoginOutcome(authentication, accounts.resolveAccountId(authentication.getName()));
+    }
+
+    /**
+     * A successful login, carrying both what Spring Security needs to place in
+     * the security context and the account's stable id — the key the web adapter
+     * writes into the session index, so application-owned session lookups
+     * survive a later username change instead of following
+     * {@code authentication.getName()}.
+     */
+    public record LoginOutcome(Authentication authentication, UUID accountId) {
     }
 }

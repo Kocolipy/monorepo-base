@@ -104,7 +104,7 @@ public class AccountAdministrationService {
                             + " enable it again");
         }
         AccountSummary disabled = applyEnabled(account, false);
-        afterCommit.run(() -> sessions.revokeAll(account.username()));
+        afterCommit.run(() -> sessions.revokeAll(account.id()));
         succeeded(DISABLE_ACTION);
         return disabled;
     }
