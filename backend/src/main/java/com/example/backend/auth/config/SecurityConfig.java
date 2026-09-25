@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -33,6 +34,13 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 
 @Configuration
 public class SecurityConfig {
+
+    /**
+     * Last, because this chain has no {@code securityMatcher} and therefore matches
+     * whatever an earlier chain did not. The SCIM chain is ordered ahead of it — see
+     * {@code ScimSecurityConfig}.
+     */
+    public static final int APPLICATION_CHAIN_ORDER = 2;
 
     /**
      * The single-page application loads only same-origin module scripts and a
@@ -137,7 +145,14 @@ public class SecurityConfig {
         return new AbsoluteSessionLifetimeFilter(absoluteSessionLifetimePolicy, clock);
     }
 
+    /**
+     * The application chain, ordered after the SCIM chain because it matches every
+     * request that chain did not. Spring requires the catch-all chain to be last;
+     * without the order, a SCIM request could be answered by the SPA's session and
+     * CSRF rules instead of by bearer authentication.
+     */
     @Bean
+    @Order(SecurityConfig.APPLICATION_CHAIN_ORDER)
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             SecurityContextRepository securityContextRepository,

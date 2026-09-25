@@ -10,6 +10,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.application.AccountAdministrationService;
 import com.example.backend.auth.domain.Account;
@@ -163,6 +165,9 @@ class AuditAppendOnlyIntegrationTests {
     private AuditRetentionService retention;
 
     @Autowired
+    private AuditTrail auditTrail;
+
+    @Autowired
     private InMemoryAccountSessions sessions;
 
     @Autowired
@@ -263,6 +268,34 @@ class AuditAppendOnlyIntegrationTests {
         // untouched by the append that failed, because a failure event is fail-open.
         assertThat(accounts.findByUsername(USER).orElseThrow().failedLoginAttempts())
                 .isEqualTo(1);
+    }
+
+    /**
+     * A fail-open append commits even when the transaction that triggered it does not.
+     *
+     * <p>This is what {@code PROPAGATION_REQUIRES_NEW} on the service's isolated
+     * template buys, and it is the whole of fail-open: without it the append joins the
+     * caller's transaction, and a caller that rolls back takes the audit row with it —
+     * so a refused login inside a rolled-back unit of work would leave no trace at all,
+     * silently, with no alert raised because nothing threw. Asserted with a caller
+     * transaction marked rollback-only rather than by reading the template's
+     * configuration, because the propagation setting is a means and the surviving row
+     * is the claim.
+     */
+    @Test
+    void aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack() {
+        UUID subjectId = accounts.findByUsername(USER).orElseThrow().id();
+
+        transactions.executeWithoutResult(status -> {
+            auditTrail.recordLoginFailure(subjectId, AuditRefusalReason.BAD_CREDENTIALS);
+            status.setRollbackOnly();
+        });
+
+        assertThat(jdbc.queryForList(EVENTS_BY_OPERATION, AuditOperation.LOGIN_FAILURE.name()))
+                .as("the failure event outlived the rollback")
+                .singleElement()
+                .satisfies(row ->
+                        assertThat(row.get("subject_id")).hasToString(subjectId.toString()));
     }
 
     // Role separation, at the database

@@ -83,4 +83,32 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordAccountEnabled(UUID actorId, UUID subjectId) {
         recorded.add(new Recorded(AuditOperation.ACCOUNT_ENABLE, actorId, subjectId, null));
     }
+
+    @Override
+    public void recordConnectorCreated(UUID actorId, UUID connectorId) {
+        recorded.add(new Recorded(AuditOperation.CONNECTOR_CREATE, actorId, connectorId, null));
+    }
+
+    @Override
+    public void recordConnectorDeleted(UUID actorId, UUID connectorId) {
+        recorded.add(new Recorded(AuditOperation.CONNECTOR_DELETE, actorId, connectorId, null));
+    }
+
+    @Override
+    public void recordConnectorTokenIssued(UUID actorId, UUID connectorId) {
+        recorded.add(new Recorded(
+                AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, null));
+    }
+
+    @Override
+    public void recordConnectorTokenRotated(UUID actorId, UUID connectorId) {
+        recorded.add(new Recorded(
+                AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, null));
+    }
+
+    @Override
+    public void recordConnectorTokenRevoked(UUID actorId, UUID connectorId) {
+        recorded.add(new Recorded(
+                AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, null));
+    }
 }

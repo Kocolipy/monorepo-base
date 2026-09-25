@@ -46,8 +46,10 @@ class BackendApplicationTests {
      * the entities, and {@code flyway_schema_history} recording the migrations
      * that actually built it rather than a generated schema. Reading the table
      * directly — not just trusting that the context started — is what tells
-     * "Flyway ran V1 and V2" apart from "some other mechanism happened to leave
-     * a schema Hibernate's validation was satisfied by".
+     * "Flyway ran the migrations" apart from "some other mechanism happened to
+     * leave a schema Hibernate's validation was satisfied by". The expected list
+     * grows with each migration deliberately: a new one that forgot to land here
+     * fails this test rather than passing silently.
      */
     @Test
     void theSchemaCameFromFlywayMigrationsAloneOnAFreshDatabase() throws Exception {
@@ -62,7 +64,7 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            assertThat(versions).containsExactly("1", "2", "3");
+            assertThat(versions).containsExactly("1", "2", "3", "4");
         }
     }
 }

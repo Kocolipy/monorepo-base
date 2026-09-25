@@ -267,6 +267,11 @@ rules:
           - pattern: $AUDIT.recordLockoutLiftedByUnlock(..., $VALUE, ...)
           - pattern: $AUDIT.recordAccountDisabled(..., $VALUE, ...)
           - pattern: $AUDIT.recordAccountEnabled(..., $VALUE, ...)
+          - pattern: $AUDIT.recordConnectorCreated(..., $VALUE, ...)
+          - pattern: $AUDIT.recordConnectorDeleted(..., $VALUE, ...)
+          - pattern: $AUDIT.recordConnectorTokenIssued(..., $VALUE, ...)
+          - pattern: $AUDIT.recordConnectorTokenRotated(..., $VALUE, ...)
+          - pattern: $AUDIT.recordConnectorTokenRevoked(..., $VALUE, ...)
           - pattern: new AuditEvent(..., $VALUE, ...)
       - metavariable-regex:
           metavariable: $VALUE
@@ -298,3 +303,46 @@ rules:
         - "**/AuditAppendOnlyIntegrationTests.java"
         - "**/AuditEventRecordingIntegrationTests.java"
     pattern-regex: SET\s+(LOCAL\s+)?ROLE\s+backend_audit_retention
+
+  # ---------------------------------------------------------------------------
+  # A connector token is read from the Authorization header and from nowhere else.
+  #
+  # Structural rather than a check, because the property is "the other locations
+  # are never consulted" — which a check cannot express and a reviewer cannot
+  # verify of code that does not exist yet. Each of the three banned locations
+  # carries the credential somewhere it outlives the request: a query string into
+  # access logs, browser history and Referer headers; a form body into any proxy
+  # that records bodies; a cookie into every later same-origin request, including
+  # ones some page the operator visited caused. RFC 6750 deprecates the first two
+  # for those reasons and the SCIM chain accepts none of them.
+  #
+  # Scoped to the SCIM slice. The application chain's own adapters read parameters
+  # legitimately — a login form posts one — so a service-wide ban would be wrong.
+  # ---------------------------------------------------------------------------
+
+  - id: be-scim-credential-read-outside-the-authorization-header
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A SCIM request's parameters or cookies are being read. The connector token is
+      accepted from `Authorization: Bearer` and nowhere else, and that holds because
+      nothing in this slice looks anywhere else — not because a check rejects the
+      other locations. Read the header through
+      request.getHeader(HttpHeaders.AUTHORIZATION). If a future SCIM endpoint needs a
+      genuine query PARAMETER (a filter, a sort, a page), take it through the Spring
+      MVC binding on the handler rather than reaching into the servlet request here.
+    paths:
+      include:
+        - "**/scim/**"
+      exclude:
+        # The tests that prove the property, which can only do so by PRESENTING a
+        # token in each banned location and watching the request arrive
+        # unauthenticated.
+        - "**/ScimBearerAuthenticationFilterTests.java"
+        - "**/ScimConnectorLifecycleIntegrationTests.java"
+    pattern-either:
+      - pattern: $REQUEST.getParameter(...)
+      - pattern: $REQUEST.getParameterMap(...)
+      - pattern: $REQUEST.getParameterValues(...)
+      - pattern: $REQUEST.getCookies(...)
+      - pattern: $REQUEST.getQueryString(...)

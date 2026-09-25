@@ -38,5 +38,29 @@ public enum AuditOperation {
     ACCOUNT_DISABLE,
 
     /** An administrator reopened an account to logins. */
-    ACCOUNT_ENABLE
+    ACCOUNT_ENABLE,
+
+    /** An administrator created a SCIM connector. */
+    CONNECTOR_CREATE,
+
+    /**
+     * An administrator deleted a SCIM connector, which revoked every token it held
+     * and removed every {@code externalId} alias it owned.
+     */
+    CONNECTOR_DELETE,
+
+    /** An administrator minted a new token for a connector. */
+    CONNECTOR_TOKEN_ISSUE,
+
+    /**
+     * An administrator replaced a connector's token, shortening the old one's life
+     * to the overlap window.
+     */
+    CONNECTOR_TOKEN_ROTATE,
+
+    /**
+     * A connector token stopped being accepted because an administrator said so —
+     * individually, or as part of deleting the connector.
+     */
+    CONNECTOR_TOKEN_REVOKE
 }

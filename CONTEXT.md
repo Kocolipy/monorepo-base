@@ -10,10 +10,13 @@ listed as avoided, it is avoided because it already means something else here.
 ## Request paths
 
 **Reserved server path** — a request path the backend answers for itself:
-`/api` and `/actuator`, each reserving both the exact path and everything
+`/api`, `/actuator` and `/scim`, each reserving both the exact path and everything
 beneath it. Reserved paths are authenticated by the filter chain and keep their
 own error responses. `SpaRoutes.isReservedServerPath` is the only place the list
-lives.
+lives. `/scim` is reserved for a reason worth stating: without it a mistyped SCIM
+path would be read as a client-side route and answered with the SPA shell and a
+`200`, which a provisioning client would parse as a successful empty response
+rather than as an error.
 
 **SPA shell** — `index.html`, the single document the single-page application
 boots from. A path with no server-side handler is _forwarded to the shell_ when
@@ -76,14 +79,38 @@ calling connector's alias, so independent client namespaces cannot collide. When
 a connector is deleted, all of its aliases are deleted too and its namespace may
 be reused by a future connector.
 
+**Deleted SCIM connector** — a connector removed by an Admin. Deletion revokes
+every token it holds and deletes every one of its `externalId` aliases in a single
+transaction, and is not a row removal: the connector record survives with a
+deletion timestamp so an audit event that names it still resolves for as long as
+the trail is retained. Users and Groups are untouched — an alias is a connector's
+name for a resource, not the resource. A deleted connector stops being listed and
+stops authenticating at once, and its `externalId` namespace becomes available
+again. Deleting one twice is refused, because an Admin repeating a delete is
+likelier to have the wrong id than to want a second no-op.
+
 **SCIM connector token** — a high-entropy opaque bearer credential restricted to
-the SCIM interface. Each connector receives its own token; only a hash is stored.
-A token is either directory-wide read-only or directory-wide read-write, with
-write implying read. Any Admin may use the Accounts page to mint, inspect,
-overlap, rotate, and revoke tokens; plaintext is shown only once. A token expires
-365 days after issue, which is both the default and hard maximum. Rotation admits
-an overlap window of at most 14 days so a replacement can be deployed before the
-old token is revoked, but never extends the old token past its original expiry.
+the SCIM interface. The value is a non-secret lookup handle, a dot, and at least
+256 bits of `SecureRandom` material; only a SHA-256 digest of the **complete**
+value is stored, compared in constant time. A token is either directory-wide
+read-only or directory-wide read-write, with write implying read — and scope is
+enforced in the SCIM chain's filter from the request's method and path, so a
+`.search` POST remains a read and no handler carries a scope check of its own.
+Any Admin may mint, inspect, overlap, rotate, and revoke tokens; plaintext is
+disclosed once, on the issue and rotation responses alone, under
+`Cache-Control: no-store`. A token expires at most 365 days after issue, which is
+both the default and the hard maximum — a shorter lifetime may be chosen, a longer
+one is refused rather than silently clamped. Rotation mints a replacement of the
+same scope with a fresh full lifetime and brings the old token's expiry **forward**
+to the end of an overlap window of at most 14 days, never past the expiry the old
+token already had; a second rotation therefore cannot undo the first one's
+shortening. Revocation and expiry are immediate and indistinguishable to the
+connector: the only credential refusals the interface makes are a bare `Bearer`
+challenge when no credential was presented, `invalid_token` for a malformed,
+unknown, expired or revoked one or one whose connector is deleted, and
+`insufficient_scope` for a read-only token attempting a mutation. The token is
+accepted from the `Authorization` header and from nowhere else — a query string, a
+form body and a cookie are not rejected but never consulted.
 
 **SCIM User** — the domain identity that replaces Account rather than wrapping it.
 It owns the selected core User profile, stable SCIM id and version, active state,

@@ -70,6 +70,24 @@ public class AuditTrailService implements AuditTrail {
     /** A rejected login lengthens the failure run and nothing else. */
     private static final List<String> FAILURE_RUN_PATHS = List.of("failedLoginAttempts");
 
+    /** What deleting a connector changes on the connector row itself. */
+    private static final List<String> CONNECTOR_DELETED_PATHS = List.of("deletedAt");
+
+    /**
+     * A token's issue is the appearance of a whole row, so the path list names the
+     * two fields that decide what the credential can do and for how long — the
+     * questions an administrator reading the trail is actually asking. It never
+     * names the digest, and there is no path for a value that was not stored.
+     */
+    private static final List<String> TOKEN_ISSUE_PATHS = List.of("scope", "expiresAt");
+
+    /** Rotation shortens the old token and records which token replaced it. */
+    private static final List<String> TOKEN_ROTATE_PATHS =
+            List.of("expiresAt", "replacedByTokenId");
+
+    /** Revocation touches one column. */
+    private static final List<String> TOKEN_REVOKE_PATHS = List.of("revokedAt");
+
     private final AuditEventRepository events;
     private final AuditRequestContext requests;
     private final OperationalAlerts alerts;
@@ -235,6 +253,59 @@ public class AuditTrailService implements AuditTrail {
                 null));
     }
 
+    /**
+     * Records a connector created. Fail-closed: the connector exists only if the
+     * event does.
+     *
+     * <p>Every connector and token event below is fail-closed, for the reason the
+     * administrative account writes are: an administrator asked for the change and
+     * the change is not worth having unaccounted for. A credential this service
+     * cannot say who minted is worse than a failed mint an administrator retries.
+     */
+    @Transactional
+    @Override
+    public void recordConnectorCreated(UUID actorId, UUID connectorId) {
+        append(connectorEvent(
+                AuditOperation.CONNECTOR_CREATE, actorId, connectorId, List.of()));
+    }
+
+    /** Records a connector deleted, with its tokens and aliases. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordConnectorDeleted(UUID actorId, UUID connectorId) {
+        append(connectorEvent(
+                AuditOperation.CONNECTOR_DELETE, actorId, connectorId, CONNECTOR_DELETED_PATHS));
+    }
+
+    /** Records a token minted for a connector. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordConnectorTokenIssued(UUID actorId, UUID connectorId) {
+        append(connectorEvent(
+                AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, TOKEN_ISSUE_PATHS));
+    }
+
+    /** Records a connector's token replaced. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordConnectorTokenRotated(UUID actorId, UUID connectorId) {
+        append(connectorEvent(
+                AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, TOKEN_ROTATE_PATHS));
+    }
+
+    /**
+     * Records a connector token revoked. Fail-closed.
+     *
+     * @param actorId {@code null} when the revocation came from deleting the
+     *                connector rather than from a revoke request of its own
+     */
+    @Transactional
+    @Override
+    public void recordConnectorTokenRevoked(UUID actorId, UUID connectorId) {
+        append(connectorEvent(
+                AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, TOKEN_REVOKE_PATHS));
+    }
+
     private void append(AuditEvent event) {
         events.append(event);
     }
@@ -263,6 +334,51 @@ public class AuditTrailService implements AuditTrail {
             List<String> changedPaths,
             String statusClass,
             String errorCode) {
+        return event(
+                operation,
+                outcome,
+                actorId,
+                subjectId,
+                AuditEvent.ACCOUNT_RESOURCE_TYPE,
+                changedPaths,
+                statusClass,
+                errorCode);
+    }
+
+    /**
+     * A connector or token lifecycle event: always a success, always named by the
+     * connector's id, always on an administrative request that is returning 2xx.
+     *
+     * <p>Collapsing the five callers onto one builder rather than letting each pass
+     * the outcome and status class is the point: those two fields are the same for
+     * every one of them, and a per-caller argument is a per-caller opportunity to
+     * record a refusal as a success.
+     */
+    private AuditEvent connectorEvent(
+            AuditOperation operation,
+            UUID actorId,
+            UUID connectorId,
+            List<String> changedPaths) {
+        return event(
+                operation,
+                AuditOutcome.SUCCESS,
+                actorId,
+                connectorId,
+                AuditEvent.CONNECTOR_RESOURCE_TYPE,
+                changedPaths,
+                AuditEvent.STATUS_OK,
+                null);
+    }
+
+    private AuditEvent event(
+            AuditOperation operation,
+            AuditOutcome outcome,
+            UUID actorId,
+            UUID subjectId,
+            String resourceType,
+            List<String> changedPaths,
+            String statusClass,
+            String errorCode) {
         AuditRequest request = requests.current();
         return new AuditEvent(
                 UUID.randomUUID(),
@@ -271,7 +387,7 @@ public class AuditTrailService implements AuditTrail {
                 outcome,
                 actorId,
                 subjectId,
-                AuditEvent.ACCOUNT_RESOURCE_TYPE,
+                resourceType,
                 subjectId,
                 changedPaths,
                 statusClass,
