@@ -3,6 +3,8 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
 import com.example.backend.audit.domain.AuditLockoutLift;
@@ -13,8 +15,10 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.observability.LogEvent;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -546,6 +550,37 @@ class AccountAdministrationServiceTests {
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
                 AuditOperation.ACCOUNT_ENABLE, null, accounts.require("bob").id(), null));
+    }
+
+    /**
+     * Each administrative write reports itself to the log stream as a named action
+     * with a success outcome, separately from the audit row. The two serve different
+     * readers — an operator watching for unexpected activity, and an auditor asking
+     * who changed what — so a change that produced the row but no record, or the
+     * record but no row, is a defect in one of them rather than a duplication.
+     *
+     * <p>Asserted here rather than left to review because it is the only proof that
+     * the call is made at all: a removed log call changes nothing a test that reads
+     * only the returned summary or the recorded event can see.
+     */
+    @Test
+    void eachAdministrativeWriteReportsItsActionAndSuccessToTheLogStream() {
+        accounts.save(account("root", AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
+        accounts.save(locked("bob"));
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            service.disable("bob", "root");
+            service.enable("bob", "root");
+            service.unlock("bob", "root");
+
+            assertThat(List.of("account.disable", "account.enable", "account.unlock"))
+                    .allSatisfy(action -> assertThat(
+                                    captured.withAction(Level.INFO, LogEvent.ACTION, action))
+                            .singleElement()
+                            .satisfies(record -> assertThat(CapturedLog.fields(record))
+                                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)));
+        }
     }
 
     private static Account account(String username, AccountRole role) {
