@@ -54,7 +54,126 @@ redirected to sign in, recorded as `from` in router state and replayed once the
 status turns `authenticated`. Owned by the route guards, so no page navigates on
 its own behalf after signing in.
 
-## Accounts and roles
+## Accounts and identity provisioning
+
+### SCIM target model
+
+**SCIM service provider** — the role this application plays for identity
+provisioning: an external identity provider calls the application's SCIM v2
+interface to create and manage Users and Groups. SCIM provisioning does not
+perform an end-user Login; password authentication and its session remain a
+separate application capability.
+
+**SCIM directory** — the single User-and-Group namespace owned by one application
+deployment. It is not partitioned by tenant. Multiple independently authenticated
+read-write connectors may operate on the same directory; resource versions and
+conditional requests provide their shared concurrency seam.
+
+**Connector external identifier** — one connector's `externalId` alias for a User
+or Group. A resource has one stable, directory-wide SCIM `id` but may have a
+different `externalId` for each connector. Reads and filters expose only the
+calling connector's alias, so independent client namespaces cannot collide. When
+a connector is deleted, all of its aliases are deleted too and its namespace may
+be reused by a future connector.
+
+**SCIM connector token** — a high-entropy opaque bearer credential restricted to
+the SCIM interface. Each connector receives its own token; only a hash is stored.
+A token is either directory-wide read-only or directory-wide read-write, with
+write implying read. Any Admin may use the Accounts page to mint, inspect,
+overlap, rotate, and revoke tokens; plaintext is shown only once. A token expires
+365 days after issue, which is both the default and hard maximum. Rotation admits
+an overlap window of at most 14 days so a replacement can be deployed before the
+old token is revoked, but never extends the old token past its original expiry.
+
+**SCIM User** — the domain identity that replaces Account rather than wrapping it.
+It owns the selected core User profile, stable SCIM id and version, active state,
+encoded password, creation metadata, and recent login history. Its profile
+round-trips `userName`, the calling connector's `externalId`, `active`, `name`,
+`displayName`, `emails`, locale and time-zone attributes, Groups, and SCIM
+metadata. The Enterprise User extension and application-specific extensions are
+not supported in the first release. SCIM may set the password as a write-only
+provisioning attribute; the application hashes it immediately and never returns
+it. SCIM may rename `userName` under its uniqueness rule while preserving the
+stable SCIM resource id. A password or username change, deactivation, deletion,
+or change to Admin-group membership revokes the User's existing sessions so a
+stale login principal or authority never survives a security change. Failure
+runs and lockouts remain application-owned authentication behavior on the User.
+
+**Normalized SCIM storage** — the PostgreSQL representation of the target model.
+Selected User fields use relational columns, while emails, Groups, memberships,
+connector aliases, resource versions, connector tokens, audit events, and
+tombstones use constrained related tables. JSON resource blobs are not the
+source of truth; supported filters and uniqueness are backed by relational
+indexes and constraints.
+
+**Bootstrap Admin** — the local recovery SCIM User excluded from SCIM write
+authority so an administrator can recover the application when external
+provisioning is unavailable or has removed every SCIM-managed administrator. It
+is visible through the SCIM interface as a read-only User and an immutable member
+of the Admin group: clients may discover its current state and authority, but no
+SCIM operation may mutate or delete the User or remove that membership.
+
+**Group** — a SCIM resource whose membership replaces the former Account role as
+the source of elevated application authorization. Every active User receives
+baseline User access without requiring membership in a redundant Users group.
+A Group may contain direct User members only; Group-valued members and transitive
+membership are unsupported. Users and Groups enter the SCIM interface together;
+they are not separate future capabilities.
+
+**Admin group** — the server-seeded Group whose members receive the authorization
+formerly named the `ADMIN` role, in addition to baseline User access. Its stable
+resource id carries that authorization meaning: SCIM may change ordinary
+membership but may neither rename nor delete the Group, nor remove the Bootstrap
+Admin's membership.
+
+**SCIM tombstone** — the privacy-minimal record retained after SCIM deletion. It
+keeps the stable resource id, deletion time, and keyed hashes of normalized unique
+identifiers for redacted historical correlation without retaining readable PII.
+Tombstones never participate in uniqueness checks: a former `userName` or
+connector-scoped `externalId` may be reused by a future resource. Readable profile
+and audit detail expire under the configured audit-retention policy.
+
+**Deleted SCIM User** — a SCIM User removed with `DELETE`. Deletion immediately
+revokes its sessions, removes its Group memberships, makes it unavailable through
+SCIM, and leaves a SCIM tombstone. It is not merely an inactive User and is not a
+hard-deleted database row.
+
+**Deleted SCIM Group** — an ordinary, non-Admin Group removed with `DELETE`.
+Deletion removes its memberships, makes it unavailable through SCIM, and leaves
+a SCIM tombstone. The Admin group never enters this state because it cannot be
+deleted.
+
+**Practical SCIM protocol profile** — public discovery at
+`/ServiceProviderConfig`, `/ResourceTypes`, and `/Schemas`, followed by
+token-authenticated User and Group CRUD, PATCH, filtering, sorting, pagination,
+conditional writes with ETags, and standard SCIM errors. A User may be created
+without `password`; its `active` value remains authoritative, but password Login
+returns the same bare `401` as any rejected credentials until a later SCIM write
+sets one. Collection requests default `count` to 100 and clamp it to 200, while
+returning `totalResults`, one-based `startIndex`, and `itemsPerPage`. Filtering
+implements the complete RFC 7644 grammar over supported attributes, including
+comparison, presence, boolean, grouping, and value-path expressions; unsupported
+paths fail predictably rather than being silently misread. `PUT`, `PATCH`, and
+`DELETE` of an existing resource require `If-Match`: a missing precondition is
+`428`, and a stale version is `412`. The first release advertises Bulk as
+unsupported rather than implementing a partial `/Bulk` endpoint. Acceptance is
+defined by the RFC contracts rather than behavior specific to Microsoft Entra
+ID, Okta, or another vendor. The application adds no SCIM-specific rate limiter;
+deployment infrastructure and database capacity own overload control.
+
+**SCIM audit trail** — the append-only local history of provisioning and connector
+token activity. An event records the connector-token identity, operation,
+resource id, outcome, changed attribute paths, redacted details, and timestamp;
+it never records a password or bearer token. The Accounts page exposes the
+history, and deployment configuration controls retention with a one-year default.
+
+**Operational Accounts page** — the target Admin screen. It reports SCIM-owned
+User and Group identity, application-owned lockout and session state, connector
+health, token metadata, and the SCIM audit trail. SCIM-owned identity and
+membership are read-only there; it retains application-owned operations such as
+Unlock and connector-token lifecycle management.
+
+### Current account model
 
 **Visitor** — an unauthenticated person. A Visitor may use only the login page;
 asking for a protected route records the return destination and sends them there.
@@ -155,7 +274,8 @@ recovery guard — revokes nothing, which is what keeps an Admin who mis-clicks
 their own row from signing themselves out.
 
 Revocation is possible only because sessions are indexed by principal
-(`spring.session.data.redis.repository-type: indexed`). Without that index a
+(`spring.session.data.redis.repository-type: indexed`, set in
+`backend/src/main/resources/session.yaml`). Without that index a
 session store can be read by id alone, so the ones belonging to a username cannot
 be found; the application refuses to start rather than accept a disable it cannot
 enforce.
