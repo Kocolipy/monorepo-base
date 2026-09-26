@@ -6,8 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.observability.RequestIdFilter;
@@ -28,10 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -45,6 +43,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -60,17 +59,21 @@ import org.springframework.web.context.WebApplicationContext;
  * what is claimed is that an Admin's browser request and a connector's bearer request
  * travel two DIFFERENT security chains and each gets the right answer — which only
  * exists once the chains are wired, and which a test of the use cases could not
- * observe. The SCIM path called is one with no handler yet, so the signal is the
+ * observe. The SCIM path called is a resource endpoint, so the signal is the
  * authentication outcome rather than a response body: {@code 401} before a token and
- * after its revocation, and anything else — here a {@code 404} from the absent handler
- * — in between.
+ * after its revocation, and anything else in between.
  *
  * <p>Audit rows are read with SQL rather than through the repository for the same
  * reason the existing recording test does: what is asserted is the bytes that landed,
  * not a mapping's opinion of them.
  */
 @SpringBootTest
-@Import(ContainerTestConfiguration.class)
+@Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
+// The release gate is closed by default, and a closed gate answers 404 ahead of
+// authentication — which is exactly what this test must see PAST in order to observe the
+// bearer chain at all. Opened here rather than in the shared test configuration so the
+// gate's own default stays testable against the value a deployment would get.
+@TestPropertySource(properties = "app.scim.enabled=true")
 class ScimConnectorLifecycleIntegrationTests {
 
     /** A SCIM path that exists as a namespace but has no handler yet. */
@@ -103,6 +106,19 @@ class ScimConnectorLifecycleIntegrationTests {
             "INSERT INTO scim_external_ids (connector_id, resource_id, external_id)"
             + " VALUES (?, ?, ?)";
 
+    /**
+     * A bare resource row for an alias to point at.
+     *
+     * <p>Needed because {@code scim_external_ids.resource_id} became a foreign key into
+     * {@code scim_resources} when the User tables landed: an alias for an invented id is
+     * now refused by the database, where before it was accepted. The row is written with
+     * SQL rather than through the User use case because what this test is about is the
+     * alias cascade, and a real create would drag a whole provisioning request into it.
+     */
+    private static final String INSERT_RESOURCE =
+            "INSERT INTO scim_resources (id, resource_type, version, created_at,"
+            + " last_modified_at) VALUES (?, 'User', 1, ?, ?)";
+
     private static final String TOKEN_ROWS =
             "SELECT * FROM scim_connector_tokens WHERE connector_id = ?";
 
@@ -110,17 +126,6 @@ class ScimConnectorLifecycleIntegrationTests {
     private static final String ROTATED_AWAY_TOKEN_ROW =
             "SELECT * FROM scim_connector_tokens"
             + " WHERE connector_id = ? AND replaced_by_token_id IS NOT NULL";
-
-    /** The session registry, in memory: this context has no Redis. */
-    @TestConfiguration
-    static class SessionRegistryConfiguration {
-
-        @Bean
-        @Primary
-        InMemoryAccountSessions inMemoryAccountSessions() {
-            return new InMemoryAccountSessions();
-        }
-    }
 
     @Autowired
     private WebApplicationContext context;
@@ -278,8 +283,8 @@ class ScimConnectorLifecycleIntegrationTests {
         UUID connectorId = createConnector("Okta");
         issueToken(connectorId, "READ_ONLY");
         issueToken(connectorId, "READ_WRITE");
-        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-1");
-        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-2");
+        insertAliasForNewResource(connectorId, "okta-user-1");
+        insertAliasForNewResource(connectorId, "okta-user-2");
 
         // The search-for-absence below is worth nothing unless there was something to
         // find first.
@@ -395,8 +400,8 @@ class ScimConnectorLifecycleIntegrationTests {
         UUID connectorId = createConnector("Okta");
         issueToken(connectorId, "READ_ONLY");
         issueToken(connectorId, "READ_WRITE");
-        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-1");
-        jdbc.update(INSERT_ALIAS, connectorId, UUID.randomUUID(), "okta-user-2");
+        insertAliasForNewResource(connectorId, "okta-user-1");
+        insertAliasForNewResource(connectorId, "okta-user-2");
 
         UUID neverExisted = UUID.randomUUID();
         // The bulk statements are @Modifying queries, so they need a transaction of
@@ -576,4 +581,13 @@ class ScimConnectorLifecycleIntegrationTests {
                 .cookie(new Cookie("XSRF-TOKEN", csrfToken.getToken()))
                 .header("X-XSRF-TOKEN", csrfToken.getToken());
     }
+
+    /** An alias pointing at a real resource row, which the foreign key now requires. */
+    private void insertAliasForNewResource(UUID connectorId, String externalId) {
+        UUID resourceId = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbc.update(INSERT_RESOURCE, resourceId, now, now);
+        jdbc.update(INSERT_ALIAS, connectorId, resourceId, externalId);
+    }
+
 }

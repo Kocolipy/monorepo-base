@@ -126,6 +126,13 @@ or change to Admin-group membership revokes the User's existing sessions so a
 stale login principal or authority never survives a security change. Failure
 runs and lockouts remain application-owned authentication behavior on the User.
 
+The replacement is staged rather than instantaneous. The SCIM User's own tables and
+its create/read surface exist first; Login and Admin authority still read the
+`accounts` row until the Group ticket derives authority from membership and removes
+the legacy role. Until then the two identities coexist, which is safe only because
+the SCIM namespace is behind a release gate that is closed by default — nothing
+provisions against the half of the model that is finished.
+
 **Normalized SCIM storage** — the PostgreSQL representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
 connector aliases, resource versions, connector tokens, audit events, and
@@ -187,6 +194,13 @@ unsupported rather than implementing a partial `/Bulk` endpoint. Acceptance is
 defined by the RFC contracts rather than behavior specific to Microsoft Entra
 ID, Okta, or another vendor. The application adds no SCIM-specific rate limiter;
 deployment infrastructure and database capacity own overload control.
+
+This entry describes the profile at release. It is reached in slices, and discovery
+is what says which slice a deployment is running: `ServiceProviderConfig` advertises
+`patch`, `filter` and `sort` as unsupported until each is implemented, and refuses a
+request for an unimplemented capability rather than ignoring the parameter — an
+ignored `filter` is indistinguishable from a match, which is the one failure a
+connector cannot detect. Bulk's `supported: false` is permanent rather than staged.
 
 **SCIM audit trail** — the append-only local history of provisioning and connector
 token activity. An event records the connector-token identity, operation,

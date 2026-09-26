@@ -373,6 +373,31 @@ public class ArchitectureTest {
      * a token aggregate to render, so "no bearer value in an audit event" holds for the
      * hash as well as for the value.
      */
+    /**
+     * A SCIM User's credential never reaches a web adapter.
+     *
+     * <p>{@link com.example.backend.scim.domain.ScimUser} is the one type a User's password
+     * hash lives in, and the SCIM adapter renders whatever it is handed. Handing it the
+     * projection instead — {@code ScimUserResource}, which has no field a hash could occupy
+     * — is what makes "the password never appears in any response" a property of the shape
+     * rather than of the renderer's care.
+     *
+     * <p>Held as a rule rather than by review because the safe shape already exists and what
+     * a rule adds is that a future handler cannot reach around it by taking the domain type
+     * directly. The name is a PATTERN because ArchUnit treats a nested class as its own
+     * class, so an exact name would miss a record nested in a controller.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule a_scim_user_credential_never_reaches_a_web_adapter =
+        noClasses()
+            .that().resideInAPackage("..controller..")
+            .should().dependOnClassesThat()
+                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\.ScimUser(\\$.*)?")
+            .allowEmptyShould(true)
+            .because("A web adapter renders the projection, which has no field a password"
+                    + " hash could be written into; reaching the aggregate directly is how"
+                    + " that guarantee would be bypassed");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_audit_slice_never_sees_a_connector_token =
         noClasses()

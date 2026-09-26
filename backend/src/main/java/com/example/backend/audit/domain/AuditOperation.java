@@ -62,5 +62,27 @@ public enum AuditOperation {
      * A connector token stopped being accepted because an administrator said so —
      * individually, or as part of deleting the connector.
      */
-    CONNECTOR_TOKEN_REVOKE
+    CONNECTOR_TOKEN_REVOKE,
+
+    /**
+     * A connector created a SCIM User, or was refused one. The outcome tells the two
+     * apart, and a refusal carries its reason as the event's error code, from
+     * {@link AuditScimRefusal} — a create a connector kept retrying against a
+     * {@code userName} that already exists is a broken integration, and it is only
+     * visible in the trail if the refusals are recorded beside the successes.
+     */
+    SCIM_USER_CREATE,
+
+    /**
+     * A connector read the User collection — a bulk read, whatever it asked for and
+     * whatever came back.
+     *
+     * <p>Recorded for an empty result and for a single-resource page alike, because
+     * what the event exists to make visible is a credential enumerating the
+     * directory, and an enumeration that finds nothing is the same act as one that
+     * finds everything. Retrieving ONE User by its id is not this operation and is
+     * not recorded at all: it is the ordinary unit of provisioning traffic, and
+     * recording it would bury the reads that matter under the reads that do not.
+     */
+    SCIM_USER_LIST
 }
