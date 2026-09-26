@@ -296,13 +296,20 @@ Restoring an account that was both suspended and locked out therefore takes two
 deliberate calls. That is the point: an Admin should have to say which of the two
 they mean.
 
-**Recovery guard** — account administration refuses two disable requests
-outright, with a `409`: an account disabling itself, and the last enabled Admin.
-Both would leave nobody able to enable anything again, and nothing in the system
-could undo either without direct database access. A _locked_ Admin still counts
-as available — not because the lockout ends on its own, which it no longer does,
-but because the Bootstrap Admin can never be locked and can unlock anyone, so a
-deployment whose other Admins are locked is still recoverable.
+**Recovery guard** — account administration refuses three disable requests
+outright, with a `409`: an account disabling itself, the Bootstrap Admin, and the
+last enabled Admin. Each would leave nobody able to enable anything again, and
+nothing in the system could undo it without direct database access. A _locked_
+Admin still counts as available — not because the lockout ends on its own, which
+it no longer does, but because the Bootstrap Admin can never be locked and can
+unlock anyone, so a deployment whose other Admins are locked is still recoverable.
+
+That last clause is why the Bootstrap Admin is undisableable. Its exemption is
+from _locking_ only, and a disabled Bootstrap Admin cannot log in: were it
+disableable, every other Admin could then lock itself out permanently and no
+principal would be left to unlock them. The refusal does not depend on how many
+other Admins are enabled, because the account's value here is being the recovery
+identity rather than being the last one standing.
 
 **Account listing** — what account administration may know about an account:
 username, role, enabled flag, whether a lockout is in force, and the creation

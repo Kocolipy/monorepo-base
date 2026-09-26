@@ -243,6 +243,43 @@ test.describe.serial("ADMIN accounts page", () => {
   });
 
   /**
+   * Criterion 3, from the holder's side: imposing the lockout ends the sessions
+   * the account is already holding, so it stops acting the moment the lock lands
+   * rather than when its session happens to expire.
+   *
+   * Shaped like the disable test above, and for the same reason: the subject is a
+   * *second* caller's session, which only a cookie jar of its own makes
+   * observable. The refusals that impose the lock are driven from a third jar, so
+   * the 401 below cannot be an artefact of the failed logins landing in the jar
+   * under test.
+   */
+  test("ends the session an account held before it locked itself out", async ({ page }) => {
+    const holder = await anonymousApi();
+    const guesser = await anonymousApi();
+
+    try {
+      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
+      expect(signedIn.status()).toBe(200);
+
+      // Live *before* the lockout. Without this the 401 below would prove
+      // nothing: an unauthenticated jar answers 401 too.
+      const working = await holder.get("/api/auth/me");
+      expect(working.status()).toBe(200);
+
+      await lockAccount(guesser, "user");
+
+      // Same jar, same cookie, and the session behind it no longer exists.
+      const refused = await holder.get("/api/auth/me");
+      expect(refused.status()).toBe(401);
+    } finally {
+      const restored = await postAdminAction(page, "user", "unlock");
+      expect(restored.status()).toBe(200);
+      await guesser.dispose();
+      await holder.dispose();
+    }
+  });
+
+  /**
    * What the lockout is for: while it holds, the account's own password stops
    * working. Asserted over the API because the SPA is told nothing that
    * distinguishes it from a wrong password — that is the point of the bare 401.

@@ -5,6 +5,7 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.observability.LogEvent;
 import java.util.List;
 import java.util.UUID;
@@ -41,16 +42,19 @@ public class AccountAdministrationService {
     private final AccountSessions sessions;
     private final AfterCommit afterCommit;
     private final AuditTrail audit;
+    private final BootstrapAdmin bootstrapAdmin;
 
     public AccountAdministrationService(
             AccountRepository accounts,
             AccountSessions sessions,
             AfterCommit afterCommit,
-            AuditTrail audit) {
+            AuditTrail audit,
+            BootstrapAdmin bootstrapAdmin) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.afterCommit = afterCommit;
         this.audit = audit;
+        this.bootstrapAdmin = bootstrapAdmin;
     }
 
     /** Every account, for administrative review. Never carries a password hash. */
@@ -65,10 +69,19 @@ public class AccountAdministrationService {
      * it stops acting now rather than when those sessions expire. The lockout is
      * untouched: this is not a penalty and says nothing about the failure run.
      *
-     * <p>Two refusals guard against an administrator removing the only means of
-     * reversing this. Neither is about authorization — the caller is an admin, and
-     * the action is what is refused. A refused disable revokes nothing: both
-     * checks run before anything is written or ended.
+     * <p>Three refusals guard against an administrator removing the only means of
+     * reversing this. None is about authorization — the caller is an admin, and
+     * the action is what is refused. A refused disable revokes nothing: every
+     * check runs before anything is written or ended.
+     *
+     * <p>The third is the Bootstrap Admin, which cannot be disabled at all. Its
+     * exemption from lockout is what keeps every other account's permanent lock
+     * recoverable, and that exemption is from <em>locking</em> only — a disabled
+     * Bootstrap Admin cannot log in, so disabling it while the other
+     * administrators are locked out would leave a deployment no principal can
+     * enter and nothing but direct database access can repair. It is the recovery
+     * identity whether or not it is the last enabled administrator, so this check
+     * does not depend on how many others there are.
      *
      * <p>The revocation happens after the transaction commits, so an account
      * whose row could not be written keeps its sessions — and so does one whose
@@ -94,6 +107,13 @@ public class AccountAdministrationService {
         Account account = require(username);
         if (account.username().equals(requestedBy)) {
             throw refuse(DISABLE_ACTION, "SelfDisable", "An account cannot disable itself");
+        }
+        if (bootstrapAdmin.identifies(account)) {
+            throw refuse(
+                    DISABLE_ACTION,
+                    "BootstrapAdmin",
+                    "The bootstrap administrator is the deployment's recovery identity and"
+                            + " cannot be disabled");
         }
         if (isLastEnabledAdministrator(account)) {
             throw refuse(
@@ -182,6 +202,12 @@ public class AccountAdministrationService {
      * {@link com.example.backend.auth.domain.BootstrapAdmin}) and can unlock
      * anyone. Excluding a locked admin here would refuse disables that leave the
      * deployment perfectly recoverable.
+     *
+     * <p>That argument holds only because the Bootstrap Admin is also undisableable
+     * — {@link #disable} refuses it outright. Were it disableable, every other
+     * administrator could be locked out permanently with no principal left to
+     * unlock them, and a locked admin would have to count as unavailable here
+     * instead.
      */
     private boolean isLastEnabledAdministrator(Account account) {
         if (account.role() != AccountRole.ADMIN || !account.enabled()) {

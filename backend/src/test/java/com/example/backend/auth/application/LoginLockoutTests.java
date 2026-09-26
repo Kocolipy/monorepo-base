@@ -84,7 +84,7 @@ class LoginLockoutTests {
                         clock),
                 users);
         administration = new AccountAdministrationService(
-                accounts, sessions, transaction, audit);
+                accounts, sessions, transaction, audit, new BootstrapAdmin(BOOTSTRAP_ADMIN));
     }
 
     @Test

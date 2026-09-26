@@ -14,12 +14,24 @@
 --     now, until an Unlock. The instant it was imposed is not recorded anywhere,
 --     so the migration time stands in for it: the field means "locked since", and
 --     nothing in the rule reads it to decide anything.
+--
+-- The failure run has to be settled with it, for the rows whose lock is dropped.
+-- Under the old rule an expired window started the next run from zero — the
+-- count was read as stale the moment the window ended — and that branch is gone,
+-- because with no expiry there is nothing for it to mean. A row released here
+-- necessarily sits at or above max-attempts, so leaving the count alone would
+-- leave the account one failed login away from a permanent lock it never earned
+-- a run for. Dropping the window means dropping the run that produced it; the
+-- rows that stay locked keep their count, which is the evidence for the lock
+-- they are still serving.
 
 ALTER TABLE accounts
     RENAME COLUMN locked_until TO locked_at;
 
 UPDATE accounts
-   SET locked_at = CASE WHEN locked_at > now() THEN now() ELSE NULL END
+   SET locked_at = CASE WHEN locked_at > now() THEN now() ELSE NULL END,
+       failed_login_attempts =
+           CASE WHEN locked_at > now() THEN failed_login_attempts ELSE 0 END
  WHERE locked_at IS NOT NULL;
 
 COMMENT ON COLUMN accounts.locked_at IS

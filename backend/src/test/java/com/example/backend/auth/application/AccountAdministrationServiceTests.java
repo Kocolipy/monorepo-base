@@ -14,6 +14,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.observability.LogEvent;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,9 @@ class AccountAdministrationServiceTests {
     /** Ten years: far past any window the former expiring lockout could have had. */
     private static final Duration A_LONG_TIME = Duration.ofDays(3650);
 
+    /** The configured recovery identity, named as deployment configuration names it. */
+    private static final String BOOTSTRAP = "root";
+
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
     private final PendingCommit transaction = new PendingCommit();
@@ -39,7 +43,8 @@ class AccountAdministrationServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, sessions, transaction, audit);
+        service = new AccountAdministrationService(
+                accounts, sessions, transaction, audit, new BootstrapAdmin(BOOTSTRAP));
     }
 
     // Reviewing who has access
@@ -170,6 +175,75 @@ class AccountAdministrationServiceTests {
     @Test
     void countsALockedAdministratorAsAvailableForRecovery() {
         accounts.save(locked("ada", AccountRole.ADMIN));
+        accounts.save(account("zoe", AccountRole.ADMIN));
+
+        assertThat(service.disable("zoe", "ada").enabled()).isFalse();
+    }
+
+    /**
+     * What makes the clause above safe. A locked administrator counts as available
+     * because the Bootstrap Admin can always log in and unlock it — an argument
+     * that holds only while the Bootstrap Admin cannot be closed out, so the
+     * refusal is asserted rather than left to the javadoc that relies on it.
+     */
+    @Test
+    void refusesToDisableTheBootstrapAdmin() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
+        accounts.save(account("zoe", AccountRole.ADMIN));
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class)
+                .hasMessageContaining("recovery identity");
+
+        assertThat(accounts.require(BOOTSTRAP).enabled()).isTrue();
+    }
+
+    /**
+     * The refusal does not depend on how many administrators are enabled, which is
+     * the whole difference between it and the last-enabled-administrator guard: two
+     * other enabled administrators would satisfy that one, and the deployment is
+     * still unrecoverable once both of them lock themselves out.
+     */
+    @Test
+    void refusesToDisableTheBootstrapAdminEvenBesidePlentyOfOtherAdministrators() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(locked("ada", AccountRole.ADMIN));
+        accounts.save(locked("zoe", AccountRole.ADMIN));
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+    }
+
+    /**
+     * A refused disable revokes nothing, so the recovery identity keeps the session
+     * it is holding: the refusal has to leave the deployment exactly as reachable
+     * as it found it, including for a Bootstrap Admin that is already signed in.
+     */
+    @Test
+    void aRefusedBootstrapAdminDisableLeavesItsSessionsAlone() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
+        UUID bootstrapId = accounts.require(BOOTSTRAP).id();
+        sessions.open(bootstrapId, "session-1");
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+        transaction.commit();
+
+        assertThat(sessions.sessionsOf(bootstrapId)).containsExactly("session-1");
+    }
+
+    /**
+     * The guard is the configured recovery identity, not the word "admin" and not a
+     * role: an ordinary administrator sharing neither is disabled as before. Without
+     * this the refusal above would be indistinguishable from one that had started
+     * refusing every administrative disable.
+     */
+    @Test
+    void stillDisablesAnOrdinaryAdministratorThatIsNotTheRecoveryIdentity() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
         accounts.save(account("zoe", AccountRole.ADMIN));
 
         assertThat(service.disable("zoe", "ada").enabled()).isFalse();
