@@ -10,12 +10,15 @@ import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.auth.controller.AuthController;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.auth.domain.LockoutPolicy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -23,6 +26,7 @@ import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 
 /**
  * The lockout story over the real authentication chain: the login module, the
@@ -226,12 +230,20 @@ class LoginLockoutTests {
     }
 
     /**
-     * A locked account and a wrong password both leave as the same exception type,
-     * which the endpoint's handler answers with a bare 401 — so the response
-     * cannot be used to tell a real account from an unknown one.
+     * A locked account and a wrong password leave as <em>different</em> exception
+     * types, so the uniform refusal cannot come from the domain throwing one thing:
+     * it comes from {@link AuthController} declaring a single handler for their
+     * common supertype. Both halves are asserted — the types genuinely differ, and
+     * the one handler the controller declares covers both — so a narrower handler
+     * added for either type fails here rather than silently making a locked account
+     * distinguishable from an unknown one.
+     *
+     * <p>The response bytes that uniformity produces are asserted in
+     * {@code AuthControllerTests.aRefusedLoginAnswersWithAnEmptyUnauthorizedResponse};
+     * this test pins the precondition that makes one handler sufficient.
      */
     @Test
-    void aLockedAccountAndAWrongPasswordAreRefusedTheSameWay() {
+    void aLockedAccountAndAWrongPasswordAreRefusedThroughTheSameHandler() {
         AuthenticationException wrongPassword = submit("wrong");
         assertThat(wrongPassword).isInstanceOf(BadCredentialsException.class);
 
@@ -240,11 +252,27 @@ class LoginLockoutTests {
         submit("wrong");
         submit("wrong");
         AuthenticationException locked = submit(CORRECT_PASSWORD);
+        assertThat(locked).isInstanceOf(LockedException.class);
 
-        assertThat(locked).isInstanceOf(AuthenticationException.class);
-        assertThat(AuthenticationException.class)
-                .isAssignableFrom(wrongPassword.getClass())
-                .isAssignableFrom(locked.getClass());
+        assertThat(locked.getClass()).isNotEqualTo(wrongPassword.getClass());
+
+        assertThat(refusalHandlerTypes())
+                .as("the exception types AuthController answers with a bare 401")
+                .anySatisfy(handled -> assertThat(handled).isAssignableFrom(wrongPassword.getClass()))
+                .anySatisfy(handled -> assertThat(handled).isAssignableFrom(locked.getClass()));
+    }
+
+    /**
+     * The exception types {@link AuthController}'s refusal handler is declared for,
+     * read from the annotation rather than restated here so the assertion tracks the
+     * controller instead of a copy of it.
+     */
+    private static List<Class<? extends Throwable>> refusalHandlerTypes() {
+        return Arrays.stream(AuthController.class.getDeclaredMethods())
+                .map(method -> method.getAnnotation(ExceptionHandler.class))
+                .filter(annotation -> annotation != null)
+                .flatMap(annotation -> Arrays.stream(annotation.value()))
+                .toList();
     }
 
     @Test
