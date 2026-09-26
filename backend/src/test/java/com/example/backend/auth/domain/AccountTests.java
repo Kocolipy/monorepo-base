@@ -26,6 +26,23 @@ class AccountTests {
         assertThat(ACCOUNT.isLocked()).isFalse();
     }
 
+    /**
+     * The convenience constructors the lockout tests build accounts with generate
+     * a stable id of their own rather than leaving it unset. Asserted because
+     * nothing else here reads {@code id()}: an account built with a null id
+     * reaches the session index and the counter feature — both of which key state
+     * by that id — and fails there instead of at construction.
+     */
+    @Test
+    void everyConvenienceConstructorGeneratesADistinctStableId() {
+        Account withHistory = new Account("ada", "hash", AccountRole.USER, 2, null);
+        Account other = new Account("grace", "hash", AccountRole.USER);
+
+        assertThat(ACCOUNT.id()).isNotNull();
+        assertThat(withHistory.id()).isNotNull();
+        assertThat(withHistory.id()).isNotEqualTo(ACCOUNT.id()).isNotEqualTo(other.id());
+    }
+
     @Test
     void aFailureBelowTheLimitIsCountedWithoutLocking() {
         Account afterOne = ACCOUNT.withFailureRecorded(POLICY, NOW);
