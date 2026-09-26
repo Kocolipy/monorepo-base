@@ -20,7 +20,7 @@ import org.springframework.context.annotation.Import;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * What {@code V5__permanent_lockout.sql} does to rows that already existed, which
+ * What {@code V6__permanent_lockout.sql} does to rows that already existed, which
  * is the one part of the change no other test can reach: Flyway runs against a
  * fresh database everywhere else, so the migration's data clauses execute over
  * zero rows and could be deleted without any suite noticing.
@@ -49,7 +49,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 class PermanentLockoutMigrationTests {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V5__permanent_lockout.sql");
+            Path.of("src/main/resources/db/migration/V6__permanent_lockout.sql");
 
     /** The threshold the lockout is configured with, as any released row exceeds. */
     private static final int MAX_ATTEMPTS = 5;
