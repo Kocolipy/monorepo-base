@@ -9,8 +9,11 @@ Accepted.
 ## Context
 
 An account's **failure run** lengthens on every rejected login and ends on an
-accepted one, and reaching the configured limit imposes a **lockout** (see
-`/CONTEXT.md`). Something has to notice how each attempt ended and write it down.
+accepted one, and reaching the configured limit imposes a **lockout** — which has
+no duration and ends only when an administrator unlocks the account, and which
+revokes the account's live sessions as it is imposed (see `/CONTEXT.md`). The one
+exception is the Bootstrap Admin, whose failures are counted and audited but never
+lock it. Something has to notice how each attempt ended and write it down.
 
 Spring Security already publishes that information as application events —
 `AuthenticationSuccessEvent` and `AbstractAuthenticationFailureEvent` — and the

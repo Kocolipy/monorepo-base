@@ -7,7 +7,6 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -15,6 +14,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.observability.LogEvent;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,7 +27,11 @@ class AccountAdministrationServiceTests {
 
     private static final Instant NOW = Instant.parse("2026-09-24T07:00:00Z");
 
-    private static final Duration LOCKOUT = Duration.ofMinutes(5);
+    /** Ten years: far past any window the former expiring lockout could have had. */
+    private static final Duration A_LONG_TIME = Duration.ofDays(3650);
+
+    /** The configured recovery identity, named as deployment configuration names it. */
+    private static final String BOOTSTRAP = "root";
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final InMemoryAccountSessions sessions = new InMemoryAccountSessions();
@@ -39,7 +43,8 @@ class AccountAdministrationServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new AccountAdministrationService(accounts, sessions, transaction, audit, clock);
+        service = new AccountAdministrationService(
+                accounts, sessions, transaction, audit, new BootstrapAdmin(BOOTSTRAP));
     }
 
     // Reviewing who has access
@@ -50,8 +55,8 @@ class AccountAdministrationServiceTests {
         accounts.save(account("bob", AccountRole.USER));
 
         assertThat(service.listAccounts()).containsExactly(
-                new AccountSummary("ada", AccountRole.ADMIN, true, false, null, NOW),
-                new AccountSummary("bob", AccountRole.USER, true, false, null, NOW));
+                new AccountSummary("ada", AccountRole.ADMIN, true, false, NOW),
+                new AccountSummary("bob", AccountRole.USER, true, false, NOW));
     }
 
     @Test
@@ -71,22 +76,23 @@ class AccountAdministrationServiceTests {
     }
 
     /**
-     * Whether a lockout is in force is the server's answer, not a comparison the
-     * client makes: only the server's clock is the one the login path enforces on.
+     * The listing reports the lock and no expiry, because there is none: the state
+     * does not change with the clock, so a reader has nothing to compare and no
+     * reason to wait.
      */
     @Test
-    void reportsALockoutAsInForceUntilItExpires() {
+    void reportsALockoutAsInForceHoweverLongItHasStood() {
         accounts.save(locked("ada"));
 
         assertThat(service.listAccounts()).first()
-                .extracting(AccountSummary::locked, AccountSummary::lockedUntil)
-                .containsExactly(true, NOW.plus(LOCKOUT));
+                .extracting(AccountSummary::locked)
+                .isEqualTo(true);
 
-        clock.advanceBy(LOCKOUT);
+        clock.advanceBy(A_LONG_TIME);
 
         assertThat(service.listAccounts()).first()
-                .extracting(AccountSummary::locked, AccountSummary::lockedUntil)
-                .containsExactly(false, NOW.plus(LOCKOUT));
+                .extracting(AccountSummary::locked)
+                .isEqualTo(true);
     }
 
     // Disabling
@@ -114,8 +120,8 @@ class AccountAdministrationServiceTests {
 
         Account stored = accounts.require("bob");
         assertThat(stored.failedLoginAttempts()).isEqualTo(3);
-        assertThat(stored.lockedUntil()).isEqualTo(NOW.plus(LOCKOUT));
-        assertThat(stored.isLocked(NOW)).isTrue();
+        assertThat(stored.lockedAt()).isEqualTo(NOW);
+        assertThat(stored.isLocked()).isTrue();
     }
 
     @Test
@@ -169,6 +175,75 @@ class AccountAdministrationServiceTests {
     @Test
     void countsALockedAdministratorAsAvailableForRecovery() {
         accounts.save(locked("ada", AccountRole.ADMIN));
+        accounts.save(account("zoe", AccountRole.ADMIN));
+
+        assertThat(service.disable("zoe", "ada").enabled()).isFalse();
+    }
+
+    /**
+     * What makes the clause above safe. A locked administrator counts as available
+     * because the Bootstrap Admin can always log in and unlock it — an argument
+     * that holds only while the Bootstrap Admin cannot be closed out, so the
+     * refusal is asserted rather than left to the javadoc that relies on it.
+     */
+    @Test
+    void refusesToDisableTheBootstrapAdmin() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
+        accounts.save(account("zoe", AccountRole.ADMIN));
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class)
+                .hasMessageContaining("recovery identity");
+
+        assertThat(accounts.require(BOOTSTRAP).enabled()).isTrue();
+    }
+
+    /**
+     * The refusal does not depend on how many administrators are enabled, which is
+     * the whole difference between it and the last-enabled-administrator guard: two
+     * other enabled administrators would satisfy that one, and the deployment is
+     * still unrecoverable once both of them lock themselves out.
+     */
+    @Test
+    void refusesToDisableTheBootstrapAdminEvenBesidePlentyOfOtherAdministrators() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(locked("ada", AccountRole.ADMIN));
+        accounts.save(locked("zoe", AccountRole.ADMIN));
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+    }
+
+    /**
+     * A refused disable revokes nothing, so the recovery identity keeps the session
+     * it is holding: the refusal has to leave the deployment exactly as reachable
+     * as it found it, including for a Bootstrap Admin that is already signed in.
+     */
+    @Test
+    void aRefusedBootstrapAdminDisableLeavesItsSessionsAlone() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
+        UUID bootstrapId = accounts.require(BOOTSTRAP).id();
+        sessions.open(bootstrapId, "session-1");
+
+        assertThatThrownBy(() -> service.disable(BOOTSTRAP, "ada"))
+                .isInstanceOf(UnsafeAccountChangeException.class);
+        transaction.commit();
+
+        assertThat(sessions.sessionsOf(bootstrapId)).containsExactly("session-1");
+    }
+
+    /**
+     * The guard is the configured recovery identity, not the word "admin" and not a
+     * role: an ordinary administrator sharing neither is disabled as before. Without
+     * this the refusal above would be indistinguishable from one that had started
+     * refusing every administrative disable.
+     */
+    @Test
+    void stillDisablesAnOrdinaryAdministratorThatIsNotTheRecoveryIdentity() {
+        accounts.save(account(BOOTSTRAP, AccountRole.ADMIN));
+        accounts.save(account("ada", AccountRole.ADMIN));
         accounts.save(account("zoe", AccountRole.ADMIN));
 
         assertThat(service.disable("zoe", "ada").enabled()).isFalse();
@@ -403,7 +478,7 @@ class AccountAdministrationServiceTests {
         AccountSummary unlocked = service.unlock("bob", "root");
 
         assertThat(unlocked.locked()).isFalse();
-        assertThat(unlocked.lockedUntil()).isNull();
+        assertThat(accounts.require("bob").lockedAt()).isNull();
         assertThat(accounts.require("bob").failedLoginAttempts()).isZero();
     }
 
@@ -429,18 +504,17 @@ class AccountAdministrationServiceTests {
     }
 
     /**
-     * An expired lockout leaves its instant behind, so "not locked" is not the
-     * same as "nothing to clear" — unlocking such an account still tidies the run
-     * that would otherwise carry into the next failure.
+     * Time is not a lift, so an account locked long ago is still locked and the
+     * unlock is what clears it — both the recorded instant and the run behind it.
      */
     @Test
-    void unlockingClearsAnExpiredLockoutThatIsStillRecorded() {
+    void unlockingClearsALockoutHoweverLongItHasStood() {
         accounts.save(locked("bob"));
-        clock.advanceBy(LOCKOUT);
+        clock.advanceBy(A_LONG_TIME);
 
         service.unlock("bob", "root");
 
-        assertThat(accounts.require("bob").lockedUntil()).isNull();
+        assertThat(accounts.require("bob").lockedAt()).isNull();
         assertThat(accounts.require("bob").failedLoginAttempts()).isZero();
     }
 
@@ -505,7 +579,7 @@ class AccountAdministrationServiceTests {
                 AuditOperation.LOCKOUT_LIFT,
                 accounts.require("root").id(),
                 accounts.require("bob").id(),
-                AuditLockoutLift.UNLOCK.name()));
+                null));
     }
 
     /**
@@ -596,6 +670,6 @@ class AccountAdministrationServiceTests {
     }
 
     private static Account locked(String username, AccountRole role) {
-        return new Account(username, "hash", role, 3, NOW.plus(LOCKOUT), true, NOW);
+        return new Account(username, "hash", role, 3, NOW, true, NOW);
     }
 }

@@ -41,7 +41,6 @@ test.describe("ADMIN user listing", () => {
       "createdAt",
       "enabled",
       "locked",
-      "lockedUntil",
       "role",
       "username",
     ]);
@@ -90,7 +89,7 @@ test.describe("ADMIN account control", () => {
     const response = await postAdminAction(page, "user", "unlock");
 
     expect(response.status()).toBe(200);
-    expect(await response.json()).toMatchObject({ locked: false, lockedUntil: null });
+    expect(await response.json()).toMatchObject({ locked: false });
   });
 
   /**

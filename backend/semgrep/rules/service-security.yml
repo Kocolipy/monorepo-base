@@ -282,7 +282,7 @@ rules:
       # pointed at what it is for: an identifier or a secret from outside the slice.
       - metavariable-regex:
           metavariable: $VALUE
-          regex: ^(?!.*\b(AuditRefusalReason|AuditLockoutLift|AuditOperation|AuditOutcome)\b).*$
+          regex: ^(?!.*\b(AuditRefusalReason|AuditOperation|AuditOutcome)\b).*$
 
   - id: be-audit-retention-role-outside-its-adapter
     languages: [java]

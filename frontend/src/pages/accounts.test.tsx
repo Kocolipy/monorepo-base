@@ -28,7 +28,6 @@ const account = (overrides: Partial<AdminAccount> = {}): AdminAccount => ({
   createdAt: "2026-01-02T03:04:05Z",
   enabled: true,
   locked: false,
-  lockedUntil: null,
   role: "USER",
   username: "grace",
   ...overrides,
@@ -91,26 +90,21 @@ describe("Accounts", () => {
       kind: "ok",
       data: [
         account({ enabled: false, username: "closed" }),
-        account({ locked: true, lockedUntil: "2026-03-04T05:06:07Z", username: "penalised" }),
-        account({
-          enabled: false,
-          locked: true,
-          lockedUntil: "2026-03-04T05:06:07Z",
-          username: "both",
-        }),
+        account({ locked: true, username: "penalised" }),
+        account({ enabled: false, locked: true, username: "both" }),
       ],
     });
     renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "closed" })).toBeInTheDocument();
     expect(row("closed").getByText("Disabled")).toBeInTheDocument();
-    expect(row("closed").queryByText(/Locked until/)).not.toBeInTheDocument();
+    expect(row("closed").queryByText("Locked")).not.toBeInTheDocument();
 
-    expect(row("penalised").getByText("Locked until 2026-03-04 05:06 UTC")).toBeInTheDocument();
+    expect(row("penalised").getByText("Locked")).toBeInTheDocument();
     expect(row("penalised").queryByText("Disabled")).not.toBeInTheDocument();
 
     expect(row("both").getByText("Disabled")).toBeInTheDocument();
-    expect(row("both").getByText("Locked until 2026-03-04 05:06 UTC")).toBeInTheDocument();
+    expect(row("both").getByText("Locked")).toBeInTheDocument();
   });
 
   it("closes an account to logins and offers to reopen it", async () => {
@@ -155,11 +149,11 @@ describe("Accounts", () => {
   it("keeps a standing lockout after the account is reopened", async () => {
     resolveOnceWith({
       kind: "ok",
-      data: [account({ enabled: false, locked: true, lockedUntil: "2026-03-04T05:06:07Z" })],
+      data: [account({ enabled: false, locked: true })],
     });
     resolveOnceWith({
       kind: "ok",
-      data: account({ locked: true, lockedUntil: "2026-03-04T05:06:07Z" }),
+      data: account({ locked: true }),
     });
     const user = userEvent.setup();
     renderAccounts();
@@ -167,14 +161,14 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Enable grace" }));
 
     expect(row("grace").queryByText("Disabled")).not.toBeInTheDocument();
-    expect(row("grace").getByText("Locked until 2026-03-04 05:06 UTC")).toBeInTheDocument();
+    expect(row("grace").getByText("Locked")).toBeInTheDocument();
     expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
   });
 
   it("ends a lockout early", async () => {
     resolveOnceWith({
       kind: "ok",
-      data: [account({ locked: true, lockedUntil: "2026-03-04T05:06:07Z" })],
+      data: [account({ locked: true })],
     });
     resolveOnceWith({ kind: "ok", data: account() });
     const user = userEvent.setup();
@@ -262,7 +256,7 @@ describe("Accounts", () => {
   it("reports a failed action with action-specific copy", async () => {
     resolveOnceWith({
       kind: "ok",
-      data: [account({ locked: true, lockedUntil: "2026-03-04T05:06:07Z" })],
+      data: [account({ locked: true })],
     });
     resolveOnceWith({ kind: "failed", status: 503 });
     const user = userEvent.setup();

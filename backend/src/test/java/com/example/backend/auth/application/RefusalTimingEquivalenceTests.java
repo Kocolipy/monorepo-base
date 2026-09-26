@@ -8,8 +8,8 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.auth.domain.LockoutPolicy;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,7 +53,11 @@ class RefusalTimingEquivalenceTests {
         AccountService users = new AccountService(accounts, passwordEncoder, clock);
         login = new LoginService(
                 config.authenticationManager(users, passwordEncoder),
-                new LoginAttemptService(accounts, new LockoutPolicy(5, Duration.ofMinutes(20)),
+                new LoginAttemptService(accounts,
+                        new com.example.backend.auth.InMemoryAccountSessions(),
+                        new com.example.backend.auth.PendingCommit(),
+                        new LockoutPolicy(5),
+                        new BootstrapAdmin("recovery-admin"),
                         new com.example.backend.audit.RecordingAuditTrail(),
                         clock),
                 users);

@@ -249,15 +249,29 @@ it. An unknown username has no run, because nothing is recorded for a name that
 names no account.
 
 **Lockout** — the state an account enters once its failure run reaches the
-configured limit (`app.auth.lockout.max-attempts`, default 3), closing it to
-logins until `locked_until` has passed (`app.auth.lockout.duration`, default 5
-minutes). A locked account is refused **with its correct password**, and refused
-the same way as a wrong one: a bare `401` with no body, so the response never
-reveals that the account exists or that it is locked. The window is a fixed
-penalty — attempts made during it neither count nor extend it — and once it
-expires the next rejected login starts a fresh run rather than re-locking on the
-old count. Enforcement is Spring Security's, which checks account status before
-it compares passwords; the counting is the login path's.
+configured limit (`app.auth.lockout.max-attempts`, default 5), closing it to
+logins **permanently**: there is no duration, no configuration key expressing one,
+and no passage of time that lifts it. The only thing that ends it is an Admin
+performing Unlock. The account row records `locked_at`, the instant the lock was
+imposed, so "is it locked" is a question about the row rather than a comparison
+against a clock. A locked account is refused **with its correct password**, and
+refused the same way as a wrong one: a bare `401` with no body, so the response
+never reveals that the account exists or that it is locked — a User who cannot get
+in learns nothing by waiting, which is intended. Attempts made while it holds
+neither count nor deepen it. Imposing it **revokes the account's live sessions**,
+after the transaction commits, so a locked account stops acting immediately rather
+than when the session it already held expires. Enforcement is Spring Security's,
+which checks account status before it compares passwords; the counting is the login
+path's.
+
+**Bootstrap Admin exemption** — the seeded Admin
+(`app.auth.secondary-username`) is the deployment's local recovery identity and is
+the one principal lockout never applies to. Its failed attempts are counted and
+audited as `LOGIN_FAILURE` like anyone's, but no run of them locks it. With no
+automatic lift, a lockable recovery account would let an unauthenticated attacker
+brick the deployment; the accepted cost is unbounded online guessing against that
+single account, answered by the Argon2id verification cost every attempt pays, the
+uniform refusal, and the audited failures — not by a lock.
 
 **Disabled account** — an account whose `enabled` flag is false, set by an Admin
 through account administration. It is refused at login exactly as a locked
@@ -268,13 +282,13 @@ response reveals nothing. The flag is never merely reported.
 performs the other. Enabling settles whether an account is permitted at all;
 unlocking settles whether it is being penalised for failed logins right now. So:
 
-- Disabling an account leaves its failure run and `locked_until` as they stand.
+- Disabling an account leaves its failure run and `locked_at` as they stand.
   The run is evidence, and it is most wanted at the moment an account is being
   closed.
 - Enabling an account leaves a lockout it is serving in force. Restoring access
   is not a finding that the failed logins did not happen; the lockout still ends
-  when it expires, or when someone unlocks it.
-- Unlocking ends a lockout early and clears the failure run with it, and says
+  only when someone unlocks it.
+- Unlocking ends a lockout and clears the failure run with it, and says
   nothing about the `enabled` flag. A disabled account can be unlocked and stays
   disabled.
 
@@ -282,20 +296,28 @@ Restoring an account that was both suspended and locked out therefore takes two
 deliberate calls. That is the point: an Admin should have to say which of the two
 they mean.
 
-**Recovery guard** — account administration refuses two disable requests
-outright, with a `409`: an account disabling itself, and the last enabled Admin.
-Both would leave nobody able to enable anything again, and nothing in the system
-could undo either without direct database access. A _locked_ Admin still counts
-as available, because that lockout ends on its own.
+**Recovery guard** — account administration refuses three disable requests
+outright, with a `409`: an account disabling itself, the Bootstrap Admin, and the
+last enabled Admin. Each would leave nobody able to enable anything again, and
+nothing in the system could undo it without direct database access. A _locked_
+Admin still counts as available — not because the lockout ends on its own, which
+it no longer does, but because the Bootstrap Admin can never be locked and can
+unlock anyone, so a deployment whose other Admins are locked is still recoverable.
+
+That last clause is why the Bootstrap Admin is undisableable. Its exemption is
+from _locking_ only, and a disabled Bootstrap Admin cannot log in: were it
+disableable, every other Admin could then lock itself out permanently and no
+principal would be left to unlock them. The refusal does not depend on how many
+other Admins are enabled, because the account's value here is being the recovery
+identity rather than being the last one standing.
 
 **Account listing** — what account administration may know about an account:
-username, role, enabled flag, whether a lockout is in force, when that lockout
-lifts, and the creation timestamp. Never the password hash, which no
-listing type has a field for. Both refusal mechanisms appear because either alone
-would mislead — an account locked out right now looks healthy if only `enabled`
-is shown, and nothing would say which accounts need unlocking. Whether the
-lockout is in force is the server's own evaluation at the moment it answers, not
-a comparison the client makes against its own clock.
+username, role, enabled flag, whether a lockout is in force, and the creation
+timestamp. Never the password hash, which no listing type has a field for. There
+is no field for when a lockout lifts, because none does: the flag is the whole
+lock state, and what ends it is an Admin's Unlock. Both refusal mechanisms appear
+because either alone would mislead — an account locked out right now looks healthy
+if only `enabled` is shown, and nothing would say which accounts need unlocking.
 
 **Accounts page** — the SPA screen at `/accounts`, an Admin's view of the account
 listing and the only place the two capabilities are exercised from a browser.
@@ -306,13 +328,15 @@ visible before the click rather than as a `409` after it. The page never decides
 authorization — it renders behind the `ADMIN` guard, and the backend refuses
 `/api/admin/**` to any other role regardless.
 
-**Session revocation** — disabling an account ends the sessions it is already
+**Session revocation** — two things end the sessions an account is already
 holding, so its next request arrives as a Guest and the SPA sends it back to
-login. Disabling is the only administrative action that does this: enabling gives
-nothing back (a revoked session is gone; the account signs in again), and
-unlocking touches no session at all. A refused disable — either arm of the
-recovery guard — revokes nothing, which is what keeps an Admin who mis-clicks
-their own row from signing themselves out.
+login: an Admin disabling it, and the login path imposing a lockout on it. Both
+defer the revocation until after their transaction commits, so a write that was
+rolled back revokes nothing. Enabling gives nothing back (a revoked session is
+gone; the account signs in again), and unlocking touches no session at all. A
+refused disable — either arm of the recovery guard — revokes nothing, which is what
+keeps an Admin who mis-clicks their own row from signing themselves out. A failure
+run that stops short of the limit revokes nothing either.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in

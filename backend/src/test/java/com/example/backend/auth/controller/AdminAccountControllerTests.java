@@ -26,8 +26,8 @@ class AdminAccountControllerTests {
         List<AccountSummary> response = controller.listAccounts();
 
         assertThat(response).containsExactly(
-                new AccountSummary("ada", AccountRole.ADMIN, true, false, null, CREATED_AT),
-                new AccountSummary("bob", AccountRole.USER, false, true, null, CREATED_AT));
+                new AccountSummary("ada", AccountRole.ADMIN, true, false, CREATED_AT),
+                new AccountSummary("bob", AccountRole.USER, false, true, CREATED_AT));
     }
 
     @Test
@@ -75,12 +75,12 @@ class AdminAccountControllerTests {
         assertThat(AccountSummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly(
-                        "username", "role", "enabled", "locked", "lockedUntil", "createdAt");
+                        "username", "role", "enabled", "locked", "createdAt");
     }
 
     private static AccountSummary summary(
             String username, AccountRole role, boolean enabled, boolean locked) {
-        return new AccountSummary(username, role, enabled, locked, null, CREATED_AT);
+        return new AccountSummary(username, role, enabled, locked, CREATED_AT);
     }
 
     private static final class RecordingService extends AccountAdministrationService {

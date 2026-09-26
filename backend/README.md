@@ -38,14 +38,25 @@ development defaults are `user` / `P@ssw0rd` and `admin` / `P@ssw0rd`;
 `APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the `ADMIN` seed.
 These published defaults must not be used in production.
 
-Five consecutive refused logins lock an account for twenty minutes. While the
-lockout holds the correct password is refused too, and every refusal — unknown
-username, a credentialless account, wrong password, locked account — answers
-with the same bare `401` after an equivalent Argon2id verification, so the
-response cannot be used to find out which accounts exist or which have a
-password set. An accepted login resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` and
-`APP_LOCKOUT_DURATION` (a duration such as `5m` or `30s`) configure the policy,
-with no enforced floor on either value.
+Five consecutive refused logins lock an account, and the lock is **permanent**:
+it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
+Unlock is the only thing that ends it. Imposing it also revokes that account's
+live sessions, so a locked account stops acting immediately rather than when the
+session it already held expires. While the lockout holds the correct password is
+refused too, and every refusal — unknown username, a credentialless account,
+wrong password, locked account — answers with the same bare `401` after an
+equivalent Argon2id verification, so the response cannot be used to find out
+which accounts exist, which have a password set, or which are locked. An accepted
+login resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` configures the threshold, with
+no enforced floor on the value; there is no duration setting to configure.
+
+The seeded `ADMIN` (`APP_SECONDARY_USERNAME`) is the deployment's **Bootstrap
+Admin** and is the one account exempt from lockout: its failed attempts are
+counted and audited, but it never locks. Without that exemption a permanent
+lockout would let an unauthenticated attacker brick the deployment by guessing at
+the recovery account until it closed. The accepted cost is unbounded online
+guessing against that one account, answered by the Argon2id verification cost
+every attempt pays, the uniform refusal, and the audit trail — not by a lock.
 
 A session is bound by two independent limits. It is dropped after
 `SESSION_TIMEOUT` (default 15 minutes) of inactivity — the servlet container's
@@ -97,7 +108,6 @@ curl -b cookies.txt http://localhost:8080/api/admin/accounts
     "role": "ADMIN",
     "enabled": true,
     "locked": false,
-    "lockedUntil": null,
     "createdAt": "2026-01-02T03:04:05.123456Z"
   }
 ]

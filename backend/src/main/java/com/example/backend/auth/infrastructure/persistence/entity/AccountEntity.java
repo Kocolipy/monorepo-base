@@ -43,8 +43,13 @@ public class AccountEntity {
     @Column(nullable = false)
     private int failedLoginAttempts;
 
-    /** Null until a lockout has been imposed; kept, not cleared, once it expires. */
-    private Instant lockedUntil;
+    /**
+     * When the failure run locked the account, and null whenever it is not
+     * locked. Never an expiry: a lock is cleared by an administrator's Unlock and
+     * by nothing else, so this column is the lock state rather than a deadline to
+     * compare a clock against.
+     */
+    private Instant lockedAt;
 
     /**
      * Nullable and boxed for that reason: the column was added to a table that
@@ -66,7 +71,7 @@ public class AccountEntity {
             String passwordHash,
             AccountRole role,
             int failedLoginAttempts,
-            Instant lockedUntil,
+            Instant lockedAt,
             Boolean enabled,
             Instant createdAt) {
         this.id = id;
@@ -74,7 +79,7 @@ public class AccountEntity {
         this.passwordHash = passwordHash;
         this.role = role;
         this.failedLoginAttempts = failedLoginAttempts;
-        this.lockedUntil = lockedUntil;
+        this.lockedAt = lockedAt;
         this.enabled = enabled;
         this.createdAt = createdAt;
     }
@@ -99,8 +104,8 @@ public class AccountEntity {
         return failedLoginAttempts;
     }
 
-    public Instant getLockedUntil() {
-        return lockedUntil;
+    public Instant getLockedAt() {
+        return lockedAt;
     }
 
     public Boolean getEnabled() {

@@ -2,13 +2,16 @@ package com.example.backend.auth.infrastructure.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.application.AccountAdministrationService;
+import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.session.FindByIndexNameSessionRepository;
@@ -62,6 +65,12 @@ class RedisSessionRevocationIntegrationTests {
     private AccountAdministrationService administration;
 
     @Autowired
+    private LoginAttemptService attempts;
+
+    @Value("${app.auth.lockout.max-attempts}")
+    private int maxAttempts;
+
+    @Autowired
     private AccountSessionsAdapter sessionsAdapter;
 
     @Autowired
@@ -87,7 +96,7 @@ class RedisSessionRevocationIntegrationTests {
                 created.passwordHash(),
                 created.role(),
                 created.failedLoginAttempts(),
-                created.lockedUntil(),
+                created.lockedAt(),
                 created.enabled(),
                 created.createdAt());
         accounts.save(renamed);
@@ -112,6 +121,29 @@ class RedisSessionRevocationIntegrationTests {
 
         administration.disable(created.username(), "some-other-admin");
 
+        assertThat(sessionRepository.findById(session.getId())).isNull();
+    }
+
+    /**
+     * Session-revocation-on-lockout, driven through the real login-attempt
+     * counter and the real Redis-indexed repository. The lock is imposed by
+     * counting failures, not by writing the row directly, so the revocation is
+     * observed on the path a real brute-force attempt takes: the account's live
+     * session must be gone once the lock lands, or a locked account would keep
+     * acting through a session it already held.
+     */
+    @Test
+    void imposingALockoutRevokesTheAccountsRealRedisBackedSession() {
+        Account created = accounts.save(
+                new Account("session-lockout-target", "hash", AccountRole.USER));
+        Session session = openSessionFor(created.id());
+
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            attempts.recordFailure(created.username(), AuditRefusalReason.BAD_CREDENTIALS);
+        }
+
+        assertThat(accounts.findByUsername(created.username()).orElseThrow().isLocked())
+                .isTrue();
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }
 

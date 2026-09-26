@@ -82,7 +82,7 @@ class UserCounterServiceTests {
                 created.passwordHash(),
                 created.role(),
                 created.failedLoginAttempts(),
-                created.lockedUntil(),
+                created.lockedAt(),
                 created.enabled(),
                 created.createdAt());
         accounts.save(renamed);

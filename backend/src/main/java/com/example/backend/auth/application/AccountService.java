@@ -97,7 +97,7 @@ public class AccountService implements UserDetailsService {
                         ? noPasswordSetMarker()
                         : account.passwordHash())
                 .roles(account.role().name())
-                .accountLocked(account.isLocked(clock.instant()))
+                .accountLocked(account.isLocked())
                 // The listing reports this flag, so authentication has to honour
                 // it: an `enabled: false` row a disabled account could still log
                 // in with would make the listing a lie.

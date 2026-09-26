@@ -23,6 +23,5 @@ app:
     secondary-password: test-admin-password
     lockout:
       max-attempts: 5
-      duration: 20m
   session:
     absolute-lifetime: 8h

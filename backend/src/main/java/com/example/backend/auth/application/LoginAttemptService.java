@@ -1,9 +1,11 @@
 package com.example.backend.auth.application;
 
-import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
+import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.auth.domain.LockoutPolicy;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,35 +29,54 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link com.example.backend.auth.domain.AccountRepository} exist to avoid
  * racing.
  *
+ * <p>Imposing a lock also ends the account's live sessions, because a lock that
+ * left them alone would close the front door while the account kept acting
+ * through a session it already held. The revocation runs after the transaction
+ * commits, for the reason {@link AccountAdministrationService#disable} defers its
+ * own: Redis is not in the transaction, and a revocation already performed cannot
+ * be undone by a rollback — see
+ * {@code /docs/adr/0002-revoke-sessions-after-commit.md}.
+ *
  * <p>This is also where the login path's audit events are recorded, for the same
  * reason the counting is here: this class already holds the account before and
  * after the transition, so it can tell a lockout being imposed from one already in
- * force, and an expired lockout from an absent one, without a second read or a
- * second guess. Recording them at the call site would mean re-deriving state that
- * was only available here.
+ * force without a second read or a second guess. Recording them at the call site
+ * would mean re-deriving state that was only available here.
  */
 @Service
 public class LoginAttemptService {
 
     private final AccountRepository accounts;
+    private final AccountSessions sessions;
+    private final AfterCommit afterCommit;
     private final LockoutPolicy policy;
+    private final BootstrapAdmin bootstrapAdmin;
     private final AuditTrail audit;
     private final Clock clock;
 
     public LoginAttemptService(
             AccountRepository accounts,
+            AccountSessions sessions,
+            AfterCommit afterCommit,
             LockoutPolicy policy,
+            BootstrapAdmin bootstrapAdmin,
             AuditTrail audit,
             Clock clock) {
         this.accounts = accounts;
+        this.sessions = sessions;
+        this.afterCommit = afterCommit;
         this.policy = policy;
+        this.bootstrapAdmin = bootstrapAdmin;
         this.audit = audit;
         this.clock = clock;
     }
 
     /**
      * Counts a rejected attempt against {@code username}, locking the account
-     * once the policy's limit is reached.
+     * once the policy's limit is reached — and never locking the Bootstrap Admin,
+     * whose failures are counted and audited like any other but cannot close the
+     * deployment's last way in. See
+     * {@link com.example.backend.auth.domain.BootstrapAdmin}.
      *
      * <p>An unknown username is ignored rather than recorded. Nothing is created
      * for it, so a caller cannot learn from timing or from stored state whether
@@ -79,12 +100,13 @@ public class LoginAttemptService {
         }
 
         Account account = found.get();
-        recordAnyExpiredLockout(account, now);
-
-        Account updated = account.withFailureRecorded(policy, now);
+        Account updated = bootstrapAdmin.identifies(account)
+                ? account.withFailureCounted()
+                : account.withFailureRecorded(policy, now);
         accounts.save(updated);
-        if (updated.isLocked(now) && !account.isLocked(now)) {
+        if (updated.isLocked() && !account.isLocked()) {
             audit.recordLockoutSet(account.id());
+            afterCommit.run(() -> sessions.revokeAll(account.id()));
         }
         audit.recordLoginFailure(account.id(), reason);
     }
@@ -100,29 +122,11 @@ public class LoginAttemptService {
     @Transactional
     public void recordSuccess(String username) {
         accounts.findByUsername(username).ifPresent(account -> {
-            recordAnyExpiredLockout(account, clock.instant());
             Account cleared = account.withSuccessfulLogin();
             if (cleared != account) {
                 accounts.save(cleared);
             }
             audit.recordLoginSuccess(account.id());
         });
-    }
-
-    /**
-     * Records a lockout that has run out, if this account was serving one.
-     *
-     * <p>An expiry is the one audited transition nobody performs, so there is no
-     * request to record it under and no moment it obviously belongs to. This is
-     * that moment: a login attempt against an account whose {@code lockedUntil} is
-     * recorded but past is the first time the service acts on the expiry — the next
-     * transition either starts a fresh failure run or clears the field outright, so
-     * after this call the evidence that a lockout existed is gone from the row.
-     * Recorded before the transition for exactly that reason.
-     */
-    private void recordAnyExpiredLockout(Account account, Instant now) {
-        if (account.lockedUntil() != null && !account.isLocked(now)) {
-            audit.recordLockoutLiftedByExpiry(account.id());
-        }
     }
 }

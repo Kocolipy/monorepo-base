@@ -242,7 +242,7 @@ class AdminAccountEndpointTests {
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locked").value(false))
-                .andExpect(jsonPath("$.lockedUntil").value(Matchers.nullValue()));
+                .andExpect(jsonPath("$.lockedUntil").doesNotExist());
     }
 
     /** Echoes a token the shared repository minted, exactly as the SPA does. */

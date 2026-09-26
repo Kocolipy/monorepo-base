@@ -5,9 +5,8 @@ import com.example.backend.auth.domain.Account;
 import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.auth.domain.AccountSessions;
+import com.example.backend.auth.domain.BootstrapAdmin;
 import com.example.backend.observability.LogEvent;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -43,26 +42,25 @@ public class AccountAdministrationService {
     private final AccountSessions sessions;
     private final AfterCommit afterCommit;
     private final AuditTrail audit;
-    private final Clock clock;
+    private final BootstrapAdmin bootstrapAdmin;
 
     public AccountAdministrationService(
             AccountRepository accounts,
             AccountSessions sessions,
             AfterCommit afterCommit,
             AuditTrail audit,
-            Clock clock) {
+            BootstrapAdmin bootstrapAdmin) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.afterCommit = afterCommit;
         this.audit = audit;
-        this.clock = clock;
+        this.bootstrapAdmin = bootstrapAdmin;
     }
 
     /** Every account, for administrative review. Never carries a password hash. */
     public List<AccountSummary> listAccounts() {
-        Instant now = clock.instant();
         return accounts.findAllOrderedByUsername().stream()
-                .map(account -> summarize(account, now))
+                .map(AccountAdministrationService::summarize)
                 .toList();
     }
 
@@ -71,10 +69,19 @@ public class AccountAdministrationService {
      * it stops acting now rather than when those sessions expire. The lockout is
      * untouched: this is not a penalty and says nothing about the failure run.
      *
-     * <p>Two refusals guard against an administrator removing the only means of
-     * reversing this. Neither is about authorization — the caller is an admin, and
-     * the action is what is refused. A refused disable revokes nothing: both
-     * checks run before anything is written or ended.
+     * <p>Three refusals guard against an administrator removing the only means of
+     * reversing this. None is about authorization — the caller is an admin, and
+     * the action is what is refused. A refused disable revokes nothing: every
+     * check runs before anything is written or ended.
+     *
+     * <p>The third is the Bootstrap Admin, which cannot be disabled at all. Its
+     * exemption from lockout is what keeps every other account's permanent lock
+     * recoverable, and that exemption is from <em>locking</em> only — a disabled
+     * Bootstrap Admin cannot log in, so disabling it while the other
+     * administrators are locked out would leave a deployment no principal can
+     * enter and nothing but direct database access can repair. It is the recovery
+     * identity whether or not it is the last enabled administrator, so this check
+     * does not depend on how many others there are.
      *
      * <p>The revocation happens after the transaction commits, so an account
      * whose row could not be written keeps its sessions — and so does one whose
@@ -101,6 +108,13 @@ public class AccountAdministrationService {
         if (account.username().equals(requestedBy)) {
             throw refuse(DISABLE_ACTION, "SelfDisable", "An account cannot disable itself");
         }
+        if (bootstrapAdmin.identifies(account)) {
+            throw refuse(
+                    DISABLE_ACTION,
+                    "BootstrapAdmin",
+                    "The bootstrap administrator is the deployment's recovery identity and"
+                            + " cannot be disabled");
+        }
         if (isLastEnabledAdministrator(account)) {
             throw refuse(
                     DISABLE_ACTION,
@@ -116,9 +130,9 @@ public class AccountAdministrationService {
     }
 
     /**
-     * Reopens an account to logins. A lockout it is serving is left standing: the
-     * penalty either expires on its own or is lifted by {@link #unlock}, and
-     * restoring access is not a finding that the failed logins did not happen.
+     * Reopens an account to logins. A lockout it is serving is left standing, and
+     * standing is where it stays until {@link #unlock} lifts it — restoring access
+     * is not a finding that the failed logins did not happen.
      *
      * <p>Sessions are not given back. {@link #disable} ended them, and a session
      * is not a thing an administrator can hand over — the account signs in again.
@@ -133,9 +147,13 @@ public class AccountAdministrationService {
     }
 
     /**
-     * Ends a lockout early, clearing the failure run with it. Says nothing about
-     * whether the account is enabled — a disabled account can be unlocked, and
-     * stays disabled.
+     * Ends a lockout, clearing the failure run with it. Says nothing about whether
+     * the account is enabled — a disabled account can be unlocked, and stays
+     * disabled.
+     *
+     * <p>The only way a lockout ends. Nothing expires it and no other operation
+     * lifts it, so an account that locked itself out stays locked until an
+     * administrator performs exactly this.
      *
      * <p>Idempotent: an account serving no lockout is returned unchanged and
      * nothing is written.
@@ -149,7 +167,7 @@ public class AccountAdministrationService {
         }
         audit.recordLockoutLiftedByUnlock(actorId(requestedBy), account.id());
         succeeded(UNLOCK_ACTION);
-        return summarize(unlocked, clock.instant());
+        return summarize(unlocked);
     }
 
     /**
@@ -171,13 +189,25 @@ public class AccountAdministrationService {
         if (updated != account) {
             accounts.updateEnabled(updated);
         }
-        return summarize(updated, clock.instant());
+        return summarize(updated);
     }
 
     /**
      * Whether this account is the only administrator that could still perform
-     * administrative work. A disabled admin cannot log in, so it does not count;
-     * a locked one is only temporarily out and does.
+     * administrative work. A disabled admin cannot log in, so it does not count.
+     *
+     * <p>A <em>locked</em> one does count, even though a lock no longer ends on its
+     * own: the deployment's recovery path does not depend on it, because the
+     * Bootstrap Admin can never be locked (see
+     * {@link com.example.backend.auth.domain.BootstrapAdmin}) and can unlock
+     * anyone. Excluding a locked admin here would refuse disables that leave the
+     * deployment perfectly recoverable.
+     *
+     * <p>That argument holds only because the Bootstrap Admin is also undisableable
+     * — {@link #disable} refuses it outright. Were it disableable, every other
+     * administrator could be locked out permanently with no principal left to
+     * unlock them, and a locked admin would have to count as unavailable here
+     * instead.
      */
     private boolean isLastEnabledAdministrator(Account account) {
         if (account.role() != AccountRole.ADMIN || !account.enabled()) {
@@ -230,13 +260,12 @@ public class AccountAdministrationService {
         return new UnsafeAccountChangeException(message);
     }
 
-    private static AccountSummary summarize(Account account, Instant now) {
+    private static AccountSummary summarize(Account account) {
         return new AccountSummary(
                 account.username(),
                 account.role(),
                 account.enabled(),
-                account.isLocked(now),
-                account.lockedUntil(),
+                account.isLocked(),
                 account.createdAt());
     }
 }

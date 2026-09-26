@@ -36,7 +36,7 @@ class AccountPersistenceAdapter implements AccountRepository {
                 account.passwordHash(),
                 account.role(),
                 account.failedLoginAttempts(),
-                account.lockedUntil(),
+                account.lockedAt(),
                 account.enabled(),
                 account.createdAt())));
     }
@@ -49,7 +49,7 @@ class AccountPersistenceAdapter implements AccountRepository {
     @Override
     public void updateLockout(Account account) {
         accounts.updateLockout(
-                account.id(), account.failedLoginAttempts(), account.lockedUntil());
+                account.id(), account.failedLoginAttempts(), account.lockedAt());
     }
 
     @Override
@@ -68,7 +68,7 @@ class AccountPersistenceAdapter implements AccountRepository {
                 entity.getPasswordHash(),
                 entity.getRole(),
                 entity.getFailedLoginAttempts(),
-                entity.getLockedUntil(),
+                entity.getLockedAt(),
                 entity.getEnabled() == null || entity.getEnabled(),
                 entity.getCreatedAt());
     }

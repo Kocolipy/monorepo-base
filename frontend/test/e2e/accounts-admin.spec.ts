@@ -33,7 +33,7 @@ test.describe.serial("ADMIN accounts page", () => {
   const USER_PASSWORD = "P@ssw0rd";
 
   /** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
-  const REFUSALS_BEFORE_LOCKOUT = 3;
+  const REFUSALS_BEFORE_LOCKOUT = 5;
 
   /**
    * A cookie jar of its own for the login attempts below, so nothing here
@@ -210,9 +210,10 @@ test.describe.serial("ADMIN accounts page", () => {
       await openAccounts(page);
       const row = accountRow(page, "user");
 
-      // The listing reports the lockout the login path imposed, with the instant
-      // it lifts — this is the only place an administrator can see it at all.
-      await expect(row.getByText(/^Locked until \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/)).toBeVisible();
+      // The listing reports the lockout the login path imposed — this is the only
+      // place an administrator can see it at all, and there is no expiry to show
+      // because nothing but Unlock ends it.
+      await expect(row.getByText("Locked")).toBeVisible();
       // Still enabled: a lockout is not a standing decision, and the page must
       // not conflate the two refusal mechanisms.
       await expect(row.getByRole("button", { name: "Disable user" })).toBeEnabled();
@@ -238,6 +239,43 @@ test.describe.serial("ADMIN accounts page", () => {
       const restored = await postAdminAction(page, "user", "unlock");
       expect(restored.status()).toBe(200);
       await api.dispose();
+    }
+  });
+
+  /**
+   * Criterion 3, from the holder's side: imposing the lockout ends the sessions
+   * the account is already holding, so it stops acting the moment the lock lands
+   * rather than when its session happens to expire.
+   *
+   * Shaped like the disable test above, and for the same reason: the subject is a
+   * *second* caller's session, which only a cookie jar of its own makes
+   * observable. The refusals that impose the lock are driven from a third jar, so
+   * the 401 below cannot be an artefact of the failed logins landing in the jar
+   * under test.
+   */
+  test("ends the session an account held before it locked itself out", async ({ page }) => {
+    const holder = await anonymousApi();
+    const guesser = await anonymousApi();
+
+    try {
+      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
+      expect(signedIn.status()).toBe(200);
+
+      // Live *before* the lockout. Without this the 401 below would prove
+      // nothing: an unauthenticated jar answers 401 too.
+      const working = await holder.get("/api/auth/me");
+      expect(working.status()).toBe(200);
+
+      await lockAccount(guesser, "user");
+
+      // Same jar, same cookie, and the session behind it no longer exists.
+      const refused = await holder.get("/api/auth/me");
+      expect(refused.status()).toBe(401);
+    } finally {
+      const restored = await postAdminAction(page, "user", "unlock");
+      expect(restored.status()).toBe(200);
+      await guesser.dispose();
+      await holder.dispose();
     }
   });
 

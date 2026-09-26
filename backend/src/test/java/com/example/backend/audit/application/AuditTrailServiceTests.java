@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
-import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -129,22 +128,21 @@ class AuditTrailServiceTests {
         assertThat(event.errorCode()).isEqualTo("UNKNOWN_ACCOUNT");
     }
 
+    /**
+     * There is one lift and so no cause to carry: an unlock is the only way a
+     * lockout ends, and the event names the administrator who performed it rather
+     * than which kind of lift it was.
+     */
     @Test
-    void theTwoLockoutLiftsAreOneOperationCarryingTheirCause() {
-        trail.recordLockoutLiftedByExpiry(SUBJECT);
+    void theOnlyLockoutLiftNamesItsAdministratorAndCarriesNoCause() {
         trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
 
-        assertThat(events.appended).hasSize(2);
-        assertThat(events.appended).allSatisfy(event ->
-                assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT));
-        assertThat(events.appended.get(0).errorCode())
-                .isEqualTo(AuditLockoutLift.EXPIRY.name());
-        assertThat(events.appended.get(0).actorId()).isNull();
-        assertThat(events.appended.get(1).errorCode())
-                .isEqualTo(AuditLockoutLift.UNLOCK.name());
-        assertThat(events.appended.get(1).actorId()).isEqualTo(ACTOR);
-        assertThat(events.appended.get(1).changedPaths())
-                .containsExactly("failedLoginAttempts", "lockedUntil");
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
+        assertThat(event.errorCode()).isNull();
+        assertThat(event.actorId()).isEqualTo(ACTOR);
+        assertThat(event.subjectId()).isEqualTo(SUBJECT);
+        assertThat(event.changedPaths()).containsExactly("failedLoginAttempts", "lockedAt");
     }
 
     @Test
@@ -201,12 +199,10 @@ class AuditTrailServiceTests {
 
         trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
         trail.recordLockoutSet(SUBJECT);
-        trail.recordLockoutLiftedByExpiry(SUBJECT);
 
         assertThat(alerts.raised).containsExactly(
                 AuditOperation.LOGIN_FAILURE,
-                AuditOperation.LOCKOUT_SET,
-                AuditOperation.LOCKOUT_LIFT);
+                AuditOperation.LOCKOUT_SET);
     }
 
     @Test
@@ -260,6 +256,56 @@ class AuditTrailServiceTests {
      * fail-open append in its own transaction; what this test is about is whether
      * the exception escapes, and a real manager would only add a database.
      */
+    /**
+     * A fail-open append runs in a transaction of its own, not the caller's.
+     *
+     * <p>The behavioural claim — the row outlives a caller that rolls back — is
+     * asserted against real Postgres in
+     * {@code AuditAppendOnlyIntegrationTests.aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack}.
+     * That test cannot reach this constructor under mutation testing: the service is
+     * a singleton built once while the Spring context boots, so PIT attributes the
+     * constructor's coverage to whichever test method happened to trigger the boot
+     * and runs only that one. Hence this unit-level assertion on the propagation the
+     * template actually asks for — the only form in which the wiring is visible to a
+     * mutation of the constructor.
+     */
+    @Test
+    void aFailOpenAppendAsksForATransactionOfItsOwn() {
+        RecordingTransactionManager transactions = new RecordingTransactionManager();
+        AuditTrail isolated = new AuditTrailService(
+                events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+
+        isolated.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(transactions.definitions)
+                .as("the fail-open append's transaction definitions")
+                .singleElement()
+                .satisfies(definition -> assertThat(definition.getPropagationBehavior())
+                        .as("PROPAGATION_REQUIRES_NEW, so the caller's rollback cannot "
+                                + "take the audit row with it")
+                        .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+    }
+
+    /** Records the transaction definitions it is asked for, and does nothing else. */
+    private static final class RecordingTransactionManager implements PlatformTransactionManager {
+
+        private final List<TransactionDefinition> definitions = new ArrayList<>();
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            definitions.add(definition);
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+        }
+    }
+
     private static final PlatformTransactionManager NO_TRANSACTION_MANAGER =
             new PlatformTransactionManager() {
 
