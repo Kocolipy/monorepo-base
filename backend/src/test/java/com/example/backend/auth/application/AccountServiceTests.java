@@ -24,12 +24,13 @@ class AccountServiceTests {
 
     private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
     private final MutableClock clock = new MutableClock(NOW);
+    private final PrefixPasswordEncoder passwordEncoder = new PrefixPasswordEncoder();
 
     private AccountService service;
 
     @BeforeEach
     void setUp() {
-        service = new AccountService(accounts, new PrefixPasswordEncoder(), clock);
+        service = new AccountService(accounts, passwordEncoder, clock);
     }
 
     @Test
@@ -188,6 +189,69 @@ class AccountServiceTests {
         assertThat(details.getPassword()).isNotEqualTo("anything the caller could submit");
     }
 
+    /**
+     * The unmatchable marker is encoded once per process and reused. Argon2id is
+     * deliberately expensive, so recomputing it on every credentialless login
+     * attempt would hand an unauthenticated caller a way to spend this service's
+     * CPU at will — the cache is a cost control, not a tidiness measure.
+     *
+     * <p>Asserted by call count rather than by comparing markers: the test encoder
+     * is deterministic, so a marker recomputed on every call is byte-identical to a
+     * cached one and no equality assertion can tell them apart.
+     */
+    @Test
+    void theUnmatchableMarkerIsEncodedOnceAndReusedAcrossCalls() {
+        accounts.save(new Account("nopass", null, AccountRole.USER));
+
+        String first = service.loadUserByUsername("nopass").getPassword();
+        String second = service.loadUserByUsername("nopass").getPassword();
+        String third = service.loadUserByUsername("nopass").getPassword();
+
+        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
+        assertThat(second).isEqualTo(first);
+        assertThat(third).isEqualTo(first);
+    }
+
+    /**
+     * Two credentialless accounts share the one marker, so the cache is keyed to the
+     * process rather than recomputed per account.
+     */
+    @Test
+    void twoCredentiallessAccountsShareTheOneEncodedMarker() {
+        accounts.save(new Account("nopass-one", null, AccountRole.USER));
+        accounts.save(new Account("nopass-two", null, AccountRole.USER));
+
+        String one = service.loadUserByUsername("nopass-one").getPassword();
+        String two = service.loadUserByUsername("nopass-two").getPassword();
+
+        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
+        assertThat(two).isEqualTo(one);
+    }
+
+    /**
+     * The stable id behind a username, which the session index is keyed by. Spring
+     * Security carries the username, so without this the session index would be
+     * keyed by a mutable value.
+     */
+    @Test
+    void resolvesTheStableIdBehindAUsername() {
+        Account stored = accounts.save(seeded("user", "hash", AccountRole.USER));
+
+        assertThat(service.resolveAccountId("user")).isEqualTo(stored.id());
+    }
+
+    /**
+     * An unknown username is refused rather than resolved to null. A null id would
+     * travel into the session index as a key, silently indexing sessions under
+     * nothing instead of failing where the mistake was made.
+     */
+    @Test
+    void refusesToResolveAnIdForAnUnknownUsername() {
+        assertThatThrownBy(() -> service.resolveAccountId("missing"))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("Account not found");
+    }
+
     /** A complete, enabled account created at {@code NOW} — what seeding writes. */
     private static Account seeded(String username, String passwordHash, AccountRole role) {
         return new Account(username, passwordHash, role, 0, null, true, NOW);
@@ -201,14 +265,27 @@ class AccountServiceTests {
 
     private static final class PrefixPasswordEncoder implements PasswordEncoder {
 
+        private final java.util.Map<String, Integer> encodeCounts = new java.util.HashMap<>();
+
         @Override
         public String encode(CharSequence rawPassword) {
+            encodeCounts.merge(rawPassword.toString(), 1, Integer::sum);
             return "encoded:" + rawPassword;
         }
 
         @Override
         public boolean matches(CharSequence rawPassword, String encodedPassword) {
             return encode(rawPassword).equals(encodedPassword);
+        }
+
+        /**
+         * How many times this raw value was encoded. Counting rather than comparing
+         * the result, because this encoder is deterministic: a re-encode returns an
+         * identical string, so only the call count can distinguish a cached marker
+         * from one recomputed on every call.
+         */
+        int encodeCountOf(String rawPassword) {
+            return encodeCounts.getOrDefault(rawPassword, 0);
         }
     }
 }

@@ -9,6 +9,7 @@ import com.example.backend.auth.domain.AccountRole;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -143,5 +144,47 @@ class AccountLockoutPersistenceIntegrationTests {
 
         assertThat(row.get("enabled")).isEqualTo(true);
         assertThat(((java.sql.Timestamp) row.get("created_at")).toInstant()).isEqualTo(createdAt);
+    }
+
+    /**
+     * Lookup by stable id returns the mapped account. This is the id-keyed read the
+     * session index and every administrative action depend on, and it had no test at
+     * all: PIT could remove the repository call, the mapping, or the whole return
+     * value and nothing failed.
+     */
+    @Test
+    void findsAnAccountByItsStableId() {
+        Optional<Account> found = accounts.findById(saved.id());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().id()).isEqualTo(saved.id());
+        assertThat(found.get().username()).isEqualTo("lockout-persistence");
+        assertThat(found.get().role()).isEqualTo(AccountRole.USER);
+        assertThat(found.get().enabled()).isTrue();
+    }
+
+    /**
+     * An id no row carries reads as empty rather than throwing or inventing an
+     * account, so a caller holding a stale id learns the account is gone.
+     */
+    @Test
+    void anIdNoRowCarriesReadsAsEmpty() {
+        assertThat(accounts.findById(UUID.randomUUID())).isEmpty();
+    }
+
+    /**
+     * Lookup by id reflects a lockout written through {@code updateLockout}, so the
+     * mapping carries the lockout columns rather than only the identity ones.
+     */
+    @Test
+    void lookupByIdReportsTheStoredLockout() {
+        Instant lockedAt = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+
+        updateLockout(5, lockedAt);
+
+        Account found = accounts.findById(saved.id()).orElseThrow();
+        assertThat(found.failedLoginAttempts()).isEqualTo(5);
+        assertThat(found.lockedAt()).isEqualTo(lockedAt);
+        assertThat(found.isLocked()).isTrue();
     }
 }

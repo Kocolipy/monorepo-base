@@ -256,6 +256,56 @@ class AuditTrailServiceTests {
      * fail-open append in its own transaction; what this test is about is whether
      * the exception escapes, and a real manager would only add a database.
      */
+    /**
+     * A fail-open append runs in a transaction of its own, not the caller's.
+     *
+     * <p>The behavioural claim — the row outlives a caller that rolls back — is
+     * asserted against real Postgres in
+     * {@code AuditAppendOnlyIntegrationTests.aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack}.
+     * That test cannot reach this constructor under mutation testing: the service is
+     * a singleton built once while the Spring context boots, so PIT attributes the
+     * constructor's coverage to whichever test method happened to trigger the boot
+     * and runs only that one. Hence this unit-level assertion on the propagation the
+     * template actually asks for — the only form in which the wiring is visible to a
+     * mutation of the constructor.
+     */
+    @Test
+    void aFailOpenAppendAsksForATransactionOfItsOwn() {
+        RecordingTransactionManager transactions = new RecordingTransactionManager();
+        AuditTrail isolated = new AuditTrailService(
+                events, requests, alerts, Clock.fixed(NOW, ZoneOffset.UTC), transactions);
+
+        isolated.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(transactions.definitions)
+                .as("the fail-open append's transaction definitions")
+                .singleElement()
+                .satisfies(definition -> assertThat(definition.getPropagationBehavior())
+                        .as("PROPAGATION_REQUIRES_NEW, so the caller's rollback cannot "
+                                + "take the audit row with it")
+                        .isEqualTo(TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+    }
+
+    /** Records the transaction definitions it is asked for, and does nothing else. */
+    private static final class RecordingTransactionManager implements PlatformTransactionManager {
+
+        private final List<TransactionDefinition> definitions = new ArrayList<>();
+
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            definitions.add(definition);
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+        }
+    }
+
     private static final PlatformTransactionManager NO_TRANSACTION_MANAGER =
             new PlatformTransactionManager() {
 
