@@ -52,12 +52,4 @@ public class ScimConnectorEntity {
     public Instant getDeletedAt() {
         return deletedAt;
     }
-
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
-    }
-
-    public void setDeletedAt(Instant deletedAt) {
-        this.deletedAt = deletedAt;
-    }
 }

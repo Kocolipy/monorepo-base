@@ -63,10 +63,6 @@ public class ScimResourceEntity {
         return id;
     }
 
-    public String getResourceType() {
-        return resourceType;
-    }
-
     public long getVersion() {
         return version;
     }

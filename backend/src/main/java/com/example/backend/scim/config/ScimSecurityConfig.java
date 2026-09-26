@@ -133,8 +133,11 @@ public class ScimSecurityConfig {
                 // authentication: while the gate is closed the namespace answers 404 to
                 // every request whatever credential it carries, so the surface cannot be
                 // probed for existence. WebAsyncManagerIntegrationFilter is the first
-                // filter of a standard chain, so naming it is how "first" is stated
-                // without depending on the order these builder calls happen to be in.
+                // filter of a standard chain that reads the request, so naming it is how
+                // "first" is stated without depending on the order these builder calls
+                // happen to be in. Spring Security places DisableEncodeUrlFilter ahead of
+                // it, which only suppresses session ids in response URLs and so decides
+                // nothing before the gate; ScimSecurityChainOrderTests pins that position.
                 .addFilterBefore(
                         new ScimReleaseGateFilter(releaseGate),
                         WebAsyncManagerIntegrationFilter.class)

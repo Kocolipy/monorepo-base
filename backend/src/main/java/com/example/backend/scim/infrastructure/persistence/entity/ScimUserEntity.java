@@ -154,16 +154,8 @@ public class ScimUserEntity {
         return resource;
     }
 
-    public UUID getResourceId() {
-        return resourceId;
-    }
-
     public String getUserName() {
         return userName;
-    }
-
-    public String getNormalizedUserName() {
-        return normalizedUserName;
     }
 
     public String getPasswordHash() {
