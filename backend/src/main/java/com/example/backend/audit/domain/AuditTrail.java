@@ -85,4 +85,37 @@ public interface AuditTrail {
      *                separate administrative acts
      */
     void recordConnectorTokenRevoked(UUID actorId, UUID connectorId);
+
+    /**
+     * Records a connector creating a SCIM User.
+     *
+     * @param connectorId the acting connector
+     * @param userId      the created resource's stable id
+     */
+    void recordScimUserCreated(UUID connectorId, UUID userId);
+
+    /**
+     * Records a create refused because a live User already holds the
+     * {@code userName}.
+     *
+     * <p>No subject id, because there is none: the resource was not created, and the
+     * existing User that holds the name is not what the event is about. Naming it
+     * would turn a refused create into an event against an unrelated identity's
+     * history.
+     *
+     * @param connectorId the connector whose create was refused
+     */
+    void recordScimUserCreateRejectedAsDuplicate(UUID connectorId);
+
+    /**
+     * Records a connector reading the User collection — a bulk read.
+     *
+     * <p>Takes no count and no filter, which is what keeps this boundary free of
+     * text: the result count and the filter's shape arrive with the ticket that
+     * implements filtering, as closed-set and numeric fields rather than as a
+     * rendered query string.
+     *
+     * @param connectorId the connector that read the collection
+     */
+    void recordScimUsersListed(UUID connectorId);
 }

@@ -3,6 +3,7 @@ package com.example.backend.audit;
 import com.example.backend.audit.domain.AuditLockoutLift;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import java.util.ArrayList;
 import java.util.List;
@@ -110,5 +111,24 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordConnectorTokenRevoked(UUID actorId, UUID connectorId) {
         recorded.add(new Recorded(
                 AuditOperation.CONNECTOR_TOKEN_REVOKE, actorId, connectorId, null));
+    }
+
+    @Override
+    public void recordScimUserCreated(UUID connectorId, UUID userId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_USER_CREATE, connectorId, userId, null));
+    }
+
+    @Override
+    public void recordScimUserCreateRejectedAsDuplicate(UUID connectorId) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_USER_CREATE,
+                connectorId,
+                null,
+                AuditScimRefusal.UNIQUENESS.name()));
+    }
+
+    @Override
+    public void recordScimUsersListed(UUID connectorId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_USER_LIST, connectorId, null, null));
     }
 }

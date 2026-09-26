@@ -2,6 +2,7 @@ package com.example.backend.scim.config;
 
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import java.security.SecureRandom;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -12,6 +13,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
 
 /**
  * The SCIM namespace's own security chain: stateless, bearer-authenticated, and
@@ -44,8 +46,8 @@ public class ScimSecurityConfig {
      * Discovery, which a connector must read before it holds a token at all — that is
      * the point of the endpoints, so they are public. They disclose this service's
      * SCIM capabilities and schemas and no directory content; GET only, so nothing
-     * public can write. The handlers arrive with the inbound adapter ticket; the rules
-     * are here now because the chain they belong to is.
+     * public can write. The handlers are {@code ScimDiscoveryController}; the rules are
+     * here, beside every other access rule for this namespace.
      */
     private static final String[] PUBLIC_DISCOVERY_PATHS = {
         "/scim/v2/ServiceProviderConfig",
@@ -69,6 +71,19 @@ public class ScimSecurityConfig {
     }
 
     /**
+     * Whether this deployment serves SCIM at all, from external configuration.
+     *
+     * <p>Defaulted here to {@code false} rather than in {@code application.yaml}, so an
+     * unset setting reaches the gate as "closed" and the default is a fact about the code
+     * rather than about a file a deployment may replace wholesale.
+     */
+    @Bean
+    public ScimReleaseGate scimReleaseGate(
+            @Value("${app.scim.enabled:false}") boolean enabled) {
+        return new ScimReleaseGate(enabled);
+    }
+
+    /**
      * Ahead of the application chain, which matches every remaining request.
      *
      * <p>The annotation goes on the {@code @Bean} METHOD and not on this class:
@@ -82,7 +97,10 @@ public class ScimSecurityConfig {
     @Bean
     @Order(ScimSecurityConfig.SCIM_CHAIN_ORDER)
     public SecurityFilterChain scimSecurityFilterChain(
-            HttpSecurity http, ConnectorAuthenticationService connectors) throws Exception {
+            HttpSecurity http,
+            ConnectorAuthenticationService connectors,
+            ScimReleaseGate releaseGate)
+            throws Exception {
         AuthenticationEntryPoint challenge =
                 (request, response, exception) -> ScimBearerChallenge.missingCredential(response);
 
@@ -111,6 +129,18 @@ public class ScimSecurityConfig {
                         .securityContextRepository(new RequestAttributeSecurityContextRepository()))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Ordered ahead of every other filter in this chain, including
+                // authentication: while the gate is closed the namespace answers 404 to
+                // every request whatever credential it carries, so the surface cannot be
+                // probed for existence. WebAsyncManagerIntegrationFilter is the first
+                // filter of a standard chain that reads the request, so naming it is how
+                // "first" is stated without depending on the order these builder calls
+                // happen to be in. Spring Security places DisableEncodeUrlFilter ahead of
+                // it, which only suppresses session ids in response URLs and so decides
+                // nothing before the gate; ScimSecurityChainOrderTests pins that position.
+                .addFilterBefore(
+                        new ScimReleaseGateFilter(releaseGate),
+                        WebAsyncManagerIntegrationFilter.class)
                 .addFilterBefore(
                         new ScimBearerAuthenticationFilter(connectors), AuthorizationFilter.class)
                 .exceptionHandling(exceptions -> exceptions

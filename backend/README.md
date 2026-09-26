@@ -147,6 +147,28 @@ environments.
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
 
+### SCIM release gate
+
+| Variable           | Default | Meaning                                    |
+| ------------------ | ------- | ------------------------------------------ |
+| `APP_SCIM_ENABLED` | `false` | Whether this deployment serves `/scim/v2`  |
+
+**Off by default.** While it is off the whole `/scim/v2` namespace answers `404` —
+public discovery included, and ahead of authentication, so a valid connector token
+gets the same answer as none at all. A deployment serves the SCIM interface because
+someone turned it on, never because they did not know it was there.
+
+The reason it exists: SCIM Users and Groups are one release capability. A directory
+that can create Users but has no Groups cannot express authority, so a connector
+provisioning against it would build a directory that means something different from
+the one it will provision against later. The gate lets the two halves be built and
+merged in order without the half-built surface ever being reachable.
+
+The value is not written in `application.yaml`: the default belongs to
+`ScimSecurityConfig`, so an unset variable reaches the gate as closed rather than as
+whatever a replaced config file happens to say. Set `APP_SCIM_ENABLED=true` to open
+it — in a test, `@TestPropertySource(properties = "app.scim.enabled=true")`.
+
 ### Audit trail retention
 
 | Variable                       | Default        | Meaning                                       |

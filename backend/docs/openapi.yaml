@@ -12,14 +12,25 @@ info:
     including anonymous ones. Login and logout both replace it, so the value has
     to be read at request time rather than cached.
 
-    **This document covers the session-authenticated application API only.** The
-    service also serves a second, separate security chain at `/scim/v2/**`: a
-    stateless SCIM v2 interface authenticated per request by an opaque connector
-    bearer token, with no session, no CSRF and no cookie. Its resource endpoints
-    and their schemas arrive with the SCIM inbound adapter; the operations below
-    under the Connectors tag are how an administrator mints and retires the
-    credentials that chain accepts. A connector token buys nothing here, and a
-    session buys nothing there.
+    The service serves two separate security chains. The session-authenticated
+    application API under `/api` uses the cookie and CSRF rules above. The SCIM v2
+    interface under `/scim/v2` is stateless and authenticated per request by an
+    opaque connector bearer token, with no session, no CSRF and no cookie: a
+    connector token buys nothing under `/api`, and a session buys nothing under
+    `/scim/v2`. The operations under the Connectors tag are how an administrator
+    mints and retires the credentials that chain accepts.
+
+    **The SCIM namespace is behind a release gate that is off by default.** While
+    `APP_SCIM_ENABLED` is unset or false every path below `/scim/v2` answers `404`
+    with a SCIM error document — discovery included, and ahead of authentication.
+    Every SCIM operation documented here therefore also has a `404` that means "not
+    served by this deployment" rather than "no such resource"; it is not repeated on
+    each operation.
+
+    SCIM requests and responses use `application/scim+json`; `application/json` is
+    accepted and understood, and a response defaults to `application/scim+json`.
+    SCIM errors are documents of their own shape (`ScimError`) and never the
+    application chain's error shape.
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -29,6 +40,7 @@ tags:
   - name: Counter
   - name: Administration
   - name: Connectors
+  - name: SCIM
   - name: Health
 paths:
   /api/auth/login:
@@ -517,6 +529,254 @@ paths:
           $ref: "#/components/responses/AdminRoleRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+  /scim/v2/ServiceProviderConfig:
+    get:
+      tags: [SCIM]
+      summary: Read the SCIM capabilities of this deployment
+      description: |
+        Public: a connector reads this before it holds a credential. The document
+        describes what this deployment implements, not SCIM in general — `patch`,
+        `filter` and `sort` are advertised unsupported while their tickets are
+        outstanding, `bulk` is unsupported permanently with zero limits, and `etag`
+        is supported. A `filter` parameter is refused rather than ignored, because an
+        ignored filter is indistinguishable from a match.
+      operationId: getScimServiceProviderConfig
+      security: []
+      responses:
+        "200":
+          description: The capability document.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimServiceProviderConfig"
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+  /scim/v2/ResourceTypes:
+    get:
+      tags: [SCIM]
+      summary: List the SCIM resource types served
+      description: |
+        Public. User alone: a resource type in this list is a claim that its endpoint
+        answers, and `/Groups` does not yet.
+      operationId: listScimResourceTypes
+      security: []
+      responses:
+        "200":
+          description: A ListResponse of resource-type documents.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+  /scim/v2/ResourceTypes/{resourceType}:
+    get:
+      tags: [SCIM]
+      summary: Read one SCIM resource type
+      operationId: getScimResourceType
+      security: []
+      parameters:
+        - name: resourceType
+          in: path
+          required: true
+          description: The resource type's id, e.g. `User`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The resource-type document.
+          content:
+            application/scim+json:
+              schema:
+                type: object
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+  /scim/v2/Schemas:
+    get:
+      tags: [SCIM]
+      summary: List the SCIM schemas served
+      description: |
+        Public. The core User schema alone, listing exactly the attributes this
+        service stores — no unimplemented core attribute and no extension. `password`
+        is declared `mutability: writeOnly` and `returned: never`.
+      operationId: listScimSchemas
+      security: []
+      responses:
+        "200":
+          description: A ListResponse of schema documents.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+  /scim/v2/Schemas/{schemaUri}:
+    get:
+      tags: [SCIM]
+      summary: Read one SCIM schema
+      operationId: getScimSchema
+      security: []
+      parameters:
+        - name: schemaUri
+          in: path
+          required: true
+          description: |
+            The schema's URI, compared exactly — case-sensitive, because it is an
+            identifier. e.g. `urn:ietf:params:scim:schemas:core:2.0:User`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The schema document.
+          content:
+            application/scim+json:
+              schema:
+                type: object
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+  /scim/v2/Users:
+    get:
+      tags: [SCIM]
+      summary: Retrieve a page of Users
+      description: |
+        A bulk read, audited as one event whatever the page size and whatever comes
+        back. `startIndex` is one-based and defaults to 1; `count` defaults to 100
+        and is capped at 200; `count=0` returns no `Resources` but still reports
+        `totalResults`. `filter`, `sortBy` and `sortOrder` are refused with `403`
+        while unimplemented, matching what ServiceProviderConfig advertises.
+      operationId: listScimUsers
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      responses:
+        "200":
+          description: A ListResponse of User resources.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+    post:
+      tags: [SCIM]
+      summary: Create a User
+      description: |
+        Requires a read-write token; a read-only one is refused with `403` and
+        `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
+
+        `password` is optional — a credentialless User is a supported state and
+        cannot authenticate until a password is set. A supplied password is hashed
+        before the resource is persisted and appears in no response, no log and no
+        audit event. Read-only attributes in the body (`id`, `meta`, `groups`) are
+        ignored, as RFC 7644 requires, so a client may round-trip a resource it read;
+        an attribute this service does not implement is refused with
+        `400 invalidValue` rather than dropped. `active` defaults to true.
+
+        `externalId` is scoped to the calling connector: two connectors hold
+        independent aliases for one User and each sees only its own.
+      operationId: createScimUser
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimUser"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimUser"
+      responses:
+        "201":
+          description: |
+            The canonical resource. `Location` names it and `ETag` is its strong
+            validator, the same string as `meta.version`.
+          headers:
+            Location:
+              description: Absolute URI of the created User.
+              schema:
+                type: string
+            ETag:
+              description: Strong validator, e.g. `"1"`.
+              schema:
+                type: string
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimUser"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body — the refusal is about the
+            credential's scope, which RFC 6750 states in the challenge.
+        "409":
+          description: A live User already holds that userName, case-insensitively.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+  /scim/v2/Users/{id}:
+    get:
+      tags: [SCIM]
+      summary: Retrieve one User
+      description: |
+        Not audited: a single-resource read is the ordinary unit of provisioning
+        traffic, and recording it would bury the collection reads that indicate an
+        enumeration. An id that is not a UUID is a `404` like any other unknown id.
+      operationId: getScimUser
+      security:
+        - connectorBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The resource's stable SCIM id.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      responses:
+        "200":
+          description: The canonical resource.
+          headers:
+            ETag:
+              description: Strong validator, the same string as `meta.version`.
+              schema:
+                type: string
+            Location:
+              description: Absolute URI of this User.
+              schema:
+                type: string
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimUser"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
   /actuator/health:
     get:
       tags: [Health]
@@ -551,7 +811,55 @@ components:
       in: cookie
       name: JSESSIONID
       description: HTTP session created by a successful login.
+    connectorBearer:
+      type: http
+      scheme: bearer
+      description: |
+        An opaque connector token issued by an administrator of this deployment,
+        presented as `Authorization: Bearer <value>` on every SCIM resource request.
+        Accepted in that header and nowhere else — never from a query string, a form
+        body or a cookie. There is no authorization server and no grant flow.
   parameters:
+    ScimStartIndex:
+      name: startIndex
+      in: query
+      required: false
+      description: |
+        One-based index of the first resource to return. Defaults to 1; anything below
+        1 is coerced to 1 rather than refused, as RFC 7644 asks.
+      schema:
+        type: integer
+    ScimCount:
+      name: count
+      in: query
+      required: false
+      description: |
+        Page size. Defaults to 100 and is capped at 200; a negative value becomes 0,
+        and 0 returns no `Resources` while still reporting `totalResults`.
+      schema:
+        type: integer
+    ScimAttributes:
+      name: attributes
+      in: query
+      required: false
+      description: |
+        Comma-separated attribute paths to return, beside the always-returned
+        `schemas` and `id`. Mutually exclusive with `excludedAttributes`. Names are
+        case-insensitive and may be schema-qualified; a sub-attribute path such as
+        `name.givenName` narrows a complex value. A path this service does not
+        implement is `400 invalidValue`. `password` is declared `returned: never`, so
+        requesting it yields a resource without it rather than an error.
+      schema:
+        type: string
+    ScimExcludedAttributes:
+      name: excludedAttributes
+      in: query
+      required: false
+      description: |
+        Comma-separated attribute paths to omit. Mutually exclusive with `attributes`;
+        an always-returned attribute survives being named here.
+      schema:
+        type: string
     Username:
       name: username
       in: path
@@ -630,6 +938,41 @@ components:
         The session is valid and was accepted; the account's role is what was
         refused. Distinct from 401, which means no usable session arrived at all —
         a client must not treat this as a signal to sign in again.
+    ScimBadRequest:
+      description: |
+        The request was not acceptable SCIM: an unparseable or non-object body, a
+        schema other than this service's one User schema, a missing required
+        attribute, an attribute or sub-attribute this service does not implement, a
+        value of the wrong JSON type, or a projection naming something that is not an
+        attribute. `scimType` is `invalidSyntax` or `invalidValue`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimUnauthenticated:
+      description: |
+        No bearer token, or one that is malformed, unknown, expired, revoked or whose
+        connector was deleted. `WWW-Authenticate` is a bare `Bearer` when no
+        credential was presented and `Bearer error="invalid_token"` when one was; the
+        several reasons are not told apart, because telling them apart reports whether
+        a credential ever existed. No body.
+    ScimUnsupportedQuery:
+      description: |
+        The request asked for a query capability this service does not implement —
+        filtering or sorting, or a filter on a discovery path. `403` rather than a
+        silently ignored parameter, which RFC 7644 §3.4.2.2 permits and which is the
+        only answer a client cannot mistake for a match. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimNotFound:
+      description: |
+        No live resource, schema or resource type has that identifier.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
   schemas:
     LoginRequest:
       type: object
@@ -844,3 +1187,212 @@ components:
             The complete opaque bearer value, sent to the SCIM interface as
             `Authorization: Bearer <value>`. Store it now — this service holds only
             a digest and cannot show it again.
+    ScimError:
+      type: object
+      required: [schemas, status, detail]
+      description: |
+        The one shape every SCIM refusal from this namespace takes. `status` is a
+        STRING, as RFC 7644 §3.12 defines it. `scimType` is present only where the RFC
+        defines one for the condition, and is omitted rather than null where it does
+        not. `detail` is written by this service and never echoes a submitted value —
+        an attribute path, yes; a userName or a password, never.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+          example: ["urn:ietf:params:scim:api:messages:2.0:Error"]
+        status:
+          type: string
+          example: "409"
+        scimType:
+          type: string
+          enum: [invalidSyntax, invalidValue, invalidFilter, uniqueness]
+        detail:
+          type: string
+    ScimMeta:
+      type: object
+      description: |
+        Server-owned metadata. Timestamps are UTC with a `Z` offset, as RFC 7643's
+        conventions lead a connector to expect; the service's log timestamps use a
+        different zone and the two are not reconciled.
+      properties:
+        resourceType:
+          type: string
+          example: User
+        created:
+          type: string
+          format: date-time
+        lastModified:
+          type: string
+          format: date-time
+        location:
+          type: string
+        version:
+          type: string
+          description: |
+            The resource's strong validator, quotes included — the same string as the
+            `ETag` header, so a client can compare the two without unwrapping either.
+          example: "\"1\""
+    ScimUserName:
+      type: object
+      description: |
+        The `name` complex attribute. Every sub-attribute is optional, and the
+        attribute is omitted entirely when all of them are absent — SCIM omits an
+        unassigned attribute rather than rendering an empty object.
+      properties:
+        formatted:
+          type: string
+        familyName:
+          type: string
+        givenName:
+          type: string
+        middleName:
+          type: string
+        honorificPrefix:
+          type: string
+        honorificSuffix:
+          type: string
+    ScimUserEmail:
+      type: object
+      required: [value]
+      description: |
+        One value of the multi-valued `emails` attribute. `(type, value)` duplicates
+        are removed before storage and at most one value may be primary — a second
+        claim is demoted rather than refused. `primary` is rendered only when true.
+      properties:
+        value:
+          type: string
+        type:
+          type: string
+          example: work
+        primary:
+          type: boolean
+    ScimUser:
+      type: object
+      required: [schemas, userName]
+      description: |
+        A SCIM core User, as this service implements it. Unimplemented core attributes
+        and every extension are absent from `/Schemas` and refused when asserted on a
+        write.
+
+        On a write: `id`, `meta` and `groups` are ignored if present, `password` is
+        write-only and never returned, and `externalId` is scoped to the calling
+        connector. On a read: `password` is never present, and an unassigned attribute
+        is omitted rather than rendered null.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+          example: ["urn:ietf:params:scim:schemas:core:2.0:User"]
+        id:
+          type: string
+          format: uuid
+          description: Server-assigned, stable, and unique across Users and Groups.
+          readOnly: true
+        externalId:
+          type: string
+          description: The calling connector's alias for this resource, case-exact.
+        userName:
+          type: string
+          description: |
+            Unique among live Users, case-insensitively, after Unicode NFKC and case
+            folding. Mutable, and reusable once its User is deleted.
+        name:
+          $ref: "#/components/schemas/ScimUserName"
+        displayName:
+          type: string
+        preferredLanguage:
+          type: string
+        locale:
+          type: string
+        timezone:
+          type: string
+        active:
+          type: boolean
+          description: Defaults to true on create. An inactive User cannot log in.
+        password:
+          type: string
+          writeOnly: true
+          description: |
+            Hashed with Argon2id before the resource is persisted, and never returned,
+            logged or audited as a value. Optional: a User created without one exists
+            and cannot authenticate until one is set.
+        emails:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScimUserEmail"
+        meta:
+          $ref: "#/components/schemas/ScimMeta"
+    ScimListResponse:
+      type: object
+      required: [schemas, totalResults, startIndex, itemsPerPage]
+      description: |
+        A SCIM collection. `totalResults` counts every matching resource and not the
+        page; `itemsPerPage` is the size of the page actually returned. `Resources` is
+        omitted entirely when empty, including for `count=0`.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+          example: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"]
+        totalResults:
+          type: integer
+        startIndex:
+          type: integer
+        itemsPerPage:
+          type: integer
+        Resources:
+          type: array
+          items:
+            type: object
+    ScimServiceProviderConfig:
+      type: object
+      description: |
+        What this deployment implements. Each flag is asserted in the test suite beside
+        the behaviour it advertises, so the document cannot drift from the service.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+        patch:
+          $ref: "#/components/schemas/ScimSupportedFlag"
+        bulk:
+          type: object
+          description: Unsupported permanently, with zero limits.
+          properties:
+            supported:
+              type: boolean
+            maxOperations:
+              type: integer
+            maxPayloadSize:
+              type: integer
+        filter:
+          type: object
+          properties:
+            supported:
+              type: boolean
+            maxResults:
+              type: integer
+              description: The page ceiling every collection response obeys.
+        changePassword:
+          $ref: "#/components/schemas/ScimSupportedFlag"
+        sort:
+          $ref: "#/components/schemas/ScimSupportedFlag"
+        etag:
+          $ref: "#/components/schemas/ScimSupportedFlag"
+        authenticationSchemes:
+          type: array
+          description: Exactly one entry, of type `oauthbearertoken`.
+          items:
+            type: object
+        meta:
+          type: object
+    ScimSupportedFlag:
+      type: object
+      properties:
+        supported:
+          type: boolean

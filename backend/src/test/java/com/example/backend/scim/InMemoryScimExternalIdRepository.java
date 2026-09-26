@@ -15,6 +15,22 @@ public final class InMemoryScimExternalIdRepository implements ScimExternalIdRep
     private final List<Alias> aliases = new ArrayList<>();
 
     @Override
+    public void put(UUID connectorId, UUID resourceId, String externalId) {
+        aliases.removeIf(alias -> alias.connectorId().equals(connectorId)
+                && alias.resourceId().equals(resourceId));
+        aliases.add(new Alias(connectorId, resourceId, externalId));
+    }
+
+    @Override
+    public java.util.Optional<String> find(UUID connectorId, UUID resourceId) {
+        return aliases.stream()
+                .filter(alias -> alias.connectorId().equals(connectorId)
+                        && alias.resourceId().equals(resourceId))
+                .map(Alias::externalId)
+                .findFirst();
+    }
+
+    @Override
     public int deleteAllForConnector(UUID connectorId) {
         List<Alias> doomed = aliases.stream()
                 .filter(alias -> alias.connectorId().equals(connectorId))

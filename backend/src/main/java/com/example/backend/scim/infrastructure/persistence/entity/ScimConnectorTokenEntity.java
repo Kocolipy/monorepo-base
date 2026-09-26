@@ -125,16 +125,4 @@ public class ScimConnectorTokenEntity {
     public UUID getReplacedByTokenId() {
         return replacedByTokenId;
     }
-
-    public void setExpiresAt(Instant expiresAt) {
-        this.expiresAt = expiresAt;
-    }
-
-    public void setRevokedAt(Instant revokedAt) {
-        this.revokedAt = revokedAt;
-    }
-
-    public void setReplacedByTokenId(UUID replacedByTokenId) {
-        this.replacedByTokenId = replacedByTokenId;
-    }
 }

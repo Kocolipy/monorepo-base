@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
+import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.OperationalAlerts;
 import java.time.Clock;
@@ -308,6 +309,86 @@ public class AuditTrailService implements AuditTrail {
 
     private void append(AuditEvent event) {
         events.append(event);
+    }
+
+    /**
+     * Records a connector creating a User. Fail-closed: the append joins the create's
+     * transaction, so a User this service cannot account for is not provisioned.
+     */
+    @Transactional
+    @Override
+    public void recordScimUserCreated(UUID connectorId, UUID userId) {
+        append(userEvent(
+                AuditOutcome.SUCCESS,
+                connectorId,
+                userId,
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records a create refused as a duplicate. Fail-open, for the reason a rejected
+     * login is: the caller is already receiving a refusal, the create's transaction is
+     * already doomed by the constraint violation, and an append that joined it would
+     * be rolled back with it. The isolated transaction is what lets the refusal be
+     * recorded at all.
+     */
+    @Override
+    public void recordScimUserCreateRejectedAsDuplicate(UUID connectorId) {
+        appendRaisingAlertOnFailure(userEvent(
+                AuditOutcome.FAILURE,
+                connectorId,
+                null,
+                AuditEvent.STATUS_CLIENT_ERROR,
+                AuditScimRefusal.UNIQUENESS.name()));
+    }
+
+    /**
+     * Records a connector reading the User collection. <strong>Fail-closed</strong>,
+     * which is the one place a READ is treated the way a write is.
+     *
+     * <p>The reason is what the event is for. A bulk read is the shape a credential
+     * exfiltrating the directory takes, and an unrecorded one is invisible: if the
+     * append cannot commit, the honest outcome is that the caller gets an error rather
+     * than that the service hands over every User and forgets it did. That is a
+     * deliberate trade of availability for accountability on this endpoint, and it is
+     * the opposite trade from the rejected-login path, where the request was being
+     * refused anyway and had nothing to hand over.
+     */
+    @Transactional
+    @Override
+    public void recordScimUsersListed(UUID connectorId) {
+        append(event(
+                AuditOperation.SCIM_USER_LIST,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                null,
+                AuditEvent.USER_RESOURCE_TYPE,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * A User lifecycle event: the actor is a connector, the resource type is
+     * {@code User}, and the subject and the resource are the same id — the created
+     * User, or {@code null} when there is no created User to name.
+     */
+    private AuditEvent userEvent(
+            AuditOutcome outcome,
+            UUID connectorId,
+            UUID userId,
+            String statusClass,
+            String errorCode) {
+        return event(
+                AuditOperation.SCIM_USER_CREATE,
+                outcome,
+                connectorId,
+                userId,
+                AuditEvent.USER_RESOURCE_TYPE,
+                List.of(),
+                statusClass,
+                errorCode);
     }
 
     /**

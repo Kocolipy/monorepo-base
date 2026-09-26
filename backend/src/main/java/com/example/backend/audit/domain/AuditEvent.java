@@ -24,10 +24,11 @@ import java.util.UUID;
  * @param occurredAt    when the audited operation happened
  * @param operation     what happened
  * @param outcome       whether the operation worked
- * @param actorId       stable id of the account that acted, or {@code null} when
- *                      nobody was authenticated
- * @param subjectId     stable id of the account acted on, or {@code null} when
- *                      the operation named no existing account
+ * @param actorId       stable id of whoever acted — an account for an
+ *                      administrative or authentication event, a CONNECTOR for a
+ *                      SCIM one — or {@code null} when nobody was authenticated
+ * @param subjectId     stable id of the resource acted on, or {@code null} when
+ *                      the operation named no existing one
  * @param resourceType  the kind of resource acted on
  * @param resourceId    stable id of the resource acted on, normally the same as
  *                      {@code subjectId} while accounts are the only resource
@@ -72,6 +73,16 @@ public record AuditEvent(
      * operation plus the timestamp, on a stream that is append-only.
      */
     public static final String CONNECTOR_RESOURCE_TYPE = "ScimConnector";
+
+    /**
+     * A SCIM User, spelled as RFC 7643 spells the resource type.
+     *
+     * <p>Distinct from {@link #ACCOUNT_RESOURCE_TYPE} while both exist: an event
+     * about the login identity and an event about a provisioned SCIM resource are
+     * about different things until the two identities become one, and collapsing
+     * them early would make a trail that cannot say which surface acted.
+     */
+    public static final String USER_RESOURCE_TYPE = "User";
 
     /** The request succeeded. */
     public static final String STATUS_OK = "ok";
