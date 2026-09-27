@@ -1,6 +1,7 @@
 package com.example.backend.scim.controller;
 
 import com.example.backend.scim.application.NewScimUser;
+import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimUserProfile;
@@ -75,6 +76,25 @@ final class ScimUserRequestReader {
     }
 
     /**
+     * The replacement a PUT body describes.
+     *
+     * <p>Read exactly as a create is, because a PUT body IS a complete resource: the same schema
+     * rule, the same refusal of unimplemented attributes, the same required {@code userName}.
+     * What that means for the omitted attributes is the replacement semantics, and they fall out
+     * of reading it this way — an omitted optional attribute is read as unassigned, and an
+     * omitted {@code active} as its default, {@code true}, which RFC 7644 §3.5.1 allows a
+     * replacement to assign. An omitted {@code password} is read as absent, and the use case
+     * keeps the stored credential for it. A submitted {@code externalId} is passed on for the
+     * use case to check against the stored alias, which it may restate but not change.
+     *
+     * @throws ScimErrorException {@code 400} for every body {@link #readCreate} refuses
+     */
+    static ScimUserReplacement readReplace(JsonNode body) {
+        NewScimUser read = readCreate(body);
+        return new ScimUserReplacement(read.profile(), read.password(), read.externalId());
+    }
+
+    /**
      * The body declares exactly this service's one User schema.
      *
      * <p>Exactly, not "contains": a body declaring an extension schema is asserting
@@ -112,7 +132,7 @@ final class ScimUserRequestReader {
         }
     }
 
-    private static ScimName readName(JsonNode name) {
+    static ScimName readName(JsonNode name) {
         if (name == null || name.isNull()) {
             return ScimName.NONE;
         }
@@ -136,7 +156,7 @@ final class ScimUserRequestReader {
                 optionalString(name, "honorificSuffix"));
     }
 
-    private static List<ScimEmail> readEmails(JsonNode emails) {
+    static List<ScimEmail> readEmails(JsonNode emails) {
         if (emails == null || emails.isNull()) {
             return List.of();
         }
@@ -164,7 +184,7 @@ final class ScimUserRequestReader {
         return read;
     }
 
-    private static Set<String> declaredSubAttributes(String attribute) {
+    static Set<String> declaredSubAttributes(String attribute) {
         return ScimUserAttributes.SCHEMA_ATTRIBUTES.stream()
                 .filter(declared -> declared.name().equals(attribute))
                 .flatMap(declared -> declared.subAttributes().stream())
@@ -185,7 +205,7 @@ final class ScimUserRequestReader {
         return value == null || value.isNull() ? null : string(value, attribute);
     }
 
-    private static String string(JsonNode value, String attribute) {
+    static String string(JsonNode value, String attribute) {
         if (!value.isString()) {
             throw ScimErrorException.invalidValue(attribute + " must be a string.");
         }
@@ -217,7 +237,7 @@ final class ScimUserRequestReader {
      * being echoed at all. The name is lower-cased so the echo cannot be mistaken for a
      * canonical spelling this service recognises.
      */
-    private static String sanitized(String attribute) {
+    static String sanitized(String attribute) {
         String stripped = attribute.codePoints()
                 .filter(codePoint -> !Character.isISOControl(codePoint))
                 .limit(64)

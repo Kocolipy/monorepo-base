@@ -16,6 +16,7 @@ import jakarta.persistence.Table;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.hibernate.annotations.DynamicUpdate;
 
 /**
  * Database representation of a SCIM User: the profile half of a resource whose
@@ -34,6 +35,11 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "scim_users")
+// Only changed columns are written. A SCIM replacement loads this row and changes the profile;
+// without this, Hibernate's UPDATE would also write back the failure-run columns as they were
+// read, erasing a failed login the login path counted in between (it writes them without the
+// resource lock the SCIM write holds).
+@DynamicUpdate
 public class ScimUserEntity {
 
     @Id
@@ -157,6 +163,48 @@ public class ScimUserEntity {
 
     public ScimResourceEntity getResource() {
         return resource;
+    }
+
+    /**
+     * Replaces every profile column with the given values.
+     *
+     * <p>The emails are replaced by assigning a NEW collection. A new collection is removed and
+     * re-inserted whole, which is what the two partial unique indexes on {@code scim_user_emails}
+     * need: an in-place, position-by-position update could briefly hold the primary flag or a
+     * {@code (type, value)} pair on two rows at once — moving primacy from the first email to the
+     * second is exactly that — and a non-deferrable unique index refuses the intermediate state.
+     * Reassigned even when equal: this is called only for a write that changed something, and a
+     * handful of rows re-inserted is cheaper than a comparison that must be kept right.
+     */
+    public void replaceProfile(
+            String userName,
+            String normalizedUserName,
+            boolean active,
+            String displayName,
+            String formattedName,
+            String familyName,
+            String givenName,
+            String middleName,
+            String honorificPrefix,
+            String honorificSuffix,
+            String preferredLanguage,
+            String locale,
+            String timezone,
+            List<ScimUserEmailValue> emails) {
+        this.userName = userName;
+        this.normalizedUserName = normalizedUserName;
+        this.active = active;
+        this.displayName = displayName;
+        this.formattedName = formattedName;
+        this.familyName = familyName;
+        this.givenName = givenName;
+        this.middleName = middleName;
+        this.honorificPrefix = honorificPrefix;
+        this.honorificSuffix = honorificSuffix;
+        this.preferredLanguage = preferredLanguage;
+        this.locale = locale;
+        this.timezone = timezone;
+        this.emails = new ArrayList<>(emails);
     }
 
     public String getUserName() {

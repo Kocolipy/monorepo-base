@@ -1,6 +1,7 @@
 package com.example.backend.auth.config;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
+import com.example.backend.scim.domain.PasswordNormalization;
 import com.example.backend.web.SpaRoutes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -84,11 +85,30 @@ public class SecurityConfig {
      * other — decoder shares the registry: this service ships no user data yet,
      * so there is no previously-issued hash needing one, and the acceptance
      * criteria for this ticket says none may remain registered.
+     *
+     * <p>Normalized first: every password is put through {@link PasswordNormalization} before it
+     * is hashed or compared, so the stored credential, a login, and a password-history check all
+     * see the same form of the same password. Done here, in the one encoder every path uses,
+     * rather than at each caller — a caller that forgot would store a credential its own login
+     * path could not match.
      */
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new DelegatingPasswordEncoder(
+        PasswordEncoder argon2id = new DelegatingPasswordEncoder(
                 "argon2id", Map.of("argon2id", new Argon2PasswordEncoder(16, 32, 1, 19456, 2)));
+        return new PasswordEncoder() {
+            @Override
+            public String encode(CharSequence rawPassword) {
+                return argon2id.encode(PasswordNormalization.normalize(rawPassword));
+            }
+
+            @Override
+            public boolean matches(CharSequence rawPassword, String encodedPassword) {
+                return argon2id.matches(
+                        PasswordNormalization.normalize(rawPassword), encodedPassword);
+            }
+
+        };
     }
 
     @Bean

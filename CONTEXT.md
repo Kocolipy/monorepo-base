@@ -189,8 +189,15 @@ returning `totalResults`, one-based `startIndex`, and `itemsPerPage`. Filtering
 implements the complete RFC 7644 grammar over supported attributes, including
 comparison, presence, boolean, grouping, and value-path expressions; unsupported
 paths fail predictably rather than being silently misread. `PUT`, `PATCH`, and
-`DELETE` of an existing resource require `If-Match`: a missing precondition is
-`428`, and a stale version is `412`. The first release advertises Bulk as
+`DELETE` of an existing resource require exactly one strong `If-Match` ETag,
+checked after authorization and existence: a missing precondition is `428`, a
+wildcard, list or malformed one is `400 invalidValue`, and a stale version is
+`412`. Concurrent writers holding the same ETag are serialized on the resource, so
+exactly one succeeds. A User's `externalId` is fixed at creation: a `PUT` may omit
+or restate it, and a `PUT` or `PATCH` that tries to change it is refused with
+`mutability`. A password set through `PUT` or `PATCH` is refused
+when it matches, after normalization, any of the User's three most recent passwords,
+the current one included. The first release advertises Bulk as
 unsupported rather than implementing a partial `/Bulk` endpoint. Acceptance is
 defined by the RFC contracts rather than behavior specific to Microsoft Entra
 ID, Okta, or another vendor. The application adds no SCIM-specific rate limiter;
@@ -362,15 +369,32 @@ refusal is visible before the click rather than as a `409` after it. The page ne
 decides authorization — it renders behind the `ADMIN` guard, and the backend refuses
 `/api/admin/**` to any other role regardless.
 
-**Session revocation** — two things end the sessions an account is already
-holding, so its next request arrives as a Guest and the SPA sends it back to
-login: an Admin disabling it, and the login path imposing a lockout on it. Both
-defer the revocation until after their transaction commits, so a write that was
-rolled back revokes nothing. Enabling gives nothing back (a revoked session is
-gone; the account signs in again), and unlocking touches no session at all. A
-refused disable — either arm of the recovery guard — revokes nothing, which is what
-keeps an Admin who mis-clicks their own row from signing themselves out. A failure
-run that stops short of the limit revokes nothing either.
+**Session revocation** — ending the sessions a User is already holding, so its
+next request arrives as a Guest and the SPA sends it back to login. Sessions are
+found by the User's stable id, never its `userName`, so a rename cannot hide one.
+The triggers in force:
+
+- an Admin deactivating it, and the login path imposing a lockout on it;
+- a SCIM write that takes `active` from true to false;
+- a SCIM write that sets, changes or removes its password;
+- a SCIM write that changes its `userName`.
+
+Every trigger defers the revocation until after its transaction commits, so a
+write that was refused, stale or rolled back revokes nothing, and one SCIM write
+that moves several of those attributes revokes once. A SCIM-triggered revocation is
+audited as its own event, with its outcome, after the commit; if the session store
+fails, the write stands and the connector receives an error. Nothing else revokes:
+an ordinary profile or email change, a reactivation, an alias, a Group rename and
+Unlock touch no session. Enabling gives nothing back (a revoked session is gone;
+the account signs in again). A refused disable — either arm of the recovery guard —
+revokes nothing, which is what keeps an Admin who mis-clicks their own row from
+signing themselves out. A failure run that stops short of the limit revokes
+nothing either.
+
+Specified but not yet implemented, each with its own ticket: User deletion,
+addition to or removal from the Admin group, an Admin-forced password change,
+self-service password change, and the scheduled inactivity, grace-period and
+dormant-authority jobs.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in

@@ -86,6 +86,25 @@ public enum AuditOperation {
     SCIM_USER_LIST,
 
     /**
+     * A connector replaced a User's attributes (PUT) or patched them (PATCH), or was refused.
+     * One operation for both verbs, as {@link #SCIM_GROUP_REPLACE} is: the stored change is the
+     * same, and which attributes moved is carried as the event's changed paths — {@code password}
+     * among them when the credential changed, never its value. A refusal carries its reason from
+     * {@link AuditScimRefusal}; a reused password is {@code INVALID_VALUE}.
+     */
+    SCIM_USER_REPLACE,
+
+    /**
+     * A User's sessions were ended after a committed write changed something they were issued
+     * against — deactivation, a password change, a {@code userName} change. Recorded after the
+     * commit, as its own event, because that is when the revocation happens and only then is its
+     * outcome known: {@code SUCCESS} when the session store ended them, {@code FAILURE} when it
+     * could not, in which case the write stands and its sessions survive. The changed paths name
+     * the attributes whose change caused it.
+     */
+    USER_SESSIONS_REVOKE,
+
+    /**
      * A connector created a SCIM Group, or was refused one. The outcome tells the two
      * apart, and a refusal carries its reason as the event's error code, from
      * {@link AuditScimRefusal} — a create refused because a member id names no live User

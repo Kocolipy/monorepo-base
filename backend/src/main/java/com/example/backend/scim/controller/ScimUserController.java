@@ -2,10 +2,14 @@ package com.example.backend.scim.controller;
 
 import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimUserListing;
+import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.application.ScimUserResource;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimUserPatchOperation;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
@@ -13,9 +17,12 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,7 +30,8 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 
 /**
- * The SCIM User endpoints a connector calls: create, retrieve one, retrieve a page.
+ * The SCIM User endpoints a connector calls: create, retrieve one, retrieve a page, replace,
+ * patch.
  *
  * <p>Authentication and write scope are already decided when a request reaches here — the
  * namespace's filter chain authenticated the bearer token and turned a read-only token's
@@ -142,6 +150,79 @@ class ScimUserController {
         ScimUserListing listing = users.list(connector, page);
         return ResponseEntity.ok(
                 ScimUserRenderer.renderList(listing, baseUri(), projection));
+    }
+
+    /**
+     * Replaces a User — PUT.
+     *
+     * <p>Requires exactly one current {@code If-Match}; see {@link ScimVersionPrecondition}. The
+     * header is captured here and evaluated by the use case once the User is found, so an id that
+     * names nothing is a {@code 404} whatever the header says. The body is read BEFORE the User is
+     * looked up, so a malformed body is refused without touching the directory.
+     *
+     * <p>{@code 200} with the canonical resource, its {@code Location} and its new {@code ETag}.
+     */
+    @PutMapping(
+            path = "/{id}",
+            consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
+            produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
+    ResponseEntity<Map<String, Object>> replace(
+            @AuthenticationPrincipal AuthenticatedConnector connector,
+            @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch,
+            @RequestBody JsonNode body,
+            @RequestParam(required = false) String attributes,
+            @RequestParam(required = false) String excludedAttributes) {
+        ScimAttributeProjection projection =
+                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
+        UUID userId = resourceId(id);
+        ScimUserReplacement replacement = ScimUserRequestReader.readReplace(body);
+        ScimUserResource written = users.replace(
+                        connector, userId, ScimVersionPrecondition.ofIfMatch(ifMatch), replacement)
+                .orElseThrow(ScimUserController::noSuchUser);
+        return ok(written, projection);
+    }
+
+    /**
+     * Applies PATCH operations to a User, all or nothing — PATCH.
+     *
+     * <p>{@code 200} with the patched resource rather than a {@code 204}, which RFC 7644 §3.5.2
+     * permits either of: a client that received no body would have to re-read the resource to
+     * learn the new {@code ETag} before its next conditional write.
+     */
+    @PatchMapping(
+            path = "/{id}",
+            consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
+            produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
+    ResponseEntity<Map<String, Object>> patch(
+            @AuthenticationPrincipal AuthenticatedConnector connector,
+            @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch,
+            @RequestBody JsonNode body,
+            @RequestParam(required = false) String attributes,
+            @RequestParam(required = false) String excludedAttributes) {
+        ScimAttributeProjection projection =
+                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
+        UUID userId = resourceId(id);
+        List<ScimUserPatchOperation> operations = ScimUserPatchReader.readPatch(body);
+        ScimUserResource written = users.patch(
+                        connector, userId, ScimVersionPrecondition.ofIfMatch(ifMatch), operations)
+                .orElseThrow(ScimUserController::noSuchUser);
+        return ok(written, projection);
+    }
+
+    private ResponseEntity<Map<String, Object>> ok(
+            ScimUserResource user, ScimAttributeProjection projection) {
+        String baseUri = baseUri();
+        return ResponseEntity.ok()
+                .eTag(ScimUserRenderer.etag(user.version()))
+                .header(HttpHeaders.LOCATION, ScimUserRenderer.location(baseUri, user))
+                .body(projection.apply(ScimUserRenderer.render(user, baseUri)));
+    }
+
+    /** The one refusal for every "no User here" case, so a caller cannot tell them apart. */
+    private static ScimErrorException noSuchUser() {
+        return ScimErrorException.notFound("No User has that id.");
     }
 
     /**

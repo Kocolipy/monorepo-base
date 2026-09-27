@@ -54,13 +54,11 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update ScimUserEntity u
-               set u.login.passwordHash = :passwordHash,
-                   u.login.failedLoginAttempts = :failedLoginAttempts,
+               set u.login.failedLoginAttempts = :failedLoginAttempts,
                    u.login.lockedAt = :lockedAt
              where u.resourceId = :id""")
     int updateLoginState(
             @Param("id") UUID id,
-            @Param("passwordHash") String passwordHash,
             @Param("failedLoginAttempts") int failedLoginAttempts,
             @Param("lockedAt") Instant lockedAt);
 

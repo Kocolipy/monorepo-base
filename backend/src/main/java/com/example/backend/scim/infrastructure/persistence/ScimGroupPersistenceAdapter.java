@@ -108,6 +108,19 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         return groups.findById(id).map(entity -> toDomain(entity, membersOf(List.of(id))));
     }
 
+    /**
+     * Locks the resource row first and reads the Group after, so the Group read sees what the
+     * previous lock holder committed. An id whose resource row is a User's locks nothing worth
+     * keeping and returns empty, as {@link #findById} does.
+     */
+    @Override
+    public Optional<ScimGroup> findByIdForUpdate(UUID id) {
+        if (resources.lockById(id).isEmpty()) {
+            return Optional.empty();
+        }
+        return findById(id);
+    }
+
     @Override
     public Optional<ScimGroup> findByReservedName(ReservedResourceName reservedName) {
         return groups.findByResource_ReservedName(reservedName.storedValue())

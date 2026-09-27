@@ -230,4 +230,29 @@ public interface AuditTrail {
      * @param userId  the Bootstrap Admin whose membership was restored
      */
     void recordReservedMembershipRestored(UUID groupId, UUID userId);
+
+    /**
+     * Records a connector replacing or patching a User. Fail-closed: a change to an identity
+     * this service cannot account for does not happen.
+     *
+     * @param changed which attributes moved; empty for a write that changed nothing
+     */
+    void recordScimUserReplaced(UUID connectorId, UUID userId, Set<AuditUserAttribute> changed);
+
+    /**
+     * Records a User write refused after the User was found — a reused password, a PATCH that
+     * would remove a required attribute or found no target, a taken {@code userName}, or an
+     * attempt to write the Bootstrap Admin. Fail-open with an alert, as every refusal is.
+     */
+    void recordScimUserWriteRejected(UUID connectorId, UUID userId, AuditScimRefusal reason);
+
+    /**
+     * Records the outcome of ending a User's sessions after a committed write. Fail-open with an
+     * alert: it runs after the commit, so there is no write left for a failed append to undo.
+     *
+     * @param causes    the attributes whose change ended the sessions
+     * @param succeeded whether the session store ended them
+     */
+    void recordUserSessionsRevoked(
+            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded);
 }

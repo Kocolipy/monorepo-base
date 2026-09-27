@@ -23,6 +23,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -62,6 +63,9 @@ class ScimDiscoveryIntegrationTests {
             "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
 
     private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Autowired
     private WebApplicationContext context;
@@ -234,16 +238,16 @@ class ScimDiscoveryIntegrationTests {
     }
 
     /**
-     * {@code changePassword.supported=false}: a password may be SET at create time, which is
-     * not the capability that flag names — that one needs a PUT or PATCH, and there is none.
+     * {@code changePassword.supported=true}: PUT and PATCH can now set a User's password, which is
+     * the capability that flag names.
      */
     @Test
-    void change_password_is_advertised_as_unsupported_while_there_is_no_write_to_do_it_with()
+    void change_password_is_advertised_as_supported_now_that_put_and_patch_can_do_it()
             throws Exception {
         assertThat(body(get(BASE + "/ServiceProviderConfig"))
                         .get("changePassword").get("supported").booleanValue())
                 .isEqualTo(ScimDiscovery.CHANGE_PASSWORD_SUPPORTED)
-                .isFalse();
+                .isTrue();
     }
 
     @Test
@@ -275,6 +279,16 @@ class ScimDiscoveryIntegrationTests {
                         .getResponse().getStatus())
                 .as("a resource type in the list is a claim that its endpoint answers")
                 .isEqualTo(200);
+    }
+
+    /** A resource type this service does not serve is a SCIM 404, not a 500 or an empty body. */
+    @Test
+    void an_unknown_resource_type_is_not_found() throws Exception {
+        MvcResult result = mvc.perform(get(BASE + "/ResourceTypes/NotAResourceType")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+        assertThat(parsed(result).get("detail").asText())
+                .isEqualTo("This service serves no such resource type.");
     }
 
     @Test
@@ -363,7 +377,10 @@ class ScimDiscoveryIntegrationTests {
     }
 
     private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
+        // A conforming connector's write carries the version it read; the precondition's own
+        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
+                .with(ScimConditionalWrites.currentVersion(jdbc));
     }
 
     private JsonNode body(MockHttpServletRequestBuilder request) throws Exception {

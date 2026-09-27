@@ -1147,7 +1147,10 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
+        // A conforming connector's write carries the version it read; the precondition's own
+        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
+                .with(ScimConditionalWrites.currentVersion(jdbc));
     }
 
     private void assertRefusal(MvcResult result, int status, String scimType) throws Exception {

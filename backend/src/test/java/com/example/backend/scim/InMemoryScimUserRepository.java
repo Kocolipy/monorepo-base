@@ -88,7 +88,12 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         stored.put(id, new ScimUser(
                 current.id(),
                 current.profile(),
-                loginState,
+                // The stored hash is kept, as the adapter keeps it: this write carries the failure
+                // run only, so it cannot revert a password changed while a login attempt ran.
+                new ScimLoginState(
+                        current.login().passwordHash(),
+                        loginState.failedLoginAttempts(),
+                        loginState.lockedAt()),
                 current.reservedName(),
                 // Deliberately unchanged: a failure run is not a SCIM attribute.
                 current.version(),
@@ -113,6 +118,43 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 current.createdAt(),
                 now);
         stored.put(id, updated);
+        writes++;
+        return Optional.of(updated);
+    }
+
+    /** No lock to take in memory; a single-threaded test has no second writer to exclude. */
+    @Override
+    public Optional<ScimUser> findByIdForUpdate(UUID id) {
+        return findById(id);
+    }
+
+    /**
+     * Replaces the profile and credential, keeping the STORED failure run — the port's promise
+     * that a replacement never writes those two — and advancing the version once.
+     */
+    @Override
+    public Optional<ScimUser> replace(ScimUser user, Instant now) {
+        ScimUser current = stored.get(user.id());
+        if (current == null) {
+            return Optional.empty();
+        }
+        if (stored.values().stream().anyMatch(other -> !other.id().equals(user.id())
+                && other.profile().normalizedUserName()
+                        .equals(user.profile().normalizedUserName()))) {
+            throw new com.example.backend.scim.domain.DuplicateUserNameException(null);
+        }
+        ScimUser updated = new ScimUser(
+                current.id(),
+                user.profile(),
+                new ScimLoginState(
+                        user.login().passwordHash(),
+                        current.login().failedLoginAttempts(),
+                        current.login().lockedAt()),
+                current.reservedName(),
+                current.version() + 1,
+                current.createdAt(),
+                now);
+        stored.put(user.id(), updated);
         writes++;
         return Optional.of(updated);
     }

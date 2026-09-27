@@ -2,7 +2,13 @@ package com.example.backend.scim.controller;
 
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.InvalidPreconditionException;
+import com.example.backend.scim.domain.PasswordHistoryPolicy;
+import com.example.backend.scim.domain.PasswordReusedException;
+import com.example.backend.scim.domain.PreconditionFailedException;
+import com.example.backend.scim.domain.PreconditionRequiredException;
 import com.example.backend.scim.domain.ProtectedResourceException;
+import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -75,6 +81,49 @@ class ScimExceptionHandler {
     ResponseEntity<Map<String, Object>> handle(UnknownGroupMemberException unknownMember) {
         return render(ScimErrorException.invalidValue(
                 "Every Group member must reference a live User."));
+    }
+
+    /**
+     * A write against an existing resource with no {@code If-Match}. The detail says what to do,
+     * because a client that has never sent the header needs to learn the contract, not just that
+     * it broke it.
+     */
+    @ExceptionHandler(PreconditionRequiredException.class)
+    ResponseEntity<Map<String, Object>> handle(PreconditionRequiredException missing) {
+        return render(ScimErrorException.preconditionRequired(
+                "This write requires an If-Match precondition: GET the resource and retry with"
+                        + " its ETag in an If-Match header."));
+    }
+
+    /** An {@code If-Match} that is a wildcard, a list, repeated, or not an entity tag. */
+    @ExceptionHandler(InvalidPreconditionException.class)
+    ResponseEntity<Map<String, Object>> handle(InvalidPreconditionException invalid) {
+        return render(ScimErrorException.invalidValue(
+                "If-Match must carry exactly one strong ETag; '*' and lists are not accepted."));
+    }
+
+    /** An {@code If-Match} naming a version another write has already replaced. */
+    @ExceptionHandler(PreconditionFailedException.class)
+    ResponseEntity<Map<String, Object>> handle(PreconditionFailedException stale) {
+        return render(ScimErrorException.preconditionFailed(
+                "The resource has changed since that ETag was issued; GET it and retry."));
+    }
+
+    /** A password the User has used recently. Names the rule, never the value. */
+    @ExceptionHandler(PasswordReusedException.class)
+    ResponseEntity<Map<String, Object>> handle(PasswordReusedException reused) {
+        return render(ScimErrorException.invalidValue(
+                "The password matches one of the User's " + PasswordHistoryPolicy.RETAINED
+                        + " most recent passwords; a new value is required."));
+    }
+
+    /** A PATCH operation the stored resource cannot accept. */
+    @ExceptionHandler(ScimPatchRefusedException.class)
+    ResponseEntity<Map<String, Object>> handle(ScimPatchRefusedException refused) {
+        return render(switch (refused.reason()) {
+            case MUTABILITY -> ScimErrorException.mutability(refused.getMessage());
+            case NO_TARGET -> ScimErrorException.noTarget(refused.getMessage());
+        });
     }
 
     /**

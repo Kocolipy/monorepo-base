@@ -58,10 +58,10 @@ public final class ScimDiscovery {
 
     /**
      * SCIM's {@code changePassword} capability means a client may change a User's password
-     * through the protocol, which needs PUT or PATCH. A password may be SET at create time
-     * today, which is not the same capability.
+     * through the protocol, which PUT and PATCH now do — subject to the password history, so a
+     * connector re-sending a recent password is refused with {@code invalidValue}.
      */
-    public static final boolean CHANGE_PASSWORD_SUPPORTED = false;
+    public static final boolean CHANGE_PASSWORD_SUPPORTED = true;
 
     /**
      * ETags are implemented from this ticket: every User read and create carries a strong

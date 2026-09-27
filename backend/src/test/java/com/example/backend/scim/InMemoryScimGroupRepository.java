@@ -62,6 +62,12 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return Optional.ofNullable(stored.get(id));
     }
 
+    /** No lock to take in memory; a single-threaded test has no second writer to exclude. */
+    @Override
+    public Optional<ScimGroup> findByIdForUpdate(UUID id) {
+        return findById(id);
+    }
+
     @Override
     public Optional<ScimGroup> findByReservedName(ReservedResourceName reservedName) {
         return stored.values().stream()

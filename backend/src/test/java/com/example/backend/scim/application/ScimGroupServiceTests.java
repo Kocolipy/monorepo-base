@@ -20,6 +20,7 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Clock;
 import java.time.ZoneOffset;
@@ -66,6 +67,16 @@ class ScimGroupServiceTests {
     void storeUsers() {
         alice = users.create(ScimIdentities.user("alice"));
         bob = users.create(ScimIdentities.user("bob"));
+    }
+
+    /**
+     * The precondition a well-behaved connector sends: the Group's current version, or any
+     * well-formed tag when there is no Group to read one from. These tests are about what a
+     * write does, not about preconditions — those are pinned in their own tests.
+     */
+    private ScimVersionPrecondition current(UUID id) {
+        long version = groups.findById(id).map(ScimGroup::version).orElse(ScimUser.INITIAL_VERSION);
+        return ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\""));
     }
 
     // ---- create -------------------------------------------------------------------------------
@@ -185,7 +196,7 @@ class ScimGroupServiceTests {
 
         ScimGroupResource replaced = service.replace(
                 CONNECTOR,
-                created.id(),
+                created.id(), current(created.id()),
                 new ScimGroupReplacement("Engineering", List.of(alice.id()))).orElseThrow();
 
         assertThat(replaced.version()).isEqualTo(created.version() + 1);
@@ -201,7 +212,7 @@ class ScimGroupServiceTests {
                 CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
         long aliceBefore = users.require("alice").version();
 
-        service.replace(CONNECTOR, created.id(), new ScimGroupReplacement("Engineering", List.of()));
+        service.replace(CONNECTOR, created.id(), current(created.id()), new ScimGroupReplacement("Engineering", List.of()));
 
         assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
     }
@@ -217,7 +228,7 @@ class ScimGroupServiceTests {
 
         service.replace(
                 CONNECTOR,
-                created.id(),
+                created.id(), current(created.id()),
                 new ScimGroupReplacement("Platform", List.of(alice.id(), bob.id())));
 
         assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
@@ -236,7 +247,7 @@ class ScimGroupServiceTests {
         audit.reset();
 
         ScimGroupResource replayed = service.replace(
-                CONNECTOR, created.id(), new ScimGroupReplacement("Engineering", List.of(alice.id())))
+                CONNECTOR, created.id(), current(created.id()), new ScimGroupReplacement("Engineering", List.of(alice.id())))
                 .orElseThrow();
 
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
@@ -260,7 +271,7 @@ class ScimGroupServiceTests {
         audit.reset();
 
         service.replace(
-                CONNECTOR, created.id(), new ScimGroupReplacement("Platform", List.of(alice.id())));
+                CONNECTOR, created.id(), current(created.id()), new ScimGroupReplacement("Platform", List.of(alice.id())));
 
         // Split on the separator rather than compared to a joined literal: the previous assertion
         // pinned EnumSet iteration order and the joining format, so it would have failed on a
@@ -280,7 +291,7 @@ class ScimGroupServiceTests {
 
         ScimGroupResource patched = service.patch(
                 CONNECTOR,
-                created.id(),
+                created.id(), current(created.id()),
                 List.of(new ScimGroupPatchOperation.AddMembers(List.of(bob.id())))).orElseThrow();
 
         assertThat(patched.members()).extracting(ScimGroupMember::userId)
@@ -294,7 +305,7 @@ class ScimGroupServiceTests {
 
         ScimGroupResource patched = service.patch(
                 CONNECTOR,
-                created.id(),
+                created.id(), current(created.id()),
                 List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(bob.id())))).orElseThrow();
 
         assertThat(patched.members()).extracting(ScimGroupMember::userId).containsExactly(alice.id());
@@ -307,7 +318,7 @@ class ScimGroupServiceTests {
 
         ScimGroupResource patched = service.patch(
                 CONNECTOR,
-                created.id(),
+                created.id(), current(created.id()),
                 List.of(new ScimGroupPatchOperation.RemoveAllMembers())).orElseThrow();
 
         assertThat(patched.members()).isEmpty();
@@ -323,7 +334,7 @@ class ScimGroupServiceTests {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
 
-        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), List.of(
+        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), current(created.id()), List.of(
                         new ScimGroupPatchOperation.SetDisplayName("Platform"),
                         new ScimGroupPatchOperation.AddMembers(List.of(alice.id())),
                         new ScimGroupPatchOperation.AddMembers(List.of(UUID.randomUUID())))))
@@ -339,7 +350,7 @@ class ScimGroupServiceTests {
     void a_write_to_a_group_that_does_not_exist_reports_absence_rather_than_throwing() {
         assertThat(service.replace(
                         CONNECTOR,
-                        UUID.randomUUID(),
+                        UUID.randomUUID(), current(UUID.randomUUID()),
                         new ScimGroupReplacement("Ghost", List.of()))).isEmpty();
     }
 
@@ -361,7 +372,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.replace(
                         CONNECTOR,
-                        created.id(),
+                        created.id(), current(created.id()),
                         new ScimGroupReplacement("Engineering", List.of(UUID.randomUUID()))))
                 .isInstanceOf(UnknownGroupMemberException.class);
 
@@ -378,7 +389,7 @@ class ScimGroupServiceTests {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
 
-        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), List.of(
+        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), current(created.id()), List.of(
                         new ScimGroupPatchOperation.AddMembers(List.of(UUID.randomUUID())))))
                 .isInstanceOf(UnknownGroupMemberException.class);
 
@@ -399,7 +410,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.replace(
                         CONNECTOR,
-                        platform.id(),
+                        platform.id(), current(platform.id()),
                         new ScimGroupReplacement("ENGINEERING", List.of())))
                 .isInstanceOf(DuplicateDisplayNameException.class);
 
@@ -418,7 +429,7 @@ class ScimGroupServiceTests {
                 CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
         long aliceBefore = users.require("alice").version();
 
-        assertThat(service.delete(CONNECTOR, created.id())).isTrue();
+        assertThat(service.delete(CONNECTOR, created.id(), current(created.id()))).isTrue();
 
         assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
         assertThat(audit.of(AuditOperation.SCIM_GROUP_DELETE)).singleElement()
@@ -427,7 +438,7 @@ class ScimGroupServiceTests {
 
     @Test
     void deleting_a_group_that_is_not_there_reports_absence() {
-        assertThat(service.delete(CONNECTOR, UUID.randomUUID())).isFalse();
+        assertThat(service.delete(CONNECTOR, UUID.randomUUID(), current(UUID.randomUUID()))).isFalse();
     }
 
     /**
@@ -449,7 +460,7 @@ class ScimGroupServiceTests {
                 CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
         groups.vanishBeforeNextDelete(created.id());
 
-        assertThat(service.delete(CONNECTOR, created.id()))
+        assertThat(service.delete(CONNECTOR, created.id(), current(created.id())))
                 .as("the delete must report what the repository did, not what the read found")
                 .isFalse();
     }
@@ -463,7 +474,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.replace(
                         CONNECTOR,
-                        adminGroup.id(),
+                        adminGroup.id(), current(adminGroup.id()),
                         new ScimGroupReplacement("Not Admins", List.of(bootstrapAdmin().id()))))
                 .isInstanceOf(ProtectedResourceException.class)
                 .satisfies(refusal -> assertThat(
@@ -480,7 +491,7 @@ class ScimGroupServiceTests {
     void deleting_the_admin_group_is_refused_and_it_is_still_there() {
         ScimGroup adminGroup = seedAdminGroup();
 
-        assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id()))
+        assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id(), current(adminGroup.id())))
                 .isInstanceOf(ProtectedResourceException.class);
 
         assertThat(service.findById(CONNECTOR, adminGroup.id())).isPresent();
@@ -494,7 +505,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.patch(
                         CONNECTOR,
-                        adminGroup.id(),
+                        adminGroup.id(), current(adminGroup.id()),
                         List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(recovery.id())))))
                 .isInstanceOf(ProtectedResourceException.class)
                 .satisfies(refusal -> assertThat(
@@ -515,7 +526,7 @@ class ScimGroupServiceTests {
         ScimGroup adminGroup = seedAdminGroup();
         ScimUser recovery = bootstrapAdmin();
 
-        ScimGroupResource patched = service.patch(CONNECTOR, adminGroup.id(), List.of(
+        ScimGroupResource patched = service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()), List.of(
                 new ScimGroupPatchOperation.RemoveMembers(List.of(recovery.id())),
                 new ScimGroupPatchOperation.AddMembers(List.of(recovery.id())))).orElseThrow();
 
@@ -554,7 +565,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.patch(
                         CONNECTOR,
-                        engineering.id(),
+                        engineering.id(), current(engineering.id()),
                         List.of(new ScimGroupPatchOperation.AddMembers(List.of(recovery.id())))))
                 .isInstanceOf(ProtectedResourceException.class);
     }
@@ -565,7 +576,7 @@ class ScimGroupServiceTests {
         ScimGroup adminGroup = seedAdminGroup();
         audit.reset();
 
-        assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id()))
+        assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id(), current(adminGroup.id())))
                 .isInstanceOf(ProtectedResourceException.class);
 
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
@@ -584,14 +595,14 @@ class ScimGroupServiceTests {
 
         ScimGroupResource granted = service.patch(
                 CONNECTOR,
-                adminGroup.id(),
+                adminGroup.id(), current(adminGroup.id()),
                 List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id())))).orElseThrow();
         assertThat(granted.members()).extracting(ScimGroupMember::userId)
                 .containsExactlyInAnyOrder(recovery.id(), alice.id());
 
         ScimGroupResource revoked = service.patch(
                 CONNECTOR,
-                adminGroup.id(),
+                adminGroup.id(), current(adminGroup.id()),
                 List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))))
                 .orElseThrow();
         assertThat(revoked.members()).extracting(ScimGroupMember::userId)
