@@ -91,6 +91,63 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         return users.findById(id).map(ScimUserPersistenceAdapter::toDomain);
     }
 
+    /**
+     * Locks the resource row, then reads the User. The lock query is the transaction's first read
+     * of the resource, so the version it returns is the one the previous lock holder committed.
+     */
+    @Override
+    public Optional<ScimUser> findByIdForUpdate(UUID id) {
+        if (resources.lockById(id).isEmpty()) {
+            return Optional.empty();
+        }
+        return findById(id);
+    }
+
+    /**
+     * Writes the changed profile columns and credential, then advances the version once.
+     *
+     * <p>The entity is {@code @DynamicUpdate}, so the UPDATE names only the columns that differ
+     * from what was loaded. That is what keeps this write from touching the failure-run columns
+     * the login path writes without the resource lock: they are not assigned here, so they are
+     * not dirty, so they are not written.
+     *
+     * <p>{@code saveAndFlush} so a taken {@code userName} surfaces here, attributable, rather than
+     * at commit after the response is decided.
+     */
+    @Override
+    public Optional<ScimUser> replace(ScimUser user, Instant now) {
+        Optional<ScimUserEntity> stored = users.findById(user.id());
+        if (stored.isEmpty()) {
+            return Optional.empty();
+        }
+        ScimUserEntity entity = stored.get();
+        ScimUserProfile profile = user.profile();
+        ScimName name = profile.name();
+        entity.replaceProfile(
+                profile.userName(),
+                profile.normalizedUserName().value(),
+                profile.active(),
+                profile.displayName(),
+                name.formatted(),
+                name.familyName(),
+                name.givenName(),
+                name.middleName(),
+                name.honorificPrefix(),
+                name.honorificSuffix(),
+                profile.preferredLanguage(),
+                profile.locale(),
+                profile.timezone(),
+                emailValues(profile.emails()));
+        entity.getLogin().replacePasswordHash(user.login().passwordHash());
+        try {
+            users.saveAndFlush(entity);
+        } catch (DataIntegrityViolationException violation) {
+            throw new DuplicateUserNameException(violation);
+        }
+        resources.advanceVersions(List.of(user.id()), now);
+        return findById(user.id());
+    }
+
     @Override
     public Optional<ScimUser> findByNormalizedUserName(NormalizedUserName normalizedUserName) {
         return users.findByNormalizedUserName(normalizedUserName.value())
@@ -116,9 +173,10 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      */
     @Override
     public void updateLoginState(UUID id, ScimLoginState loginState) {
+        // The hash is deliberately not passed: see the port. Writing the hash read at the
+        // start of a login attempt would revert a password changed while the attempt ran.
         users.updateLoginState(
                 id,
-                loginState.passwordHash(),
                 loginState.failedLoginAttempts(),
                 loginState.lockedAt());
     }
@@ -211,10 +269,13 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 profile.preferredLanguage(),
                 profile.locale(),
                 profile.timezone(),
-                profile.emails().stream()
-                        .map(email -> new ScimUserEmailValue(
-                                email.value(), email.type(), email.primary()))
-                        .toList());
+                emailValues(profile.emails()));
+    }
+
+    private static List<ScimUserEmailValue> emailValues(List<ScimEmail> emails) {
+        return emails.stream()
+                .map(email -> new ScimUserEmailValue(email.value(), email.type(), email.primary()))
+                .toList();
     }
 
     private static ScimUser toDomain(ScimUserEntity entity) {

@@ -15,6 +15,7 @@ import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -25,7 +26,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
-import org.springframework.stereotype.Service;import org.springframework.transaction.annotation.Transactional;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Creating, reading, changing and deleting SCIM Groups, as a connector asks for it.
@@ -157,10 +159,14 @@ public class ScimGroupService {
      */
     @Transactional
     public Optional<ScimGroupResource> replace(
-            AuthenticatedConnector connector, UUID id, ScimGroupReplacement replacement) {
+            AuthenticatedConnector connector,
+            UUID id,
+            ScimVersionPrecondition precondition,
+            ScimGroupReplacement replacement) {
         return apply(
                 connector,
                 id,
+                precondition,
                 current -> current.replacedWith(
                         replacement.displayName(),
                         references(replacement.memberIds()),
@@ -182,8 +188,11 @@ public class ScimGroupService {
      */
     @Transactional
     public Optional<ScimGroupResource> patch(
-            AuthenticatedConnector connector, UUID id, List<ScimGroupPatchOperation> operations) {
-        return apply(connector, id, current -> folded(current, operations));
+            AuthenticatedConnector connector,
+            UUID id,
+            ScimVersionPrecondition precondition,
+            List<ScimGroupPatchOperation> operations) {
+        return apply(connector, id, precondition, current -> folded(current, operations));
     }
 
     /**
@@ -226,12 +235,14 @@ public class ScimGroupService {
      * failure.
      */
     @Transactional
-    public boolean delete(AuthenticatedConnector connector, UUID id) {
-        Optional<ScimGroup> stored = groups.findById(id);
+    public boolean delete(
+            AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
+        Optional<ScimGroup> stored = groups.findByIdForUpdate(id);
         if (stored.isEmpty()) {
             return false;
         }
         ScimGroup group = stored.get();
+        precondition.requireSatisfiedBy(group.version());
         if (group.isProtectedFromWrites()) {
             throw refuse(connector, id, group.reservedName());
         }
@@ -244,6 +255,10 @@ public class ScimGroupService {
      * The shared shape of a Group write: read the stored Group, compute what it should become,
      * refuse what the reservations forbid, write it, audit what moved.
      *
+     * <p>The Group is read under its resource lock and the {@code If-Match} precondition checked
+     * against that version, so two writers holding the same precondition produce one success and
+     * one {@code 412} rather than a lost update.
+     *
      * <p>One method for PUT and PATCH because everything except the computation is identical,
      * and because the refusals must not be able to differ between the two verbs — a protection
      * that held for PUT and not for PATCH would be no protection at all.
@@ -251,12 +266,16 @@ public class ScimGroupService {
     private Optional<ScimGroupResource> apply(
             AuthenticatedConnector connector,
             UUID id,
+            ScimVersionPrecondition precondition,
             UnaryOperator<ScimGroup> change) {
-        Optional<ScimGroup> stored = groups.findById(id);
+        Optional<ScimGroup> stored = groups.findByIdForUpdate(id);
         if (stored.isEmpty()) {
             return Optional.empty();
         }
         ScimGroup current = stored.get();
+        // After existence, before anything is computed: a missing or stale precondition changes
+        // nothing, and the lock above is what makes "stale" exact under concurrent writers.
+        precondition.requireSatisfiedBy(current.version());
         ScimGroup desired = change.apply(current);
 
         if (current.isProtectedFromWrites()

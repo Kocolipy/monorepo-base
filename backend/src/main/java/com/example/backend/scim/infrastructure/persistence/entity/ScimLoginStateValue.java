@@ -58,4 +58,13 @@ public class ScimLoginStateValue {
     public Instant getLockedAt() {
         return lockedAt;
     }
+
+    /**
+     * Replaces the stored credential — the only mutator here, and deliberately only for the hash:
+     * the failure run and the lock instant are written by the login path's own narrow statement.
+     * Assigning the same value leaves the column clean, so an unchanged credential is not written.
+     */
+    public void replacePasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 }

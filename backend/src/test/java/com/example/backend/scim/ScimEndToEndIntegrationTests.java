@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
@@ -69,6 +70,9 @@ class ScimEndToEndIntegrationTests {
     private static final String BOOTSTRAP_PASSWORD = "test-admin-password";
 
     private final JsonMapper json = JsonMapper.builder().build();
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Autowired
     private WebApplicationContext context;
@@ -289,7 +293,10 @@ class ScimEndToEndIntegrationTests {
     }
 
     private MockHttpServletRequestBuilder asConnector(MockHttpServletRequestBuilder request) {
-        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
+        // A conforming connector's write carries the version it read; the precondition's own
+        // behaviour is pinned in ScimConditionalWriteIntegrationTests.
+        return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken)
+                .with(ScimConditionalWrites.currentVersion(jdbc));
     }
 
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {

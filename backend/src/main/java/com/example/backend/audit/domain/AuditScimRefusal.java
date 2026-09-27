@@ -31,6 +31,12 @@ public enum AuditScimRefusal {
      *
      * <p>SCIM's own {@code scimType} for an attempt to change something immutable, so the
      * recorded refusal and the error body the caller received name the same thing.
+     *
+     * <p>Also a User PATCH removing a required attribute — {@code userName}, or an email's
+     * {@code value} — which is the same {@code scimType} for the same reason.
      */
-    MUTABILITY
+    MUTABILITY,
+
+    /** A User PATCH's filtered path selected no value — SCIM's {@code noTarget}. */
+    NO_TARGET
 }

@@ -63,6 +63,31 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(HttpStatus.BAD_REQUEST, "mutability", detail);
     }
 
+    /** A PATCH path that is malformed or names no attribute this service implements. */
+    public static ScimErrorException invalidPath(String detail) {
+        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidPath", detail);
+    }
+
+    /** A PATCH filter that selected no value. */
+    public static ScimErrorException noTarget(String detail) {
+        return new ScimErrorException(HttpStatus.BAD_REQUEST, "noTarget", detail);
+    }
+
+    /** A filter using syntax or a comparison this service does not support. */
+    public static ScimErrorException invalidFilter(String detail) {
+        return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidFilter", detail);
+    }
+
+    /** A write against an existing resource sent no {@code If-Match}. No {@code scimType} exists for it. */
+    public static ScimErrorException preconditionRequired(String detail) {
+        return new ScimErrorException(HttpStatus.PRECONDITION_REQUIRED, null, detail);
+    }
+
+    /** A write's {@code If-Match} named a version that is no longer current. */
+    public static ScimErrorException preconditionFailed(String detail) {
+        return new ScimErrorException(HttpStatus.PRECONDITION_FAILED, null, detail);
+    }
+
     /** No live resource has this id, or no such discovery document exists. */
     public static ScimErrorException notFound(String detail) {
         return new ScimErrorException(HttpStatus.NOT_FOUND, null, detail);

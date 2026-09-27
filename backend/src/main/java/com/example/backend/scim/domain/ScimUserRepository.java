@@ -47,6 +47,35 @@ public interface ScimUserRepository {
     Optional<ScimUser> findById(UUID id);
 
     /**
+     * The live User with this id, read under an exclusive lock on its resource row that is held
+     * until the calling transaction ends.
+     *
+     * <p>The conditional-write path's read. Two connectors racing a write with the same
+     * {@code If-Match} both reach this line; the lock makes the second wait for the first to
+     * commit, so it then reads the version the first one produced and its precondition fails —
+     * one success and one {@code 412}, rather than two successes and a lost update. Must be the
+     * first read of this User in the transaction, so no earlier unlocked copy can be served in its
+     * place.
+     */
+    Optional<ScimUser> findByIdForUpdate(UUID id);
+
+    /**
+     * Replaces the User's profile and credential with the given ones and advances its version
+     * exactly once, reporting the User as it now stands.
+     *
+     * <p>Writes only what differs. The login path writes the failure run on this row on every
+     * rejected attempt without taking the resource lock, so a full-row write carrying the failure
+     * run read at the start of a SCIM write could erase an attempt counted in between; writing only
+     * the changed columns leaves those two to the login path alone. The failure run and the lock
+     * instant in {@code user} are therefore ignored.
+     *
+     * @return empty when no live User has that id
+     * @throws DuplicateUserNameException when the new {@code userName} is held by another live
+     *                                    User — from the failed statement, not a prior read
+     */
+    Optional<ScimUser> replace(ScimUser user, Instant now);
+
+    /**
      * The live User holding this normalized {@code userName}, or empty.
      *
      * <p>The login path's lookup. It takes the normalized form rather than the submitted
@@ -69,6 +98,12 @@ public interface ScimUserRepository {
      * the version or {@code lastModified}: a failure run and a lock instant are not SCIM
      * attributes, so nothing a client can read has changed, and moving the ETag would
      * make every failed login invalidate every connector's cached copy.
+     *
+     * <p>Only the failure run and the lock instant are written; the state's password hash is
+     * IGNORED. The login path reads the User at the start of an attempt and writes this at the
+     * end, so writing the hash it read would revert a password a connector changed in between —
+     * silently restoring a credential that had just been replaced. The credential is written by
+     * {@link #replace} and by nothing else.
      */
     void updateLoginState(UUID id, ScimLoginState loginState);
 

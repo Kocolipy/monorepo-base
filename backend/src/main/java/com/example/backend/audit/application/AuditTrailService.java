@@ -11,6 +11,7 @@ import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.OperationalAlerts;
 import java.time.Clock;
 import java.util.List;
@@ -547,6 +548,81 @@ public class AuditTrailService implements AuditTrail {
                 changedPaths(Set.of(AuditGroupAttribute.MEMBERS)),
                 AuditEvent.STATUS_OK,
                 null));
+    }
+
+    /**
+     * Records a User replaced or patched. Fail-closed: the append joins the write's transaction,
+     * so a change to an identity this service cannot account for rolls back with it.
+     */
+    @Transactional
+    @Override
+    public void recordScimUserReplaced(
+            UUID connectorId, UUID userId, Set<AuditUserAttribute> changed) {
+        append(event(
+                AuditOperation.SCIM_USER_REPLACE,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                userId,
+                userPaths(changed),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records a User write refused. Fail-open with an alert, for the reason a refused Group write
+     * is: the caller's refusal must not become a {@code 500}, and the write's own transaction is
+     * rolling back, so an append that joined it would vanish with it.
+     */
+    @Override
+    public void recordScimUserWriteRejected(
+            UUID connectorId, UUID userId, AuditScimRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.SCIM_USER_REPLACE,
+                AuditOutcome.FAILURE,
+                connectorId,
+                userId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /**
+     * Records a post-commit session revocation and whether it worked. Fail-open with an alert:
+     * the write it follows is already durable, so failing here could undo nothing and would only
+     * turn a committed write into an error.
+     *
+     * <p>A failed revocation is recorded with a server-error status class, because the write
+     * succeeded and it was this service, not the caller, that could not finish the job.
+     */
+    @Override
+    public void recordUserSessionsRevoked(
+            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.USER_SESSIONS_REVOKE,
+                succeeded ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
+                connectorId,
+                userId,
+                userPaths(causes),
+                succeeded ? AuditEvent.STATUS_OK : AuditEvent.STATUS_SERVER_ERROR,
+                null));
+    }
+
+    /** The recorded path names for a set of changed User attributes, in a stable order. */
+    private static List<String> userPaths(Set<AuditUserAttribute> changed) {
+        return changed.stream()
+                .sorted()
+                .map(attribute -> switch (attribute) {
+                    case USER_NAME -> "userName";
+                    case NAME -> "name";
+                    case DISPLAY_NAME -> "displayName";
+                    case PREFERRED_LANGUAGE -> "preferredLanguage";
+                    case LOCALE -> "locale";
+                    case TIMEZONE -> "timezone";
+                    case ACTIVE -> "active";
+                    case PASSWORD -> "password";
+                    case EMAILS -> "emails";
+                })
+                .toList();
     }
 
     /**

@@ -6,6 +6,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.AuditUserAttribute;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -192,5 +193,35 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordReservedMembershipRestored(UUID groupId, UUID userId) {
         recorded.add(new Recorded(
                 AuditOperation.SCIM_RESOURCE_SEED, null, groupId, "members-restored"));
+    }
+
+    /** The detail is the sorted changed attribute names, comma-joined; empty for a no-op. */
+    @Override
+    public void recordScimUserReplaced(
+            UUID connectorId, UUID userId, Set<AuditUserAttribute> changed) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_USER_REPLACE, connectorId, userId, joined(changed)));
+    }
+
+    @Override
+    public void recordScimUserWriteRejected(
+            UUID connectorId, UUID userId, AuditScimRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_USER_REPLACE, connectorId, userId, reason.name()));
+    }
+
+    /** The detail is the outcome, then the causes: {@code "SUCCESS:ACTIVE,PASSWORD"}. */
+    @Override
+    public void recordUserSessionsRevoked(
+            UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded) {
+        recorded.add(new Recorded(
+                AuditOperation.USER_SESSIONS_REVOKE,
+                connectorId,
+                userId,
+                (succeeded ? "SUCCESS:" : "FAILURE:") + joined(causes)));
+    }
+
+    private static String joined(Set<? extends Enum<?>> values) {
+        return values.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
     }
 }

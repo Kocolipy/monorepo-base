@@ -781,6 +781,179 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "404":
           $ref: "#/components/responses/ScimNotFound"
+    put:
+      tags: [SCIM]
+      summary: Replace a User
+      description: |
+        Replaces the User. The body is a complete User resource, read exactly as a create
+        is — the one core User schema, a required `userName`, and no unimplemented
+        attribute — and what it omits is what a replacement means:
+
+        - an omitted optional attribute (`name`, `displayName`, `preferredLanguage`,
+          `locale`, `timezone`, `emails`) becomes unassigned;
+        - an omitted `active` becomes `true`, its create default, which RFC 7644 §3.5.1
+          allows a replacement to assign;
+        - an omitted `password` leaves the stored credential as it is and still usable,
+          because a write-only secret can never be read back and resent;
+        - read-only attributes (`id`, `meta`, `groups`) are ignored, so a client may PUT
+          back what it read;
+        - `externalId` is fixed at creation: omitting it or restating the stored value is
+          accepted and changes nothing, and a different value is refused with
+          `400 mutability` — as PATCH refuses it — rather than silently dropped.
+
+        The version — and `meta.lastModified` — advance exactly once for a write that
+        changes anything, and not at all for one that restates the stored state.
+
+        A supplied `password` goes through the password history: it is refused with
+        `400 invalidValue` when it matches, after normalization, any of the User's three
+        most recent passwords, the current one included. The detail names the rule, never
+        the value. A successful change remembers the new password and forgets the oldest.
+
+        **Sessions.** A write that deactivates the User (`active` true to false), sets or
+        changes its password, or changes its `userName` ends every session the User holds
+        — after the write commits, so a refused or rolled-back write ends nothing. An
+        ordinary profile or email change ends none. The write and the revocation are each
+        audited, the revocation with its outcome.
+
+        The Bootstrap Admin cannot be written: `400 mutability`. A write that changes
+        nothing is still audited, with no changed paths.
+      operationId: replaceScimUser
+      security:
+        - connectorBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The User's stable SCIM id. An id that is not a UUID is a `404`.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/ScimIfMatch"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimUser"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimUser"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScimUserResource"
+        "400":
+          $ref: "#/components/responses/ScimProtectedOrBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body.
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+        "409":
+          description: Another live User already holds that userName.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+        "412":
+          $ref: "#/components/responses/ScimPreconditionFailed"
+        "428":
+          $ref: "#/components/responses/ScimPreconditionRequired"
+    patch:
+      tags: [SCIM]
+      summary: Modify a User
+      description: |
+        Applies RFC 7644 §3.5.2 operations in order. **All or nothing:** the operations
+        are folded onto the stored User in memory and the result is written once, so a
+        request whose last operation is refused leaves the earlier ones unapplied — a
+        re-read returns the User exactly as it was. A request whose operations change
+        nothing advances neither the version nor `meta.lastModified`.
+
+        `op` is `add`, `remove` or `replace`, case-insensitively. Paths are matched
+        case-insensitively and may carry the core User schema URN as a prefix:
+
+        | `path` | Meaning |
+        | --- | --- |
+        | `userName`, `displayName`, `preferredLanguage`, `locale`, `timezone` | `add`/`replace` set it; `remove` unassigns it — refused for `userName`, which is required (`mutability`) |
+        | `active` | `add`/`replace` set it; `remove` returns it to its default, `true` |
+        | `password` | `add`/`replace` set it, through the password history; `remove` makes the User credentialless |
+        | `name` | `add`/`replace` with an object merge the named sub-attributes; `remove` unassigns it |
+        | `name.<sub>` | set or remove one sub-attribute |
+        | `emails` | `add` appends, `replace` replaces the list, `remove` clears it |
+        | `emails[<filter>]` | `add`/`replace` with an object write the named sub-attributes onto the matching values; `remove` removes them |
+        | `emails[<filter>].<sub>` or `emails.<sub>` | set or remove one sub-attribute on the matching (or every) value; removing `value` is `mutability` |
+        | none | `add`/`replace` apply each attribute of the object value as if it were the path; read-only attributes and `externalId` in it are ignored; `remove` without a path is `noTarget` |
+
+        An email value marked `primary` takes primacy from every other value.
+
+        A value filter is one or more `<sub> eq <value>` comparisons on `value`, `type`
+        or `primary`, joined by `and`; `type` compares case-insensitively, `value`
+        exactly. Any other operator, `or`, `not` or grouping is `400 invalidFilter` —
+        the full filter grammar is not implemented yet, and an approximation would
+        select values the client did not ask for.
+
+        | Refusal | `scimType` |
+        | --- | --- |
+        | not a `PatchOp`, no operations, unknown `op` | `invalidSyntax` |
+        | malformed path, unimplemented attribute, filter or sub-attribute where there is none | `invalidPath` |
+        | unsupported filter | `invalidFilter` |
+        | `id`, `meta`, `groups`, `schemas` or `externalId` as a path; removing a required value | `mutability` |
+        | a filter that matches no value; `remove` with no path | `noTarget` |
+        | a value of the wrong type; a reused password | `invalidValue` |
+
+        The password history, session revocation, audit and Bootstrap Admin rules are
+        those of PUT. Returns `200` with the patched resource rather than `204`, so the
+        client learns the new ETag without re-reading.
+      operationId: patchScimUser
+      security:
+        - connectorBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The User's stable SCIM id. An id that is not a UUID is a `404`.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/ScimIfMatch"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimPatchOp"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimPatchOp"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScimUserResource"
+        "400":
+          $ref: "#/components/responses/ScimProtectedOrBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body.
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+        "409":
+          description: Another live User already holds that userName.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+        "412":
+          $ref: "#/components/responses/ScimPreconditionFailed"
+        "428":
+          $ref: "#/components/responses/ScimPreconditionRequired"
   /scim/v2/Groups:
     get:
       tags: [SCIM]
@@ -938,14 +1111,13 @@ paths:
         CURRENT member, because the label rendered inside their `groups` changed. A
         write that moves both touches the union of the old and the new membership.
 
-        `If-Match` is not honoured yet — conditional writes arrive with their own
-        ticket, and ServiceProviderConfig advertises `etag.supported` for the
-        validators responses already carry rather than for preconditions.
+        Requires `If-Match` with the Group's current ETag; see the parameter.
       operationId: replaceScimGroup
       security:
         - connectorBearer: []
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimIfMatch"
         - $ref: "#/components/parameters/ScimAttributes"
         - $ref: "#/components/parameters/ScimExcludedAttributes"
       requestBody:
@@ -976,6 +1148,10 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+        "412":
+          $ref: "#/components/responses/ScimPreconditionFailed"
+        "428":
+          $ref: "#/components/responses/ScimPreconditionRequired"
     patch:
       tags: [SCIM]
       summary: Modify a Group
@@ -1006,12 +1182,14 @@ paths:
         permits either of: a membership change advances versions, and a client given
         no body would have to re-read the resource to learn its new ETag.
 
-        The same cross-resource version increments apply as for PUT.
+        The same cross-resource version increments, and the same `If-Match`
+        requirement, apply as for PUT.
       operationId: patchScimGroup
       security:
         - connectorBearer: []
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimIfMatch"
         - $ref: "#/components/parameters/ScimAttributes"
         - $ref: "#/components/parameters/ScimExcludedAttributes"
       requestBody:
@@ -1042,6 +1220,10 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+        "412":
+          $ref: "#/components/responses/ScimPreconditionFailed"
+        "428":
+          $ref: "#/components/responses/ScimPreconditionRequired"
     delete:
       tags: [SCIM]
       summary: Delete a Group
@@ -1057,11 +1239,14 @@ paths:
         nothing. No tombstone is written yet — tombstones and reusable identifiers
         arrive with their own ticket, so a deleted Group's `displayName` is
         immediately reusable in the meantime.
+
+        Requires `If-Match` with the Group's current ETag; see the parameter.
       operationId: deleteScimGroup
       security:
         - connectorBearer: []
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimIfMatch"
       responses:
         "204":
           description: The Group is gone.
@@ -1075,6 +1260,10 @@ paths:
             error="insufficient_scope"` and no body.
         "404":
           $ref: "#/components/responses/ScimNotFound"
+        "412":
+          $ref: "#/components/responses/ScimPreconditionFailed"
+        "428":
+          $ref: "#/components/responses/ScimPreconditionRequired"
   /actuator/health:
     get:
       tags: [Health]
@@ -1170,6 +1359,32 @@ components:
       schema:
         type: string
         format: uuid
+    ScimIfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: |
+        Exactly one strong entity tag: the `ETag` (equivalently `meta.version`) of the
+        resource as the client last read it, e.g. `"7"`. Required on every PUT, PATCH
+        and DELETE against an existing User or Group, because several connectors may
+        write the same directory and a write carrying no validator is a lost update.
+
+        Checked AFTER authorization and existence — a read-only token is refused as
+        `403` and an unknown id is `404` whatever this header says — and BEFORE
+        anything is computed or written, so a refused precondition changes nothing.
+
+        | Sent | Result |
+        | --- | --- |
+        | nothing | `428`, detail says to GET the resource and retry with its ETag |
+        | `*`, a list of tags, a repeated header, or not an entity tag | `400 invalidValue` |
+        | one well-formed tag that is not the current version, or a weak `W/` tag | `412` |
+        | the current version's exact tag | the write proceeds |
+
+        Two writers holding the same current tag are serialized on the resource: one
+        succeeds, and the other then finds the version it holds is stale and receives
+        `412`.
+      schema:
+        type: string
     Username:
       name: username
       in: path
@@ -1283,6 +1498,39 @@ components:
         application/scim+json:
           schema:
             $ref: "#/components/schemas/ScimError"
+    ScimPreconditionRequired:
+      description: |
+        The write carried no `If-Match`. No `scimType` exists for this condition. GET
+        the resource and retry with its `ETag` in `If-Match`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimPreconditionFailed:
+      description: |
+        The `If-Match` names a version that is no longer current — another write changed
+        the resource first. Nothing was changed; GET it and retry.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimUserResource:
+      description: |
+        The canonical User resource, never carrying a password. `ETag` is its new strong
+        validator, the same string as `meta.version`.
+      headers:
+        ETag:
+          description: Strong validator, e.g. `"2"`.
+          schema:
+            type: string
+        Location:
+          description: Absolute URI of this User.
+          schema:
+            type: string
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimUser"
     ScimGroupResource:
       description: |
         The canonical Group resource. `ETag` is its strong validator, the same string

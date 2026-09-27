@@ -8,6 +8,7 @@ import com.example.backend.scim.application.ScimGroupResource;
 import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -150,10 +152,9 @@ class ScimGroupController {
     /**
      * Replaces a Group's writable attributes.
      *
-     * <p>No {@code If-Match} handling: conditional writes are the next ticket's, and this one
-     * deliberately does not half-implement them. A client that sends the header today is not misled
-     * by it being honoured sometimes, because it is not honoured at all — discovery advertises what
-     * is supported.
+     * <p>Requires exactly one current {@code If-Match}, as every write against an existing
+     * resource does; the use case evaluates it once the Group is found, so an unknown id is a
+     * {@code 404} whatever the header says.
      */
     @PutMapping(
             path = "/{id}",
@@ -162,13 +163,16 @@ class ScimGroupController {
     ResponseEntity<Map<String, Object>> replace(
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch,
             @RequestBody JsonNode body,
             @RequestParam(required = false) String attributes,
             @RequestParam(required = false) String excludedAttributes) {
         ScimAttributeProjection projection =
                 ScimAttributeProjection.ofGroup(attributes, excludedAttributes);
         ScimGroupReplacement replacement = ScimGroupRequestReader.readReplace(body);
-        ScimGroupResource written = groups.replace(connector, resourceId(id), replacement)
+        ScimGroupResource written = groups.replace(
+                        connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch),
+                        replacement)
                 .orElseThrow(ScimGroupController::noSuchGroup);
         return ok(written, projection);
     }
@@ -188,13 +192,16 @@ class ScimGroupController {
     ResponseEntity<Map<String, Object>> patch(
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch,
             @RequestBody JsonNode body,
             @RequestParam(required = false) String attributes,
             @RequestParam(required = false) String excludedAttributes) {
         ScimAttributeProjection projection =
                 ScimAttributeProjection.ofGroup(attributes, excludedAttributes);
         List<ScimGroupPatchOperation> operations = ScimGroupRequestReader.readPatch(body);
-        ScimGroupResource written = groups.patch(connector, resourceId(id), operations)
+        ScimGroupResource written = groups.patch(
+                        connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch),
+                        operations)
                 .orElseThrow(ScimGroupController::noSuchGroup);
         return ok(written, projection);
     }
@@ -208,8 +215,10 @@ class ScimGroupController {
      */
     @DeleteMapping(path = "/{id}")
     ResponseEntity<Void> delete(
-            @AuthenticationPrincipal AuthenticatedConnector connector, @PathVariable String id) {
-        if (!groups.delete(connector, resourceId(id))) {
+            @AuthenticationPrincipal AuthenticatedConnector connector,
+            @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch) {
+        if (!groups.delete(connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch))) {
             throw noSuchGroup();
         }
         return ResponseEntity.noContent().build();

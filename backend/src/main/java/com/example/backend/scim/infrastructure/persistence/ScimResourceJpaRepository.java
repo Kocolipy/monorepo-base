@@ -1,10 +1,13 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEntity;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +21,18 @@ import org.springframework.data.repository.query.Param;
  * what keeps the two adapters from growing two subtly different ways to do it.
  */
 interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UUID> {
+
+    /**
+     * The resource row, locked {@code FOR UPDATE} until the transaction ends.
+     *
+     * <p>The serialization point of a conditional write. A second writer holding the same
+     * precondition blocks here until the first commits, and then — because a locking read in
+     * Postgres returns the row as the lock holder left it — reads the version the first one
+     * produced, so its precondition fails instead of both writes succeeding.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from ScimResourceEntity r where r.id = :id")
+    Optional<ScimResourceEntity> lockById(@Param("id") UUID id);
 
     /**
      * Advances the version of every named resource and records when it changed.
