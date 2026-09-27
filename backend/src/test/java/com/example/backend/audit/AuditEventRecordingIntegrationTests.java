@@ -9,11 +9,14 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -94,7 +97,7 @@ class AuditEventRecordingIntegrationTests {
     private WebApplicationContext context;
 
     @Autowired
-    private AccountRepository accounts;
+    private ScimUserRepository users;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -141,7 +144,7 @@ class AuditEventRecordingIntegrationTests {
         assertThat(event).containsEntry("outcome", "SUCCESS");
         assertThat(event).containsEntry("actor_id", idOf(USER));
         assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("resource_type", "Account");
+        assertThat(event).containsEntry("resource_type", "User");
         assertThat(event).containsEntry("status_class", "ok");
         assertThat(event).containsEntry("http_method", "POST");
         assertThat(event).containsEntry("http_path", "/api/auth/login");
@@ -228,22 +231,17 @@ class AuditEventRecordingIntegrationTests {
      */
     @Test
     void aLockoutStandingSinceLongAgoProducesNoLiftAtTheNextAttempt() throws Exception {
-        Account account = accounts.findByUsername(USER).orElseThrow();
-        transactions.executeWithoutResult(status -> accounts.updateLockout(new Account(
-                account.id(),
-                account.username(),
-                account.passwordHash(),
-                account.role(),
-                5,
-                java.time.Instant.now().minusSeconds(3600),
-                true,
-                account.createdAt())));
+        ScimUser user = require(USER);
+        transactions.executeWithoutResult(status -> users.updateLoginState(
+                user.id(),
+                new ScimLoginState(
+                        user.login().passwordHash(), 5, Instant.now().minusSeconds(3600))));
         clearRecordedEvents();
 
         logIn(USER, USER_PASSWORD).andExpect(status().isUnauthorized());
 
         assertThat(rows(AuditOperation.LOCKOUT_LIFT)).isEmpty();
-        assertThat(accounts.findByUsername(USER).orElseThrow().isLocked()).isTrue();
+        assertThat(require(USER).login().isLocked()).isTrue();
     }
 
     @Test
@@ -255,7 +253,7 @@ class AuditEventRecordingIntegrationTests {
         Map<String, Object> event = only(AuditOperation.ACCOUNT_DISABLE);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("changed_paths", "enabled");
+        assertThat(event).containsEntry("changed_paths", "active");
         assertThat(event).containsEntry(
                 "http_path", "/api/admin/accounts/{username}/disable");
     }
@@ -269,7 +267,7 @@ class AuditEventRecordingIntegrationTests {
         Map<String, Object> event = only(AuditOperation.ACCOUNT_ENABLE);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("changed_paths", "enabled");
+        assertThat(event).containsEntry("changed_paths", "active");
     }
 
     @Test
@@ -313,7 +311,7 @@ class AuditEventRecordingIntegrationTests {
 
         assertThat(allEvents()).hasSizeGreaterThanOrEqualTo(6);
         // The scan works: a value that is present is found.
-        assertThat(rowsContaining("Account")).isNotZero();
+        assertThat(rowsContaining("User")).isNotZero();
 
         assertThat(rowsContaining(USER)).isZero();
         assertThat(rowsContaining(ADMIN)).isZero();
@@ -380,8 +378,12 @@ class AuditEventRecordingIntegrationTests {
                 .count();
     }
 
-    private UUID idOf(String username) {
-        return accounts.findByUsername(username).orElseThrow().id();
+    private UUID idOf(String userName) {
+        return require(userName).id();
+    }
+
+    private ScimUser require(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
     }
 
     /**
@@ -397,20 +399,21 @@ class AuditEventRecordingIntegrationTests {
     }
 
     /**
-     * Returns the account to enabled, unlocked and with no failure run recorded.
+     * Returns the User to active, unlocked and with no failure run recorded.
      *
-     * <p>Wrapped in a transaction because the narrow administrative writes are
-     * modifying queries: without one they have no {@code EntityManager} to flush.
+     * <p>Two narrow writes rather than one full-row write, because that is what the port
+     * offers: the login state and the {@code active} flag are written separately, and only the
+     * second advances the resource's version — a failure run is not a SCIM attribute.
+     *
+     * <p>Wrapped in a transaction because both are modifying queries: without one they have no
+     * {@code EntityManager} to flush.
      */
-    private void restore(String username) {
+    private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
-            Account account = accounts.findByUsername(username).orElseThrow();
-            accounts.updateEnabled(new Account(
-                    account.id(), account.username(), account.passwordHash(), account.role(),
-                    0, null, true, account.createdAt()));
-            accounts.updateLockout(new Account(
-                    account.id(), account.username(), account.passwordHash(), account.role(),
-                    0, null, true, account.createdAt()));
+            ScimUser user = require(userName);
+            users.updateLoginState(
+                    user.id(), ScimLoginState.of(user.login().passwordHash()));
+            users.updateActive(user.id(), true, Instant.now());
         });
     }
 

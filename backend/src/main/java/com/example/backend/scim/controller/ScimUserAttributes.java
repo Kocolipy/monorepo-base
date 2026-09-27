@@ -64,12 +64,10 @@ final class ScimUserAttributes {
      * Read-only attributes a write IGNORES rather than refuses, per RFC 7644 §3.5.2:
      * a client that round-trips a resource it read must be able to PUT it back.
      *
-     * <p>{@code groups} is here and absent from the schema document at the same time,
-     * and the combination is deliberate: the reverse membership view is not computed
-     * until Groups exist, so advertising it would be a claim this service cannot honour
-     * — while refusing it would break the round-trip of a resource a later release WILL
-     * render. Tolerating it now costs nothing, because ignoring it is what the RFC asks
-     * for either way.
+     * <p>{@code groups} is here and IS now advertised in the schema document, unlike while
+     * Groups did not exist: the reverse membership view is computed and rendered, so a
+     * client round-tripping a User it read sends it back and is correctly ignored. It is
+     * declared {@code readOnly} below, which is the advertised form of that rule.
      */
     static final Set<String> IGNORED_ON_WRITE = Set.of("id", "meta", "groups");
 
@@ -105,7 +103,18 @@ final class ScimUserAttributes {
             Attribute.multiValued("emails", READ_WRITE, DEFAULT_RETURNED, List.of(
                     Attribute.singular("value", "string", READ_WRITE, DEFAULT_RETURNED),
                     Attribute.singular("type", "string", READ_WRITE, DEFAULT_RETURNED),
-                    Attribute.singular("primary", "boolean", READ_WRITE, DEFAULT_RETURNED))));
+                    Attribute.singular("primary", "boolean", READ_WRITE, DEFAULT_RETURNED))),
+            // The reverse membership view. Wholly readOnly — including its top level, which is
+            // what distinguishes it from `members` on a Group: a Group's membership is written
+            // there and only there, and this is the same relation seen from the other end. So
+            // every sub-attribute is derived, and a submitted `groups` is ignored rather than
+            // stored. `type` is `direct` for every entry, because this directory has no nested
+            // Groups and so no indirect membership to report.
+            Attribute.multiValued("groups", READ_ONLY, DEFAULT_RETURNED, List.of(
+                    Attribute.singular("value", "string", READ_ONLY, DEFAULT_RETURNED),
+                    Attribute.singular("display", "string", READ_ONLY, DEFAULT_RETURNED),
+                    Attribute.singular("$ref", "reference", READ_ONLY, DEFAULT_RETURNED),
+                    Attribute.singular("type", "string", READ_ONLY, DEFAULT_RETURNED))));
 
     private ScimUserAttributes() {
     }
@@ -123,15 +132,15 @@ final class ScimUserAttributes {
     }
 
     /**
-     * Every top-level attribute name projection may name: the schema's attributes and
-     * the common ones, plus {@code groups} — which is tolerated on write and will be
-     * rendered once it is computed.
+     * Every top-level attribute name projection may name: the schema's attributes and the
+     * common ones. {@code groups} needs no special case any more — it is a declared schema
+     * attribute now that the reverse view is computed and rendered.
      */
     static Set<String> projectableNames() {
         Set<String> declared = SCHEMA_ATTRIBUTES.stream()
                 .map(Attribute::name)
                 .collect(Collectors.toSet());
-        return Set.copyOf(union(union(declared, COMMON_ATTRIBUTES), Set.of("groups")));
+        return Set.copyOf(union(declared, COMMON_ATTRIBUTES));
     }
 
     /** The core User schema, as {@code /Schemas} renders it. */

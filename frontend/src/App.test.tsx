@@ -144,14 +144,18 @@ describe("App", () => {
           input === "/api/admin/accounts"
             ? Response.json([
                 {
+                  active: true,
+                  admin: true,
                   createdAt: "2026-01-02T03:04:05Z",
-                  enabled: true,
+                  hasPassword: true,
+                  id: "00000000-0000-4000-8000-000000000001",
                   locked: false,
-                  role: "ADMIN",
-                  username: "grace",
+                  userName: "grace",
                 },
               ])
-            : Response.json({ role: "ADMIN", username: "grace" }),
+            : // The /me response is UNCHANGED by the identity unification: it still
+              // reports `username` and a single `role`, derived from the authorities.
+              Response.json({ role: "ADMIN", username: "grace" }),
         ),
       ),
     );

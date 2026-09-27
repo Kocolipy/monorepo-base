@@ -22,22 +22,27 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 /**
- * The release gate, closed — which is what a deployment gets when nobody turned SCIM on.
+ * The release gate, closed — which a deployment now gets only by asking for it.
  *
- * <p><strong>No property is set here on purpose.</strong> The point of this class is the
- * DEFAULT: if it declared {@code app.scim.enabled=false} it would prove only that the flag
- * works when set, and a deployment that never heard of the flag would be untested. The
- * default lives in {@code ScimSecurityConfig}'s {@code @Value} expression rather than in
- * any YAML, so an absent setting reaches the gate as closed here exactly as it would in
- * production.
+ * <p><strong>The property is declared here, and it did not used to be.</strong> While Users and
+ * Groups were being built the default was CLOSED, so this class deliberately set nothing: the point
+ * was that a deployment which never heard of the flag got no SCIM interface. Groups are complete as
+ * of this ticket, so the default is now OPEN and the untouched-configuration case is the opposite
+ * one — asserted in {@code ScimReleaseGateDefaultIntegrationTests}, which still sets nothing.
+ *
+ * <p>What this class tests is therefore no longer a default but a capability: an operator who
+ * authenticates by password only and provisions nothing can turn the namespace off, and while it is
+ * off every path in it — discovery included — is simply not there.
  */
 @SpringBootTest
+@TestPropertySource(properties = "app.scim.enabled=false")
 @Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
 class ScimReleaseGateIntegrationTests {
 
@@ -159,6 +164,14 @@ class ScimReleaseGateIntegrationTests {
      * the content type and encoding are its own to set. Without them a provisioning client
      * receives an error document it may decline to parse, and a non-ASCII detail would be
      * decoded with the container's default charset rather than UTF-8.
+     *
+     * <p>The charset is asserted on the {@code Content-Type} HEADER rather than through
+     * {@code getCharacterEncoding()}, and that is the whole point of this assertion.
+     * {@code MockHttpServletResponse} defaults its own encoding to UTF-8, so the accessor
+     * answers UTF-8 whether or not the filter set anything — mutation testing removed the
+     * {@code setCharacterEncoding} call and this test still passed. A real Tomcat defaults to
+     * ISO-8859-1, so the production line is load-bearing and the mock was hiding it. The
+     * header is built from the charset that was EXPLICITLY set, so it distinguishes the two.
      */
     @Test
     void the_closed_gates_own_response_declares_scim_json_in_utf8() throws Exception {
@@ -166,7 +179,9 @@ class ScimReleaseGateIntegrationTests {
 
         assertThat(result.getResponse().getStatus()).isEqualTo(404);
         assertThat(result.getResponse().getContentType()).startsWith("application/scim+json");
-        assertThat(result.getResponse().getCharacterEncoding()).isEqualToIgnoringCase("UTF-8");
+        assertThat(result.getResponse().getHeader("Content-Type"))
+                .as("the charset must be set explicitly, not inherited from a container default")
+                .containsIgnoringCase("charset=utf-8");
     }
 
     private long users() {

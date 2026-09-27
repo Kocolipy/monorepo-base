@@ -13,6 +13,7 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -48,7 +49,17 @@ class SecurityConfigTests {
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
     private static final String CSRF_HEADER = "X-XSRF-TOKEN";
 
+    /**
+     * The application chain by name. There are two {@link SecurityFilterChain}
+     * beans in the context now — the SCIM chain is ordered ahead of this one, and
+     * the release gate that used to keep it out of the context defaults to OPEN —
+     * so the type alone no longer names a bean. Which of the two comes first is
+     * {@code ScimSecurityChainOrderTests}' subject; this class is about what the
+     * application chain itself builds, so it asks for that chain explicitly rather
+     * than for whichever one the container happens to hand over.
+     */
     @Autowired
+    @Qualifier("securityFilterChain")
     private SecurityFilterChain securityFilterChain;
 
     @Autowired

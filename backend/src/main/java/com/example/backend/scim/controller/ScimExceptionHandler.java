@@ -1,6 +1,9 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.ProtectedResourceException;
+import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +47,58 @@ class ScimExceptionHandler {
     ResponseEntity<Map<String, Object>> handle(DuplicateUserNameException duplicate) {
         return render(ScimErrorException.uniqueness(
                 "A User with the requested userName already exists."));
+    }
+
+    /**
+     * A Group {@code displayName} already taken.
+     *
+     * <p>RFC 7643 does not make {@code displayName} unique; this directory does, because a Group's
+     * membership confers authority and two Groups an administrator reads as the same name is how
+     * membership of the wrong one gets granted. Advertised in the Group schema as
+     * {@code uniqueness=server}, so a connector is told rather than discovering it here.
+     */
+    @ExceptionHandler(DuplicateDisplayNameException.class)
+    ResponseEntity<Map<String, Object>> handle(DuplicateDisplayNameException duplicate) {
+        return render(ScimErrorException.uniqueness(
+                "A Group with the requested displayName already exists."));
+    }
+
+    /**
+     * A member that is not a live User.
+     *
+     * <p>One message for three causes — an id naming a Group, a deleted User, or nothing at all —
+     * because distinguishing them would disclose the existence and the type of resources the caller
+     * has not been shown. The id is not echoed: the caller sent it, and an error body is also a log
+     * line.
+     */
+    @ExceptionHandler(UnknownGroupMemberException.class)
+    ResponseEntity<Map<String, Object>> handle(UnknownGroupMemberException unknownMember) {
+        return render(ScimErrorException.invalidValue(
+                "Every Group member must reference a live User."));
+    }
+
+    /**
+     * A write aimed at a resource reserved for deployment recovery.
+     *
+     * <p>{@code mutability}, which is SCIM's {@code scimType} for an attempt to change something
+     * that cannot be changed, with a {@code 400}. Deliberately NOT a {@code 403}: the caller's token
+     * may be a perfectly valid read-write one, and the refusal is about the target rather than about
+     * the credential — answering 403 would send an integrator to re-check its token scope.
+     *
+     * <p>The detail says which kind of resource was protected but not which resource, and nothing
+     * about why this deployment reserves it.
+     */
+    @ExceptionHandler(ProtectedResourceException.class)
+    ResponseEntity<Map<String, Object>> handle(ProtectedResourceException protectedResource) {
+        return render(ScimErrorException.mutability(
+                switch (protectedResource.reservedName()) {
+                    case BOOTSTRAP_ADMIN ->
+                            "This User is reserved for deployment recovery; its attributes and its"
+                                    + " Group membership cannot be changed.";
+                    case ADMIN_GROUP ->
+                            "This Group is reserved for deployment recovery; it cannot be renamed"
+                                    + " or deleted, though its ordinary membership may change.";
+                }));
     }
 
     private static ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {

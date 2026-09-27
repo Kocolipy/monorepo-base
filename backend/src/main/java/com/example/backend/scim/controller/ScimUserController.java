@@ -71,7 +71,7 @@ class ScimUserController {
             @RequestParam(required = false) String attributes,
             @RequestParam(required = false) String excludedAttributes) {
         ScimAttributeProjection projection =
-                ScimAttributeProjection.of(attributes, excludedAttributes);
+                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
         NewScimUser command = ScimUserRequestReader.readCreate(body);
         ScimUserResource created = users.create(connector, command);
         String baseUri = baseUri();
@@ -97,7 +97,7 @@ class ScimUserController {
             @RequestParam(required = false) String attributes,
             @RequestParam(required = false) String excludedAttributes) {
         ScimAttributeProjection projection =
-                ScimAttributeProjection.of(attributes, excludedAttributes);
+                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
         ScimUserResource user = users.findById(connector, resourceId(id))
                 .orElseThrow(() -> ScimErrorException.notFound("No User has that id."));
         String baseUri = baseUri();
@@ -136,7 +136,7 @@ class ScimUserController {
             throw ScimErrorException.unsupportedQuery(SORTING_UNSUPPORTED);
         }
         ScimAttributeProjection projection =
-                ScimAttributeProjection.of(attributes, excludedAttributes);
+                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
         ScimPageRequest page = ScimPageRequest.of(
                 integer(startIndex, "startIndex"), integer(count, "count"));
         ScimUserListing listing = users.list(connector, page);

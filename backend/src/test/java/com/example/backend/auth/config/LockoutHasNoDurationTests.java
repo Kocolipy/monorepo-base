@@ -2,8 +2,8 @@ package com.example.backend.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.LockoutPolicy;
+import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.ScimLoginState;
 import java.io.IOException;
 import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
@@ -86,7 +86,11 @@ class LockoutHasNoDurationTests {
                 .noneSatisfy(line -> assertThat(line).startsWith("duration:"));
     }
 
-    /** No domain type can express a window either, whatever configuration says. */
+    /**
+     * No domain field expresses a lockout window either, whatever configuration says. The
+     * lock state now lives on the SCIM User's {@link ScimLoginState} rather than on a
+     * deleted account aggregate, so that is where the absence has to hold.
+     */
     @Test
     void noDomainFieldExpressesALockoutDuration() {
         assertThat(componentsOf(LockoutPolicy.class))
@@ -95,11 +99,11 @@ class LockoutHasNoDurationTests {
         assertThat(componentsOf(LockoutPolicy.class))
                 .noneSatisfy(component ->
                         assertThat(component.getType()).isEqualTo(Duration.class));
-        assertThat(componentsOf(Account.class))
+        assertThat(componentsOf(ScimLoginState.class))
                 .extracting(RecordComponent::getName)
                 .contains("lockedAt")
                 .doesNotContain("lockedUntil");
-        assertThat(componentsOf(Account.class))
+        assertThat(componentsOf(ScimLoginState.class))
                 .noneSatisfy(component ->
                         assertThat(component.getType()).isEqualTo(Duration.class));
     }

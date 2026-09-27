@@ -25,8 +25,21 @@ public final class ScimSchemas {
      */
     public static final String MEDIA_TYPE = "application/scim+json";
 
-    /** The core User schema — the one resource schema this service implements. */
+    /** The core User schema. */
     public static final String USER = "urn:ietf:params:scim:schemas:core:2.0:User";
+
+    /**
+     * The core Group schema — the resource that carries authority in this directory.
+     *
+     * <p>Users and Groups are one release capability, which is why both schemas are declared
+     * together: a directory that advertised Users alone could not express authority, and a
+     * connector provisioning against it would build something that means less than it will mean
+     * later.
+     */
+    public static final String GROUP = "urn:ietf:params:scim:schemas:core:2.0:Group";
+
+    /** The schema every PATCH request body declares. */
+    public static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
     /** The error message schema every refusal body declares. */
     public static final String ERROR = "urn:ietf:params:scim:api:messages:2.0:Error";

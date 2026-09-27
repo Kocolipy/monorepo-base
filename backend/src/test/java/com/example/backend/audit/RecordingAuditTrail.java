@@ -1,12 +1,16 @@
 package com.example.backend.audit;
 
+import com.example.backend.audit.domain.AuditAdministrativeRefusal;
+import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * An {@link AuditTrail} that keeps what it was told, so a unit test of a use case
@@ -119,5 +123,74 @@ public final class RecordingAuditTrail implements AuditTrail {
     @Override
     public void recordScimUsersListed(UUID connectorId) {
         recorded.add(new Recorded(AuditOperation.SCIM_USER_LIST, connectorId, null, null));
+    }
+
+    @Override
+    public void recordAdministrativeChangeRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.ACCOUNT_DISABLE, actorId, subjectId, reason.name()));
+    }
+
+    @Override
+    public void recordScimGroupCreated(UUID connectorId, UUID groupId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_GROUP_CREATE, connectorId, groupId, null));
+    }
+
+    @Override
+    public void recordScimGroupCreateRejected(UUID connectorId, AuditScimRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_GROUP_CREATE, connectorId, null, reason.name()));
+    }
+
+    /**
+     * Records the changed attributes as the detail, sorted, so a test can assert WHICH
+     * attributes a write reported as moved — the claim worth checking about a Group write is
+     * that a no-op PUT reports nothing, and a count cannot express that.
+     */
+    @Override
+    public void recordScimGroupReplaced(
+            UUID connectorId, UUID groupId, Set<AuditGroupAttribute> changed) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_GROUP_REPLACE,
+                connectorId,
+                groupId,
+                changed.stream().map(Enum::name).sorted().collect(Collectors.joining(","))));
+    }
+
+    @Override
+    public void recordScimGroupWriteRejected(
+            UUID connectorId, UUID groupId, AuditScimRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_GROUP_REPLACE, connectorId, groupId, reason.name()));
+    }
+
+    @Override
+    public void recordScimGroupDeleted(UUID connectorId, UUID groupId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_GROUP_DELETE, connectorId, groupId, null));
+    }
+
+    @Override
+    public void recordScimGroupsListed(UUID connectorId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_GROUP_LIST, connectorId, null, null));
+    }
+
+    /**
+     * Records the seeded resource's KIND as the detail, because that is the one thing a
+     * seeding test needs to tell the two events apart — both name the server as no actor.
+     */
+    @Override
+    public void recordReservedResourceSeeded(UUID resourceId, boolean group) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_RESOURCE_SEED,
+                null,
+                resourceId,
+                group ? "Group" : "User"));
+    }
+
+    @Override
+    public void recordReservedMembershipRestored(UUID groupId, UUID userId) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_RESOURCE_SEED, null, groupId, "members-restored"));
     }
 }

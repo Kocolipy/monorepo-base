@@ -5,29 +5,29 @@ import java.util.UUID;
 /**
  * A per-user tally. Pure domain: no persistence or framework concerns.
  *
- * <p>Keyed by the account's stable, non-reassignable id rather than its
- * username: a username may be renamed, and the tally must keep pointing at the
- * same account afterward.
+ * <p>Keyed by the SCIM User's stable, non-reassignable resource id rather than its
+ * userName: a userName is mutable, and the tally must keep pointing at the
+ * same identity afterward.
  */
 public class UserCounter {
 
-    private final UUID accountId;
+    private final UUID userId;
 
     private long count;
 
-    private UserCounter(UUID accountId, long count) {
-        this.accountId = accountId;
+    private UserCounter(UUID userId, long count) {
+        this.userId = userId;
         this.count = count;
     }
 
     /** A brand new counter, starting at zero. */
-    public static UserCounter createFor(UUID accountId) {
-        return new UserCounter(accountId, 0L);
+    public static UserCounter createFor(UUID userId) {
+        return new UserCounter(userId, 0L);
     }
 
     /** Rebuilds a counter from previously stored state. */
-    public static UserCounter rehydrate(UUID accountId, long count) {
-        return new UserCounter(accountId, count);
+    public static UserCounter rehydrate(UUID userId, long count) {
+        return new UserCounter(userId, count);
     }
 
     public long increment() {
@@ -42,7 +42,7 @@ public class UserCounter {
         return count;
     }
 
-    public UUID getAccountId() {
-        return accountId;
+    public UUID getUserId() {
+        return userId;
     }
 }

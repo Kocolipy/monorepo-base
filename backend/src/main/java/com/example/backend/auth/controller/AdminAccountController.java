@@ -1,9 +1,9 @@
 package com.example.backend.auth.controller;
 
-import com.example.backend.auth.application.AccountAdministrationService;
-import com.example.backend.auth.application.AccountSummary;
-import com.example.backend.auth.application.UnknownAccountException;
-import com.example.backend.auth.application.UnsafeAccountChangeException;
+import com.example.backend.auth.application.IdentityAdministrationService;
+import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.auth.application.UnknownIdentityException;
+import com.example.backend.auth.application.UnsafeIdentityChangeException;
 import java.security.Principal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -29,10 +29,10 @@ import org.springframework.web.bind.annotation.RestController;
  * would make an administrator restoring access silently forgive a failure run
  * they never looked at.
  *
- * <p>{@link AccountSummary} is returned as the wire shape rather than copied into
+ * <p>{@link IdentitySummary} is returned as the wire shape rather than copied into
  * a response type of this adapter's own. The copy would have been field-identical
  * and would have had no property to enforce: the guarantee that no password hash
- * can reach a client belongs to {@code AccountSummary}, which has no field one
+ * can reach a client belongs to {@code IdentitySummary}, which has no field one
  * could be written into, and a second record restating its fields only adds a
  * place for the two to drift.
  */
@@ -40,42 +40,42 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/accounts")
 public class AdminAccountController {
 
-    private final AccountAdministrationService accounts;
+    private final IdentityAdministrationService identities;
 
-    public AdminAccountController(AccountAdministrationService accounts) {
-        this.accounts = accounts;
+    public AdminAccountController(IdentityAdministrationService identities) {
+        this.identities = identities;
     }
 
     @GetMapping
-    public List<AccountSummary> listAccounts() {
-        return accounts.listAccounts();
+    public List<IdentitySummary> listAccounts() {
+        return identities.listIdentities();
     }
 
     /**
      * Closes an account to new logins and ends the sessions it already holds, so
      * the next request it makes arrives as a stranger. What exactly that costs the
-     * holder is {@code AccountAdministrationService}'s to define.
+     * holder is {@code IdentityAdministrationService}'s to define.
      */
     @PostMapping("/{username}/disable")
-    public AccountSummary disable(@PathVariable String username, Principal principal) {
-        return accounts.disable(username, principal.getName());
+    public IdentitySummary disable(@PathVariable String username, Principal principal) {
+        return identities.deactivate(username, principal.getName());
     }
 
     /** Reopens an account to logins, leaving any lockout it is serving standing. */
     @PostMapping("/{username}/enable")
-    public AccountSummary enable(@PathVariable String username, Principal principal) {
-        return accounts.enable(username, principal.getName());
+    public IdentitySummary enable(@PathVariable String username, Principal principal) {
+        return identities.activate(username, principal.getName());
     }
 
     /** Ends a lockout early. Says nothing about whether the account is enabled. */
     @PostMapping("/{username}/unlock")
-    public AccountSummary unlock(@PathVariable String username, Principal principal) {
-        return accounts.unlock(username, principal.getName());
+    public IdentitySummary unlock(@PathVariable String username, Principal principal) {
+        return identities.unlock(username, principal.getName());
     }
 
-    @ExceptionHandler(UnknownAccountException.class)
+    @ExceptionHandler(UnknownIdentityException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public void unknownAccount() {
+    public void unknownIdentity() {
         // The caller is already an administrator, so naming what is missing
         // reveals nothing they could not read from the listing.
     }
@@ -84,7 +84,7 @@ public class AdminAccountController {
      * A refusal about the action rather than the caller, so neither 403 (the role
      * is fine) nor 400 (the request is well formed) fits.
      */
-    @ExceptionHandler(UnsafeAccountChangeException.class)
+    @ExceptionHandler(UnsafeIdentityChangeException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public void unsafeChange() {
     }

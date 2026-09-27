@@ -4,6 +4,7 @@ import jakarta.persistence.CascadeType;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
@@ -60,9 +61,13 @@ public class ScimUserEntity {
     @Column(nullable = false, length = 256, unique = true)
     private String normalizedUserName;
 
-    /** Nullable: a credentialless User is a supported state, not an incomplete one. */
-    @Column(length = 256)
-    private String passwordHash;
+    /**
+     * The authentication state the login surface writes: credential, failure run, lock
+     * instant. Embedded so the three travel as one value, matching the domain's
+     * {@code ScimLoginState} and the narrow port operation that writes them.
+     */
+    @Embedded
+    private ScimLoginStateValue login;
 
     @Column(nullable = false)
     private boolean active;
@@ -119,7 +124,7 @@ public class ScimUserEntity {
             ScimResourceEntity resource,
             String userName,
             String normalizedUserName,
-            String passwordHash,
+            ScimLoginStateValue login,
             boolean active,
             String displayName,
             String formattedName,
@@ -135,7 +140,7 @@ public class ScimUserEntity {
         this.resource = resource;
         this.userName = userName;
         this.normalizedUserName = normalizedUserName;
-        this.passwordHash = passwordHash;
+        this.login = login;
         this.active = active;
         this.displayName = displayName;
         this.formattedName = formattedName;
@@ -158,8 +163,8 @@ public class ScimUserEntity {
         return userName;
     }
 
-    public String getPasswordHash() {
-        return passwordHash;
+    public ScimLoginStateValue getLogin() {
+        return login;
     }
 
     public boolean isActive() {

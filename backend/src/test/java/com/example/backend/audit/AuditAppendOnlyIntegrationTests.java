@@ -13,10 +13,12 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
-import com.example.backend.auth.application.AccountAdministrationService;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
+import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.io.IOException;
@@ -98,7 +100,7 @@ class AuditAppendOnlyIntegrationTests {
     private static final String INSERT_EVENT = """
             INSERT INTO audit_events
                 (id, occurred_at, operation, outcome, resource_type, status_class)
-                VALUES (?, ?, 'LOGOUT', 'SUCCESS', 'Account', 'ok')""";
+                VALUES (?, ?, 'LOGOUT', 'SUCCESS', 'User', 'ok')""";
 
     private static final String COUNT_EVENT = "SELECT count(*) FROM audit_events WHERE id = ?";
 
@@ -119,8 +121,14 @@ class AuditAppendOnlyIntegrationTests {
     private static final String EVENTS_BY_OPERATION =
             "SELECT * FROM audit_events WHERE operation = ?";
 
-    private static final String ENABLED_OF_ACCOUNT =
-            "SELECT enabled FROM accounts WHERE username = ?";
+    /**
+     * The administrative standing flag, read from the one table that now holds it: the
+     * {@code accounts} table is gone and {@code active} is the SCIM attribute it collapsed
+     * into. Keyed on the normalized {@code userName}, which is the column uniqueness is
+     * decided on.
+     */
+    private static final String ACTIVE_OF_USER =
+            "SELECT active FROM scim_users WHERE normalized_user_name = ?";
 
     private static final String FORCED_FAILURE_FUNCTION = """
             CREATE OR REPLACE FUNCTION forced_append_failure() RETURNS trigger
@@ -156,10 +164,10 @@ class AuditAppendOnlyIntegrationTests {
     private WebApplicationContext context;
 
     @Autowired
-    private AccountRepository accounts;
+    private ScimUserRepository users;
 
     @Autowired
-    private AccountAdministrationService administration;
+    private IdentityAdministrationService administration;
 
     @Autowired
     private AuditRetentionService retention;
@@ -204,16 +212,17 @@ class AuditAppendOnlyIntegrationTests {
 
     @Test
     void aForcedAuditInsertFailureRollsBackTheMutationItWasRecording() {
-        assertThat(accounts.findByUsername(USER).orElseThrow().enabled()).isTrue();
+        assertThat(require(USER).profile().active()).isTrue();
         forceAppendFailure();
 
-        assertThatThrownBy(() -> administration.disable(USER, ADMIN))
+        assertThatThrownBy(() -> administration.deactivate(USER, ADMIN))
                 .isInstanceOf(RuntimeException.class);
 
         // Read back from the database, not from the object the call returned: the
         // claim is that nothing was committed.
-        assertThat(jdbc.queryForObject(ENABLED_OF_ACCOUNT, Boolean.class, USER)).isTrue();
-        assertThat(accounts.findByUsername(USER).orElseThrow().enabled()).isTrue();
+        assertThat(jdbc.queryForObject(ACTIVE_OF_USER, Boolean.class, normalized(USER)))
+                .isTrue();
+        assertThat(require(USER).profile().active()).isTrue();
         assertThat(allEvents()).isEmpty();
         // The revocation is deferred to after the commit, so a rollback never
         // reaches it either.
@@ -226,9 +235,10 @@ class AuditAppendOnlyIntegrationTests {
      */
     @Test
     void theSameWriteCommitsWhenTheAppendSucceeds() {
-        administration.disable(USER, ADMIN);
+        administration.deactivate(USER, ADMIN);
 
-        assertThat(jdbc.queryForObject(ENABLED_OF_ACCOUNT, Boolean.class, USER)).isFalse();
+        assertThat(jdbc.queryForObject(ACTIVE_OF_USER, Boolean.class, normalized(USER)))
+                .isFalse();
         assertThat(rows(AuditOperation.ACCOUNT_DISABLE)).hasSize(1);
     }
 
@@ -266,8 +276,7 @@ class AuditAppendOnlyIntegrationTests {
         assertThat(allEvents()).isEmpty();
         // The mutation a refused login makes — lengthening the failure run — is
         // untouched by the append that failed, because a failure event is fail-open.
-        assertThat(accounts.findByUsername(USER).orElseThrow().failedLoginAttempts())
-                .isEqualTo(1);
+        assertThat(require(USER).login().failedLoginAttempts()).isEqualTo(1);
     }
 
     /**
@@ -284,7 +293,7 @@ class AuditAppendOnlyIntegrationTests {
      */
     @Test
     void aFailOpenAppendCommitsEvenWhenTheCallersTransactionRollsBack() {
-        UUID subjectId = accounts.findByUsername(USER).orElseThrow().id();
+        UUID subjectId = idOf(USER);
 
         transactions.executeWithoutResult(status -> {
             auditTrail.recordLoginFailure(subjectId, AuditRefusalReason.BAD_CREDENTIALS);
@@ -470,8 +479,17 @@ class AuditAppendOnlyIntegrationTests {
         return "{\"username\":\"test-user\",\"password\":\"not-the-password\"}";
     }
 
-    private UUID idOf(String username) {
-        return accounts.findByUsername(username).orElseThrow().id();
+    private UUID idOf(String userName) {
+        return require(userName).id();
+    }
+
+    private ScimUser require(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
+    }
+
+    /** The stored uniqueness form of a userName, which is what the row is keyed on. */
+    private static String normalized(String userName) {
+        return NormalizedUserName.of(userName).value();
     }
 
     private void clearRecordedEvents() {
@@ -482,20 +500,20 @@ class AuditAppendOnlyIntegrationTests {
     }
 
     /**
-     * Returns the account to enabled, unlocked and with no failure run recorded.
+     * Returns the User to active, unlocked and with no failure run recorded.
      *
-     * <p>Wrapped in a transaction because the narrow administrative writes are
-     * modifying queries: without one they have no {@code EntityManager} to flush.
+     * <p>Two narrow writes rather than one full-row write, because that is what the port
+     * offers: the login state and the {@code active} flag are written separately, and only
+     * the second advances the resource's version — a failure run is not a SCIM attribute.
+     *
+     * <p>Wrapped in a transaction because both are modifying queries: without one they have
+     * no {@code EntityManager} to flush.
      */
-    private void restore(String username) {
+    private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
-            Account account = accounts.findByUsername(username).orElseThrow();
-            accounts.updateEnabled(new Account(
-                    account.id(), account.username(), account.passwordHash(), account.role(),
-                    0, null, true, account.createdAt()));
-            accounts.updateLockout(new Account(
-                    account.id(), account.username(), account.passwordHash(), account.role(),
-                    0, null, true, account.createdAt()));
+            ScimUser user = require(userName);
+            users.updateLoginState(user.id(), ScimLoginState.of(user.login().passwordHash()));
+            users.updateActive(user.id(), true, Instant.now());
         });
     }
 

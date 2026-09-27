@@ -20,12 +20,15 @@ info:
     `/scim/v2`. The operations under the Connectors tag are how an administrator
     mints and retires the credentials that chain accepts.
 
-    **The SCIM namespace is behind a release gate that is off by default.** While
-    `APP_SCIM_ENABLED` is unset or false every path below `/scim/v2` answers `404`
-    with a SCIM error document — discovery included, and ahead of authentication.
-    Every SCIM operation documented here therefore also has a `404` that means "not
-    served by this deployment" rather than "no such resource"; it is not repeated on
-    each operation.
+    **The SCIM namespace is behind a release gate that is now ON by default.** It was
+    off while Users and Groups were being built, because the two are one release
+    capability: a directory that could create Users but had no Groups could not
+    express authority. Groups are complete, so the gate stops hiding a finished
+    interface. Setting `APP_SCIM_ENABLED=false` still closes it, and while it is
+    closed every path below `/scim/v2` answers `404` with a SCIM error document —
+    discovery included, and ahead of authentication. Every SCIM operation documented
+    here therefore also has a `404` that means "not served by this deployment" rather
+    than "no such resource"; it is not repeated on each operation.
 
     SCIM requests and responses use `application/scim+json`; `application/json` is
     accepted and understood, and a response defaults to `application/scim+json`.
@@ -557,8 +560,8 @@ paths:
       tags: [SCIM]
       summary: List the SCIM resource types served
       description: |
-        Public. User alone: a resource type in this list is a claim that its endpoint
-        answers, and `/Groups` does not yet.
+        Public. Both User and Group: a resource type in this list is a claim that its
+        endpoint answers, and both now do.
       operationId: listScimResourceTypes
       security: []
       responses:
@@ -778,6 +781,300 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "404":
           $ref: "#/components/responses/ScimNotFound"
+  /scim/v2/Groups:
+    get:
+      tags: [SCIM]
+      summary: Retrieve a page of Groups
+      description: |
+        A bulk read, audited as one event whatever the page size and whatever comes
+        back. Paging behaves exactly as it does for Users: `startIndex` is one-based
+        and defaults to 1, `count` defaults to 100 and is capped at 200, and
+        `count=0` returns no `Resources` but still reports `totalResults`. `filter`,
+        `sortBy` and `sortOrder` are refused with `403` while unimplemented, matching
+        what ServiceProviderConfig advertises.
+      operationId: listScimGroups
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimStartIndex"
+        - $ref: "#/components/parameters/ScimCount"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      responses:
+        "200":
+          description: A ListResponse of Group resources.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          $ref: "#/components/responses/ScimUnsupportedQuery"
+    post:
+      tags: [SCIM]
+      summary: Create a Group
+      description: |
+        Requires a read-write token; a read-only one is refused with `403` and
+        `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
+
+        **A Group's membership is what confers application authority**, which is why
+        two rules here are stricter than RFC 7643 requires.
+
+        `displayName` is unique across live Groups, case-insensitively, and is
+        advertised as `uniqueness=server`. The RFC leaves it non-unique; this
+        directory does not, because two Groups an administrator reads as the same name
+        is how membership of the wrong one gets granted.
+
+        `members` accepts **direct User members only**. A member id naming a Group, a
+        deleted User, or nothing at all is one refusal — `400 invalidValue` — and they
+        are deliberately indistinguishable: telling them apart would disclose the
+        existence and type of resources the caller has not been shown. Nested and
+        transitive membership are unsupported, and there is no representation for
+        them. Every `members` sub-attribute other than `value` is read-only and
+        IGNORED on write: `display` is derived from the referenced User, `$ref` is
+        built from its id, and `type` is always `User`.
+
+        An empty Group is legitimate and renders no `members` attribute at all.
+
+        Creating a Group with members advances each member User's version, because
+        that User's rendered `groups` gained an entry.
+
+        `externalId` is scoped to the calling connector, exactly as it is for a User.
+      operationId: createScimGroup
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimGroup"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimGroup"
+      responses:
+        "201":
+          description: |
+            The canonical resource. `Location` names it and `ETag` is its strong
+            validator, the same string as `meta.version`.
+          headers:
+            Location:
+              description: Absolute URI of the created Group.
+              schema:
+                type: string
+            ETag:
+              description: Strong validator, e.g. `"1"`.
+              schema:
+                type: string
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimGroup"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body — the refusal is about the
+            credential's scope, which RFC 6750 states in the challenge.
+        "409":
+          description: A live Group already holds that displayName, case-insensitively.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+  /scim/v2/Groups/{id}:
+    get:
+      tags: [SCIM]
+      summary: Retrieve one Group
+      description: |
+        Not audited, for the reason a single User read is not: a single-resource read
+        is the ordinary unit of provisioning traffic, and recording it would bury the
+        collection reads that indicate an enumeration. An id that is not a UUID — and
+        an id that names a User — are both a `404` like any other unknown id.
+      operationId: getScimGroup
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScimGroupResource"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+    put:
+      tags: [SCIM]
+      summary: Replace a Group
+      description: |
+        Replaces everything a connector may write: the `displayName` and the WHOLE
+        membership. An attribute the document does not mention is set to nothing
+        rather than left alone — that is what replacing a resource means — so a PUT
+        with no `members` empties the Group.
+
+        `externalId` in the body is accepted and DISCARDED, so a client may PUT back a
+        resource it read. The alias belongs to the connector's relationship with the
+        resource and is established at creation: a PUT that could change it would let
+        a replacement silently re-key the resource in the caller's own namespace, and
+        one that had to restate it would delete the alias of every connector that
+        omitted the field.
+
+        **Version increments reach other resources.** A membership change advances
+        this Group's version and the version of every User added or removed. A
+        `displayName` change advances this Group's version and the version of every
+        CURRENT member, because the label rendered inside their `groups` changed. A
+        write that moves both touches the union of the old and the new membership.
+
+        `If-Match` is not honoured yet — conditional writes arrive with their own
+        ticket, and ServiceProviderConfig advertises `etag.supported` for the
+        validators responses already carry rather than for preconditions.
+      operationId: replaceScimGroup
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimGroup"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimGroup"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScimGroupResource"
+        "400":
+          $ref: "#/components/responses/ScimProtectedOrBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body.
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+        "409":
+          description: Another live Group already holds that displayName.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+    patch:
+      tags: [SCIM]
+      summary: Modify a Group
+      description: |
+        The operation a provisioning system uses to grant or revoke a membership
+        without resending the whole Group — which a PUT would force it to do, and
+        which would overwrite concurrent changes it never read.
+
+        **Partial failure applies nothing.** The operations are folded into one
+        desired state and written once, so a sequence whose third operation is refused
+        leaves the first two unapplied: there is no intermediate state to roll back,
+        because none was ever written.
+
+        Each operation requires a `path`, and the supported paths are a closed set —
+        a Group has two writable attributes, so anything else is `400 invalidValue`
+        rather than something interpreted deeper in:
+
+        | `op` | `path` | Meaning |
+        | --- | --- | --- |
+        | `add`, `replace` | `displayName` | Set the label. The attribute is single-valued, so adding to it replaces it (RFC 7644 §3.5.2.1). |
+        | `remove` | `displayName` | Refused: `displayName` is required. |
+        | `add` | `members` | Add the named Users, leaving existing members in place. An id already present is a no-op, not a conflict. |
+        | `replace` | `members` | Replace the whole membership. |
+        | `remove` | `members` | With a value, remove the named Users; with none, clear the membership. Removing a non-member is a no-op. |
+        | `remove` | `members[value eq "<id>"]` | Remove one member. The only value-path form accepted, because it is the one that occurs. |
+
+        Returns `200` with the patched resource rather than `204`, which RFC 7644
+        permits either of: a membership change advances versions, and a client given
+        no body would have to re-read the resource to learn its new ETag.
+
+        The same cross-resource version increments apply as for PUT.
+      operationId: patchScimGroup
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimGroupId"
+        - $ref: "#/components/parameters/ScimAttributes"
+        - $ref: "#/components/parameters/ScimExcludedAttributes"
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimPatchOp"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimPatchOp"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScimGroupResource"
+        "400":
+          $ref: "#/components/responses/ScimProtectedOrBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body.
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
+        "409":
+          description: Another live Group already holds that displayName.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimError"
+    delete:
+      tags: [SCIM]
+      summary: Delete a Group
+      description: |
+        Removes the Group and its memberships, and advances the version of every User
+        that was a member — their `groups` just lost an entry.
+
+        `204` with no body. A Group that is not there is a `404` rather than a silent
+        success: a connector converging on a desired state needs to know whether the
+        id it holds was ever real.
+
+        The Admin group cannot be deleted; the attempt is `400 mutability` and removes
+        nothing. No tombstone is written yet — tombstones and reusable identifiers
+        arrive with their own ticket, so a deleted Group's `displayName` is
+        immediately reusable in the meantime.
+      operationId: deleteScimGroup
+      security:
+        - connectorBearer: []
+      parameters:
+        - $ref: "#/components/parameters/ScimGroupId"
+      responses:
+        "204":
+          description: The Group is gone.
+        "400":
+          $ref: "#/components/responses/ScimProtectedOrBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "403":
+          description: |
+            The token is read-only. Carries `WWW-Authenticate: Bearer
+            error="insufficient_scope"` and no body.
+        "404":
+          $ref: "#/components/responses/ScimNotFound"
   /actuator/health:
     get:
       tags: [Health]
@@ -861,11 +1158,23 @@ components:
         an always-returned attribute survives being named here.
       schema:
         type: string
+    ScimGroupId:
+      name: id
+      in: path
+      required: true
+      description: |
+        The Group's stable SCIM id. An id that is not a UUID, and an id that names a
+        User rather than a Group, are both a `404` — the id namespace is shared, so
+        "not a Group" and "not there" are the same answer and are deliberately not
+        told apart.
+      schema:
+        type: string
+        format: uuid
     Username:
       name: username
       in: path
       required: true
-      description: The account to act on.
+      description: The identity to act on, by its `userName`.
       schema:
         type: string
     CsrfToken:
@@ -974,6 +1283,49 @@ components:
         application/scim+json:
           schema:
             $ref: "#/components/schemas/ScimError"
+    ScimGroupResource:
+      description: |
+        The canonical Group resource. `ETag` is its strong validator, the same string
+        as `meta.version`.
+      headers:
+        ETag:
+          description: Strong validator, e.g. `"1"`.
+          schema:
+            type: string
+        Location:
+          description: Absolute URI of this Group.
+          schema:
+            type: string
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimGroup"
+    ScimProtectedOrBadRequest:
+      description: |
+        Either the request was not acceptable SCIM — see `ScimBadRequest`, `scimType`
+        `invalidSyntax` or `invalidValue`, which also covers a member id that does not
+        name a live User — or it targeted a resource this deployment reserves for its
+        own recovery, with `scimType` `mutability`.
+
+        **The reserved resources and what is refused about them:** the Admin group
+        cannot be renamed or deleted, and the Bootstrap Admin's Group membership
+        cannot be changed in either direction — it cannot be removed from the Admin
+        group and cannot be added to any other Group, because a membership change
+        moves that User's computed `groups` and its version, which a client reads.
+        The Admin group's ORDINARY membership stays fully writable: granting and
+        revoking administrative access is what external provisioning is for.
+
+        `400` rather than `403` deliberately. The token may be a perfectly valid
+        read-write one; it is the TARGET that is refused, not the credential, and
+        answering `403` would send an integrator to re-check a token scope that is
+        fine.
+
+        A refused write changes nothing: every check runs before anything is written,
+        so the resource re-reads unchanged, version included.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
   schemas:
     LoginRequest:
       type: object
@@ -1000,32 +1352,68 @@ components:
           description: The account role used for authorization.
     AccountSummary:
       type: object
-      required: [username, role, enabled, locked, createdAt]
+      required: [id, userName, admin, active, locked, hasPassword, createdAt]
       properties:
-        username:
+        id:
           type: string
-        role:
+          format: uuid
+          description: |
+            The identity's stable SCIM resource id, non-reassignable. The same id
+            the SCIM interface serves this identity under, and the id the audit
+            trail records — `userName` is a mutable attribute and never an
+            identifier.
+        userName:
           type: string
-          enum: [USER, ADMIN]
-        enabled:
+          description: |
+            The login and display attribute. Mutable, and addressed by the
+            operations below because it is what an administrator reads; anything
+            that must keep pointing at the same identity uses `id`.
+        admin:
           type: boolean
           description: |
-            Administrative standing. Not decorative: a disabled account is refused
-            at login. Changed only through the disable and enable operations.
+            Whether this identity holds administrative authority. DERIVED from
+            direct membership of the server-seeded Admin group, not stored: there
+            is no role column, so this reports the same fact the login path
+            derives and there is nothing for the two to disagree about.
+
+            Membership changes take effect at the identity's next login. A session
+            already issued carries the authority it was issued with.
+        active:
+          type: boolean
+          description: |
+            Administrative standing, and SCIM's own `active` attribute — the two
+            were separate flags until the login identity and the SCIM User became
+            one resource, and keeping both would have left one unreachable over
+            the wire.
+
+            Not decorative: an inactive identity is refused at login with the same
+            bare `401` as a wrong password. Changed only through the disable and
+            enable operations.
         locked:
           type: boolean
           description: |
-            Whether a lockout is in force. Independent of `enabled` — a lockout is
+            Whether a lockout is in force. Independent of `active` — a lockout is
             imposed automatically by a run of failed logins. It has no expiry and
             there is no field for one: the lockout stands until an administrator
             calls the unlock operation, so this flag is the whole lock state.
+        hasPassword:
+          type: boolean
+          description: |
+            Whether a credential is set at all. A SCIM-provisioned identity may
+            exist with no password — it is a supported state, not an incomplete
+            one — and such an identity can be read, can be put in a Group, and
+            cannot log in. Reported because "no password was ever set" is
+            otherwise indistinguishable from "the password is wrong", and only the
+            first is fixed by a SCIM write.
+
+            The value itself is never reported, here or anywhere: this schema has
+            no field a hash could occupy.
         createdAt:
-          type: [string, "null"]
+          type: string
           format: date-time
           description: |
-            Null only for an account row written before this column existed.
-            Startup seeding backfills it, so a deployment reports null at most
-            until its next restart.
+            When the SCIM resource was created. No longer nullable: the timestamp
+            lives on the resource row, which cannot exist without one.
     UpdateSessionRequest:
       type: object
       required: [displayName]
@@ -1319,6 +1707,127 @@ components:
             $ref: "#/components/schemas/ScimUserEmail"
         meta:
           $ref: "#/components/schemas/ScimMeta"
+    ScimGroup:
+      type: object
+      required: [schemas, displayName]
+      description: |
+        A SCIM core Group, as this service implements it: a label and a direct-User
+        membership, and nothing else. What a Group is FOR here is conferring
+        authority, so no other attribute would change who may do what.
+
+        On a write: `id` and `meta` are ignored if present, `externalId` is scoped to
+        the calling connector and is discarded on a PUT, and every `members`
+        sub-attribute other than `value` is read-only and ignored. On a read: an
+        unassigned attribute is omitted rather than rendered null, so an empty Group
+        renders no `members` at all.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+          example: ["urn:ietf:params:scim:schemas:core:2.0:Group"]
+        id:
+          type: string
+          format: uuid
+          description: Server-assigned, stable, and unique across Users and Groups.
+          readOnly: true
+        externalId:
+          type: string
+          description: The calling connector's alias for this resource, case-exact.
+        displayName:
+          type: string
+          description: |
+            Unique among live Groups, case-insensitively, after Unicode NFKC and case
+            folding — stricter than RFC 7643, which leaves it non-unique. Made unique
+            because a Group's membership confers authority, and two Groups an
+            administrator reads as the same name is how membership of the wrong one
+            gets granted.
+
+            The Admin group's name cannot be changed. Its authority is carried by its
+            stable id rather than by this string, so the immutability is not about the
+            name mattering — it is that a renameable recovery resource is one a
+            connector can make unrecognisable to an administrator reading the
+            directory.
+        members:
+          type: array
+          description: |
+            Direct User members. A member id naming a Group, a deleted User, or nothing
+            at all is one indistinguishable `400 invalidValue`. Nested and transitive
+            membership are unsupported and have no representation.
+          items:
+            $ref: "#/components/schemas/ScimGroupMember"
+        meta:
+          $ref: "#/components/schemas/ScimMeta"
+    ScimGroupMember:
+      type: object
+      required: [value]
+      description: |
+        One membership. `value` is the only sub-attribute a write supplies; the rest are
+        read-only and derived from the referenced User, so a submitted value is ignored
+        rather than stored — there is no column it could be written to.
+      properties:
+        value:
+          type: string
+          format: uuid
+          description: The member User's stable SCIM id.
+        display:
+          type: string
+          description: |
+            The referenced User's `displayName`, or its `userName` when it has none.
+            Read-only.
+          readOnly: true
+        $ref:
+          type: string
+          description: |
+            Absolute URI of the referenced User, built from its id rather than stored —
+            a stored reference would be wrong the moment the service moved. Read-only.
+          readOnly: true
+        type:
+          type: string
+          description: Always `User`; this directory has no Group-valued members.
+          readOnly: true
+          enum: [User]
+    ScimPatchOp:
+      type: object
+      required: [schemas, Operations]
+      description: |
+        A SCIM PATCH request. Operations apply in the order given, and the whole
+        sequence is folded into one desired state and written once — so a sequence
+        whose later operation is refused applies none of the earlier ones.
+      properties:
+        schemas:
+          type: array
+          items:
+            type: string
+          example: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
+        Operations:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ScimPatchOperation"
+    ScimPatchOperation:
+      type: object
+      required: [op, path]
+      description: |
+        One operation. `path` is REQUIRED by this service: a path-less `add` would be an
+        attribute-by-attribute merge whose semantics for a multi-valued attribute RFC
+        7644 leaves genuinely ambiguous, and guessing at it is worse than refusing.
+      properties:
+        op:
+          type: string
+          description: Matched case-insensitively, as RFC 7644 §3.5.2 requires.
+          enum: [add, replace, remove]
+        path:
+          type: string
+          description: |
+            `displayName`, `members`, or `members[value eq "<uuid>"]` — the only
+            value-path form accepted, and only with `remove`. Any other path is
+            `400 invalidValue`.
+          example: members
+        value:
+          description: |
+            A string for `displayName`; an array of member objects for `members`.
+            Omitted on a `remove` that clears the whole membership.
     ScimListResponse:
       type: object
       required: [schemas, totalResults, startIndex, itemsPerPage]

@@ -59,9 +59,6 @@ public record AuditEvent(
         String httpPath,
         String requestId) {
 
-    /** The login identity, as the audit trail names it. */
-    public static final String ACCOUNT_RESOURCE_TYPE = "Account";
-
     /**
      * A SCIM connector, as the audit trail names it.
      *
@@ -77,12 +74,26 @@ public record AuditEvent(
     /**
      * A SCIM User, spelled as RFC 7643 spells the resource type.
      *
-     * <p>Distinct from {@link #ACCOUNT_RESOURCE_TYPE} while both exist: an event
-     * about the login identity and an event about a provisioned SCIM resource are
-     * about different things until the two identities become one, and collapsing
-     * them early would make a trail that cannot say which surface acted.
+     * <p>The login identity as well as the provisioned resource, because they are now the
+     * same thing: the account aggregate is gone and a SCIM User owns the profile and the
+     * authentication state together. There was a separate {@code "Account"} type while both
+     * existed, and its own documentation said it should collapse into this one once the two
+     * identities became one — this is that collapse. An authentication event and a
+     * provisioning event about the same person therefore group under one resource type and
+     * one id, which is the whole point of having unified them.
      */
     public static final String USER_RESOURCE_TYPE = "User";
+
+    /**
+     * A SCIM Group, spelled as RFC 7643 spells the resource type.
+     *
+     * <p>Carries the Group's own id, including on an event about a membership: a membership
+     * has no id of its own, and the resource whose representation changed is the Group.
+     * Which User was added or removed is not recorded — a membership change is an event
+     * about authority, and naming the other party would put a second identity's history
+     * inside the first one's event.
+     */
+    public static final String GROUP_RESOURCE_TYPE = "Group";
 
     /** The request succeeded. */
     public static final String STATUS_OK = "ok";

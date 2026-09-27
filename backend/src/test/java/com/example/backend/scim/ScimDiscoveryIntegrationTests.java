@@ -51,6 +51,13 @@ class ScimDiscoveryIntegrationTests {
 
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
+    /**
+     * Spelled out rather than referenced from {@code ScimSchemas}, like its User counterpart: a
+     * schema URI is compared byte for byte by a conformance client, so the test's expectation has
+     * to be written independently of the constant the production code renders.
+     */
+    private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
+
     private static final String ENTERPRISE_SCHEMA =
             "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User";
 
@@ -162,27 +169,47 @@ class ScimDiscoveryIntegrationTests {
     }
 
     /**
-     * {@code patch.supported=false}, and a PATCH does not succeed. The refusal's SHAPE is
-     * the dispatcher's rather than this slice's — no handler is mapped for the method, so
-     * the SCIM error advice never runs — which is why this asserts the outcome is not a
-     * success rather than asserting a body.
+     * {@code patch.supported=true}, and a Group PATCH is ACCEPTED.
+     *
+     * <p>This assertion inverted with the ticket that completed Groups. It used to pair the flag
+     * with a PATCH that no handler was mapped for; the pairing is only honest in whichever
+     * direction the implementation actually goes, and advertising {@code false} while
+     * {@code /Groups} answered a PATCH would be the same failure as the reverse.
+     *
+     * <p>Exercised against a Group because Groups are what accept PATCH: a membership change is
+     * the operation the capability exists for, and a provisioning system that had to PUT a Group
+     * to add one member would resend the whole membership every time and overwrite concurrent
+     * changes it never read.
      */
     @Test
-    void the_patch_flag_agrees_with_the_absence_of_a_patch_endpoint() throws Exception {
+    void the_patch_flag_agrees_with_a_group_patch_being_accepted() throws Exception {
         assertThat(body(get(BASE + "/ServiceProviderConfig"))
                         .get("patch").get("supported").booleanValue())
                 .isEqualTo(ScimDiscovery.PATCH_SUPPORTED)
-                .isFalse();
+                .isTrue();
 
-        int status = mvc.perform(asConnector(
-                        patch(BASE + "/Users/8a5c1f4e-0000-4000-8000-000000000001"))
+        MvcResult created = mvc.perform(asConnector(post(BASE + "/Groups"))
                         .contentType(SCIM_JSON)
-                        .content("{}"))
+                        .content("""
+                                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                                 "displayName":"Patch Target"}"""))
+                .andReturn();
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        String groupId = parsed(created).get("id").asText();
+
+        int status = mvc.perform(asConnector(patch(BASE + "/Groups/" + groupId))
+                        .contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                                 "Operations":[
+                                   {"op":"replace","path":"displayName","value":"Patched"}]}"""))
                 .andReturn()
                 .getResponse()
                 .getStatus();
 
-        assertThat(status).isGreaterThanOrEqualTo(400);
+        assertThat(status)
+                .as("the advertised capability has to be the one the endpoint honours")
+                .isEqualTo(200);
     }
 
     /** {@code etag.supported=true}, and a created resource carries one that matches its version. */
@@ -220,39 +247,54 @@ class ScimDiscoveryIntegrationTests {
     }
 
     @Test
-    void the_resource_types_are_user_alone_while_groups_have_no_endpoints() throws Exception {
+    void the_resource_types_are_user_and_group_now_that_both_have_endpoints() throws Exception {
         JsonNode types = body(get(BASE + "/ResourceTypes"));
 
-        assertThat(types.get("totalResults").asInt()).isEqualTo(1);
-        assertThat(types.get("Resources").get(0).get("id").asText()).isEqualTo("User");
-        assertThat(types.get("Resources").get(0).get("endpoint").asText()).isEqualTo("/Users");
-        assertThat(types.get("Resources").get(0).get("schema").asText()).isEqualTo(USER_SCHEMA);
+        assertThat(types.get("totalResults").asInt()).isEqualTo(2);
+        assertThat(types.get("Resources")).hasSize(2)
+                .extracting(type -> type.get("id").asText())
+                .containsExactly("User", "Group");
 
-        JsonNode one = body(get(BASE + "/ResourceTypes/User"));
-        assertThat(one.get("id").asText())
+        JsonNode user = body(get(BASE + "/ResourceTypes/User"));
+        assertThat(user.get("id").asText())
                 .as("the single-resource endpoint serves the resource type, not an empty body")
                 .isEqualTo("User");
-        assertThat(one.get("endpoint").asText()).isEqualTo("/Users");
-        assertThat(one.get("schema").asText()).isEqualTo(USER_SCHEMA);
+        assertThat(user.get("endpoint").asText()).isEqualTo("/Users");
+        assertThat(user.get("schema").asText()).isEqualTo(USER_SCHEMA);
 
-        assertThat(mvc.perform(get(BASE + "/ResourceTypes/Group")).andReturn()
+        JsonNode group = body(get(BASE + "/ResourceTypes/Group"));
+        assertThat(group.get("id").asText()).isEqualTo("Group");
+        assertThat(group.get("endpoint").asText()).isEqualTo("/Groups");
+        assertThat(group.get("schema").asText()).isEqualTo(GROUP_SCHEMA);
+
+        // The claim the list makes: a resource type in it means its endpoint answers. Inverted
+        // from the version of this test that asserted /ResourceTypes/Group was a 404, because
+        // /Groups now answers — and an advertised type whose endpoint did not would be the
+        // dishonesty this whole test class exists to catch.
+        assertThat(mvc.perform(asConnector(get(BASE + "/Groups"))).andReturn()
                         .getResponse().getStatus())
                 .as("a resource type in the list is a claim that its endpoint answers")
-                .isEqualTo(404);
+                .isEqualTo(200);
     }
 
     @Test
-    void the_schemas_are_the_core_user_schema_alone() throws Exception {
+    void the_schemas_are_the_core_user_and_group_schemas() throws Exception {
         JsonNode schemas = body(get(BASE + "/Schemas"));
 
-        assertThat(schemas.get("totalResults").asInt()).isEqualTo(1);
-        assertThat(schemas.get("Resources").get(0).get("id").asText()).isEqualTo(USER_SCHEMA);
+        assertThat(schemas.get("totalResults").asInt()).isEqualTo(2);
+        assertThat(schemas.get("Resources")).hasSize(2)
+                .extracting(schema -> schema.get("id").asText())
+                .containsExactly(USER_SCHEMA, GROUP_SCHEMA);
 
-        JsonNode one = body(get(BASE + "/Schemas/" + USER_SCHEMA));
-        assertThat(one.get("id").asText())
+        JsonNode user = body(get(BASE + "/Schemas/" + USER_SCHEMA));
+        assertThat(user.get("id").asText())
                 .as("the single-schema endpoint serves the schema, not an empty body")
                 .isEqualTo(USER_SCHEMA);
-        assertThat(one.get("attributes").isArray()).isTrue();
+        assertThat(user.get("attributes").isArray()).isTrue();
+
+        JsonNode group = body(get(BASE + "/Schemas/" + GROUP_SCHEMA));
+        assertThat(group.get("id").asText()).isEqualTo(GROUP_SCHEMA);
+        assertThat(group.get("attributes").isArray()).isTrue();
 
         assertThat(mvc.perform(get(BASE + "/Schemas/" + ENTERPRISE_SCHEMA)).andReturn()
                         .getResponse().getStatus())
@@ -327,6 +369,17 @@ class ScimDiscoveryIntegrationTests {
     private JsonNode body(MockHttpServletRequestBuilder request) throws Exception {
         MvcResult result = mvc.perform(request).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        return parsed(result);
+    }
+
+    /**
+     * The body of a result whose status the caller has already asserted.
+     *
+     * <p>Separate from {@link #body(MockHttpServletRequestBuilder)}, which asserts {@code 200}:
+     * a create answers {@code 201}, so reading its body through that helper would fail on the
+     * status rather than on anything the test is about.
+     */
+    private JsonNode parsed(MvcResult result) throws Exception {
         return json.readTree(result.getResponse().getContentAsString());
     }
 }

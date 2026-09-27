@@ -31,12 +31,19 @@ The service listens on `http://localhost:8080`. Its health endpoint is
 
 ## Log in
 
-Authentication is database-backed. On startup the service idempotently seeds
-one `USER` account and one `ADMIN` account when their usernames are absent. The
-development defaults are `user` / `P@ssw0rd` and `admin` / `P@ssw0rd`;
-`APP_USERNAME` / `APP_PASSWORD` configure the `USER` seed and
-`APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the `ADMIN` seed.
-These published defaults must not be used in production.
+Authentication is database-backed, and the identity that logs in is a **SCIM
+User** — there is no separate account table. On startup the service idempotently
+seeds an ordinary User, the **Bootstrap Admin**, and the server-reserved **Admin
+group** with the Bootstrap Admin as its immutable member, creating whichever is
+absent. The development defaults are `user` / `P@ssw0rd` and `admin` /
+`P@ssw0rd`; `APP_USERNAME` / `APP_PASSWORD` configure the ordinary User and
+`APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the Bootstrap
+Admin. These published defaults must not be used in production.
+
+There is no role column. Every active User holds `USER`; direct membership of the
+Admin group additionally grants `ADMIN`. Authority is derived when a session is
+created, so a User added to or removed from the Admin group gains or loses `ADMIN`
+at their next login, never mid-session.
 
 Five consecutive refused logins lock an account, and the lock is **permanent**:
 it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
@@ -50,8 +57,8 @@ which accounts exist, which have a password set, or which are locked. An accepte
 login resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` configures the threshold, with
 no enforced floor on the value; there is no duration setting to configure.
 
-The seeded `ADMIN` (`APP_SECONDARY_USERNAME`) is the deployment's **Bootstrap
-Admin** and is the one account exempt from lockout: its failed attempts are
+The Bootstrap Admin (`APP_SECONDARY_USERNAME`) is the deployment's recovery
+identity and is the one User exempt from lockout: its failed attempts are
 counted and audited, but it never locks. Without that exemption a permanent
 lockout would let an unauthenticated attacker brick the deployment by guessing at
 the recovery account until it closed. The accepted cost is unbounded online
@@ -104,19 +111,24 @@ curl -b cookies.txt http://localhost:8080/api/admin/accounts
 ```json
 [
   {
-    "username": "admin",
-    "role": "ADMIN",
-    "enabled": true,
+    "id": "0b6f2c1e-8d7a-4f1e-9a3b-2c5d6e7f8a90",
+    "userName": "admin",
+    "admin": true,
+    "active": true,
     "locked": false,
+    "hasPassword": true,
     "createdAt": "2026-01-02T03:04:05.123456Z"
   }
 ]
 ```
 
-Control an account. Enabling and unlocking are **separate capabilities**:
-disabling leaves the failure run standing, enabling leaves a lockout standing,
-and unlocking says nothing about `enabled`. Each is a POST, so each needs the
-CSRF header:
+`admin` is derived from Admin group membership at read time; it is not a stored
+field.
+
+Control an identity. Activating and unlocking are **separate capabilities**:
+deactivating leaves the failure run standing, activating leaves a lockout
+standing, and unlocking says nothing about `active`. Each is a POST, so each
+needs the CSRF header:
 
 ```bash
 token=$(awk '/XSRF-TOKEN/{print $7}' cookies.txt)
@@ -131,10 +143,10 @@ curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
   http://localhost:8080/api/admin/accounts/user/unlock
 ```
 
-Each answers `200` with the account as it now stands, `404` for an unknown
-username, and `409` when the change would leave nobody able to reverse it —
-disabling your own account, or the last enabled administrator. Disabling does
-**not** end a session the account already holds; it only stops new logins.
+Each answers `200` with the identity as it now stands, `404` for an unknown
+username, and `409` when the change is unsafe — deactivating yourself, the
+Bootstrap Admin, or the last active administrator. Deactivating revokes the
+User's live sessions once the change commits, as well as stopping new logins.
 
 Increment or reset the count belonging to the authenticated user:
 
@@ -161,23 +173,22 @@ real Redis credentials in your deployment's secret manager; do not commit them.
 
 | Variable           | Default | Meaning                                    |
 | ------------------ | ------- | ------------------------------------------ |
-| `APP_SCIM_ENABLED` | `false` | Whether this deployment serves `/scim/v2`  |
+| `APP_SCIM_ENABLED` | `true`  | Whether this deployment serves `/scim/v2`  |
 
-**Off by default.** While it is off the whole `/scim/v2` namespace answers `404` —
-public discovery included, and ahead of authentication, so a valid connector token
-gets the same answer as none at all. A deployment serves the SCIM interface because
-someone turned it on, never because they did not know it was there.
+**On by default.** The discovery documents (`ServiceProviderConfig`,
+`ResourceTypes`, `Schemas`) are public; the `Users` and `Groups` resource
+endpoints still answer `401` without a connector token. Set
+`APP_SCIM_ENABLED=false` to turn the interface off: the whole `/scim/v2`
+namespace then answers `404` — public discovery included, and ahead of
+authentication, so a valid connector token gets the same answer as none at all.
 
 The reason it exists: SCIM Users and Groups are one release capability. A directory
-that can create Users but has no Groups cannot express authority, so a connector
-provisioning against it would build a directory that means something different from
-the one it will provision against later. The gate lets the two halves be built and
-merged in order without the half-built surface ever being reachable.
+that can create Users but has no Groups cannot express authority, so the gate kept
+the User half unreachable until the Group half was built. Both halves now exist.
 
 The value is not written in `application.yaml`: the default belongs to
-`ScimSecurityConfig`, so an unset variable reaches the gate as closed rather than as
-whatever a replaced config file happens to say. Set `APP_SCIM_ENABLED=true` to open
-it — in a test, `@TestPropertySource(properties = "app.scim.enabled=true")`.
+`ScimSecurityConfig`, so an unset variable reaches the gate as open rather than as
+whatever a replaced config file happens to say.
 
 ### Audit trail retention
 

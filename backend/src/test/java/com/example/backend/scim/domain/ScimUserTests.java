@@ -19,6 +19,11 @@ class ScimUserTests {
                 "bjensen", ScimName.NONE, null, null, null, null, true, List.of());
     }
 
+    /** An unreserved User at the given version, with a credential and no login history. */
+    private static ScimUser user(UUID id, ScimUserProfile profile, String hash, long version) {
+        return new ScimUser(id, profile, ScimLoginState.of(hash), null, version, NOW, NOW);
+    }
+
     @Test
     void a_created_user_starts_at_version_one_with_one_timestamp_for_both_fields() {
         ScimUser user = ScimUser.created(ID, profile(), "hash", NOW);
@@ -32,54 +37,119 @@ class ScimUserTests {
 
     @Test
     void a_user_without_a_stable_id_is_refused() {
-        assertThatThrownBy(() -> new ScimUser(null, profile(), "hash", 1L, NOW, NOW))
+        assertThatThrownBy(() -> user(null, profile(), "hash", 1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("stable id");
     }
 
     @Test
     void a_user_without_a_profile_is_refused() {
-        assertThatThrownBy(() -> new ScimUser(ID, null, "hash", 1L, NOW, NOW))
+        assertThatThrownBy(() -> user(ID, null, "hash", 1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("has a profile");
     }
 
+    /**
+     * The authentication state is a component now, not an optional one: a User with no
+     * {@link ScimLoginState} at all is a different thing from a credentialless User, whose
+     * state is {@link ScimLoginState#CREDENTIALLESS}.
+     */
+    @Test
+    void a_user_without_an_authentication_state_is_refused() {
+        assertThatThrownBy(() -> new ScimUser(ID, profile(), null, null, 1L, NOW, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("authentication state");
+    }
+
     @Test
     void a_version_below_one_is_refused_because_every_live_resource_has_an_etag() {
-        assertThatThrownBy(() -> new ScimUser(ID, profile(), "hash", 0L, NOW, NOW))
+        assertThatThrownBy(() -> user(ID, profile(), "hash", 0L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("starts at 1");
-        assertThatThrownBy(() -> new ScimUser(ID, profile(), "hash", -1L, NOW, NOW))
+        assertThatThrownBy(() -> user(ID, profile(), "hash", -1L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("starts at 1");
     }
 
     @Test
     void version_one_is_accepted_as_the_first_live_version() {
-        assertThat(new ScimUser(ID, profile(), "hash", 1L, NOW, NOW).version()).isEqualTo(1L);
+        assertThat(user(ID, profile(), "hash", 1L).version()).isEqualTo(1L);
     }
 
     /**
      * The credentialless User is a supported state, not an incomplete one: SCIM allows a
      * create with no {@code password}, and such a User exists and can be read while being
      * unable to authenticate. {@code hasPassword} is how that is answered without the hash
-     * leaving the slice.
+     * leaving the slice — asked of the login state, which is where the credential now lives.
      */
     @Test
     void a_user_with_a_hash_has_a_password() {
-        assertThat(ScimUser.created(ID, profile(), "hash", NOW).hasPassword()).isTrue();
+        assertThat(ScimUser.created(ID, profile(), "hash", NOW).login().hasPassword()).isTrue();
     }
 
     @Test
     void a_credentialless_user_has_no_password() {
-        assertThat(ScimUser.created(ID, profile(), null, NOW).hasPassword()).isFalse();
+        assertThat(ScimUser.created(ID, profile(), null, NOW).login().hasPassword()).isFalse();
+    }
+
+    /** A created User has no login history, whatever it is later asked about that state. */
+    @Test
+    void a_created_user_has_no_login_history() {
+        ScimUser user = ScimUser.created(ID, profile(), "hash", NOW);
+
+        assertThat(user.login().failedLoginAttempts()).isZero();
+        assertThat(user.login().isLocked()).isFalse();
     }
 
     @Test
     void the_uniqueness_form_of_the_user_name_comes_from_the_profile() {
         ScimUser user = ScimUser.created(ID, profile(), null, NOW);
 
-        assertThat(user.normalizedUserName()).isEqualTo(profile().normalizedUserName());
-        assertThat(user.normalizedUserName()).isEqualTo(NormalizedUserName.of("BJensen"));
+        assertThat(user.profile().normalizedUserName()).isEqualTo(profile().normalizedUserName());
+        assertThat(user.profile().normalizedUserName())
+                .isEqualTo(NormalizedUserName.of("BJensen"));
+    }
+
+    /**
+     * A created User is unreserved, and that is the guarantee the factory exists to make: no
+     * provisioning path can mint a resource that protects itself from being changed.
+     */
+    @Test
+    void a_created_user_is_neither_write_protected_nor_lockout_exempt() {
+        ScimUser user = ScimUser.created(ID, profile(), "hash", NOW);
+
+        assertThat(user.reservedName()).isNull();
+        assertThat(user.isProtectedFromWrites()).isFalse();
+        assertThat(user.isExemptFromLockout()).isFalse();
+    }
+
+    /**
+     * Both reservations protect a User from SCIM writes, but only the Bootstrap Admin is
+     * exempt from lockout — the two rules are about different things and are asserted apart
+     * so a future third reservation cannot silently acquire the exemption.
+     */
+    @Test
+    void a_reserved_user_is_write_protected_and_only_the_bootstrap_admin_is_lockout_exempt() {
+        ScimUser bootstrap = new ScimUser(
+                ID,
+                profile(),
+                ScimLoginState.of("hash"),
+                ReservedResourceName.BOOTSTRAP_ADMIN,
+                1L,
+                NOW,
+                NOW);
+        ScimUser otherwiseReserved = new ScimUser(
+                ID,
+                profile(),
+                ScimLoginState.of("hash"),
+                ReservedResourceName.ADMIN_GROUP,
+                1L,
+                NOW,
+                NOW);
+
+        assertThat(bootstrap.isProtectedFromWrites()).isTrue();
+        assertThat(bootstrap.isExemptFromLockout()).isTrue();
+        assertThat(otherwiseReserved.isProtectedFromWrites()).isTrue();
+        assertThat(otherwiseReserved.isExemptFromLockout()).isFalse();
     }
 }

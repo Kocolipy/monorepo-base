@@ -71,14 +71,41 @@ class ScimDiscoveryTests {
     }
 
     @Test
-    void the_resource_types_collection_is_the_user_type_alone() {
-        assertThat(ScimDiscovery.resourceTypes())
-                .containsExactly(ScimDiscovery.userResourceType());
+    void the_group_resource_type_is_exactly_this_document() {
+        assertThat(ScimDiscovery.groupResourceType())
+                .containsExactlyInAnyOrderEntriesOf(Map.of(
+                        "schemas", List.of(ScimSchemas.RESOURCE_TYPE),
+                        "id", "Group",
+                        "name", "Group",
+                        "endpoint", "/Groups",
+                        "description", "SCIM core Group. Membership confers application authority.",
+                        "schema", ScimSchemas.GROUP,
+                        "meta", Map.of(
+                                "resourceType", "ResourceType",
+                                "location", ScimSchemas.BASE_PATH + "/ResourceTypes/Group")));
     }
 
     @Test
-    void the_schemas_collection_is_the_core_user_schema_alone() {
+    void the_group_resource_type_declares_no_schema_extensions() {
+        assertThat(ScimDiscovery.groupResourceType()).doesNotContainKey("schemaExtensions");
+    }
+
+    /**
+     * Both types, in order. A resource type in this list is a claim that its endpoint
+     * answers, so the Group entry appearing here is the same assertion as the Group endpoint
+     * existing — the two were one release capability precisely so this list never advertises
+     * half a directory.
+     */
+    @Test
+    void the_resource_types_collection_is_the_user_and_group_types() {
+        assertThat(ScimDiscovery.resourceTypes())
+                .containsExactly(ScimDiscovery.userResourceType(), ScimDiscovery.groupResourceType());
+    }
+
+    @Test
+    void the_schemas_collection_is_the_core_user_and_group_schemas() {
         assertThat(ScimDiscovery.schemas())
-                .containsExactly(ScimUserAttributes.schemaDocument());
+                .containsExactly(
+                        ScimUserAttributes.schemaDocument(), ScimGroupAttributes.schemaDocument());
     }
 }

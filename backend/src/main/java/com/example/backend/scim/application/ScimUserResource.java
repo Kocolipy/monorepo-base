@@ -1,8 +1,10 @@
 package com.example.backend.scim.application;
 
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -23,6 +25,7 @@ import java.util.UUID;
  *
  * @param id             the resource's stable id
  * @param profile        the stored profile attributes
+ * @param groups         the Groups this User is a direct member of — computed, read-only
  * @param externalId     the calling connector's alias, or null when it set none
  * @param version        the representation version, rendered as the ETag
  * @param createdAt      creation instant, UTC
@@ -31,23 +34,35 @@ import java.util.UUID;
 public record ScimUserResource(
         UUID id,
         ScimUserProfile profile,
+        List<ScimGroupReference> groups,
         String externalId,
         long version,
         Instant createdAt,
         Instant lastModifiedAt) {
 
+    public ScimUserResource {
+        groups = groups == null ? List.of() : List.copyOf(groups);
+    }
+
     /**
      * The projection of a stored User for one connector.
      *
-     * <p>Takes the alias as an argument rather than reading it, so the caller that
-     * knows which connector is asking is the one that supplies it; a projection that
-     * looked the alias up itself would need the connector's identity and could get it
+     * <p>Takes the alias and the Group memberships as arguments rather than reading them, so
+     * the caller that knows which connector is asking is the one that supplies the alias; a
+     * projection that looked it up itself would need the connector's identity and could get it
      * wrong silently.
+     *
+     * <p>The memberships are passed in for a different reason: they are the REVERSE view, and
+     * a projection that resolved them would make every place a User is projected reach into
+     * the Group port — including a listing, where that is N+1 queries. The use case resolves
+     * them once and hands them over.
      */
-    static ScimUserResource of(ScimUser user, String externalId) {
+    static ScimUserResource of(
+            ScimUser user, List<ScimGroupReference> groups, String externalId) {
         return new ScimUserResource(
                 user.id(),
                 user.profile(),
+                groups,
                 externalId,
                 user.version(),
                 user.createdAt(),

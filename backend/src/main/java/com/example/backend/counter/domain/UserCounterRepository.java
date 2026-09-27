@@ -9,13 +9,13 @@ import java.util.UUID;
  */
 public interface UserCounterRepository {
 
-    Optional<UserCounter> findByAccountId(UUID accountId);
+    Optional<UserCounter> findByUserId(UUID userId);
 
     /**
      * Loads a counter while holding a write lock on it for the duration of the
      * surrounding transaction, so concurrent updates serialise.
      */
-    Optional<UserCounter> findByAccountIdForUpdate(UUID accountId);
+    Optional<UserCounter> findByUserIdForUpdate(UUID userId);
 
     UserCounter save(UserCounter counter);
 }

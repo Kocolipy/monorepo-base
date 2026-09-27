@@ -50,6 +50,19 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(HttpStatus.CONFLICT, "uniqueness", detail);
     }
 
+    /**
+     * The write targeted something that cannot be changed — a resource this deployment
+     * reserves for its own recovery.
+     *
+     * <p>{@code 400} and not {@code 403}. The caller's token may be a perfectly valid
+     * read-write one: it is the TARGET that is refused, not the credential, and answering
+     * {@code 403} would send an integrator to re-check a token scope that is fine. SCIM's
+     * own {@code scimType} for this condition is {@code mutability}.
+     */
+    public static ScimErrorException mutability(String detail) {
+        return new ScimErrorException(HttpStatus.BAD_REQUEST, "mutability", detail);
+    }
+
     /** No live resource has this id, or no such discovery document exists. */
     public static ScimErrorException notFound(String detail) {
         return new ScimErrorException(HttpStatus.NOT_FOUND, null, detail);

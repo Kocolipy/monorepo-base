@@ -202,6 +202,44 @@ class ScimUserRequestReaderTests {
                 .hasMessageContaining("does not implement the User attribute");
     }
 
+    /**
+     * The reverse membership view is read-only, so a body carrying it is accepted and the
+     * value dropped — RFC 7644 §3.5.2, which is what lets a client PUT back a User it read.
+     * Refusing it would break that round-trip; storing it would let a write grant authority
+     * through the wrong end of the relation, and there is no component on the create command
+     * a membership could land in.
+     */
+    @Test
+    void a_submitted_groups_view_is_ignored_rather_than_refused_or_stored() {
+        NewScimUser command = ScimUserRequestReader.readCreate(body("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
+                 "userName":"bjensen",
+                 "groups":[{"value":"8a5c1f4e-0000-4000-8000-000000000001",
+                            "display":"Admins","type":"direct"}]}"""));
+
+        assertThat(command.profile().userName()).isEqualTo("bjensen");
+        assertThat(command.profile()).isEqualTo(new com.example.backend.scim.domain.ScimUserProfile(
+                "bjensen",
+                com.example.backend.scim.domain.ScimName.NONE,
+                null,
+                null,
+                null,
+                null,
+                true,
+                java.util.List.of()));
+    }
+
+    /** {@code id} and {@code meta} are ignored on a write for the same round-trip reason. */
+    @ParameterizedTest
+    @ValueSource(strings = {"id", "meta"})
+    void a_read_only_common_attribute_is_ignored_rather_than_refused(String attribute) {
+        NewScimUser command = ScimUserRequestReader.readCreate(body("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],
+                 "userName":"bjensen","%s":{"anything":"at all"}}""".formatted(attribute)));
+
+        assertThat(command.profile().userName()).isEqualTo("bjensen");
+    }
+
     @Test
     void a_string_attribute_carrying_a_non_string_value_is_refused() {
         assertThatThrownBy(() -> ScimUserRequestReader.readCreate(body("""

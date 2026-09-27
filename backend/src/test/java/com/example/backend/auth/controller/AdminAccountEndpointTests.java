@@ -9,6 +9,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import org.hamcrest.Matchers;
@@ -37,7 +40,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 /**
  * The endpoint as a caller meets it: the real filter chain, the real controller,
- * the application's own JSON converters, over the accounts startup seeding
+ * the application's own JSON converters, over the SCIM identities startup seeding
  * created.
  *
  * <p>{@code AdminAccountControllerTests} covers what the controller returns and
@@ -49,6 +52,11 @@ import org.springframework.web.context.WebApplicationContext;
  * controller precisely so the wire format is the deployed one: a hand-built
  * MockMvc would render {@code createdAt} as a number, and these assertions would
  * then describe a format the running service does not produce.
+ *
+ * <p>The seeded {@code test-admin} is an administrator because it is the reserved
+ * Bootstrap Admin and a member of the reserved Admin group, not because a role
+ * column says so — which is what makes the {@code admin} column below an assertion
+ * about the derivation rather than about a stored value.
  */
 @SpringBootTest
 @Import(com.example.backend.ContainerTestConfiguration.class)
@@ -81,7 +89,7 @@ class AdminAccountEndpointTests {
     private InMemoryAccountSessions sessions;
 
     @Autowired
-    private com.example.backend.auth.domain.AccountRepository accounts;
+    private ScimUserRepository users;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -116,28 +124,33 @@ class AdminAccountEndpointTests {
     void anAdministratorSeesEveryAccountWithItsRoleStatusAndCreationDate() throws Exception {
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[*].username")
+                .andExpect(jsonPath("$[*].userName")
                         .value(Matchers.hasItems("test-admin", "test-user")))
-                .andExpect(jsonPath("$[?(@.username == 'test-user')].role")
-                        .value(Matchers.contains("USER")))
-                .andExpect(jsonPath("$[?(@.username == 'test-admin')].role")
-                        .value(Matchers.contains("ADMIN")))
-                .andExpect(jsonPath("$[?(@.username == 'test-user')].enabled")
+                .andExpect(jsonPath("$[?(@.userName == 'test-user')].admin")
+                        .value(Matchers.contains(false)))
+                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].admin")
+                        .value(Matchers.contains(true)))
+                .andExpect(jsonPath("$[?(@.userName == 'test-user')].active")
                         .value(Matchers.contains(true)))
                 // ISO-8601 rather than an epoch number, which is what the SPA and
                 // the OpenAPI document both describe.
-                .andExpect(jsonPath("$[?(@.username == 'test-user')].createdAt")
+                .andExpect(jsonPath("$[?(@.userName == 'test-user')].createdAt")
                         .value(Matchers.contains(Matchers.matchesPattern(
                                 "\\d{4}-\\d{2}-\\d{2}T.*Z"))));
     }
 
-    /** The acceptance criterion that matters most: no hash on the wire, ever. */
+    /**
+     * The acceptance criterion that matters most: no hash on the wire, ever. The
+     * lower-case match is deliberate — {@code hasPassword} is a boolean saying
+     * whether a credential exists at all, and that is not the credential.
+     */
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(content().string(Matchers.not(Matchers.containsString("password"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
+                .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
                 .andExpect(jsonPath("$[0].passwordHash").doesNotExist());
     }
 
@@ -184,33 +197,33 @@ class AdminAccountEndpointTests {
     /**
      * Driven through the chain rather than against the service so the whole
      * round trip is covered: token, role, path variable, the write, the sessions
-     * the account was holding, and the updated row coming back as JSON. The
-     * account is enabled again afterwards, because the seeded accounts are shared
+     * the identity was holding, and the updated resource coming back as JSON. The
+     * identity is reactivated afterwards, because the seeded identities are shared
      * with every other test in this context.
      */
     @Test
     void anAdministratorDisablesAndReopensAnAccount() throws Exception {
-        java.util.UUID testUserId = accounts.findByUsername("test-user").orElseThrow().id();
+        java.util.UUID testUserId = require("test-user").id();
         sessions.open(testUserId, "live-session");
 
         try {
             mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
                             .session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.username").value("test-user"))
-                    .andExpect(jsonPath("$.enabled").value(false))
+                    .andExpect(jsonPath("$.userName").value("test-user"))
+                    .andExpect(jsonPath("$.active").value(false))
                     .andExpect(jsonPath("$.passwordHash").doesNotExist());
 
             assertThat(sessions.sessionsOf(testUserId)).isEmpty();
 
             mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
-                    .andExpect(jsonPath("$[?(@.username == 'test-user')].enabled")
+                    .andExpect(jsonPath("$[?(@.userName == 'test-user')].active")
                             .value(Matchers.contains(false)));
         } finally {
             mvc.perform(withCsrf(post("/api/admin/accounts/test-user/enable"))
                             .session(authenticatedSession("ROLE_ADMIN")))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.enabled").value(true));
+                    .andExpect(jsonPath("$.active").value(true));
         }
     }
 
@@ -219,10 +232,26 @@ class AdminAccountEndpointTests {
      * system nobody can administer. 409 rather than 403: the role is fine, the
      * action is not. It is also the request an administrator is most likely to
      * make by accident, so it must not cost them the session they are working in.
+     *
+     * <p>Named for the PROTECTED-RESOURCE guard rather than the last-active-
+     * administrator one, because that is the guard this request now reaches.
+     * {@code test-admin} is the seeded Bootstrap Admin, so the protection check
+     * refuses it before the last-active-administrator branch is evaluated at all.
+     * The method was previously called
+     * {@code disablingTheLastEnabledAdministratorIsRefused}, which a future reader
+     * would have trusted over the javadoc correcting it — and HTTP-level coverage
+     * of the last-active-administrator refusal is genuinely GONE, since no
+     * unprotected second administrator is seeded here. That branch is covered at
+     * {@code IdentityAdministrationServiceTests}, which separates the two guards
+     * and reaches each on its own.
+     *
+     * <p>The three outcomes asserted are the ones that mattered before and still
+     * do: refused with 409, the working session kept, and the identity still
+     * active on re-read.
      */
     @Test
-    void disablingTheLastEnabledAdministratorIsRefused() throws Exception {
-        java.util.UUID testAdminId = accounts.findByUsername("test-admin").orElseThrow().id();
+    void disablingTheBootstrapAdminIsRefusedAsAProtectedResource() throws Exception {
+        java.util.UUID testAdminId = require("test-admin").id();
         sessions.open(testAdminId, "live-session");
 
         mvc.perform(withCsrf(post("/api/admin/accounts/test-admin/disable"))
@@ -232,7 +261,7 @@ class AdminAccountEndpointTests {
         assertThat(sessions.sessionsOf(testAdminId)).containsExactly("live-session");
 
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
-                .andExpect(jsonPath("$[?(@.username == 'test-admin')].enabled")
+                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].active")
                         .value(Matchers.contains(true)));
     }
 
@@ -243,6 +272,10 @@ class AdminAccountEndpointTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.locked").value(false))
                 .andExpect(jsonPath("$.lockedUntil").doesNotExist());
+    }
+
+    private ScimUser require(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
     }
 
     /** Echoes a token the shared repository minted, exactly as the SPA does. */

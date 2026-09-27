@@ -14,20 +14,20 @@ import java.util.UUID;
 public class UserCounterEntity {
 
     @Id
-    private UUID accountId;
+    private UUID userId;
 
     private long count;
 
     protected UserCounterEntity() {
     }
 
-    public UserCounterEntity(UUID accountId, long count) {
-        this.accountId = accountId;
+    public UserCounterEntity(UUID userId, long count) {
+        this.userId = userId;
         this.count = count;
     }
 
-    public UUID getAccountId() {
-        return accountId;
+    public UUID getUserId() {
+        return userId;
     }
 
     public long getCount() {

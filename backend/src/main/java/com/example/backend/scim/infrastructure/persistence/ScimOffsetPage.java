@@ -15,10 +15,17 @@ import org.springframework.data.domain.Sort;
  *
  * <p>Only {@link #getOffset()}, {@link #getPageSize()} and {@link #getSort()} are
  * load-bearing: those are what Spring Data turns into {@code setFirstResult},
- * {@code setMaxResults} and {@code ORDER BY}. The navigation methods are implemented
- * against the same arithmetic {@code PageRequest} uses so they are consistent rather
- * than correct-by-accident, but nothing in this service calls them — SCIM paging is
- * stateless, and the client computes the next {@code startIndex} itself.
+ * {@code setMaxResults} and {@code ORDER BY}. The navigation methods are obligations of the
+ * {@link Pageable} interface that nothing in this service calls — SCIM paging is stateless,
+ * and the client computes the next {@code startIndex} itself.
+ *
+ * <p>They are nonetheless correct and tested, which they previously were not: they were written
+ * to mirror {@code PageRequest}'s arithmetic, and that arithmetic is not sufficient here.
+ * {@code PageRequest}'s offset is always a multiple of its page size, so it can never hold a
+ * partial page; this class was created precisely so that it can, and
+ * {@link #previousOrFirst()} underflowed to a negative offset for exactly the offsets only this
+ * class can represent. Nothing called it, so nothing failed — see {@code ScimOffsetPageTests},
+ * which is what found it.
  */
 final class ScimOffsetPage implements Pageable {
 
@@ -75,9 +82,24 @@ final class ScimOffsetPage implements Pageable {
         return new ScimOffsetPage(offset + limit, limit, sort);
     }
 
+    /**
+     * The page one limit back, or the first page when there is less than a full limit behind
+     * this one.
+     *
+     * <p>The clamp is load-bearing here in a way it is not on {@code PageRequest}, and it was
+     * missing. {@code hasPrevious()} is true for ANY non-zero offset, so at an offset smaller
+     * than the limit — {@code startIndex=5&count=10}, a perfectly conformant SCIM request —
+     * subtracting a whole limit produced a NEGATIVE offset, which {@link #of} rejects outright
+     * and which Spring Data would turn into a negative {@code setFirstResult}. {@code PageRequest}
+     * cannot reach that state because its offset is always a multiple of its page size; this class
+     * exists precisely because SCIM's is not, so it inherits the case and has to handle it.
+     *
+     * <p>Found by adding the test this class had never had: nothing in the service calls these
+     * navigation methods, so the arithmetic had never been executed.
+     */
     @Override
     public Pageable previousOrFirst() {
-        return hasPrevious() ? new ScimOffsetPage(offset - limit, limit, sort) : first();
+        return hasPrevious() ? new ScimOffsetPage(Math.max(0, offset - limit), limit, sort) : first();
     }
 
     @Override

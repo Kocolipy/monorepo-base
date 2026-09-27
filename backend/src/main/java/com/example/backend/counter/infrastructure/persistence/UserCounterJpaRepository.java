@@ -16,6 +16,6 @@ import org.springframework.data.repository.query.Param;
 interface UserCounterJpaRepository extends JpaRepository<UserCounterEntity, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select counter from UserCounterEntity counter where counter.accountId = :accountId")
-    Optional<UserCounterEntity> findByAccountIdForUpdate(@Param("accountId") UUID accountId);
+    @Query("select counter from UserCounterEntity counter where counter.userId = :userId")
+    Optional<UserCounterEntity> findByUserIdForUpdate(@Param("userId") UUID userId);
 }

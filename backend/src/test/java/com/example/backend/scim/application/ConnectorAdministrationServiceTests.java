@@ -7,14 +7,13 @@ import ch.qos.logback.classic.Level;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRole;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
+import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
@@ -53,7 +52,7 @@ class ConnectorAdministrationServiceTests {
     private final InMemoryScimExternalIdRepository aliases =
             new InMemoryScimExternalIdRepository();
 
-    private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
@@ -65,11 +64,13 @@ class ConnectorAdministrationServiceTests {
 
     @BeforeEach
     void setUp() {
-        Account admin = accounts.save(
-                new Account(ADMIN, "hash", AccountRole.ADMIN, 0, null, true, NOW));
-        adminId = admin.id();
+        // The administrator is now an ordinary SCIM User: there is no role column, and what
+        // makes this one an administrator is membership of the reserved Admin group — which
+        // this use case never asks about. It resolves the actor's id by userName and nothing
+        // more, so the Group port is not part of this test's arrangement.
+        adminId = users.given(ScimIdentities.user(ADMIN)).id();
         service = new ConnectorAdministrationService(
-                connectors, tokens, aliases, accounts, audit, new SecureRandom(), clock);
+                connectors, tokens, aliases, users, audit, new SecureRandom(), clock);
     }
 
     @Nested

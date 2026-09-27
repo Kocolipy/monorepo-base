@@ -47,7 +47,7 @@ class ScimAttributeProjectionTests {
                 new LinkedHashMap<>(Map.of(
                         "value", "babs@jensen.org", "type", "home", "primary", false))));
 
-        Map<String, Object> projected = ScimAttributeProjection.of("emails.value", null).apply(user);
+        Map<String, Object> projected = ScimAttributeProjection.ofUser("emails.value", null).apply(user);
 
         List<Map<String, Object>> emails = (List<Map<String, Object>>) projected.get("emails");
         assertThat(emails).hasSize(2);
@@ -58,14 +58,14 @@ class ScimAttributeProjectionTests {
     @Test
     void no_parameters_render_the_whole_document() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of(null, null).apply(document());
+                ScimAttributeProjection.ofUser(null, null).apply(document());
 
         assertThat(projected).isEqualTo(document());
     }
 
     @Test
     void the_two_parameters_are_mutually_exclusive() {
-        assertThatThrownBy(() -> ScimAttributeProjection.of("userName", "meta"))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser("userName", "meta"))
                 .isInstanceOf(ScimErrorException.class)
                 .satisfies(refusal -> {
                     ScimErrorException error = (ScimErrorException) refusal;
@@ -77,7 +77,7 @@ class ScimAttributeProjectionTests {
     @Test
     void requested_attributes_are_kept_beside_the_always_returned_ones() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("userName", null).apply(document());
+                ScimAttributeProjection.ofUser("userName", null).apply(document());
 
         assertThat(projected).containsOnlyKeys("schemas", "id", "userName");
     }
@@ -93,7 +93,7 @@ class ScimAttributeProjectionTests {
     @Test
     void asking_for_the_password_yields_a_resource_without_one() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("password", null).apply(document());
+                ScimAttributeProjection.ofUser("password", null).apply(document());
 
         assertThat(projected).containsOnlyKeys("schemas", "id");
         assertThat(projected).doesNotContainKey("password");
@@ -102,7 +102,7 @@ class ScimAttributeProjectionTests {
     @Test
     void an_excluded_attribute_is_removed_and_the_rest_remain() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of(null, "meta,emails").apply(document());
+                ScimAttributeProjection.ofUser(null, "meta,emails").apply(document());
 
         assertThat(projected).doesNotContainKeys("meta", "emails");
         assertThat(projected).containsKeys("schemas", "id", "userName", "active", "externalId");
@@ -112,7 +112,7 @@ class ScimAttributeProjectionTests {
     @Test
     void excluding_an_always_returned_attribute_does_not_remove_it() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of(null, "id,schemas").apply(document());
+                ScimAttributeProjection.ofUser(null, "id,schemas").apply(document());
 
         assertThat(projected).containsKeys("id", "schemas");
     }
@@ -121,7 +121,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void a_sub_attribute_path_narrows_a_complex_value() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("name.givenName", null).apply(document());
+                ScimAttributeProjection.ofUser("name.givenName", null).apply(document());
 
         assertThat((Map<String, Object>) projected.get("name")).containsOnlyKeys("givenName");
     }
@@ -130,7 +130,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void an_excluded_sub_attribute_is_removed_from_every_value_of_a_multi_valued_attribute() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of(null, "emails.type").apply(document());
+                ScimAttributeProjection.ofUser(null, "emails.type").apply(document());
 
         List<Map<String, Object>> emails = (List<Map<String, Object>>) projected.get("emails");
         assertThat(emails).singleElement().satisfies(email ->
@@ -147,7 +147,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void a_complex_attribute_asked_for_whole_keeps_every_sub_attribute() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("name", null).apply(document());
+                ScimAttributeProjection.ofUser("name", null).apply(document());
 
         assertThat((Map<String, Object>) projected.get("name"))
                 .containsOnlyKeys("givenName", "familyName")
@@ -159,7 +159,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void a_multi_valued_attribute_asked_for_whole_keeps_every_value_and_sub_attribute() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("emails", null).apply(document());
+                ScimAttributeProjection.ofUser("emails", null).apply(document());
 
         List<Map<String, Object>> emails = (List<Map<String, Object>>) projected.get("emails");
         assertThat(emails).singleElement().satisfies(email ->
@@ -170,7 +170,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void a_sub_attribute_path_narrows_every_value_of_a_multi_valued_attribute() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("emails.value", null).apply(document());
+                ScimAttributeProjection.ofUser("emails.value", null).apply(document());
 
         List<Map<String, Object>> emails = (List<Map<String, Object>>) projected.get("emails");
         assertThat(emails).singleElement().satisfies(email ->
@@ -183,7 +183,7 @@ class ScimAttributeProjectionTests {
      */
     @Test
     void a_simple_attribute_asked_for_whole_is_returned_unchanged() {
-        assertThat(ScimAttributeProjection.of("userName", null).apply(document()))
+        assertThat(ScimAttributeProjection.ofUser("userName", null).apply(document()))
                 .containsEntry("userName", "bjensen");
     }
 
@@ -191,13 +191,36 @@ class ScimAttributeProjectionTests {
      * {@code meta} and {@code externalId} are projectable common attributes that no
      * resource schema declares, so they have no declared sub-attributes at all. A
      * sub-path against one is refused rather than silently matching nothing.
+     *
+     * <p>{@code groups} is deliberately NOT in this list any more. It used to be — the reverse
+     * membership view was tolerated on write and declared nowhere — but it is now a declared
+     * multi-valued attribute with four read-only sub-attributes, so a sub-path against it is
+     * legitimate. The positive case is asserted below, so the pair cannot both drift.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"meta.resourceType", "id.value", "externalId.value", "groups.value"})
+    @ValueSource(strings = {"meta.resourceType", "id.value", "externalId.value"})
     void a_sub_path_on_an_attribute_with_no_declared_sub_attributes_is_refused(String path) {
-        assertThatThrownBy(() -> ScimAttributeProjection.of(path, null))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser(path, null))
                 .isInstanceOf(ScimErrorException.class)
                 .hasMessageContaining("Not a sub-attribute of");
+    }
+
+    /**
+     * The reverse membership view's sub-attributes ARE projectable, now that the attribute is
+     * declared: a connector that wants only the ids of a User's Groups can ask for them.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"groups.value", "groups.display", "groups.type"})
+    void a_sub_path_on_the_declared_groups_attribute_is_accepted(String path) {
+        assertThat(ScimAttributeProjection.ofUser(path, null)).isNotNull();
+    }
+
+    /** An undeclared sub-attribute of a declared one is still refused. */
+    @Test
+    void an_undeclared_sub_attribute_of_groups_is_refused() {
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser("groups.primary", null))
+                .isInstanceOf(ScimErrorException.class)
+                .hasMessageContaining("Not a sub-attribute of groups");
     }
 
     /**
@@ -206,7 +229,7 @@ class ScimAttributeProjectionTests {
      */
     @Test
     void a_refused_sub_attribute_is_echoed_lower_cased_and_not_as_sent() {
-        assertThatThrownBy(() -> ScimAttributeProjection.of("emails.LABEL", null))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser("emails.LABEL", null))
                 .isInstanceOf(ScimErrorException.class)
                 .satisfies(refusal -> assertThat(refusal.getMessage())
                         .contains("Not a sub-attribute of emails: label")
@@ -215,7 +238,7 @@ class ScimAttributeProjectionTests {
 
     @Test
     void a_refused_top_level_attribute_is_echoed_lower_cased_and_not_as_sent() {
-        assertThatThrownBy(() -> ScimAttributeProjection.of("NickName", null))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser("NickName", null))
                 .isInstanceOf(ScimErrorException.class)
                 .satisfies(refusal -> assertThat(refusal.getMessage())
                         .contains("nickname")
@@ -224,14 +247,14 @@ class ScimAttributeProjectionTests {
 
     @Test
     void a_common_attribute_may_still_be_named_whole() {
-        assertThat(ScimAttributeProjection.of("meta", null).apply(document()))
+        assertThat(ScimAttributeProjection.ofUser("meta", null).apply(document()))
                 .containsKey("meta");
     }
 
     /** RFC 7644 §3.10: attribute names are case-insensitive. */
     @Test
     void attribute_names_are_matched_case_insensitively() {
-        assertThat(ScimAttributeProjection.of("USERNAME", null).apply(document()))
+        assertThat(ScimAttributeProjection.ofUser("USERNAME", null).apply(document()))
                 .containsKey("userName");
     }
 
@@ -245,7 +268,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void sub_attribute_names_are_matched_case_insensitively_and_canonicalized() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of("name.GIVENNAME", null).apply(document());
+                ScimAttributeProjection.ofUser("name.GIVENNAME", null).apply(document());
 
         assertThat((Map<String, Object>) projected.get("name"))
                 .containsOnlyKeys("givenName")
@@ -256,7 +279,7 @@ class ScimAttributeProjectionTests {
     @SuppressWarnings("unchecked")
     void an_excluded_sub_attribute_is_matched_case_insensitively() {
         Map<String, Object> projected =
-                ScimAttributeProjection.of(null, "name.FamilyName").apply(document());
+                ScimAttributeProjection.ofUser(null, "name.FamilyName").apply(document());
 
         assertThat((Map<String, Object>) projected.get("name")).containsOnlyKeys("givenName");
     }
@@ -264,7 +287,7 @@ class ScimAttributeProjectionTests {
     /** A fully-qualified path carries the schema URI; the attribute after it is the same one. */
     @Test
     void a_schema_qualified_path_names_the_same_attribute() {
-        assertThat(ScimAttributeProjection.of(ScimSchemas.USER + ":userName", null)
+        assertThat(ScimAttributeProjection.ofUser(ScimSchemas.USER + ":userName", null)
                         .apply(document()))
                 .containsOnlyKeys("schemas", "id", "userName");
     }
@@ -272,7 +295,7 @@ class ScimAttributeProjectionTests {
     @ParameterizedTest
     @ValueSource(strings = {"nickName", "title", "phoneNumbers", "name.nickName", "emails.label"})
     void a_path_this_service_does_not_implement_is_refused(String path) {
-        assertThatThrownBy(() -> ScimAttributeProjection.of(path, null))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser(path, null))
                 .isInstanceOf(ScimErrorException.class)
                 .satisfies(refusal -> assertThat(((ScimErrorException) refusal).scimType())
                         .isEqualTo("invalidValue"));
@@ -281,7 +304,7 @@ class ScimAttributeProjectionTests {
     /** A refusal names the attribute the caller asked for, and nothing else. */
     @Test
     void a_refusal_names_the_attribute_and_carries_no_other_value() {
-        assertThatThrownBy(() -> ScimAttributeProjection.of("nickName", null))
+        assertThatThrownBy(() -> ScimAttributeProjection.ofUser("nickName", null))
                 .hasMessageContaining("nickname")
                 .hasMessageNotContaining("bjensen");
     }
@@ -289,7 +312,7 @@ class ScimAttributeProjectionTests {
     /** Several paths in one parameter, whitespace tolerated. */
     @Test
     void a_comma_separated_list_selects_each_attribute() {
-        assertThat(ScimAttributeProjection.of("userName, active , emails", null)
+        assertThat(ScimAttributeProjection.ofUser("userName, active , emails", null)
                         .apply(document()))
                 .containsOnlyKeys("schemas", "id", "userName", "active", "emails");
     }

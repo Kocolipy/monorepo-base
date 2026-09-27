@@ -8,11 +8,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import jakarta.servlet.Filter;
@@ -131,7 +132,7 @@ class ScimConnectorLifecycleIntegrationTests {
     private WebApplicationContext context;
 
     @Autowired
-    private AccountRepository accounts;
+    private ScimUserRepository users;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -316,7 +317,9 @@ class ScimConnectorLifecycleIntegrationTests {
         revokeFirstToken(connectorId);
         mvc.perform(asAdmin(delete(CONNECTORS + "/" + connectorId)));
 
-        UUID adminId = accounts.findByUsername(ADMIN).map(Account::id).orElseThrow();
+        UUID adminId = users.findByNormalizedUserName(NormalizedUserName.of(ADMIN))
+                .map(ScimUser::id)
+                .orElseThrow();
         List<AuditOperation> adminAttributed = List.of(
                 AuditOperation.CONNECTOR_CREATE,
                 AuditOperation.CONNECTOR_TOKEN_ISSUE,

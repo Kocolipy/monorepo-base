@@ -21,23 +21,23 @@ class UserCounterPersistenceAdapter implements UserCounterRepository {
     }
 
     @Override
-    public Optional<UserCounter> findByAccountId(UUID accountId) {
-        return counters.findById(accountId).map(this::toDomain);
+    public Optional<UserCounter> findByUserId(UUID userId) {
+        return counters.findById(userId).map(this::toDomain);
     }
 
     @Override
-    public Optional<UserCounter> findByAccountIdForUpdate(UUID accountId) {
-        return counters.findByAccountIdForUpdate(accountId).map(this::toDomain);
+    public Optional<UserCounter> findByUserIdForUpdate(UUID userId) {
+        return counters.findByUserIdForUpdate(userId).map(this::toDomain);
     }
 
     @Override
     public UserCounter save(UserCounter counter) {
         UserCounterEntity saved = counters.save(
-                new UserCounterEntity(counter.getAccountId(), counter.getCount()));
+                new UserCounterEntity(counter.getUserId(), counter.getCount()));
         return toDomain(saved);
     }
 
     private UserCounter toDomain(UserCounterEntity entity) {
-        return UserCounter.rehydrate(entity.getAccountId(), entity.getCount());
+        return UserCounter.rehydrate(entity.getUserId(), entity.getCount());
     }
 }

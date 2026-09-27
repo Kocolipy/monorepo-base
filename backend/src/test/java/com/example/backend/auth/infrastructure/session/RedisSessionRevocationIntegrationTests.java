@@ -3,22 +3,26 @@ package com.example.backend.auth.infrastructure.session;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.audit.domain.AuditRefusalReason;
-import com.example.backend.auth.application.AccountAdministrationService;
+import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.LoginAttemptService;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
-import com.example.backend.auth.domain.AccountRole;
+import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -33,7 +37,8 @@ import org.testcontainers.utility.DockerImageName;
  * that a fake reported the right calls.
  *
  * <p>This class writes the session index entry the same way {@code AuthController}
- * does on a real login: the account's stable id, not its username, into
+ * does on a real login: the identity's stable SCIM resource id, not its
+ * {@code userName}, into
  * {@link FindByIndexNameSessionRepository#PRINCIPAL_NAME_INDEX_NAME}. That is
  * exactly the behavior the migration and the rekeyed adapter exist to prove —
  * a session survives a rename because nothing about it was ever keyed by the
@@ -59,13 +64,19 @@ class RedisSessionRevocationIntegrationTests {
     }
 
     @Autowired
-    private AccountRepository accounts;
+    private ScimUserRepository users;
 
     @Autowired
-    private AccountAdministrationService administration;
+    private IdentityAdministrationService administration;
 
     @Autowired
     private LoginAttemptService attempts;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Value("${app.auth.lockout.max-attempts}")
     private int maxAttempts;
@@ -77,30 +88,24 @@ class RedisSessionRevocationIntegrationTests {
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
 
     /**
-     * The full journey the acceptance criterion names: an account is renamed
-     * directly against the fixture (no rename API exists yet), and both its
-     * counter and its live Redis session must still be found afterward, under
-     * the same stable id the session was opened with.
+     * The full journey the acceptance criterion names: an identity is renamed
+     * directly against the store (no rename API exists — the User port writes only
+     * the login state and {@code active}), and its live Redis session must still be
+     * found afterward, under the same stable id the session was opened with.
      */
     @Test
-    void aLiveSessionSurvivesAUsernameChangeMadeDirectlyAgainstTheFixture() {
-        Account created = accounts.save(
-                new Account("before-rename", "hash", AccountRole.USER));
+    void aLiveSessionSurvivesAUsernameChangeMadeDirectlyAgainstTheStore() {
+        ScimUser created = create("before-rename");
         UUID stableId = created.id();
 
         Session session = openSessionFor(stableId);
 
-        Account renamed = new Account(
-                created.id(),
-                "after-rename",
-                created.passwordHash(),
-                created.role(),
-                created.failedLoginAttempts(),
-                created.lockedAt(),
-                created.enabled(),
-                created.createdAt());
-        accounts.save(renamed);
+        rename(stableId, "after-rename");
 
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("after-rename")))
+                .get()
+                .extracting(ScimUser::id)
+                .isEqualTo(stableId);
         assertThat(sessionRepository.findById(session.getId())).isNotNull();
         assertThat(sessionsAdapter.revokeAll(stableId)).isEqualTo(1);
         assertThat(sessionRepository.findById(session.getId())).isNull();
@@ -109,17 +114,16 @@ class RedisSessionRevocationIntegrationTests {
     /**
      * Session-revocation-on-disable, driven through the real administration use
      * case and the real Redis-indexed repository — not the in-memory fake other
-     * controller-level tests substitute. Disabling must still end the account's
-     * session when the index is keyed by its stable id rather than its username.
+     * controller-level tests substitute. Deactivating must still end the identity's
+     * session when the index is keyed by its stable id rather than its userName.
      */
     @Test
     void disablingAnAccountRevokesItsRealRedisBackedSession() {
-        Account created = accounts.save(
-                new Account("session-disable-target", "hash", AccountRole.USER));
+        ScimUser created = create("session-disable-target");
         UUID stableId = created.id();
         Session session = openSessionFor(stableId);
 
-        administration.disable(created.username(), "some-other-admin");
+        administration.deactivate(created.profile().userName(), "some-other-admin");
 
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }
@@ -128,31 +132,58 @@ class RedisSessionRevocationIntegrationTests {
      * Session-revocation-on-lockout, driven through the real login-attempt
      * counter and the real Redis-indexed repository. The lock is imposed by
      * counting failures, not by writing the row directly, so the revocation is
-     * observed on the path a real brute-force attempt takes: the account's live
-     * session must be gone once the lock lands, or a locked account would keep
+     * observed on the path a real brute-force attempt takes: the identity's live
+     * session must be gone once the lock lands, or a locked identity would keep
      * acting through a session it already held.
      */
     @Test
     void imposingALockoutRevokesTheAccountsRealRedisBackedSession() {
-        Account created = accounts.save(
-                new Account("session-lockout-target", "hash", AccountRole.USER));
+        ScimUser created = create("session-lockout-target");
         Session session = openSessionFor(created.id());
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            attempts.recordFailure(created.username(), AuditRefusalReason.BAD_CREDENTIALS);
+            attempts.recordFailure(
+                    created.profile().userName(), AuditRefusalReason.BAD_CREDENTIALS);
         }
 
-        assertThat(accounts.findByUsername(created.username()).orElseThrow().isLocked())
-                .isTrue();
+        assertThat(require(created.profile().userName()).login().isLocked()).isTrue();
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }
 
-    /** Opens a session indexed by the account's stable id, as a real login would. */
-    private Session openSessionFor(UUID accountId) {
+    /** An ordinary active identity with a credential, written through the real port. */
+    private ScimUser create(String userName) {
+        return new TransactionTemplate(transactionManager).execute(status -> users.create(
+                ScimUser.created(
+                        UUID.randomUUID(),
+                        ScimIdentities.profile(userName, true),
+                        "hash",
+                        ScimIdentities.NOW)));
+    }
+
+    private ScimUser require(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
+    }
+
+    /**
+     * Renames the identity in the database. There is no production path that
+     * changes a {@code userName}, which is why this writes the columns directly —
+     * the assertion is that the session index does not care how the name changed.
+     */
+    private void rename(UUID userId, String newUserName) {
+        jdbc.update(
+                "update scim_users set user_name = ?, normalized_user_name = ?"
+                        + " where resource_id = ?",
+                newUserName,
+                NormalizedUserName.of(newUserName).value(),
+                userId);
+    }
+
+    /** Opens a session indexed by the identity's stable id, as a real login would. */
+    private Session openSessionFor(UUID userId) {
         Session session = sessionRepository.createSession();
         session.setAttribute(
                 FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
-                accountId.toString());
+                userId.toString());
         @SuppressWarnings("unchecked")
         FindByIndexNameSessionRepository<Session> repository =
                 (FindByIndexNameSessionRepository<Session>) sessionRepository;

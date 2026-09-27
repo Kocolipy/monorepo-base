@@ -43,6 +43,23 @@ public class ScimResourceEntity {
     @Column(nullable = false)
     private Instant lastModifiedAt;
 
+    /**
+     * Which recovery resource this is, or null for every ordinary one.
+     *
+     * <p>A string for the reason {@link #resourceType} is one: the value is constrained
+     * by the column's own CHECK, so the stored bytes must not depend on a Java constant's
+     * name.
+     *
+     * <p>{@code updatable = false} is load-bearing rather than tidy. This marker is what
+     * refuses every write against the Bootstrap Admin and the Admin group, so a path that
+     * could change it could unprotect them — and the whole point of holding the
+     * protection here, instead of recognising the resources by name, was that nothing
+     * mutable decides it. Seeding writes it with the INSERT; there is no UPDATE that
+     * reaches it.
+     */
+    @Column(name = "reserved_name", length = 32, updatable = false)
+    private String reservedName;
+
     protected ScimResourceEntity() {
     }
 
@@ -51,12 +68,14 @@ public class ScimResourceEntity {
             String resourceType,
             long version,
             Instant createdAt,
-            Instant lastModifiedAt) {
+            Instant lastModifiedAt,
+            String reservedName) {
         this.id = id;
         this.resourceType = resourceType;
         this.version = version;
         this.createdAt = createdAt;
         this.lastModifiedAt = lastModifiedAt;
+        this.reservedName = reservedName;
     }
 
     public UUID getId() {
@@ -73,5 +92,9 @@ public class ScimResourceEntity {
 
     public Instant getLastModifiedAt() {
         return lastModifiedAt;
+    }
+
+    public String getReservedName() {
+        return reservedName;
     }
 }

@@ -24,10 +24,19 @@ import java.util.Map;
 public final class ScimDiscovery {
 
     /**
-     * PATCH is not implemented yet: the conditional-write ticket adds it. Advertising it
-     * now would invite a connector to send a PATCH that this service refuses.
+     * PATCH is implemented from this ticket, for Groups — which is what makes membership
+     * changes usable: a provisioning system that had to PUT a Group to add one member would
+     * have to send the whole membership every time, and would overwrite concurrent changes
+     * it never read.
+     *
+     * <p>Advertised as one flag because SCIM has one, even though Users do not accept PATCH
+     * until the conditional-write ticket. That is the honest reading of the capability: the
+     * service does support PATCH, and which resources accept it is what the ResourceType
+     * documents and the endpoints themselves say. The alternative — advertising false while
+     * {@code /Groups} answers a PATCH — would be the failure mode this whole document exists
+     * to avoid, in reverse.
      */
-    public static final boolean PATCH_SUPPORTED = false;
+    public static final boolean PATCH_SUPPORTED = true;
 
     /**
      * Bulk is not implemented and will not be: the specification settled on no Bulk
@@ -113,28 +122,44 @@ public final class ScimDiscovery {
     /**
      * The resource types this service serves.
      *
-     * <p>User alone. Group is a declared member of the id namespace and has no endpoints
-     * yet, so it is absent: a resource type in this list is a claim that
-     * {@code /Groups} answers, and it does not.
+     * <p>Both of them, from this ticket. A resource type in this list is a claim that its
+     * endpoint answers, and {@code /Groups} now does — Users and Groups were one release
+     * capability precisely so that this list would never advertise half a directory.
      */
     static List<Map<String, Object>> resourceTypes() {
-        return List.of(userResourceType());
+        return List.of(userResourceType(), groupResourceType());
     }
 
-    /** The schema documents this service serves: the core User schema alone. */
+    /** The schema documents this service serves: the core User and Group schemas. */
     static List<Map<String, Object>> schemas() {
-        return List.of(ScimUserAttributes.schemaDocument());
+        return List.of(ScimUserAttributes.schemaDocument(), ScimGroupAttributes.schemaDocument());
     }
 
     static Map<String, Object> userResourceType() {
+        return resourceType(
+                ScimResourceType.USER.resourceTypeName(),
+                "/Users",
+                "SCIM core User.",
+                ScimSchemas.USER);
+    }
+
+    static Map<String, Object> groupResourceType() {
+        return resourceType(
+                ScimResourceType.GROUP.resourceTypeName(),
+                "/Groups",
+                "SCIM core Group. Membership confers application authority.",
+                ScimSchemas.GROUP);
+    }
+
+    private static Map<String, Object> resourceType(
+            String name, String endpoint, String description, String schema) {
         Map<String, Object> document = new LinkedHashMap<>();
-        String name = ScimResourceType.USER.resourceTypeName();
         document.put("schemas", List.of(ScimSchemas.RESOURCE_TYPE));
         document.put("id", name);
         document.put("name", name);
-        document.put("endpoint", "/Users");
-        document.put("description", "SCIM core User.");
-        document.put("schema", ScimSchemas.USER);
+        document.put("endpoint", endpoint);
+        document.put("description", description);
+        document.put("schema", schema);
         // No schemaExtensions: this service implements no extension, and an empty array
         // would still be a claim that extensions are a thing here.
         document.put("meta", Map.of(
