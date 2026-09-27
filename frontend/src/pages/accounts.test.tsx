@@ -25,11 +25,13 @@ const auth: AuthContextState = {
 };
 
 const account = (overrides: Partial<AdminAccount> = {}): AdminAccount => ({
+  active: true,
+  admin: false,
   createdAt: "2026-01-02T03:04:05Z",
-  enabled: true,
+  hasPassword: true,
+  id: "00000000-0000-4000-8000-000000000001",
   locked: false,
-  role: "USER",
-  username: "grace",
+  userName: "grace",
   ...overrides,
 });
 
@@ -59,12 +61,12 @@ describe("Accounts", () => {
   });
 
   it("lists every account with its role, status, and creation date", async () => {
-    resolveOnceWith({ kind: "ok", data: [account(), account({ role: "ADMIN", username: "ada" })] });
+    resolveOnceWith({ kind: "ok", data: [account(), account({ admin: true, userName: "ada" })] });
     renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
     const grace = row("grace");
-    expect(grace.getByText("USER")).toBeInTheDocument();
+    expect(grace.getByText("User")).toBeInTheDocument();
     expect(grace.getByText("Active")).toBeInTheDocument();
     expect(grace.getByText("2026-01-02")).toBeInTheDocument();
 
@@ -72,12 +74,23 @@ describe("Accounts", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/accounts", {}, expect.any(Function));
   });
 
-  it("renders a row written before the creation column existed", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ createdAt: null })] });
+  /**
+   * The row that used to be here — "renders a row written before the creation column
+   * existed" — is deleted rather than adapted. It guarded a nullable `createdAt`, and
+   * the column cannot be null any more: the timestamp lives on the SCIM resource row,
+   * which cannot exist without one. A test kept alive by widening the type would have
+   * been asserting a state the backend can no longer produce.
+   */
+  it("renders the administrative column from the derived boolean, not a role string", async () => {
+    resolveOnceWith({
+      kind: "ok",
+      data: [account(), account({ admin: true, userName: "ada" })],
+    });
     renderAccounts();
 
     expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
-    expect(row("grace").getAllByText("—")).toHaveLength(1);
+    expect(row("grace").getByText("User")).toBeInTheDocument();
+    expect(row("ada").getByText("Admin")).toBeInTheDocument();
   });
 
   /**
@@ -89,9 +102,9 @@ describe("Accounts", () => {
     resolveOnceWith({
       kind: "ok",
       data: [
-        account({ enabled: false, username: "closed" }),
-        account({ locked: true, username: "penalised" }),
-        account({ enabled: false, locked: true, username: "both" }),
+        account({ active: false, userName: "closed" }),
+        account({ locked: true, userName: "penalised" }),
+        account({ active: false, locked: true, userName: "both" }),
       ],
     });
     renderAccounts();
@@ -109,7 +122,7 @@ describe("Accounts", () => {
 
   it("closes an account to logins and offers to reopen it", async () => {
     resolveOnceWith({ kind: "ok", data: [account()] });
-    resolveOnceWith({ kind: "ok", data: account({ enabled: false }) });
+    resolveOnceWith({ kind: "ok", data: account({ active: false }) });
     const user = userEvent.setup();
     renderAccounts();
 
@@ -126,7 +139,7 @@ describe("Accounts", () => {
   });
 
   it("reopens a disabled account", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ enabled: false })] });
+    resolveOnceWith({ kind: "ok", data: [account({ active: false })] });
     resolveOnceWith({ kind: "ok", data: account() });
     const user = userEvent.setup();
     renderAccounts();
@@ -149,7 +162,7 @@ describe("Accounts", () => {
   it("keeps a standing lockout after the account is reopened", async () => {
     resolveOnceWith({
       kind: "ok",
-      data: [account({ enabled: false, locked: true })],
+      data: [account({ active: false, locked: true })],
     });
     resolveOnceWith({
       kind: "ok",
@@ -193,7 +206,7 @@ describe("Accounts", () => {
   });
 
   it("refuses to disable the signed-in administrator's own account", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ role: "ADMIN", username: "ada" })] });
+    resolveOnceWith({ kind: "ok", data: [account({ admin: true, userName: "ada" })] });
     renderAccounts();
 
     const button = await screen.findByRole("button", { name: "Disable ada" });
@@ -203,7 +216,7 @@ describe("Accounts", () => {
 
   it("disables every control while an action is in flight", async () => {
     let finishAction: ((result: object) => void) | undefined;
-    resolveOnceWith({ kind: "ok", data: [account(), account({ username: "hopper" })] });
+    resolveOnceWith({ kind: "ok", data: [account(), account({ userName: "hopper" })] });
     apiFetchMock.mockReturnValueOnce(
       new Promise((resolve) => {
         finishAction = resolve;
@@ -220,7 +233,7 @@ describe("Accounts", () => {
     expect(screen.getByRole("button", { name: "Disable hopper" })).toBeDisabled();
 
     await act(async () => {
-      finishAction?.({ kind: "ok", data: account({ enabled: false }) });
+      finishAction?.({ kind: "ok", data: account({ active: false }) });
     });
     expect(screen.getByRole("button", { name: "Disable hopper" })).toBeEnabled();
   });

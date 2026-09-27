@@ -33,6 +33,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    /** Spring Security's prefix on every role-derived authority. */
+    private static final String ROLE_PREFIX = "ROLE_";
+
+    /** The role name the SPA reads as "may reach the administrative interface". */
+    private static final String ADMIN_ROLE = "ADMIN";
+
+    /** The authority the Admin group's membership confers, as Spring Security spells it. */
+    private static final String ADMIN_AUTHORITY = ROLE_PREFIX + ADMIN_ROLE;
+
     private final LoginService login;
     private final AuditTrail audit;
     private final SecurityContextRepository securityContextRepository;
@@ -79,7 +88,7 @@ public class AuthController {
         securityContextRepository.saveContext(context, request, response);
 
         // Overrides Spring Session's default principal-index population (which
-        // reads Authentication.getName(), i.e. the username) with the account's
+        // reads Authentication.getName(), i.e. the userName) with the SCIM
         // stable id, so AccountSessionsAdapter — and any future stable-id-keyed
         // session lookup — finds this session by an id that survives a later
         // username change. Authentication.getName() itself is untouched: the
@@ -89,7 +98,7 @@ public class AuthController {
         if (session != null) {
             session.setAttribute(
                     FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
-                    outcome.accountId().toString());
+                    outcome.userId().toString());
         }
 
         issueCsrfToken(request, response);
@@ -135,8 +144,8 @@ public class AuthController {
      */
     private void recordLogout(HttpSession session) {
         if (session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                instanceof String accountId) {
-            audit.recordLogout(UUID.fromString(accountId));
+                instanceof String userId) {
+            audit.recordLogout(UUID.fromString(userId));
         }
     }
 
@@ -152,13 +161,30 @@ public class AuthController {
                 csrfTokenRepository.generateToken(request), request, response);
     }
 
+    /**
+     * The single role the SPA is told the caller has.
+     *
+     * <p>{@code ADMIN} wins when it is present, and that is stated rather than left to the order
+     * the authorities happen to arrive in. Authority is now DERIVED: an administrator holds
+     * {@code ROLE_ADMIN} and {@code ROLE_USER} both, because baseline access is what being an
+     * active identity means and administrative access is what the Admin group adds. A reader that
+     * took the first authority would report an administrator as an ordinary user whenever the
+     * ordering changed, which is the kind of defect that surfaces as "the admin screens vanished"
+     * long after the commit that caused it.
+     */
     private UserResponse userResponse(Authentication authentication) {
+        boolean admin = authentication.getAuthorities().stream()
+                .anyMatch(authority -> ADMIN_AUTHORITY.equals(authority.getAuthority()));
+        if (admin) {
+            return new UserResponse(authentication.getName(), ADMIN_ROLE);
+        }
         String role = authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority())
-                .filter(authority -> authority.startsWith("ROLE_"))
-                .map(authority -> authority.substring("ROLE_".length()))
+                .filter(authority -> authority.startsWith(ROLE_PREFIX))
+                .map(authority -> authority.substring(ROLE_PREFIX.length()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Authenticated account has no role"));
+                .orElseThrow(() ->
+                        new IllegalStateException("Authenticated identity has no role"));
         return new UserResponse(authentication.getName(), role);
     }
 

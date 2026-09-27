@@ -3,6 +3,7 @@ package com.example.backend.scim.controller;
 import com.example.backend.scim.application.ScimUserListing;
 import com.example.backend.scim.application.ScimUserResource;
 import com.example.backend.scim.domain.ScimEmail;
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
@@ -63,6 +64,13 @@ final class ScimUserRenderer {
         document.put("active", profile.active());
         if (!profile.emails().isEmpty()) {
             document.put("emails", renderEmails(profile.emails()));
+        }
+        // The reverse membership view, computed and read-only. Omitted entirely when the User is
+        // in no Group, as SCIM omits any unassigned attribute — an empty array would read as a
+        // claim that membership was checked and found to be nothing, which is the same thing, but
+        // not the same bytes a connector diffs against.
+        if (!user.groups().isEmpty()) {
+            document.put("groups", renderGroups(user.groups(), baseUri));
         }
         document.put("meta", renderMeta(user, baseUri));
         return document;
@@ -134,6 +142,29 @@ final class ScimUserRenderer {
             if (email.primary()) {
                 value.put("primary", true);
             }
+            rendered.add(value);
+        }
+        return List.copyOf(rendered);
+    }
+
+    /**
+     * The Groups this User is a direct member of, each with a resolvable reference to it.
+     *
+     * <p>Read-only throughout: the id and label come from the Group's own row, the {@code $ref} is
+     * built from the id here because it is a URI of THIS deployment, and {@code type} is a constant
+     * because this directory has no nested Groups — so there is no indirect membership for the
+     * sub-attribute to distinguish. RFC 7643 defines {@code direct} and {@code indirect} as its
+     * canonical values; only one of them can occur here.
+     */
+    private static List<Map<String, Object>> renderGroups(
+            List<ScimGroupReference> groups, String baseUri) {
+        List<Map<String, Object>> rendered = new ArrayList<>(groups.size());
+        for (ScimGroupReference group : groups) {
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("value", group.id().toString());
+            putIfPresent(value, "display", group.displayName());
+            value.put("$ref", baseUri + "/Groups/" + group.id());
+            value.put("type", "direct");
             rendered.add(value);
         }
         return List.copyOf(rendered);

@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
+import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ScimUserService {
 
     private final ScimUserRepository users;
+    private final ScimGroupRepository groups;
     private final ScimExternalIdRepository aliases;
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
@@ -41,11 +43,13 @@ public class ScimUserService {
 
     public ScimUserService(
             ScimUserRepository users,
+            ScimGroupRepository groups,
             ScimExternalIdRepository aliases,
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
             Clock clock) {
         this.users = users;
+        this.groups = groups;
         this.aliases = aliases;
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
@@ -84,7 +88,9 @@ public class ScimUserService {
             aliases.put(connector.connectorId(), created.id(), command.externalId());
         }
         audit.recordScimUserCreated(connector.connectorId(), created.id());
-        return ScimUserResource.of(created, command.externalId());
+        // A freshly created User is in no Group, so the reverse view is empty rather than
+        // read: a create cannot put a User in a Group, because `groups` is read-only.
+        return ScimUserResource.of(created, List.of(), command.externalId());
     }
 
     /**
@@ -120,10 +126,12 @@ public class ScimUserService {
         return new ScimUserListing(resources, total, page);
     }
 
-    /** The stored User as this connector sees it, alias included. */
+    /** The stored User as this connector sees it, alias and computed Group memberships included. */
     private ScimUserResource projection(AuthenticatedConnector connector, ScimUser user) {
         return ScimUserResource.of(
-                user, aliases.find(connector.connectorId(), user.id()).orElse(null));
+                user,
+                groups.findGroupsOfUser(user.id()),
+                aliases.find(connector.connectorId(), user.id()).orElse(null));
     }
 
     /**

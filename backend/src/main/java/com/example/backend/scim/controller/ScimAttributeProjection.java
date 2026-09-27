@@ -8,6 +8,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 /**
  * RFC 7644 §3.9 attribute projection: which attributes of a rendered resource the caller
@@ -21,19 +23,72 @@ import java.util.Set;
  * projection that worked on the domain object would need such a branch, and a branch is
  * something a later edit can lose.
  *
- * <p>Paths are validated against {@link ScimUserAttributes}, so naming an attribute this
- * service does not implement is a {@code 400 invalidValue} rather than a resource that
- * silently came back without it — the caller would otherwise read the omission as "this
- * User has no such value".
+ * <p>Paths are validated against the vocabulary of the resource being projected, so naming
+ * an attribute this service does not implement is a {@code 400 invalidValue} rather than a
+ * resource that silently came back without it — the caller would otherwise read the
+ * omission as "this resource has no such value".
+ *
+ * <p>Which vocabulary applies is chosen by the caller, through {@link #ofUser} or
+ * {@link #ofGroup}, rather than inferred from the document afterwards. That is deliberate:
+ * {@code members} is an attribute of a Group and not of a User, so a single shared
+ * vocabulary would accept {@code attributes=members} on a User and return a resource
+ * missing an attribute it never had.
  */
 final class ScimAttributeProjection {
 
-    /** The schema prefix a fully-qualified attribute path may carry. */
-    private static final String USER_PREFIX = ScimSchemas.USER + ":";
+    /**
+     * The attribute vocabulary of one resource type: the schema URI a fully-qualified path may
+     * carry, the names a projection may name, and the declared attributes sub-paths are checked
+     * against.
+     *
+     * <p>An enum rather than two copies of this class, because every rule below is identical for
+     * the two resource types and only the vocabulary differs — and a second copy is where the two
+     * would drift.
+     */
+    private enum Kind {
+
+        USER(ScimSchemas.USER, "User"),
+        GROUP(ScimSchemas.GROUP, "Group");
+
+        private final String schemaPrefix;
+
+        private final String label;
+
+        Kind(String schemaUri, String label) {
+            this.schemaPrefix = schemaUri + ":";
+            this.label = label;
+        }
+
+        Set<String> projectableNames() {
+            return this == USER
+                    ? ScimUserAttributes.projectableNames()
+                    : ScimGroupAttributes.projectableNames();
+        }
+
+        List<ScimUserAttributes.Attribute> schemaAttributes() {
+            return this == USER
+                    ? ScimUserAttributes.SCHEMA_ATTRIBUTES
+                    : ScimGroupAttributes.SCHEMA_ATTRIBUTES;
+        }
+
+        /**
+         * Attributes a projection may not remove.
+         *
+         * <p>The same set for both types as things stand — {@code schemas} and {@code id}, which
+         * RFC 7643 §3.1 declares {@code returned=always} — because neither schema declares an
+         * always-returned attribute of its own. Asked per kind anyway, so a future one is honoured
+         * without a caller having to notice.
+         */
+        Set<String> alwaysReturned() {
+            return ScimUserAttributes.alwaysReturned();
+        }
+    }
 
     /** No projection: the document is rendered whole. */
     static final ScimAttributeProjection NONE =
-            new ScimAttributeProjection(Map.of(), Map.of());
+            new ScimAttributeProjection(Kind.USER, Map.of(), Map.of());
+
+    private final Kind kind;
 
     /** Requested attribute -> requested sub-attributes, empty meaning the whole value. */
     private final Map<String, Set<String>> included;
@@ -41,19 +96,30 @@ final class ScimAttributeProjection {
     private final Map<String, Set<String>> excluded;
 
     private ScimAttributeProjection(
-            Map<String, Set<String>> included, Map<String, Set<String>> excluded) {
+            Kind kind, Map<String, Set<String>> included, Map<String, Set<String>> excluded) {
+        this.kind = kind;
         this.included = included;
         this.excluded = excluded;
     }
 
     /**
-     * The projection the two mutually exclusive parameters describe.
+     * The projection the two mutually exclusive parameters describe, over the User vocabulary.
      *
      * @throws ScimErrorException {@code 400 invalidValue} when both are supplied, or when
      *                            either names something that is not an implemented
      *                            attribute
      */
-    static ScimAttributeProjection of(String attributes, String excludedAttributes) {
+    static ScimAttributeProjection ofUser(String attributes, String excludedAttributes) {
+        return of(Kind.USER, attributes, excludedAttributes);
+    }
+
+    /** The same, over the Group vocabulary. */
+    static ScimAttributeProjection ofGroup(String attributes, String excludedAttributes) {
+        return of(Kind.GROUP, attributes, excludedAttributes);
+    }
+
+    private static ScimAttributeProjection of(
+            Kind kind, String attributes, String excludedAttributes) {
         boolean hasIncluded = isPresent(attributes);
         boolean hasExcluded = isPresent(excludedAttributes);
         if (hasIncluded && hasExcluded) {
@@ -61,10 +127,10 @@ final class ScimAttributeProjection {
                     "attributes and excludedAttributes are mutually exclusive.");
         }
         if (hasIncluded) {
-            return new ScimAttributeProjection(parse(attributes), Map.of());
+            return new ScimAttributeProjection(kind, parse(kind, attributes), Map.of());
         }
         if (hasExcluded) {
-            return new ScimAttributeProjection(Map.of(), parse(excludedAttributes));
+            return new ScimAttributeProjection(kind, Map.of(), parse(kind, excludedAttributes));
         }
         return NONE;
     }
@@ -77,7 +143,7 @@ final class ScimAttributeProjection {
         Map<String, Object> projected = new LinkedHashMap<>();
         for (Map.Entry<String, Object> attribute : rendered.entrySet()) {
             String name = attribute.getKey();
-            if (ScimUserAttributes.alwaysReturned().contains(name)) {
+            if (kind.alwaysReturned().contains(name)) {
                 projected.put(name, attribute.getValue());
                 continue;
             }
@@ -133,7 +199,7 @@ final class ScimAttributeProjection {
      */
     @SuppressWarnings("unchecked")
     private static Object mapComplex(
-            Object value, java.util.function.UnaryOperator<Map<String, Object>> transform) {
+            Object value, UnaryOperator<Map<String, Object>> transform) {
         if (value instanceof Map<?, ?> complex) {
             return transform.apply((Map<String, Object>) complex);
         }
@@ -157,55 +223,54 @@ final class ScimAttributeProjection {
      * names, and resolved back to their canonical spelling so the rendered document's
      * keys are the ones being compared.
      */
-    private static Map<String, Set<String>> parse(String parameter) {
+    private static Map<String, Set<String>> parse(Kind kind, String parameter) {
         Map<String, Set<String>> paths = new LinkedHashMap<>();
         for (String raw : parameter.split(",")) {
-            String path = unqualified(raw.trim());
+            String path = unqualified(kind, raw.trim());
             if (path.isEmpty()) {
                 continue;
             }
             int dot = path.indexOf('.');
-            String top = canonicalTopLevel(dot < 0 ? path : path.substring(0, dot));
+            String top = canonicalTopLevel(kind, dot < 0 ? path : path.substring(0, dot));
             Set<String> sub = paths.computeIfAbsent(top, name -> new LinkedHashSet<>());
             if (dot >= 0) {
-                sub.add(canonicalSubAttribute(top, path.substring(dot + 1)));
+                sub.add(canonicalSubAttribute(kind, top, path.substring(dot + 1)));
             }
         }
         return Map.copyOf(paths);
     }
 
-    /** The path with a leading core-User schema URI removed, if it carried one. */
-    private static String unqualified(String path) {
-        return path.regionMatches(true, 0, USER_PREFIX, 0, USER_PREFIX.length())
-                ? path.substring(USER_PREFIX.length())
+    /** The path with a leading schema URI for this resource type removed, if it carried one. */
+    private static String unqualified(Kind kind, String path) {
+        return path.regionMatches(true, 0, kind.schemaPrefix, 0, kind.schemaPrefix.length())
+                ? path.substring(kind.schemaPrefix.length())
                 : path;
     }
 
-    private static String canonicalTopLevel(String name) {
-        return ScimUserAttributes.projectableNames().stream()
+    private static String canonicalTopLevel(Kind kind, String name) {
+        return kind.projectableNames().stream()
                 .filter(known -> known.equalsIgnoreCase(name))
                 .findFirst()
                 .orElseThrow(() -> ScimErrorException.invalidValue(
-                        "Not an attribute of this service's User schema: "
+                        "Not an attribute of this service's " + kind.label + " schema: "
                                 + name.toLowerCase(Locale.ROOT)));
     }
 
-    private static String canonicalSubAttribute(String top, String sub) {
-        return subAttributeNames(top).stream()
+    private static String canonicalSubAttribute(Kind kind, String top, String sub) {
+        return subAttributeNames(kind, top).stream()
                 .filter(known -> known.equalsIgnoreCase(sub))
                 .findFirst()
                 .orElseThrow(() -> ScimErrorException.invalidValue(
                         "Not a sub-attribute of " + top + ": " + sub.toLowerCase(Locale.ROOT)));
     }
 
-    private static Set<String> subAttributeNames(String top) {
-        Optional<ScimUserAttributes.Attribute> declared = ScimUserAttributes.SCHEMA_ATTRIBUTES
-                .stream()
+    private static Set<String> subAttributeNames(Kind kind, String top) {
+        Optional<ScimUserAttributes.Attribute> declared = kind.schemaAttributes().stream()
                 .filter(attribute -> attribute.name().equals(top))
                 .findFirst();
         return declared.map(attribute -> attribute.subAttributes().stream()
                         .map(ScimUserAttributes.Attribute::name)
-                        .collect(java.util.stream.Collectors.toSet()))
+                        .collect(Collectors.toSet()))
                 .orElse(Set.of());
     }
 

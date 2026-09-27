@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import type { AuthRole } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import {
   CSRF_EXPIRED_MESSAGE,
@@ -12,22 +11,36 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
- * One row of the **account listing**, exactly as `GET /api/admin/accounts` reports
+ * One row of the **identity listing**, exactly as `GET /api/admin/accounts` reports
  * it.
  *
- * `enabled` and `locked` are two separate refusal mechanisms and both are shown:
- * an account serving a lockout right now looks healthy if only `enabled` is
- * rendered, and an administrator would have no way to tell which accounts need
- * unlocking. A lockout carries no expiry: it stands until an administrator
- * unlocks the account, so there is nothing to count down to. `createdAt` is null
- * only for a row written before that column existed.
+ * The field names changed when the login identity and the SCIM User became one
+ * resource: `username` became `userName`, the `role` string became the derived
+ * boolean `admin`, and `enabled` became SCIM's own `active`. The route keeps its
+ * name; what it lists is SCIM Users.
+ *
+ * `active` and `locked` are two separate refusal mechanisms and both are shown:
+ * an identity serving a lockout right now looks healthy if only `active` is
+ * rendered, and an administrator would have no way to tell which need unlocking. A
+ * lockout carries no expiry: it stands until an administrator unlocks the identity,
+ * so there is nothing to count down to.
+ *
+ * `admin` is DERIVED by the backend from membership of the server-seeded Admin
+ * group rather than stored, and it takes effect at the identity's next login — a
+ * session already open keeps the authority it was issued with.
+ *
+ * `hasPassword` is false for a SCIM-provisioned identity that has never been given
+ * a credential. It exists and cannot log in, which is otherwise indistinguishable
+ * from a forgotten password — and only the first is fixed by a SCIM write.
  */
 export interface AdminAccount {
-  username: string;
-  role: AuthRole;
-  enabled: boolean;
+  id: string;
+  userName: string;
+  admin: boolean;
+  active: boolean;
   locked: boolean;
-  createdAt: string | null;
+  hasPassword: boolean;
+  createdAt: string;
 }
 
 /** The three account actions, named as the backend's path segments. */
@@ -41,11 +54,15 @@ const decodeAccount = (response: Response): Promise<AdminAccount> =>
 
 /**
  * Timestamps are rendered from the ISO instant rather than through
+/**
+ * Timestamps are rendered from the ISO instant rather than through
  * `toLocaleString`, so what an administrator reads does not depend on the
  * machine's locale and a test can assert an exact string.
+ *
+ * <p>No longer nullable: the timestamp lives on the SCIM resource row, which cannot
+ * exist without one.
  */
-const formatDate = (instant: string | null): string =>
-  instant === null ? "—" : instant.slice(0, 10);
+const formatDate = (instant: string): string => instant.slice(0, 10);
 
 /** Copy for a refused action, keyed on what the backend refused. */
 function actionFailure(action: AccountAction, username: string, status?: number): string {
@@ -59,13 +76,13 @@ function actionFailure(action: AccountAction, username: string, status?: number)
 }
 
 function StatusCell({ account }: { account: AdminAccount }) {
-  if (account.enabled && !account.locked) {
+  if (account.active && !account.locked) {
     return <span className="text-sm text-muted-foreground">Active</span>;
   }
 
   return (
     <span className="flex flex-col gap-1">
-      {account.enabled ? null : (
+      {account.active ? null : (
         <span className="text-sm font-medium text-destructive">Disabled</span>
       )}
       {account.locked ? <span className="text-sm font-medium text-destructive">Locked</span> : null}
@@ -116,10 +133,10 @@ export function Accounts() {
    */
   const runAction = async (account: AdminAccount, action: AccountAction) => {
     setError(null);
-    setPending(account.username);
+    setPending(account.userName);
     try {
       const result = await request(
-        `/api/admin/accounts/${account.username}/${action}`,
+        `/api/admin/accounts/${account.userName}/${action}`,
         { method: "POST" },
         decodeAccount,
       );
@@ -127,7 +144,7 @@ export function Accounts() {
       if (result.kind === "ok") {
         const updated = result.data;
         setAccounts((current) =>
-          (current ?? []).map((row) => (row.username === updated.username ? updated : row)),
+          (current ?? []).map((row) => (row.userName === updated.userName ? updated : row)),
         );
         return;
       }
@@ -135,7 +152,7 @@ export function Accounts() {
         result,
         actionFailure(
           action,
-          account.username,
+          account.userName,
           result.kind === "failed" ? result.status : undefined,
         ),
       );
@@ -144,7 +161,7 @@ export function Accounts() {
     }
   };
 
-  const isSelf = (account: AdminAccount) => account.username === user?.username;
+  const isSelf = (account: AdminAccount) => account.userName === user?.username;
 
   return (
     <main className="mx-auto flex min-h-svh max-w-4xl flex-col justify-center gap-6 p-8">
@@ -199,11 +216,13 @@ export function Accounts() {
               </thead>
               <tbody>
                 {accounts.map((account) => (
-                  <tr className="border-b last:border-0" key={account.username}>
+                  <tr className="border-b last:border-0" key={account.userName}>
                     <th className="py-3 pr-4 font-medium" scope="row">
-                      {account.username}
+                      {account.userName}
                     </th>
-                    <td className="py-3 pr-4 text-muted-foreground">{account.role}</td>
+                    <td className="py-3 pr-4 text-muted-foreground">
+                      {account.admin ? "Admin" : "User"}
+                    </td>
                     <td className="py-3 pr-4">
                       <StatusCell account={account} />
                     </td>
@@ -212,7 +231,7 @@ export function Accounts() {
                     </td>
                     <td className="py-3">
                       <span className="flex gap-2">
-                        {account.enabled ? (
+                        {account.active ? (
                           <Button
                             // Refused with a 409 by the backend as well: an
                             // administrator who closed their own account could
@@ -226,7 +245,7 @@ export function Accounts() {
                             }
                             variant="destructive"
                           >
-                            Disable {account.username}
+                            Disable {account.userName}
                           </Button>
                         ) : (
                           <Button
@@ -234,7 +253,7 @@ export function Accounts() {
                             onClick={() => void runAction(account, "enable")}
                             size="sm"
                           >
-                            Enable {account.username}
+                            Enable {account.userName}
                           </Button>
                         )}
                         <Button
@@ -246,7 +265,7 @@ export function Accounts() {
                           size="sm"
                           variant="outline"
                         >
-                          Unlock {account.username}
+                          Unlock {account.userName}
                         </Button>
                       </span>
                     </td>

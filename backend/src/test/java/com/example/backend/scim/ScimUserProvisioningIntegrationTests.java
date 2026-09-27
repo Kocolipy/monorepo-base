@@ -51,7 +51,11 @@ class ScimUserProvisioningIntegrationTests {
 
     private static final String USERS = "/scim/v2/Users";
 
+    private static final String GROUPS = "/scim/v2/Groups";
+
     private static final String USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
+
+    private static final String GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group";
 
     private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
@@ -182,6 +186,60 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(UUID.fromString(body.get("id").asText())).isNotEqualTo(chosenByClient);
         assertThat(body.get("meta").get("resourceType").asText()).isEqualTo("User");
         assertThat(body.get("meta").get("version").asText()).isEqualTo("\"1\"");
+        // The submitted membership was ignored rather than stored: the reverse view is
+        // computed from the Groups this User is actually in, and it is in none. SCIM omits an
+        // empty multi-valued attribute, so the absence of the key IS the empty view — and the
+        // re-read proves it was not stored somewhere the create response merely declined to
+        // render.
+        assertThat(body.get("groups")).isNull();
+        UUID id = UUID.fromString(body.get("id").asText());
+        assertThat(readAs(writeToken, id).get("groups")).isNull();
+    }
+
+    /**
+     * The reverse membership view, end to end: a User added to a Group renders that
+     * membership, with the label and the {@code $ref} derived rather than submitted.
+     *
+     * <p>{@code type} is {@code direct} for every entry because this directory has no nested
+     * Groups, so there is no indirect membership it could report.
+     */
+    @Test
+    void a_user_added_to_a_group_renders_that_membership_as_a_read_only_view()
+            throws Exception {
+        UUID id = UUID.fromString(body(create("""
+                {"schemas":["%s"],"userName":"member"}""".formatted(USER_SCHEMA)))
+                .get("id").asText());
+        String versionBeforeMembership =
+                readAs(writeToken, id).get("meta").get("version").asText();
+
+        MvcResult group = mvc.perform(asConnector(post(GROUPS))
+                        .contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],
+                                 "displayName":"Engineering",
+                                 "members":[{"value":"%s"}]}"""
+                                .formatted(GROUP_SCHEMA, id)))
+                .andReturn();
+        assertThat(group.getResponse().getStatus()).isEqualTo(201);
+        UUID groupId = UUID.fromString(body(group).get("id").asText());
+
+        JsonNode reread = readAs(writeToken, id);
+        assertThat(reread.get("groups")).hasSize(1);
+        JsonNode membership = reread.get("groups").get(0);
+        assertThat(membership.get("value").asText()).isEqualTo(groupId.toString());
+        assertThat(membership.get("display").asText()).isEqualTo("Engineering");
+        assertThat(membership.get("$ref").asText()).endsWith("/scim/v2/Groups/" + groupId);
+        assertThat(membership.get("type").asText()).isEqualTo("direct");
+
+        // The membership advanced the User's OWN version too, because its representation changed:
+        // the `groups` attribute above was not there a moment ago. This assertion is the reason
+        // the defect behind it was found — ScimGroupRepository#create made no version-bump promise
+        // while replace and deleteById did, so a create with members left every member behind an
+        // ETag saying nothing had happened. Reading the version before and after rather than
+        // asserting a literal, so the claim is "it moved" rather than "it is 2".
+        assertThat(reread.get("meta").get("version").asText())
+                .as("a User whose rendered groups changed must not sit behind an unmoved ETag")
+                .isNotEqualTo(versionBeforeMembership);
     }
 
     /** A live {@code userName} is taken, case-insensitively, and the refusal is a conflict. */

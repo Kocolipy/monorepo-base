@@ -9,9 +9,15 @@ package com.example.backend.scim.config;
  * gate exists so the two halves can be built and merged in order without the half-built
  * surface ever being reachable in a real environment.
  *
- * <p>Closed by default, and that default is the point: a deployment gets the SCIM interface
- * because someone turned it on, never because they did not know it was there. It is opened
- * by default from the ticket that completes Groups.
+ * <p>Closed by default while the two halves were being built, so neither could be reached in a real
+ * environment half-finished. Open by default from the ticket that completed Groups — which is why
+ * the default lives in {@code ScimSecurityConfig}'s {@code @Value} expression rather than here: the
+ * release decision belongs to the code, not to a configuration file a deployment may replace.
+ *
+ * <p>The gate outlives its original reason on purpose. A deployment that authenticates by password
+ * only and provisions nothing can still turn the namespace off, and while it is off the namespace
+ * answers {@code 404} to every request whatever credential it carries — so the surface cannot even
+ * be probed for existence.
  *
  * @param open whether the namespace answers
  */

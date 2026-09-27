@@ -126,12 +126,13 @@ or change to Admin-group membership revokes the User's existing sessions so a
 stale login principal or authority never survives a security change. Failure
 runs and lockouts remain application-owned authentication behavior on the User.
 
-The replacement is staged rather than instantaneous. The SCIM User's own tables and
-its create/read surface exist first; Login and Admin authority still read the
-`accounts` row until the Group ticket derives authority from membership and removes
-the legacy role. Until then the two identities coexist, which is safe only because
-the SCIM namespace is behind a release gate that is closed by default — nothing
-provisions against the half of the model that is finished.
+The replacement is complete rather than staged. The SCIM User is now the only
+identity: the `accounts` table and the `Account` aggregate are gone, Login
+authenticates against `scim_users`, and Admin authority is derived from direct
+membership of the server-seeded Admin group rather than read from a role column,
+which no longer exists. Because there is no longer a half-finished model to
+protect, the SCIM release gate is open by default — its resource endpoints still
+require a connector token, and only the discovery documents are public.
 
 **Normalized SCIM storage** — the PostgreSQL representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
@@ -227,11 +228,20 @@ over the API.
 counter page, the accounts page at `/accounts`, and the administration API under
 `/api/admin/**`.
 
-**Account** — a database-backed login identity with one username, encoded
-password, role, enabled flag, and creation timestamp, plus the state of its
-recent login history. Startup seeding creates the configured User and Admin only
-when their usernames are absent; it does not overwrite an existing account,
-though it does fill in a creation timestamp a pre-existing account has none of.
+**Account** — **gone.** There is no longer a separate login identity: the
+`accounts` table and its aggregate were removed when the SCIM User became the one
+identity this application has, owning the profile, the credential and the
+authentication state together. The term survives only in two route paths
+(`/api/admin/accounts`, the SPA's `/accounts`) that were not worth churning.
+
+What replaced each of its parts: `username` → the User's `userName`,
+`password` → its `password_hash`, `enabled` → SCIM's own `active`, `role` →
+DERIVED membership of the **Admin group**, the login history → the failure run and
+`locked_at` on the same row, and the creation timestamp → the resource row's
+`created_at`, which is no longer nullable because a resource cannot exist without
+one. Startup seeding creates the configured ordinary and recovery identities when
+their `userName`s are absent and never overwrites one that exists — so a rotated
+recovery password survives a restart.
 
 **Login** — the one operation that turns submitted credentials into an
 authentication or a refusal, and the only thing that records an attempt against
@@ -273,59 +283,83 @@ brick the deployment; the accepted cost is unbounded online guessing against tha
 single account, answered by the Argon2id verification cost every attempt pays, the
 uniform refusal, and the audited failures — not by a lock.
 
-**Disabled account** — an account whose `enabled` flag is false, set by an Admin
-through account administration. It is refused at login exactly as a locked
-account is: a bare `401`, indistinguishable from a wrong password, so the
-response reveals nothing. The flag is never merely reported.
+**Deactivated User** — a User whose SCIM `active` attribute is false, set by an
+Admin through identity administration or by a SCIM write. It is refused at login
+exactly as a locked User is: a bare `401`, indistinguishable from a wrong
+password, so the response reveals nothing. The flag is never merely reported.
 
-**Enabling** and **unlocking** are **two separate capabilities**, and neither
-performs the other. Enabling settles whether an account is permitted at all;
+There is one flag, not two. `active` was SCIM's and `enabled` was the account
+aggregate's, and they meant the same thing — "may authenticate" — so keeping both
+after the identities merged would have left one of them unreachable over the wire.
+
+**Activating** and **unlocking** are **two separate capabilities**, and neither
+performs the other. Activating settles whether a User is permitted at all;
 unlocking settles whether it is being penalised for failed logins right now. So:
 
-- Disabling an account leaves its failure run and `locked_at` as they stand.
-  The run is evidence, and it is most wanted at the moment an account is being
+- Deactivating a User leaves its failure run and `locked_at` as they stand.
+  The run is evidence, and it is most wanted at the moment a User is being
   closed.
 - Enabling an account leaves a lockout it is serving in force. Restoring access
   is not a finding that the failed logins did not happen; the lockout still ends
   only when someone unlocks it.
 - Unlocking ends a lockout and clears the failure run with it, and says
-  nothing about the `enabled` flag. A disabled account can be unlocked and stays
-  disabled.
+  nothing about the `active` flag. A deactivated User can be unlocked and stays
+  deactivated.
 
 Restoring an account that was both suspended and locked out therefore takes two
 deliberate calls. That is the point: an Admin should have to say which of the two
 they mean.
 
-**Recovery guard** — account administration refuses three disable requests
-outright, with a `409`: an account disabling itself, the Bootstrap Admin, and the
-last enabled Admin. Each would leave nobody able to enable anything again, and
-nothing in the system could undo it without direct database access. A _locked_
+**Recovery guard** — identity administration refuses three deactivation requests
+outright, with a `409`: an identity deactivating itself, the Bootstrap Admin, and
+the last active Admin. Each would leave nobody able to reactivate anything again,
+and nothing in the system could undo it without direct database access. A _locked_
 Admin still counts as available — not because the lockout ends on its own, which
 it no longer does, but because the Bootstrap Admin can never be locked and can
 unlock anyone, so a deployment whose other Admins are locked is still recoverable.
 
-That last clause is why the Bootstrap Admin is undisableable. Its exemption is
-from _locking_ only, and a disabled Bootstrap Admin cannot log in: were it
-disableable, every other Admin could then lock itself out permanently and no
+The self-deactivation check compares NORMALIZED `userName`s, because that is what
+the identity was looked up by. A raw comparison would answer a different question
+than the lookup did, and an Admin whose session carried a differently-cased
+spelling of their own name could deactivate themselves past the guard.
+
+That last clause is why the Bootstrap Admin cannot be deactivated. Its exemption is
+from _locking_ only, and a deactivated Bootstrap Admin cannot log in: were it
+deactivatable, every other Admin could then lock itself out permanently and no
 principal would be left to unlock them. The refusal does not depend on how many
-other Admins are enabled, because the account's value here is being the recovery
+other Admins are active, because the identity's value here is being the recovery
 identity rather than being the last one standing.
 
-**Account listing** — what account administration may know about an account:
-username, role, enabled flag, whether a lockout is in force, and the creation
-timestamp. Never the password hash, which no listing type has a field for. There
-is no field for when a lockout lifts, because none does: the flag is the whole
-lock state, and what ends it is an Admin's Unlock. Both refusal mechanisms appear
-because either alone would mislead — an account locked out right now looks healthy
-if only `enabled` is shown, and nothing would say which accounts need unlocking.
+The refusal is recognised by the **reservation marker** on the User's own resource
+row, not by comparing its name to the configured one. A name comparison could be
+moved by a rename, and a second identity could acquire the exemption by taking the
+configured name; a marker written once by seeding, in a column no UPDATE reaches,
+can do neither. The same marker protects the resource from every SCIM write.
 
-**Accounts page** — the SPA screen at `/accounts`, an Admin's view of the account
-listing and the only place the two capabilities are exercised from a browser.
-Each row reports both refusal mechanisms and offers the action that would change
-it: Disable or Enable, and Unlock only while a lockout is in force. It offers no
-Disable for the signed-in Admin's own account, so the recovery guard's refusal is
-visible before the click rather than as a `409` after it. The page never decides
-authorization — it renders behind the `ADMIN` guard, and the backend refuses
+**Identity listing** — what identity administration may know about a User: its
+stable resource id, `userName`, whether the **Admin group** confers administrative
+authority on it, its `active` flag, whether a lockout is in force, whether a
+credential is set at all, and the creation timestamp. Never the password hash,
+which no listing type has a field for. There is no field for when a lockout lifts,
+because none does: the flag is the whole lock state, and what ends it is an Admin's
+Unlock. Both refusal mechanisms appear because either alone would mislead — a User
+locked out right now looks healthy if only `active` is shown, and nothing would say
+which need unlocking.
+
+The administrative flag is DERIVED at read time from Admin-group membership rather
+than stored, so the listing reports the same fact the login path derives and there
+is no column for the two to disagree about. Whether a credential exists is reported
+because "no password was ever set" is otherwise indistinguishable from "the
+password is wrong", and only the first is fixed by a SCIM write.
+
+**Accounts page** — the SPA screen at `/accounts`, an Admin's view of the identity
+listing and the only place the two capabilities are exercised from a browser. The
+route keeps its name from the removed account aggregate; what it lists is SCIM
+Users. Each row reports both refusal mechanisms and offers the action that would
+change it: Deactivate or Activate, and Unlock only while a lockout is in force. It
+offers no Deactivate for the signed-in Admin's own identity, so the recovery guard's
+refusal is visible before the click rather than as a `409` after it. The page never
+decides authorization — it renders behind the `ADMIN` guard, and the backend refuses
 `/api/admin/**` to any other role regardless.
 
 **Session revocation** — two things end the sessions an account is already
@@ -345,7 +379,7 @@ session store can be read by id alone, so the ones belonging to a username canno
 be found; the application refuses to start rather than accept a disable it cannot
 enforce.
 
-It is not a lock. A login already in flight when the disable commits can still
-mint a session that the revocation did not see, because it read the account as
-enabled. Once the write is committed no further login succeeds, so the gap is one
+It is not a lock. A login already in flight when the deactivation commits can still
+mint a session that the revocation did not see, because it read the User as
+active. Once the write is committed no further login succeeds, so the gap is one
 transaction wide rather than open-ended.

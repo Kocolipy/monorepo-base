@@ -24,10 +24,10 @@ import org.springframework.stereotype.Service;
  * authentication from submitted credentials and skip the failure run; it gets
  * both or neither.
  *
- * <p>Enforcement is deliberately elsewhere: {@link AccountService} reports a
- * locked account to Spring Security, which refuses it before any password is
+ * <p>Enforcement is deliberately elsewhere: {@link LoginIdentityService} reports a
+ * locked identity to Spring Security, which refuses it before any password is
  * compared. This module records what happened; the rule for what counts as
- * locked lives in {@link com.example.backend.auth.domain.Account}.
+ * locked lives in {@link com.example.backend.scim.domain.ScimLoginState}.
  */
 @Service
 public class LoginService {
@@ -42,15 +42,15 @@ public class LoginService {
 
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
-    private final AccountService accounts;
+    private final LoginIdentityService identities;
 
     public LoginService(
             AuthenticationManager authenticationManager,
             LoginAttemptService attempts,
-            AccountService accounts) {
+            LoginIdentityService identities) {
         this.authenticationManager = authenticationManager;
         this.attempts = attempts;
-        this.accounts = accounts;
+        this.identities = identities;
     }
 
     /**
@@ -71,9 +71,8 @@ public class LoginService {
      * often a mistyped password — so it stays out of the log, in the message and
      * in the context alike. What the records do carry is the outcome and, for a
      * refusal, the type of refusal, which is what tells a run of wrong passwords
-     * from a run against accounts that do not exist. Correlating a record to an
-     * account is the audit trail's job, by stable id, once the account aggregate
-     * has one.
+     * from a run against names that do not exist. Correlating a record to an
+     * identity is the audit trail's job, by the SCIM resource's stable id.
      *
      * @throws AuthenticationException when the credentials are refused
      */
@@ -101,7 +100,7 @@ public class LoginService {
                 .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("Login accepted");
-        return new LoginOutcome(authentication, accounts.resolveAccountId(authentication.getName()));
+        return new LoginOutcome(authentication, identities.resolveUserId(authentication.getName()));
     }
 
     /**
@@ -130,11 +129,11 @@ public class LoginService {
 
     /**
      * A successful login, carrying both what Spring Security needs to place in
-     * the security context and the account's stable id — the key the web adapter
-     * writes into the session index, so application-owned session lookups
-     * survive a later username change instead of following
+     * the security context and the identity's stable id — the SCIM resource id the
+     * web adapter writes into the session index, so application-owned session
+     * lookups survive a later {@code userName} change instead of following
      * {@code authentication.getName()}.
      */
-    public record LoginOutcome(Authentication authentication, UUID accountId) {
+    public record LoginOutcome(Authentication authentication, UUID userId) {
     }
 }

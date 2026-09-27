@@ -1,0 +1,411 @@
+package com.example.backend.auth.application;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimLoginState;
+import com.example.backend.scim.domain.ScimUser;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+
+/**
+ * What the login path sees of the directory, now that a SCIM User is the only login
+ * identity: the credential, the two refusal states, and the authority its Group membership
+ * confers.
+ *
+ * <p>Replaces {@code AccountServiceTests}. Everything that class asserted about reporting a
+ * stored identity to Spring Security is here, translated to the SCIM types — minus the
+ * seeding assertions, which moved with the behaviour: seeding is
+ * {@code ScimSeedService}/{@code ScimSeedConfig}'s now and is asserted there, because this
+ * service reads and never writes.
+ *
+ * <p>What is new is the derivation. There is no role column, so administrative authority is
+ * a question about membership of the RESERVED Admin group — and the tests below are arranged
+ * so an implementation reading a display name, or recomputing per request, fails rather than
+ * passes.
+ */
+class LoginIdentityServiceTests {
+
+    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
+    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
+    private final CountingPasswordEncoder passwordEncoder = new CountingPasswordEncoder();
+
+    private final LoginIdentityService service =
+            new LoginIdentityService(users, groups, passwordEncoder);
+
+    // Reporting the stored identity to Spring Security
+
+    @Test
+    void loadsThePersistedIdentityAsSpringSecurityUserDetails() {
+        users.given(ScimIdentities.user("admin"));
+
+        UserDetails details = service.loadUserByUsername("admin");
+
+        assertThat(details.getUsername()).isEqualTo("admin");
+        assertThat(details.getPassword()).isEqualTo("hash");
+        assertThat(details.isAccountNonLocked()).isTrue();
+        assertThat(details.isEnabled()).isTrue();
+    }
+
+    /**
+     * Looked up on the normalized userName, which is what uniqueness is decided on, so a
+     * correct password is not refused because of how the name was typed — and reported back
+     * under the STORED spelling, which is Spring Security's own vocabulary and what the
+     * login and {@code /me} responses carry.
+     */
+    @Test
+    void looksUpOnTheNormalizedUserNameAndReportsTheStoredSpelling() {
+        users.given(ScimIdentities.user("Ada"));
+
+        assertThat(service.loadUserByUsername("ADA").getUsername()).isEqualTo("Ada");
+    }
+
+    /**
+     * Carrying the lockout into {@code UserDetails} is what rejects a locked identity
+     * before its password is compared, so the flag has to reflect the stored lock state
+     * rather than only the attempt count.
+     */
+    @Test
+    void reportsALockedIdentityAsLockedToSpringSecurity() {
+        users.given(ScimIdentities.userWithLoginState(
+                "ada", new ScimLoginState("hash", 3, Instant.parse("2026-09-24T07:00:00Z"))));
+
+        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
+    }
+
+    /**
+     * And keeps reporting it locked however long it has stood. There is no clock in this
+     * decision at all — a lock is the recorded instant being present — so a lock imposed in
+     * the distant past reads exactly the same as one imposed a moment ago.
+     */
+    @Test
+    void keepsReportingALockedIdentityAsLockedHoweverOldTheLockIs() {
+        users.given(ScimIdentities.userWithLoginState(
+                "ada", new ScimLoginState("hash", 3, Instant.parse("1999-01-01T00:00:00Z"))));
+
+        assertThat(service.loadUserByUsername("ada").isAccountNonLocked()).isFalse();
+    }
+
+    /**
+     * The listing reports {@code active}, so authentication has to act on it — otherwise
+     * the field is decoration and a deactivated identity still logs in. Like a lockout, no
+     * passage of time lifts this.
+     */
+    @Test
+    void reportsAnInactiveIdentityAsDisabled() {
+        users.given(ScimIdentities.inactiveUser("retired"));
+
+        UserDetails details = service.loadUserByUsername("retired");
+
+        assertThat(details.isEnabled()).isFalse();
+        assertThat(details.isAccountNonLocked()).isTrue();
+    }
+
+    @Test
+    void rejectsAnUnknownUsername() {
+        assertThatThrownBy(() -> service.loadUserByUsername("missing"))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    /**
+     * A blank submission cannot normalize, and it is refused as the unknown name it is
+     * rather than as a different, distinguishable kind of failure — which would tell a
+     * caller its input was rejected for a reason other than being wrong.
+     */
+    @Test
+    void refusesABlankUsernameTheWayItRefusesAnUnknownOne() {
+        assertThatThrownBy(() -> service.loadUserByUsername("   "))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    /**
+     * A credentialless identity — no password hash ever set — must still produce
+     * {@code UserDetails} with a non-null password: {@code User.withUsername} throws on
+     * {@code null} before {@code DaoAuthenticationProvider} ever reaches the comparison,
+     * which would refuse the login differently (and detectably) from a wrong-password
+     * attempt on an identity that does have a hash. What the marker equals is not the point
+     * — only that no submitted password matches it, so the identity is refused the same way
+     * any other wrong password is.
+     */
+    @Test
+    void reportsACredentiallessIdentityWithANonNullUnmatchablePassword() {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        UserDetails details = service.loadUserByUsername("nopass");
+
+        assertThat(details.getPassword()).isNotNull();
+        assertThat(details.getPassword()).isNotEqualTo("anything the caller could submit");
+    }
+
+    /**
+     * The unmatchable marker is encoded once per process and reused. Argon2id is
+     * deliberately expensive, so recomputing it on every credentialless login attempt would
+     * hand an unauthenticated caller a way to spend this service's CPU at will — the cache
+     * is a cost control, not a tidiness measure.
+     *
+     * <p>Asserted by call count rather than by comparing markers: the encoder is
+     * deterministic, so a marker recomputed on every call is byte-identical to a cached one
+     * and no equality assertion can tell them apart.
+     */
+    @Test
+    void theUnmatchableMarkerIsEncodedOnceAndReusedAcrossCalls() {
+        users.given(ScimIdentities.credentiallessUser("nopass"));
+
+        String first = service.loadUserByUsername("nopass").getPassword();
+        String second = service.loadUserByUsername("nopass").getPassword();
+        String third = service.loadUserByUsername("nopass").getPassword();
+
+        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
+        assertThat(second).isEqualTo(first);
+        assertThat(third).isEqualTo(first);
+    }
+
+    /**
+     * Two credentialless identities share the one marker, so the cache is keyed to the
+     * process rather than recomputed per identity.
+     */
+    @Test
+    void twoCredentiallessIdentitiesShareTheOneEncodedMarker() {
+        users.given(ScimIdentities.credentiallessUser("nopass-one"));
+        users.given(ScimIdentities.credentiallessUser("nopass-two"));
+
+        String one = service.loadUserByUsername("nopass-one").getPassword();
+        String two = service.loadUserByUsername("nopass-two").getPassword();
+
+        assertThat(passwordEncoder.encodeCountOf("no-password-set")).isEqualTo(1);
+        assertThat(two).isEqualTo(one);
+    }
+
+    /** A stored hash is never re-encoded: it is reported through as it stands. */
+    @Test
+    void reportingAnIdentityWithACredentialEncodesNothing() {
+        users.given(ScimIdentities.user("ada"));
+
+        service.loadUserByUsername("ada");
+
+        assertThat(passwordEncoder.totalEncodeCalls()).isZero();
+    }
+
+    // Resolving the stable id
+
+    /**
+     * The stable id behind a userName, which the session index is keyed by. Spring Security
+     * carries the userName, so without this the session index would be keyed by a mutable
+     * value.
+     */
+    @Test
+    void resolvesTheStableIdBehindAUserName() {
+        ScimUser stored = users.given(ScimIdentities.user("user"));
+
+        assertThat(service.resolveUserId("user")).isEqualTo(stored.id());
+    }
+
+    @Test
+    void resolvesTheStableIdOnTheNormalizedUserName() {
+        ScimUser stored = users.given(ScimIdentities.user("Ada"));
+
+        assertThat(service.resolveUserId("ADA")).isEqualTo(stored.id());
+    }
+
+    /**
+     * An unknown userName is refused rather than resolved to null. A null id would travel
+     * into the session index as a key, silently indexing sessions under nothing instead of
+     * failing where the mistake was made.
+     */
+    @Test
+    void refusesToResolveAnIdForAnUnknownUserName() {
+        assertThatThrownBy(() -> service.resolveUserId("missing"))
+                .isInstanceOf(UsernameNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    // Authority, which is derived from Group membership rather than stored
+
+    /**
+     * Baseline access is what being an active identity means, so an identity outside the
+     * Admin group holds {@code ROLE_USER} and nothing else.
+     */
+    @Test
+    void anIdentityOutsideTheAdminGroupHoldsUserAuthorityAlone() {
+        users.given(ScimIdentities.user("ada"));
+        givenAdminGroup();
+
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+    }
+
+    /**
+     * A member of the Admin group holds BOTH, with {@code ADMIN} first: a caller reading a
+     * single role off the authorities — which the login response does — must see the higher
+     * one, so the ordering is asserted rather than left to discovery.
+     */
+    @Test
+    void anIdentityInTheAdminGroupHoldsAdminFirstThenUser() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenAdminGroup(ada);
+
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_ADMIN", "ROLE_USER");
+    }
+
+    /** With no Admin group seeded at all, nobody is an administrator. */
+    @Test
+    void withNoAdminGroupSeededNobodyHoldsAdminAuthority() {
+        users.given(ScimIdentities.user("ada"));
+
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+    }
+
+    /**
+     * The Group is resolved through its reservation marker, never through its label. So a
+     * Group that merely <em>displays</em> as the administrators' one confers nothing — which
+     * is the difference between authority a connector cannot forge and authority anyone who
+     * may create a Group can grant themselves.
+     */
+    @Test
+    void membershipOfAGroupThatMerelyDisplaysAsTheAdminGroupConfersNothing() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        // The reserved Group is deliberately NOT the one named "Admins" here.
+        groups.createReserved(
+                ScimIdentities.group("Reserved administrators"),
+                ReservedResourceName.ADMIN_GROUP);
+        groups.create(ScimIdentities.group("Admins", ada));
+
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+    }
+
+    /** Membership is direct only, so another Group's members are not administrators. */
+    @Test
+    void membershipOfSomeOtherGroupConfersNoAdminAuthority() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenAdminGroup();
+        groups.create(ScimIdentities.group("Engineering", ada));
+
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+    }
+
+    /**
+     * Authority is read at login and never recomputed, and that is the specified behaviour
+     * rather than a limitation: a session carries the authorities it was issued with, so
+     * adding an identity to the Admin group grants administrative access at its NEXT login
+     * and never mid-session.
+     *
+     * <p>Both halves are needed. The already-issued principal proves nothing was
+     * recomputed; the fresh load proves the grant did take effect, so the first half cannot
+     * pass by the membership write having quietly failed.
+     */
+    @Test
+    void authorityIsReadAtLoginAndNeverRecomputedForAnAlreadyIssuedPrincipal() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        ScimGroup admins = givenAdminGroup();
+
+        UserDetails issuedBeforeTheGrant = service.loadUserByUsername("ada");
+        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly("ROLE_USER");
+
+        addMember(admins, ada);
+
+        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_ADMIN", "ROLE_USER");
+    }
+
+    /** And the converse: a removal likewise takes effect at the next login, not before. */
+    @Test
+    void revokingMembershipTakesEffectAtTheNextLoginRatherThanMidSession() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        ScimGroup admins = givenAdminGroup(ada);
+
+        UserDetails issuedWhileAdmin = service.loadUserByUsername("ada");
+        assertThat(authoritiesOf(issuedWhileAdmin)).containsExactly("ROLE_ADMIN", "ROLE_USER");
+
+        groups.replace(admins.replacedWith(admins.displayName(), List.of(), ScimIdentities.NOW))
+                .orElseThrow();
+
+        assertThat(authoritiesOf(issuedWhileAdmin)).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+    }
+
+    /** An inactive administrator is still reported as one; it is simply disabled. */
+    @Test
+    void anInactiveAdministratorIsStillReportedWithAdminAuthority() {
+        ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
+        givenAdminGroup(ada);
+
+        UserDetails details = service.loadUserByUsername("ada");
+
+        assertThat(authoritiesOf(details)).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        assertThat(details.isEnabled()).isFalse();
+    }
+
+    /**
+     * The reservation is applied through the port, because production has no other way to
+     * produce one.
+     */
+    private ScimGroup givenAdminGroup(ScimUser... members) {
+        return groups.createReserved(
+                ScimIdentities.group("Admins", members), ReservedResourceName.ADMIN_GROUP);
+    }
+
+    private ScimGroup addMember(ScimGroup group, ScimUser user) {
+        return groups.replace(group.replacedWith(
+                        group.displayName(),
+                        Stream.concat(
+                                        group.members().stream(),
+                                        Stream.of(ScimGroupMember.reference(user.id())))
+                                .toList(),
+                        ScimIdentities.NOW))
+                .orElseThrow();
+    }
+
+    private List<String> authoritiesOf(String userName) {
+        return authoritiesOf(service.loadUserByUsername(userName));
+    }
+
+    private static List<String> authoritiesOf(UserDetails details) {
+        return details.getAuthorities().stream().map(GrantedAuthority::getAuthority).toList();
+    }
+
+    /**
+     * Counts what it was asked to encode, per raw value.
+     *
+     * <p>Deterministic on purpose, and that is exactly why the count is what the assertions
+     * read: a re-encode returns an identical string, so no equality assertion could tell a
+     * cached marker from one recomputed on every call.
+     */
+    private static final class CountingPasswordEncoder implements PasswordEncoder {
+
+        private final Map<String, Integer> encodeCounts = new HashMap<>();
+
+        @Override
+        public String encode(CharSequence rawPassword) {
+            encodeCounts.merge(rawPassword.toString(), 1, Integer::sum);
+            return "encoded:" + rawPassword;
+        }
+
+        @Override
+        public boolean matches(CharSequence rawPassword, String encodedPassword) {
+            return encode(rawPassword).equals(encodedPassword);
+        }
+
+        int encodeCountOf(String rawPassword) {
+            return encodeCounts.getOrDefault(rawPassword, 0);
+        }
+
+        int totalEncodeCalls() {
+            return encodeCounts.values().stream().mapToInt(Integer::intValue).sum();
+        }
+    }
+}

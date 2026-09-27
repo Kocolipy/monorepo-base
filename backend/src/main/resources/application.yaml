@@ -74,14 +74,19 @@ server:
 
 app:
   scim:
-    # The release gate. Absent on purpose: the default — closed — belongs to
+    # The release gate. Absent on purpose: the default — OPEN — belongs to
     # ScimSecurityConfig's @Value expression, so an unset setting reaches the gate
-    # as closed and "SCIM is off unless someone turned it on" is a fact about the
+    # as open and "SCIM is on unless someone turned it off" is a fact about the
     # code rather than about this file, which a deployment may replace wholesale.
     #
-    # Override with APP_SCIM_ENABLED=true; see README.md's Configuration section.
-    # Users and Groups are one release capability, so this stays closed until the
-    # Group half is complete.
+    # It defaulted to CLOSED while only the User half of the model existed. Users
+    # and Groups are one release capability, and the Group half now exists, so the
+    # gate opened. An open gate does not mean an open service: the resource
+    # endpoints are reachable but still answer 401 without a connector token, and
+    # only the discovery documents are public.
+    #
+    # Turn SCIM off with APP_SCIM_ENABLED=false; see README.md's Configuration
+    # section.
   auth:
     username: ${APP_USERNAME:user}
     password: ${APP_PASSWORD:P@ssw0rd}

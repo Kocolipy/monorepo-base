@@ -172,10 +172,10 @@ class EcsLogFormatTests {
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk());
 
-        JsonNode record = onlyRecordWithMessage("Administrative account change applied");
+        JsonNode record = onlyRecordWithMessage("Administrative identity change applied");
 
         assertThatIsValidEcs(record);
-        assertThat(record.at("/event/action").asText()).isEqualTo("account.unlock");
+        assertThat(record.at("/event/action").asText()).isEqualTo("identity.unlock");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
     }

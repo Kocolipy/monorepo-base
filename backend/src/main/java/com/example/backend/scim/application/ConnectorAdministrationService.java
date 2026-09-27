@@ -1,17 +1,18 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRepository;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
+import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorRepository;
 import com.example.backend.scim.domain.ScimConnectorToken;
 import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
+import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserRepository;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
@@ -52,7 +53,7 @@ public class ConnectorAdministrationService {
     private final ScimConnectorRepository connectors;
     private final ScimConnectorTokenRepository tokens;
     private final ScimExternalIdRepository aliases;
-    private final AccountRepository accounts;
+    private final ScimUserRepository users;
     private final AuditTrail audit;
     private final SecureRandom random;
     private final Clock clock;
@@ -61,14 +62,14 @@ public class ConnectorAdministrationService {
             ScimConnectorRepository connectors,
             ScimConnectorTokenRepository tokens,
             ScimExternalIdRepository aliases,
-            AccountRepository accounts,
+            ScimUserRepository users,
             AuditTrail audit,
             SecureRandom random,
             Clock clock) {
         this.connectors = connectors;
         this.tokens = tokens;
         this.aliases = aliases;
-        this.accounts = accounts;
+        this.users = users;
         this.audit = audit;
         this.random = random;
         this.clock = clock;
@@ -218,14 +219,22 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * The stable id behind the administrator's username, for the event's actor
-     * reference. {@code null} when the name resolves to no account — the same call
-     * {@code AccountAdministrationService} makes, and for the same reason: an event
+     * The stable id behind the administrator's {@code userName}, for the event's actor
+     * reference. {@code null} when the name resolves to no identity — the same call
+     * {@code IdentityAdministrationService} makes, and for the same reason: an event
      * with no actor is more use than no event, and what it never becomes is the
-     * username itself.
+     * {@code userName} itself.
+     *
+     * <p>Resolved through the SCIM User port rather than through the login surface's own
+     * service, which is what keeps this slice from depending on {@code auth}: the
+     * dependency runs {@code auth -> scim} only, and a lookup here of an
+     * {@code auth.application} class would close that into a cycle the architecture test
+     * refuses.
      */
     private UUID actorId(String requestedBy) {
-        return accounts.findByUsername(requestedBy).map(Account::id).orElse(null);
+        return users.findByNormalizedUserName(NormalizedUserName.of(requestedBy))
+                .map(ScimUser::id)
+                .orElse(null);
     }
 
     private ScimConnector requireLive(UUID connectorId) {

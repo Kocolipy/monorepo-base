@@ -7,18 +7,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.example.backend.auth.InMemoryAccountRepository;
 import com.example.backend.auth.application.LoginAttemptService;
-import com.example.backend.auth.application.AccountService;
+import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.config.SecurityConfig;
-import com.example.backend.auth.domain.Account;
-import com.example.backend.auth.domain.AccountRole;
-import com.example.backend.auth.domain.LockoutPolicy;
+import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimUserRepository;
+import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimUser;
 import jakarta.servlet.http.Cookie;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,11 +33,10 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.web.http.DefaultCookieSerializer;
@@ -53,11 +55,17 @@ class AuthControllerTests {
     private CsrfTokenRepository csrfTokenRepository;
 
     /**
-     * Backs the attempt counter only: the credentials this controller checks come
-     * from the in-memory user details manager below. The lockout itself is
-     * exercised in {@code LoginLockoutTests}, over the real account store.
+     * The one identity store. It backs the attempt counter AND the credentials the
+     * authentication manager checks, which the account aggregate's version of this
+     * test could not do: it held an in-memory {@code UserDetailsManager} beside an
+     * account repository, so the two could disagree. There is one identity now, so
+     * {@link LoginIdentityService} is the {@code UserDetailsService} here, and
+     * {@code grace} reports {@code ADMIN} because she is in the reserved Admin
+     * group rather than because a fixture said so. The lockout itself is exercised
+     * in {@code LoginLockoutTests}.
      */
-    private final InMemoryAccountRepository accounts = new InMemoryAccountRepository();
+    private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
+    private final InMemoryScimGroupRepository groups = new InMemoryScimGroupRepository(users);
     private final com.example.backend.audit.RecordingAuditTrail audit =
             new com.example.backend.audit.RecordingAuditTrail();
 
@@ -65,45 +73,46 @@ class AuthControllerTests {
     void setUp() {
         SecurityConfig config = new SecurityConfig();
         PasswordEncoder passwordEncoder = config.passwordEncoder();
-        InMemoryUserDetailsManager users = new InMemoryUserDetailsManager(
-                User.withUsername("ada")
-                        .password(passwordEncoder.encode("correct-password"))
-                        .roles("USER")
-                        .build(),
-                User.withUsername("grace")
-                        .password(passwordEncoder.encode("another-correct-password"))
-                        .roles("ADMIN")
-                        .build());
-        accounts.save(new Account("ada", passwordEncoder.encode("correct-password"),
-                AccountRole.USER));
-        accounts.save(new Account("grace", passwordEncoder.encode("another-correct-password"),
-                AccountRole.ADMIN));
-        AuthenticationManager manager = config.authenticationManager(users, passwordEncoder);
+        users.given(identity("ada", passwordEncoder.encode("correct-password")));
+        ScimUser grace = users.given(
+                identity("grace", passwordEncoder.encode("another-correct-password")));
+        // Administrative authority is a Group membership now, so an administrator
+        // is arranged by putting her in the reserved Admin group — through the
+        // port, because nothing else may mint a reserved resource.
+        groups.createReserved(
+                ScimIdentities.group("Admins", grace), ReservedResourceName.ADMIN_GROUP);
+
+        LoginIdentityService identities =
+                new LoginIdentityService(users, groups, passwordEncoder);
+        AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
-        AccountService accountService = new AccountService(
-                accounts, passwordEncoder, Clock.fixed(
-                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC));
         controller = new AuthController(
                 new LoginService(
                         manager,
                         new LoginAttemptService(
-                                accounts,
+                                users,
                                 new com.example.backend.auth.InMemoryAccountSessions(),
                                 new com.example.backend.auth.PendingCommit(),
                                 new LockoutPolicy(3),
-                                new com.example.backend.auth.domain.BootstrapAdmin(
-                                        "recovery-admin"),
                                 audit,
                                 Clock.fixed(
                                         Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
-                        accountService),
+                        identities),
                 audit,
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
                 csrfTokenRepository,
                 cookieSerializer);
+    }
+
+    private static ScimUser identity(String userName, String passwordHash) {
+        return ScimUser.created(
+                UUID.randomUUID(),
+                ScimIdentities.profile(userName, true),
+                passwordHash,
+                ScimIdentities.NOW);
     }
 
     @AfterEach
@@ -128,6 +137,14 @@ class AuthControllerTests {
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
     }
 
+    /**
+     * An administrator's login reports {@code ADMIN}, and the assertion is now
+     * about a choice rather than about an accident: authority is derived, so she
+     * holds {@code ROLE_ADMIN} and {@code ROLE_USER} both — baseline access is what
+     * being an active identity means. A response that read the first authority it
+     * found would report an administrator as an ordinary user, which is why both
+     * the granted set and the single reported role are pinned here.
+     */
     @Test
     void secondaryUserCanLogIn() {
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -143,6 +160,9 @@ class AuthControllerTests {
         assertThat(response.role()).isEqualTo("ADMIN");
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
+        assertThat(savedContext.getAuthentication().getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .contains("ROLE_ADMIN", "ROLE_USER");
     }
 
     @Test
@@ -172,7 +192,7 @@ class AuthControllerTests {
                 new MockHttpServletResponse()))
                 .isInstanceOf(BadCredentialsException.class);
 
-        assertThat(accounts.require("ada").failedLoginAttempts()).isEqualTo(1);
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
     }
 
     /**
@@ -263,6 +283,20 @@ class AuthControllerTests {
         assertThat(response.role()).isEqualTo("USER");
     }
 
+    /**
+     * The derived-authority reader, asserted at its hard case: an administrator
+     * holds both authorities, and {@code ROLE_USER} arriving first must not make
+     * the response say {@code USER}.
+     */
+    @Test
+    void currentUserReportsAdminForAnAdministratorHoldingBothAuthorities() {
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"));
+
+        assertThat(response.username()).isEqualTo("grace");
+        assertThat(response.role()).isEqualTo("ADMIN");
+    }
+
     @Test
     void currentUserRejectsAnAuthenticationWithoutAnApplicationRole() {
         var authentication = new TestingAuthenticationToken(
@@ -270,7 +304,7 @@ class AuthControllerTests {
 
         assertThatThrownBy(() -> controller.currentUser(authentication))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Authenticated account has no role");
+                .hasMessage("Authenticated identity has no role");
     }
 
     /**

@@ -12,5 +12,25 @@ package com.example.backend.audit.domain;
 public enum AuditScimRefusal {
 
     /** A live resource already holds the unique attribute the write asked for. */
-    UNIQUENESS
+    UNIQUENESS,
+
+    /**
+     * The write named a value the schema does not accept — for a Group, a member id that
+     * does not name a live User, which covers a Group's id, a deleted User's id and an id
+     * that names nothing.
+     *
+     * <p>One reason for all three because the caller is told one thing: distinguishing
+     * them would disclose the existence and the type of resources it has not been shown.
+     */
+    INVALID_VALUE,
+
+    /**
+     * The write targeted a resource the deployment reserves, which no SCIM operation may
+     * change: the Bootstrap Admin, the Admin group's name or existence, or the Bootstrap
+     * Admin's membership of it.
+     *
+     * <p>SCIM's own {@code scimType} for an attempt to change something immutable, so the
+     * recorded refusal and the error body the caller received name the same thing.
+     */
+    MUTABILITY
 }

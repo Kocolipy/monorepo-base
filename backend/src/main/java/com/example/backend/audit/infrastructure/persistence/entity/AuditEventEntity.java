@@ -112,59 +112,20 @@ public class AuditEventEntity {
         this.requestId = requestId;
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public Instant getOccurredAt() {
-        return occurredAt;
-    }
-
-    public AuditOperation getOperation() {
-        return operation;
-    }
-
-    public AuditOutcome getOutcome() {
-        return outcome;
-    }
-
-    public UUID getActorId() {
-        return actorId;
-    }
-
-    public UUID getSubjectId() {
-        return subjectId;
-    }
-
-    public String getResourceType() {
-        return resourceType;
-    }
-
-    public UUID getResourceId() {
-        return resourceId;
-    }
-
-    public String getChangedPaths() {
-        return changedPaths;
-    }
-
-    public String getStatusClass() {
-        return statusClass;
-    }
-
-    public String getErrorCode() {
-        return errorCode;
-    }
-
-    public String getHttpMethod() {
-        return httpMethod;
-    }
-
-    public String getHttpPath() {
-        return httpPath;
-    }
-
-    public String getRequestId() {
-        return requestId;
-    }
+    /*
+     * No accessors, deliberately.
+     *
+     * This entity is write-only: the audit trail is append-only, nothing in the
+     * application reads an event back, and every assertion about a recorded event is
+     * made against the stored ROW with SQL — because what is claimed about an audit
+     * record is a claim about the bytes that landed, and a mapping's opinion of them is
+     * not the same evidence.
+     *
+     * Hibernate needs none of them either: every mapping annotation above is on a
+     * FIELD, so the provider uses field access and never looks for a getter. A previous
+     * generation of accessors here was justified as "required for Hibernate hydration",
+     * which was simply untrue, and they sat unreachable until mutation testing reported
+     * fourteen mutants no test could reach. The remedy the gate asks for is to test the
+     * code or delete it; a getter with no caller cannot be tested into relevance.
+     */
 }

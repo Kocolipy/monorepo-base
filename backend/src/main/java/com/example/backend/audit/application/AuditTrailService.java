@@ -1,7 +1,9 @@
 package com.example.backend.audit.application;
 
+import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
+import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -12,6 +14,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.OperationalAlerts;
 import java.time.Clock;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -65,7 +68,13 @@ public class AuditTrailService implements AuditTrail {
             List.of("failedLoginAttempts", "lockedAt");
 
     /** The administrative standing column. */
-    private static final List<String> ENABLED_PATHS = List.of("enabled");
+    private static final List<String> ENABLED_PATHS = List.of("active");
+
+    /** What a Group rename changes. */
+    private static final List<String> GROUP_NAME_PATHS = List.of("displayName");
+
+    /** What a membership change changes, and the only path a PATCH of members touches. */
+    private static final List<String> GROUP_MEMBER_PATHS = List.of("members");
 
     /** A rejected login lengthens the failure run and nothing else. */
     private static final List<String> FAILURE_RUN_PATHS = List.of("failedLoginAttempts");
@@ -357,6 +366,231 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
+     * Records an administrative change refused because of what it would leave behind.
+     *
+     * <p>Fail-open with an alert. The caller is already receiving a {@code 409} and that
+     * answer must not become a {@code 500} because the trail is unavailable — and there is no
+     * mutation for a failed append to take down, because the refusal happens before anything
+     * is written. Fail-closed would therefore buy nothing and cost the refusal's own
+     * reliability.
+     */
+    @Override
+    public void recordAdministrativeChangeRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.ACCOUNT_DISABLE,
+                AuditOutcome.FAILURE,
+                actorId,
+                subjectId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /**
+     * Records a connector creating a Group. Fail-closed: the append joins the create's
+     * transaction, so a Group this service cannot account for is not provisioned.
+     *
+     * <p>That matters more for a Group than for a User. A Group confers authority, so an
+     * unrecorded Group creation is an unrecorded grant of access.
+     */
+    @Transactional
+    @Override
+    public void recordScimGroupCreated(UUID connectorId, UUID groupId) {
+        append(groupEvent(
+                AuditOperation.SCIM_GROUP_CREATE,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                groupId,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records a Group create refused. Fail-open, for the reason a refused User create is:
+     * the caller is already receiving a refusal, and a create refused by a constraint
+     * violation has a doomed transaction that would roll a joined append back with it.
+     */
+    @Override
+    public void recordScimGroupCreateRejected(UUID connectorId, AuditScimRefusal reason) {
+        appendRaisingAlertOnFailure(groupEvent(
+                AuditOperation.SCIM_GROUP_CREATE,
+                AuditOutcome.FAILURE,
+                connectorId,
+                null,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /** Records a Group's name or membership changed. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordScimGroupReplaced(
+            UUID connectorId, UUID groupId, Set<AuditGroupAttribute> changed) {
+        append(groupEvent(
+                AuditOperation.SCIM_GROUP_REPLACE,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                groupId,
+                changedPaths(changed),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records a Group write refused. Fail-open with an alert.
+     *
+     * <p>This is the event that records an attempt to rename the Admin group or to remove the
+     * Bootstrap Admin's membership of it, and it is fail-open for the same reason the other
+     * refusals are: the caller's {@code 400} or {@code 409} must not turn into a
+     * {@code 500}, and nothing was written for a rollback to undo. The alert is what stops a
+     * trail outage from making these silent.
+     */
+    @Override
+    public void recordScimGroupWriteRejected(
+            UUID connectorId, UUID groupId, AuditScimRefusal reason) {
+        appendRaisingAlertOnFailure(groupEvent(
+                AuditOperation.SCIM_GROUP_REPLACE,
+                AuditOutcome.FAILURE,
+                connectorId,
+                groupId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /** Records a Group deleted. Fail-closed: a revoked grant of authority is not forgotten. */
+    @Transactional
+    @Override
+    public void recordScimGroupDeleted(UUID connectorId, UUID groupId) {
+        append(groupEvent(
+                AuditOperation.SCIM_GROUP_DELETE,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                groupId,
+                GROUP_MEMBER_PATHS,
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records a connector reading the Group collection. <strong>Fail-closed</strong>, for the
+     * reason the User collection read is: a bulk read is the shape a credential enumerating
+     * the directory takes, and the honest outcome of an append that cannot commit is that the
+     * caller gets an error rather than that the service hands over every Group and forgets.
+     */
+    @Transactional
+    @Override
+    public void recordScimGroupsListed(UUID connectorId) {
+        append(groupEvent(
+                AuditOperation.SCIM_GROUP_LIST,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                null,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records the server seeding a reserved resource. Fail-closed: a recovery identity this
+     * service cannot account for is one it does not create, and seeding runs at startup where
+     * a failure is a failure to boot rather than a request nobody can retry.
+     *
+     * <p>The actor is {@code null} because nobody acted. The subject is the seeded resource
+     * itself, so the event reads as "this identity came into existence", which is what an
+     * administrator investigating an unexpected administrator needs it to say.
+     */
+    @Transactional
+    @Override
+    public void recordReservedResourceSeeded(UUID resourceId, boolean group) {
+        append(event(
+                AuditOperation.SCIM_RESOURCE_SEED,
+                AuditOutcome.SUCCESS,
+                null,
+                resourceId,
+                group ? AuditEvent.GROUP_RESOURCE_TYPE : AuditEvent.USER_RESOURCE_TYPE,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * The restore, recorded against the GROUP whose membership moved, with the restored User
+     * named in the changed path.
+     *
+     * <p>Subject is the Group rather than the User because that is the resource whose
+     * representation changed, which is how every other Group write in this trail is recorded —
+     * an operator reading the Admin group's history sees the removal's consequence in the same
+     * place as the removal would have been.
+     *
+     * <p>Fail-closed like the seed above: startup is where a failure is a failure to boot, and a
+     * deployment that restored its own administrative authority without being able to say so is
+     * not a deployment that should come up.
+     *
+     * <p>The restored User is NOT written into the event's error-code field, which is what it
+     * would take to name it here — that field carries a closed-set failure reason and a successful
+     * restore has none. Which User it was needs no recording anyway: only the Bootstrap Admin's
+     * membership is ever restored, and the reservation says which identity that is.
+     */
+    @Transactional
+    @Override
+    public void recordReservedMembershipRestored(UUID groupId, UUID userId) {
+        append(event(
+                AuditOperation.SCIM_RESOURCE_SEED,
+                AuditOutcome.SUCCESS,
+                null,
+                groupId,
+                AuditEvent.GROUP_RESOURCE_TYPE,
+                changedPaths(Set.of(AuditGroupAttribute.MEMBERS)),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * A Group lifecycle event: the actor is a connector and the resource type is
+     * {@code Group}, whose id is also the subject — or {@code null} when the write produced
+     * no Group to name.
+     */
+    private AuditEvent groupEvent(
+            AuditOperation operation,
+            AuditOutcome outcome,
+            UUID connectorId,
+            UUID groupId,
+            List<String> changedPaths,
+            String statusClass,
+            String errorCode) {
+        return event(
+                operation,
+                outcome,
+                connectorId,
+                groupId,
+                AuditEvent.GROUP_RESOURCE_TYPE,
+                changedPaths,
+                statusClass,
+                errorCode);
+    }
+
+    /**
+     * The recorded path names for a set of changed Group attributes.
+     *
+     * <p>The mapping lives here rather than at the caller because the recorded strings are
+     * this slice's vocabulary: a caller that assembled them would be a caller that could
+     * assemble something else.
+     */
+    private static List<String> changedPaths(Set<AuditGroupAttribute> changed) {
+        return changed.stream()
+                .sorted()
+                .flatMap(attribute -> switch (attribute) {
+                    case DISPLAY_NAME -> GROUP_NAME_PATHS.stream();
+                    case MEMBERS -> GROUP_MEMBER_PATHS.stream();
+                })
+                .toList();
+    }
+
+    /**
      * A User lifecycle event: the actor is a connector, the resource type is
      * {@code User}, and the subject and the resource are the same id — the created
      * User, or {@code null} when there is no created User to name.
@@ -394,6 +628,11 @@ public class AuditTrailService implements AuditTrail {
         }
     }
 
+    /**
+     * An event about the login identity, which is a SCIM User: authentication, lockout and
+     * administrative standing all name the same resource type as provisioning does, because
+     * they now act on the same resource.
+     */
     private AuditEvent event(
             AuditOperation operation,
             AuditOutcome outcome,
@@ -407,7 +646,7 @@ public class AuditTrailService implements AuditTrail {
                 outcome,
                 actorId,
                 subjectId,
-                AuditEvent.ACCOUNT_RESOURCE_TYPE,
+                AuditEvent.USER_RESOURCE_TYPE,
                 changedPaths,
                 statusClass,
                 errorCode);
