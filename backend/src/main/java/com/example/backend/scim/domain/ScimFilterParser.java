@@ -86,8 +86,8 @@ public final class ScimFilterParser {
                     "The filter is longer than " + MAX_FILTER_BYTES + " bytes.");
         }
         ScimFilterParser parser = new ScimFilterParser(text, types);
+        // or() ends by looking for another "or", which skips any trailing whitespace.
         ScimFilter filter = parser.or(0, null);
-        parser.skipWhitespace();
         if (parser.position < text.length()) {
             throw new InvalidScimFilterException("The filter has trailing text after a complete expression.");
         }
@@ -105,8 +105,8 @@ public final class ScimFilterParser {
         if (text == null || text.isBlank()) {
             throw new InvalidScimFilterException("The attribute path is empty.");
         }
-        ScimFilterParser parser = new ScimFilterParser(text.trim(), types);
-        return parser.resolve(text.trim(), null);
+        String path = text.trim();
+        return new ScimFilterParser(path, types).resolve(path, null);
     }
 
     /** A path together with the attribute it denotes, for type checks. */
@@ -280,9 +280,8 @@ public final class ScimFilterParser {
     private Comparison comparison(ResolvedPath path, Operator operator, Object literal) {
         ResolvedPath target = path;
         if (path.attribute().isComplex()) {
-            Optional<ScimFilterPath> value = path.attribute().multiValued()
-                    ? path.reference().path().subAttribute("value")
-                    : Optional.empty();
+            // Only the multi-valued complex attributes have a "value" sub-attribute to fall back on.
+            Optional<ScimFilterPath> value = path.reference().path().subAttribute("value");
             if (value.isEmpty()) {
                 throw new InvalidScimFilterException(
                         "A complex attribute is compared through a sub-attribute: "
@@ -297,9 +296,8 @@ public final class ScimFilterParser {
             }
             return new Comparison(target.reference(), operator, null);
         }
-        if (literal instanceof Number) {
-            throw typeMismatch(attribute);
-        }
+        // Each arm refuses a literal of the wrong type, a number included: no attribute here is
+        // numeric.
         return switch (attribute.kind()) {
             case STRING, REFERENCE -> {
                 if (!(literal instanceof String)) {
@@ -440,9 +438,11 @@ public final class ScimFilterParser {
         return decoded;
     }
 
-    /** The run of characters up to whitespace, a bracket, a parenthesis or a quote. */
+    /**
+     * The run of characters up to whitespace, a bracket, a parenthesis or a quote, from the
+     * current position. Every caller has already skipped the whitespace before it.
+     */
     private String readWord() {
-        skipWhitespace();
         int start = position;
         while (position < text.length() && !isDelimiter(text.charAt(position))) {
             position++;

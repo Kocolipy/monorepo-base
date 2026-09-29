@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -180,12 +181,15 @@ final class ScimQuerySql {
             return "EXISTS (SELECT 1 FROM " + rows(path) + ")";
         }
         if (attribute.isComplex()) {
+            // A single-valued complex attribute (only User's name) is present when any of its
+            // sub-attributes is; its sub-attributes live in the same vocabulary as it does.
             List<String> anySub = new ArrayList<>();
+            ScimQueryVocabulary vocabulary = ScimQueryVocabulary.of(type);
             for (ScimFilterPath sub : path.subAttributes()) {
-                attribute(new AttributeRef(sub, reference.schema()), type)
+                vocabulary.find(sub)
                         .ifPresent(subAttribute -> anySub.add(present(column(sub, type), subAttribute)));
             }
-            return anySub.isEmpty() ? "FALSE" : "(" + String.join(" OR ", anySub) + ")";
+            return "(" + String.join(" OR ", anySub) + ")";
         }
         if (attribute.multiValued() && row == null) {
             return "EXISTS (SELECT 1 FROM " + rows(path.parent()) + " AND "
@@ -325,13 +329,12 @@ final class ScimQuerySql {
      * collation whichever branch a row came from.
      */
     private static boolean isText(ScimSort sort) {
-        for (ScimResourceType type : ScimResourceType.values()) {
-            Optional<Attribute> attribute = attribute(sort.attribute(), type);
-            if (attribute.isPresent()) {
-                return attribute.get().isTextual();
-            }
-        }
-        return false;
+        // The parser resolved the sort path against a queried type, so some type has it.
+        return Arrays.stream(ScimResourceType.values())
+                .flatMap(type -> attribute(sort.attribute(), type).stream())
+                .findFirst()
+                .orElseThrow()
+                .isTextual();
     }
 
     /**
@@ -339,20 +342,15 @@ final class ScimQuerySql {
      * other branch's value has, so UNION ALL accepts the pair.
      */
     private static String sqlType(ScimFilterPath path, ScimResourceType lacking) {
-        for (ScimResourceType type : ScimResourceType.values()) {
-            if (type == lacking) {
-                continue;
-            }
-            Optional<Attribute> attribute = ScimQueryVocabulary.of(type).find(path);
-            if (attribute.isPresent()) {
-                return switch (attribute.get().kind()) {
-                    case BOOLEAN -> "boolean";
-                    case DATE_TIME -> "timestamptz";
-                    case STRING, REFERENCE, COMPLEX -> "text";
-                };
-            }
-        }
-        return "text";
+        // Only a base search has a lacking branch, and the sort path came from the other type.
+        ScimResourceType other = lacking == ScimResourceType.USER
+                ? ScimResourceType.GROUP
+                : ScimResourceType.USER;
+        return switch (ScimQueryVocabulary.of(other).find(path).orElseThrow().kind()) {
+            case BOOLEAN -> "boolean";
+            case DATE_TIME -> "timestamptz";
+            case STRING, REFERENCE, COMPLEX -> "text";
+        };
     }
 
     // --- storage mapping --------------------------------------------------------------------

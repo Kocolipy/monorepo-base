@@ -197,6 +197,21 @@ class ScimQuerySqlTests {
                 .contains("ORDER BY q.sort_key ASC NULLS LAST, q.id");
     }
 
+    /**
+     * Presence by kind: text is present only when non-empty (SCIM treats "" as unassigned), any
+     * other kind when non-null, and meta always. Text-level because an empty string cannot be
+     * stored through the API to show the difference end to end.
+     */
+    @Test
+    void presence_renders_by_the_attributes_kind() {
+        assertThat(new ScimQuerySql(CONNECTOR, BASE_URI).count(query("displayName pr", USERS)))
+                .contains("WHERE (u.display_name IS NOT NULL AND u.display_name <> ''))");
+        assertThat(new ScimQuerySql(CONNECTOR, BASE_URI).count(query("active pr", USERS)))
+                .contains("WHERE (u.active IS NOT NULL))");
+        assertThat(new ScimQuerySql(CONNECTOR, BASE_URI).count(query("meta pr", USERS)))
+                .contains("WHERE TRUE)");
+    }
+
     /** In a base search the branch lacking the sort attribute projects a NULL of the other's type. */
     @Test
     void a_branch_lacking_the_sort_attribute_projects_a_typed_null() {

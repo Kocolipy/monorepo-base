@@ -14,8 +14,11 @@ import com.example.backend.scim.domain.ScimFilter.ValuePath;
 import java.time.Instant;
 import java.util.Random;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -245,6 +248,76 @@ class ScimFilterParserTests {
         assertThatThrownBy(() -> users(filter)).isInstanceOf(InvalidScimFilterException.class);
     }
 
+    /**
+     * A refusal says WHICH rule refused the filter: the detail is what a connector's operator
+     * reads to fix it, and several refusals would otherwise fall through to a later, vaguer one
+     * (an empty filter to "attribute path expected", the password to "not filterable", a
+     * foreign schema to "not an attribute of the queried types").
+     */
+    static Stream<Arguments> refusals() {
+        return Stream.of(
+                Arguments.of("   ", "The filter is empty."),
+                Arguments.of("()", "An attribute path was expected."),
+                Arguments.of("password pr", "password cannot be filtered on."),
+                Arguments.of("emails[type[value eq \"x\"]]",
+                        "A value path cannot be nested in another."),
+                Arguments.of("name[givenName eq \"x\"]",
+                        "Only a multi-valued complex attribute takes a value filter: name"),
+                Arguments.of("emails.type[value eq \"x\"]",
+                        "Only a multi-valued complex attribute takes a value filter: emails.type"),
+                Arguments.of("emails[nope eq \"x\"]", "Not a sub-attribute of emails."),
+                Arguments.of("urn:ietf:params:scim:schemas:core:2.0:Group:displayName eq \"x\"",
+                        "The filter names a schema that is not queried here."),
+                Arguments.of("members pr",
+                        "Not a filterable attribute of the queried resource types: members"),
+                Arguments.of(".userName pr",
+                        "The filter names an attribute this service does not support."),
+                Arguments.of("name eq \"x\"",
+                        "A complex attribute is compared through a sub-attribute: name"),
+                Arguments.of("active gt true", "A boolean is compared only with eq or ne: active"),
+                Arguments.of("meta.created co \"2020-01-01T00:00:00Z\"",
+                        "A dateTime does not support substring operators: meta.created"),
+                Arguments.of("userName eq 5", "The compared value does not match the type of userName."),
+                Arguments.of("active eq \"true\"", "The compared value does not match the type of active."),
+                Arguments.of("userName eq bjensen", "A value was expected after the operator."),
+                Arguments.of("userName eq \"abc\\", "A string value is not terminated."),
+                Arguments.of("userName eq \"\\u0041", "A string value is not terminated."),
+                Arguments.of("userName eq \"\\u004", "A string value has an invalid escape."),
+                Arguments.of("userName eq \"a\u001fb\"", "A string value contains a control character."));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("refusals")
+    void a_refusal_names_the_rule_that_refused_it(String filter, String detail) {
+        assertThatThrownBy(() -> users(filter))
+                .isInstanceOf(InvalidScimFilterException.class)
+                .hasMessage(detail);
+    }
+
+    /** The lexer's edges: a space is ordinary text, and whitespace before a bracket is skipped. */
+    @Test
+    void the_lexer_accepts_what_sits_just_inside_its_rules() {
+        assertThat(users("userName eq \"a b\u0020c\"")).isEqualTo(eq(ScimFilterPath.USER_NAME, "a b c"));
+        assertThat(users("userName pr   ")).isEqualTo(new Presence(ref(ScimFilterPath.USER_NAME)));
+        assertThat(users("emails [type eq \"work\"]"))
+                .isEqualTo(new ValuePath(ref(ScimFilterPath.EMAILS), eq(ScimFilterPath.EMAILS_TYPE, "work")));
+        // a bare literal ends at a closing bracket or parenthesis
+        assertThat(users("emails[primary eq true]"))
+                .isEqualTo(new ValuePath(ref(ScimFilterPath.EMAILS), eq(ScimFilterPath.EMAILS_PRIMARY, true)));
+        assertThat(users("(active eq false)")).isEqualTo(eq(ScimFilterPath.ACTIVE, false));
+    }
+
+    /** A schema-qualified bare multi-valued attribute keeps its schema on the value it compares. */
+    @Test
+    void a_qualified_bare_multi_valued_attribute_keeps_its_schema() {
+        assertThat(ScimFilterParser.parse(
+                        "urn:ietf:params:scim:schemas:core:2.0:User:emails co \"x\"", BOTH))
+                .isEqualTo(new Comparison(
+                        new AttributeRef(ScimFilterPath.EMAILS_VALUE, ScimResourceType.USER),
+                        Operator.CO,
+                        "x"));
+    }
+
     @Test
     void a_null_filter_text_is_refused() {
         assertThatThrownBy(() -> ScimFilterParser.parse(null, USERS))
@@ -374,6 +447,28 @@ class ScimFilterParserTests {
     void a_single_path_the_type_lacks_is_refused(String path) {
         assertThatThrownBy(() -> ScimFilterParser.parsePath(path, USERS))
                 .isInstanceOf(InvalidScimFilterException.class);
+    }
+
+    /**
+     * A schema-qualified path resolves to THAT type's attribute even when the other queried type
+     * has one of the same name: a Group's displayName sorts case-insensitively, a User's does not.
+     */
+    @Test
+    void a_qualified_single_path_resolves_against_its_own_schemas_vocabulary() {
+        ScimFilterParser.ResolvedPath group = ScimFilterParser.parsePath(
+                "urn:ietf:params:scim:schemas:core:2.0:Group:displayName", BOTH);
+        ScimFilterParser.ResolvedPath user = ScimFilterParser.parsePath(
+                "urn:ietf:params:scim:schemas:core:2.0:User:displayName", BOTH);
+
+        assertThat(group.attribute().caseExact()).isFalse();
+        assertThat(user.attribute().caseExact()).isTrue();
+    }
+
+    @Test
+    void an_empty_single_path_is_refused_as_empty() {
+        assertThatThrownBy(() -> ScimFilterParser.parsePath("  ", USERS))
+                .isInstanceOf(InvalidScimFilterException.class)
+                .hasMessage("The attribute path is empty.");
     }
 
     @Test

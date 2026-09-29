@@ -265,6 +265,10 @@ class ScimQueryProtocolIntegrationTests {
                         "qp-alice", "qp-bob", "qp-Carol", "qp-dave"),
                 users("meta.lastModified lt \"2000-01-01T00:00:00+08:00\""),
                 users("meta.location eq \"" + BASE_URI + "/Users/{qp-dave}\"", "qp-dave"),
+                users("meta pr", "qp-alice", "qp-bob", "qp-Carol", "qp-dave"),
+                users("active pr", "qp-alice", "qp-bob", "qp-Carol", "qp-dave"),
+                users("emails.type pr", "qp-alice", "qp-bob", "qp-dave"),
+                users("emails[type pr]", "qp-alice", "qp-bob", "qp-dave"),
                 users("externalId eq \"ext-bob\"", "qp-bob"),
                 users("externalId eq \"EXT-BOB\""),
                 // a deleted User is gone from every query
@@ -284,6 +288,8 @@ class ScimQueryProtocolIntegrationTests {
                 groups("urn:ietf:params:scim:schemas:core:2.0:Group:displayName ew \"PORT\"",
                         "qp-support"),
                 groups("meta.resourceType eq \"Group\"", "qp-empty", "qp-Engineering", "qp-support"),
+                groups("meta pr", "qp-empty", "qp-Engineering", "qp-support"),
+                groups("meta.location eq \"" + BASE_URI + "/Groups/{qp-support}\"", "qp-support"),
                 groups("displayName pr and not (displayName eq \"qp-empty\")",
                         "qp-Engineering", "qp-support"));
     }
@@ -556,6 +562,49 @@ class ScimQueryProtocolIntegrationTests {
                 List<String> expected = List.of("qp-sortkey-1", "qp-sortkey-3", "qp-sortkey-2");
                 assertThat(names(page)).as(order).containsExactlyElementsOf(
                         order.equals("ascending") ? expected : expected.reversed());
+            }
+        } finally {
+            for (UUID id : mine) {
+                jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+            }
+        }
+    }
+
+    /**
+     * A multi-valued sub-attribute's presence is a question about ANY value at the top level, and
+     * about THE value in scope inside a value path. Seeding an email with no type beside one
+     * with a type is what tells the two apart. The Users are this test's own and are removed
+     * after.
+     */
+    @Test
+    void a_sub_attributes_presence_is_per_value_inside_a_value_path() throws Exception {
+        List<UUID> mine = new ArrayList<>();
+        try {
+            for (String emails : List.of(
+                    "[{\"value\":\"a@work.example\",\"type\":\"work\"},{\"value\":\"b@untyped.example\"}]",
+                    "[{\"value\":\"c@untyped.example\"}]")) {
+                String userName = "qp-presence-" + (mine.size() + 1);
+                MvcResult result = mvc.perform(asWriter(post(USERS)).contentType(SCIM_JSON)
+                                .content("""
+                                        {"schemas":["%s"],"userName":"%s","externalId":"presence",
+                                         "emails":%s}""".formatted(USER_SCHEMA, userName, emails)))
+                        .andReturn();
+                assertThat(result.getResponse().getStatus()).as(userName).isEqualTo(201);
+                mine.add(UUID.fromString(body(result).get("id").asText()));
+            }
+            Map<String, List<String>> expected = new LinkedHashMap<>();
+            expected.put("emails.type pr", List.of("qp-presence-1"));
+            expected.put("emails[type pr and value co \"untyped\"]", List.of());
+            expected.put("emails[value co \"untyped\" and not (type pr)]",
+                    List.of("qp-presence-1", "qp-presence-2"));
+            expected.put("emails[type pr]", List.of("qp-presence-1"));
+
+            for (Map.Entry<String, List<String>> query : expected.entrySet()) {
+                JsonNode page = body(mvc.perform(asWriter(get(USERS)
+                                .param("filter", "externalId eq \"presence\" and " + query.getKey())))
+                        .andReturn());
+
+                assertThat(names(page)).as(query.getKey()).containsExactlyElementsOf(query.getValue());
             }
         } finally {
             for (UUID id : mine) {
