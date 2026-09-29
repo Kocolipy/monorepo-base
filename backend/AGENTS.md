@@ -54,6 +54,14 @@ Target the touched test class and the production class it covers:
   -DtargetTests="com.example.backend.<package>.<TouchedTests>"
 ```
 
+A PIT run takes tens of minutes, far past any shell's foreground window, so launch it **detached** with the same log-and-sentinel shape as the baseline gate:
+
+```bash
+setsid nohup bash -c './mvnw org.pitest:pitest-maven:mutationCoverage -DtargetClasses="..." -DtargetTests="..." > "${TMPDIR:-/tmp}/pit.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/pit.log"' </dev/null >/dev/null 2>&1 &
+```
+
+Then hand the wait to a **monitor**: your runtime's scheduled wake that checks the log for `GATE_EXIT` on an interval and resumes you once it appears. End the turn after arming it. The run finishes no sooner for a turn held open on a sleep loop or on repeated reads of the log; it only spends the turn. Until the sentinel lands, leave this worktree's `target/` alone (no compile, test, or `clean`), because PIT is reading that bytecode and a rebuild voids the run.
+
 `target/pit-reports/mutations.xml` carries the per-mutant status. `SURVIVED` means a test ran the line without asserting on the behavior, so strengthen the assertion; `NO_COVERAGE` means no test reached the line, so add the missing case. Narrowing `targetClasses`, dropping mutators, or asserting on a duplicated implementation constant moves the score without making the test load-bearing.
 
 The tests are done when every mutant is KILLED, or a survivor carries a justification that names the test asserting the mutated behavior and says why that test still passes with the mutant alive — the mutation is masked by something the code does anyway, as when a domain record coerces the caller's null back to List.of(). A justification with no such test to name has found an unasserted line, not an equivalent mutant: three succeeded(...) calls on AccountAdministrationService read as equivalent because a void call has no return value to trace, while in fact no test asserted the log at all. The surviving mutant plus the test that pins it belong in the change summary.
