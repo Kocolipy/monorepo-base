@@ -624,9 +624,9 @@
     "semantic_hash": ""
   },
   "CONTEXT.md": {
-    "mtime": 1790643188.564584,
-    "seen": 1790651310.1467266,
-    "ast_hash": "a03c620b8187fe0f6670d0df16ed1a8d",
+    "mtime": 1790651614.2600646,
+    "seen": 1790651971.9504495,
+    "ast_hash": "a1b89c0330664890ed21ca42b69e4ab7",
     "semantic_hash": ""
   },
   "frontend/test/e2e/login.spec.ts": {
@@ -834,9 +834,9 @@
     "semantic_hash": ""
   },
   "docs/research/scim-v2-account-management-research.md": {
-    "mtime": 1790642490.2799754,
-    "seen": 1790651310.1467373,
-    "ast_hash": "a98abb9485c032ebe34c9b26c0ba9eaa",
+    "mtime": 1790651629.612009,
+    "seen": 1790651971.9507387,
+    "ast_hash": "8c55e7d58fa9482fcdf8c474d7520c60",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/observability/LogContext.java": {
@@ -894,9 +894,9 @@
     "semantic_hash": ""
   },
   "docs/specs/scim-v2-account-management-plan.md": {
-    "mtime": 1790642490.2819564,
-    "seen": 1790651310.1467378,
-    "ast_hash": "43dcb1ebfec64cca550f0307b3a941ff",
+    "mtime": 1790651614.2655299,
+    "seen": 1790651971.9507394,
+    "ast_hash": "d590180a595d710a13154d3908a19a31",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/auth/config/AbsoluteSessionLifetimeFilter.java": {
@@ -2226,9 +2226,9 @@
     "semantic_hash": ""
   },
   "backend/src/test/java/com/example/backend/scim/ScimDeletionIntegrationTests.java": {
-    "mtime": 1790645815.104213,
-    "seen": 1790651310.146661,
-    "ast_hash": "96b695cb67fbaef1acaa915bfdf82ea9",
+    "mtime": 1790651666.92334,
+    "seen": 1790651971.9482167,
+    "ast_hash": "46605ca97438d6cab59d9be92ce2536e",
     "semantic_hash": ""
   }
 }
