@@ -274,6 +274,53 @@ class AuditTrailServiceTests {
         assertThat(events.only().changedPaths()).containsExactly("displayName", "members");
     }
 
+    /**
+     * A User deletion names the deleted User and changes no attribute path: the whole
+     * resource went, which the operation says on its own.
+     */
+    @Test
+    void aUserDeletionNamesTheDeletedUserAndRecordsNoPaths() {
+        trail.recordScimUserDeleted(ACTOR, SUBJECT);
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_DELETE);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(event.actorId()).isEqualTo(ACTOR);
+        assertThat(event.subjectId()).isEqualTo(SUBJECT);
+        assertThat(event.statusClass()).isEqualTo("ok");
+        assertThat(event.errorCode()).isNull();
+        assertThat(event.changedPaths()).isEmpty();
+    }
+
+    /** A refused deletion names the User it was aimed at and why it was refused. */
+    @Test
+    void aRefusedUserDeletionNamesTheUserAndTheRefusal() {
+        trail.recordScimUserDeleteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_DELETE);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(event.subjectId()).isEqualTo(SUBJECT);
+        assertThat(event.statusClass()).isEqualTo("client_error");
+        assertThat(event.errorCode()).isEqualTo("MUTABILITY");
+        assertThat(event.changedPaths()).isEmpty();
+    }
+
+    /**
+     * The deletion's append is fail-closed, so a deletion the trail cannot record rolls
+     * back; its refusal's append is fail-open, as every refused write's is.
+     */
+    @Test
+    void aUserDeletionFailsClosedAndItsRefusalFailsOpen() {
+        events.failWith(new IllegalStateException("insert refused"));
+
+        assertThatThrownBy(() -> trail.recordScimUserDeleted(ACTOR, SUBJECT))
+                .isInstanceOf(IllegalStateException.class);
+        trail.recordScimUserDeleteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+
+        assertThat(alerts.raised).containsExactly(AuditOperation.SCIM_USER_DELETE);
+    }
+
     @Test
     void aGroupReplacementThatMovedNothingRecordsNoChangedPath() {
         trail.recordScimGroupReplaced(ACTOR, GROUP, Set.of());

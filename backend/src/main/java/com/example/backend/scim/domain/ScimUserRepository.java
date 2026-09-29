@@ -121,6 +121,22 @@ public interface ScimUserRepository {
     Optional<ScimUser> updateActive(UUID id, boolean active, Instant now);
 
     /**
+     * Deletes the User — its resource row and, through the cascades, its profile, emails,
+     * credential, password history, memberships and connector aliases — and advances the
+     * version of every Group it was a member of, whose {@code members} just lost an entry.
+     *
+     * <p>A hard delete of the live rows: what survives a deletion is a tombstone, written by the
+     * use case through {@link ScimTombstoneRepository}, and never this User in another state.
+     * The Groups' versions advance BEFORE the delete, because afterwards no membership row is
+     * left to read them from; both happen in the caller's transaction, so a failure leaves
+     * neither.
+     *
+     * <p>Called only with the id of a User the caller holds under its resource lock, so there is
+     * no "nothing to delete" answer to report: the lock is what guarantees the row is still there.
+     */
+    void deleteById(UUID id, Instant now);
+
+    /**
      * Every live User, ordered by the normalized {@code userName}.
      *
      * <p>For the administrative listing, which is a complete review of who can log in

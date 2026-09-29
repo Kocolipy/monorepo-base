@@ -12,11 +12,14 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimResourceType;
+import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -66,6 +69,7 @@ public class ScimGroupService {
     private final ScimGroupRepository groups;
     private final ScimUserRepository users;
     private final ScimExternalIdRepository aliases;
+    private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
     private final Clock clock;
 
@@ -73,11 +77,13 @@ public class ScimGroupService {
             ScimGroupRepository groups,
             ScimUserRepository users,
             ScimExternalIdRepository aliases,
+            ScimTombstoneRepository tombstones,
             AuditTrail audit,
             Clock clock) {
         this.groups = groups;
         this.users = users;
         this.aliases = aliases;
+        this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
     }
@@ -230,6 +236,10 @@ public class ScimGroupService {
      * removed. An ordinary Group containing the Bootstrap Admin needs no special case: such a
      * Group cannot exist, because no write that would have added the User to it is accepted.
      *
+     * <p>A tombstone holding only the id, the type and the time is written in the same
+     * transaction; it is never consulted for uniqueness, so the former {@code displayName} is
+     * free for the next create.
+     *
      * <p>Reports whether a Group was there to delete, so the adapter renders absence as a
      * {@code 404} rather than this throwing an exception the caller cannot distinguish from a
      * failure.
@@ -246,7 +256,13 @@ public class ScimGroupService {
         if (group.isProtectedFromWrites()) {
             throw refuse(connector, id, group.reservedName());
         }
-        boolean deleted = groups.deleteById(id, clock.instant());
+        Instant now = clock.instant();
+        boolean deleted = groups.deleteById(id, now);
+        if (deleted) {
+            // Only for a row this transaction removed: a Group deleted by another between the
+            // read and the delete already has its tombstone, and a second would collide on it.
+            tombstones.record(ScimResourceType.GROUP, id, now);
+        }
         audit.recordScimGroupDeleted(connector.connectorId(), id);
         return deleted;
     }

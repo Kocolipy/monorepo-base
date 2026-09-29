@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
+import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -109,8 +110,11 @@ class ScimUserServiceTests {
 
     private final Clock clock = Clock.fixed(LATER, ZoneOffset.UTC);
 
+    private final InMemoryScimTombstoneRepository tombstones =
+            new InMemoryScimTombstoneRepository();
+
     private final ScimUserService service = new ScimUserService(
-            users, groups, aliases, history, sessions, audit, encoder, clock);
+            users, groups, aliases, history, sessions, tombstones, audit, encoder, clock);
 
     private ScimUserResource ada;
 
@@ -514,5 +518,75 @@ class ScimUserServiceTests {
                 new SetText(TextAttribute.LOCALE, "fr-FR"));
 
         assertThat(revocations).isEmpty();
+    }
+
+    // ---- deletion -------------------------------------------------------------------------
+
+    @Test
+    void a_deletion_removes_the_user_leaves_a_tombstone_records_it_and_ends_the_sessions() {
+        assertThat(service.delete(CONNECTOR, ada.id(), current())).isTrue();
+
+        assertThat(users.findById(ada.id())).isEmpty();
+        assertThat(service.findById(CONNECTOR, ada.id())).isEmpty();
+        assertThat(tombstones.recorded()).containsExactly(
+                new InMemoryScimTombstoneRepository.Tombstone(
+                        com.example.backend.scim.domain.ScimResourceType.USER, ada.id(), LATER));
+        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
+                AuditOperation.SCIM_USER_DELETE, CONNECTOR.connectorId(), ada.id(), null));
+        assertThat(revocations).containsExactly(
+                new Revocation(CONNECTOR.connectorId(), ada.id(), Set.of(Cause.DELETED)));
+    }
+
+    @Test
+    void deleting_an_id_that_names_no_user_reports_absence_and_touches_nothing() {
+        assertThat(service.delete(CONNECTOR, UUID.randomUUID(), current())).isFalse();
+
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(tombstones.recorded()).isEmpty();
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(revocations).isEmpty();
+    }
+
+    @Test
+    void a_deletion_with_a_stale_precondition_is_refused_and_changes_nothing() {
+        ScimVersionPrecondition stale = ScimVersionPrecondition.ofIfMatch(
+                List.of("\"" + (stored().version() + 1) + "\""));
+
+        assertThatThrownBy(() -> service.delete(CONNECTOR, ada.id(), stale))
+                .isInstanceOf(com.example.backend.scim.domain.PreconditionFailedException.class);
+
+        assertThat(users.findById(ada.id())).isPresent();
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(tombstones.recorded()).isEmpty();
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(revocations).isEmpty();
+    }
+
+    @Test
+    void the_bootstrap_admin_cannot_be_deleted_and_the_attempt_is_recorded() {
+        ScimUser reserved = users.createReserved(
+                ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
+        ScimVersionPrecondition itsVersion = ScimVersionPrecondition.ofIfMatch(
+                List.of("\"" + reserved.version() + "\""));
+
+        assertThatThrownBy(() -> service.delete(CONNECTOR, reserved.id(), itsVersion))
+                .isInstanceOf(ProtectedResourceException.class);
+
+        assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
+        assertThat(tombstones.recorded()).isEmpty();
+        assertThat(revocations).isEmpty();
+        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
+                AuditOperation.SCIM_USER_DELETE, CONNECTOR.connectorId(), reserved.id(),
+                "MUTABILITY"));
+    }
+
+    @Test
+    void a_deleted_users_former_user_name_is_free_for_the_next_create() {
+        service.delete(CONNECTOR, ada.id(), current());
+
+        ScimUserResource again = service.create(CONNECTOR, new NewScimUser(
+                minimal("ADA", true), null, "ext-ada"));
+
+        assertThat(again.id()).isNotEqualTo(ada.id());
     }
 }

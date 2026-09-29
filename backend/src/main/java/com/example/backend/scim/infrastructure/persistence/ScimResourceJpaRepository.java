@@ -60,4 +60,19 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
              where r.id in :ids""")
     int advanceVersions(
             @Param("ids") Collection<UUID> ids, @Param("now") Instant now);
+
+    /**
+     * Deletes one resource row, and with it — through the {@code ON DELETE CASCADE} foreign keys
+     * every related table declares — the User or Group row, its emails, credential history,
+     * memberships, connector aliases and application-owned rows.
+     *
+     * <p>A bulk statement rather than {@code deleteById}, so the managed copies of the rows the
+     * cascade removes cannot be flushed back afterwards: the context is flushed before and
+     * cleared after, as for {@link #advanceVersions}.
+     *
+     * @return how many rows were deleted — zero when no resource had that id
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from ScimResourceEntity r where r.id = :id")
+    int deleteResource(@Param("id") UUID id);
 }

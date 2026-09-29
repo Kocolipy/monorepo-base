@@ -421,7 +421,9 @@ Require the `PatchOp` schema and a non-empty `Operations` array. Apply ordered `
 
 DELETE returns `204`, removes the live resource from every read/query, and makes every later operation for that id return `404`. User deletion revokes sessions and removes all memberships. Ordinary Group deletion removes memberships and updates affected User versions.
 
-The tombstone retains only resource type, stable id, deletion time and keyed hashes of normalized former unique identifiers. It contains no readable profile, password, memberships or connector aliases. Hashes support redacted historical correlation only; they never participate in uniqueness checks. Former `userName` and connector-scoped `externalId` values are reusable.
+The tombstone retains only resource type, stable id and deletion time (UTC). It contains no readable profile, password, memberships or connector aliases, and it never participates in uniqueness checks. Former `userName` and connector-scoped `externalId` values are reusable.
+
+It deliberately holds no hash of a former identifier. An unkeyed hash of a `userName` is reversible by guessing, so it would retain the personal data deletion removes; a keyed hash would need the system's only keyed secret, which the key-rotation section rules out. Historical correlation is by stable id through the audit stream, which is where a deleted resource's identity already lives.
 
 ## Resource versions and conditional writes
 
@@ -482,7 +484,7 @@ Introduce explicit versioned PostgreSQL migrations; production correctness must 
 | `scim_connectors` | Connector identity and lifecycle metadata |
 | `scim_connector_tokens` | Lookup id, token hash, scope, issue/expiry/revocation, rotation lineage |
 | `scim_external_ids` | One case-exact alias per connector/resource; indexed for connector-scoped filtering, but duplicate values across resources are allowed |
-| `scim_tombstones` and identifier hashes | Non-readable deleted-resource identity and correlation data; never queried for uniqueness |
+| `scim_tombstones` | Deleted-resource type, stable id and deletion time only; insert/read-only for the application role; never queried for uniqueness |
 | `scim_audit_events` | Append-only redacted event stream and retention timestamp |
 | application-owned relations | Counter and any future ownership foreign-key stable User id, never username |
 

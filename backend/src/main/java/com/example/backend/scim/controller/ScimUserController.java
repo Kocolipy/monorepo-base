@@ -16,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -209,6 +210,24 @@ class ScimUserController {
                         connector, userId, ScimVersionPrecondition.ofIfMatch(ifMatch), operations)
                 .orElseThrow(ScimUserController::noSuchUser);
         return ok(written, projection);
+    }
+
+    /**
+     * Deletes a User — DELETE.
+     *
+     * <p>{@code 204} with no body, as RFC 7644 §3.6 requires, under the same {@code If-Match} rules
+     * as PUT and PATCH. Every later operation on the id is a {@code 404}, and the former
+     * {@code userName} is free for the next create.
+     */
+    @DeleteMapping(path = "/{id}")
+    ResponseEntity<Void> delete(
+            @AuthenticationPrincipal AuthenticatedConnector connector,
+            @PathVariable String id,
+            @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch) {
+        if (!users.delete(connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch))) {
+            throw noSuchUser();
+        }
+        return ResponseEntity.noContent().build();
     }
 
     private ResponseEntity<Map<String, Object>> ok(

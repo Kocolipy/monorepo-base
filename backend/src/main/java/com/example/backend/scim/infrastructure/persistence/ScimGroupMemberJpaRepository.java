@@ -74,6 +74,13 @@ interface ScimGroupMemberJpaRepository
     List<UUID> findMemberIds(@Param("groupId") UUID groupId);
 
     /**
+     * The ids of the Groups this User is a direct member of, for deciding whose versions a
+     * User's deletion has to advance — each of them is about to lose a member.
+     */
+    @Query("select m.id.groupId from ScimGroupMemberEntity m where m.id.userId = :userId")
+    List<UUID> findGroupIdsOfUser(@Param("userId") UUID userId);
+
+    /**
      * Whether this User is a direct member of the Group carrying this reservation.
      *
      * <p>How administrative authority is derived, in one statement. The reservation is the

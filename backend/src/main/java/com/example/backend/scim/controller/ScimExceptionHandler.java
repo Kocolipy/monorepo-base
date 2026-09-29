@@ -142,8 +142,9 @@ class ScimExceptionHandler {
         return render(ScimErrorException.mutability(
                 switch (protectedResource.reservedName()) {
                     case BOOTSTRAP_ADMIN ->
-                            "This User is reserved for deployment recovery; its attributes and its"
-                                    + " Group membership cannot be changed.";
+                            "This User is reserved for deployment recovery; it cannot be deleted,"
+                                    + " and its attributes and its Group membership cannot be"
+                                    + " changed.";
                     case ADMIN_GROUP ->
                             "This Group is reserved for deployment recovery; it cannot be renamed"
                                     + " or deleted, though its ordinary membership may change.";

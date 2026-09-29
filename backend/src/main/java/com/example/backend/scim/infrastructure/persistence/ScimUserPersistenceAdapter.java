@@ -36,11 +36,15 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
 
     private final ScimUserJpaRepository users;
     private final ScimResourceJpaRepository resources;
+    private final ScimGroupMemberJpaRepository memberships;
 
     ScimUserPersistenceAdapter(
-            ScimUserJpaRepository users, ScimResourceJpaRepository resources) {
+            ScimUserJpaRepository users,
+            ScimResourceJpaRepository resources,
+            ScimGroupMemberJpaRepository memberships) {
         this.users = users;
         this.resources = resources;
+        this.memberships = memberships;
     }
 
     /**
@@ -200,6 +204,19 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         }
         resources.advanceVersions(List.of(id), now);
         return findById(id);
+    }
+
+    /**
+     * Deletes the User and advances the version of every Group it belonged to.
+     *
+     * <p>Advanced before the delete, while the membership rows that name those Groups still
+     * exist; the cascade from the resource row then removes the memberships with everything else.
+     * A User in no Group advances nothing: the update matches no row.
+     */
+    @Override
+    public void deleteById(UUID id, Instant now) {
+        resources.advanceVersions(memberships.findGroupIdsOfUser(id), now);
+        resources.deleteResource(id);
     }
 
     @Override
