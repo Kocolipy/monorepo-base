@@ -21,7 +21,7 @@ final class ScimSearchRenderer {
 
     static Map<String, Object> renderList(
             ScimSearchListing listing, String baseUri, ScimAttributeProjection.Search projection) {
-        List<Map<String, Object>> resources = new ArrayList<>(listing.resources().size());
+        List<Map<String, Object>> resources = new ArrayList<>();
         for (ScimListedResource resource : listing.resources()) {
             resources.add(switch (resource) {
                 case ScimUserResource user ->

@@ -26,7 +26,7 @@ class ScimSortTests {
     @ParameterizedTest
     @CsvSource(nullValues = "-", value = {
             "-, false", "'', false", "' ', false", "ascending, false", "ASCENDING, false",
-            "descending, true", " Descending , true"})
+            "descending, true", "' Descending ', true"})
     void the_order_defaults_to_ascending_and_is_read_case_insensitively(
             String sortOrder, boolean descending) {
         assertThat(ScimSort.of("userName", sortOrder, USERS))
@@ -57,6 +57,15 @@ class ScimSortTests {
         assertThatThrownBy(() -> ScimSort.of(sortBy, null, USERS))
                 .isInstanceOf(InvalidScimQueryException.class)
                 .hasMessageStartingWith("sortBy does not name a sortable attribute");
+    }
+
+    /** The refusal carries the parser's own reason after its prefix. */
+    @Test
+    void an_unsortable_path_says_why_it_is_not_sortable() {
+        assertThatThrownBy(() -> ScimSort.of("nickName", null, USERS))
+                .isInstanceOf(InvalidScimQueryException.class)
+                .hasMessage("sortBy does not name a sortable attribute: "
+                        + "The filter names an attribute this service does not support.");
     }
 
     @Test

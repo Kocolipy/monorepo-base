@@ -305,6 +305,10 @@ class ScimFilterParserTests {
         assertThat(users("emails[primary eq true]"))
                 .isEqualTo(new ValuePath(ref(ScimFilterPath.EMAILS), eq(ScimFilterPath.EMAILS_PRIMARY, true)));
         assertThat(users("(active eq false)")).isEqualTo(eq(ScimFilterPath.ACTIVE, false));
+        // a keyword ends at an opening parenthesis
+        assertThat(users("not(active eq false)")).isEqualTo(new Not(eq(ScimFilterPath.ACTIVE, false)));
+        assertThat(users("userName pr and(active eq false)"))
+                .isEqualTo(new And(new Presence(ref(ScimFilterPath.USER_NAME)), eq(ScimFilterPath.ACTIVE, false)));
     }
 
     /** A schema-qualified bare multi-valued attribute keeps its schema on the value it compares. */

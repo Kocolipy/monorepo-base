@@ -614,6 +614,30 @@ class ScimQueryProtocolIntegrationTests {
     }
 
     /**
+     * The base search's own ListResponse envelope, which no per-type endpoint renders for it: the
+     * message schema, the page it answers, and no Resources member on an empty page.
+     */
+    @Test
+    void the_base_search_answers_with_a_complete_list_response() throws Exception {
+        JsonNode page = body(mvc.perform(asWriter(post(BASE + "/.search").contentType(SCIM_JSON)
+                        .content(searchBody(Map.of("filter", SCOPE, "startIndex", 2, "count", 3)))))
+                .andReturn());
+        JsonNode empty = body(mvc.perform(asWriter(post(BASE + "/.search").contentType(SCIM_JSON)
+                        .content(searchBody(Map.of("filter", SCOPE, "count", 0)))))
+                .andReturn());
+
+        assertThat(page.get("schemas").toString())
+                .isEqualTo("[\"urn:ietf:params:scim:api:messages:2.0:ListResponse\"]");
+        assertThat(page.get("totalResults").asInt()).isEqualTo(7);
+        assertThat(page.get("startIndex").asInt()).isEqualTo(2);
+        assertThat(page.get("itemsPerPage").asInt()).isEqualTo(3);
+        assertThat(page.get("Resources").size()).isEqualTo(3);
+        assertThat(empty.get("totalResults").asInt()).isEqualTo(7);
+        assertThat(empty.get("itemsPerPage").asInt()).isZero();
+        assertThat(empty.has("Resources")).isFalse();
+    }
+
+    /**
      * The tie-breaker: resources with equal sort keys come back in id order, both ways, so
      * stateless paging over a tie returns each resource exactly once. {@code active} ties three
      * Users; {@code emails.type} ties alice and bob, whose primary-or-first email is a work one.
