@@ -211,13 +211,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      *
      * <p>Advanced before the delete, while the membership rows that name those Groups still
      * exist; the cascade from the resource row then removes the memberships with everything else.
+     * A User in no Group advances nothing: the update matches no row.
      */
     @Override
     public void deleteById(UUID id, Instant now) {
-        List<UUID> groupIds = memberships.findGroupIdsOfUser(id);
-        if (!groupIds.isEmpty()) {
-            resources.advanceVersions(groupIds, now);
-        }
+        resources.advanceVersions(memberships.findGroupIdsOfUser(id), now);
         resources.deleteResource(id);
     }
 
