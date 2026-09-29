@@ -92,6 +92,14 @@ class ScimQueryProtocolIntegrationTests {
              ORDER BY occurred_at DESC
              LIMIT 1""";
 
+    /** The latest event's columns a bulk read must leave empty. */
+    private static final String LATEST_EVENT_REST = """
+            SELECT resource_id, changed_paths, error_code, outcome
+              FROM audit_events
+             WHERE actor_id = ?
+             ORDER BY occurred_at DESC
+             LIMIT 1""";
+
     @Autowired
     private WebApplicationContext context;
 
@@ -508,6 +516,52 @@ class ScimQueryProtocolIntegrationTests {
         JsonNode page = body(mvc.perform(asWriter(request)).andReturn());
 
         assertThat(names(page)).containsExactly(expected.split(","));
+    }
+
+    /**
+     * A multi-valued sort key is the PRIMARY value where one is marked, and the first value only
+     * when none is: each of the first two Users' primary email is NOT its first array element,
+     * and the third's first email is not its smallest, so a first-element, a minimum or a
+     * last-element rule each produces a different order from the one asserted. The Users are
+     * this test's own and are removed after.
+     */
+    @Test
+    void a_multi_valued_sort_prefers_the_primary_value_then_the_first() throws Exception {
+        List<UUID> mine = new ArrayList<>();
+        try {
+            for (String emails : List.of(
+                    // key a1 (primary), though z1 comes first
+                    "[{\"value\":\"z1@first.example\"},{\"value\":\"a1@primary.example\",\"primary\":true}]",
+                    // key z2 (primary), though a2 comes first
+                    "[{\"value\":\"a2@first.example\"},{\"value\":\"z2@primary.example\",\"primary\":true}]",
+                    // no primary: key m3 (first), though 03 is smaller
+                    "[{\"value\":\"m3@first.example\"},{\"value\":\"03@second.example\"}]")) {
+                String userName = "qp-sortkey-" + (mine.size() + 1);
+                MvcResult result = mvc.perform(asWriter(post(USERS)).contentType(SCIM_JSON)
+                                .content("""
+                                        {"schemas":["%s"],"userName":"%s","externalId":"sortkey",
+                                         "emails":%s}""".formatted(USER_SCHEMA, userName, emails)))
+                        .andReturn();
+                assertThat(result.getResponse().getStatus()).as(userName).isEqualTo(201);
+                mine.add(UUID.fromString(body(result).get("id").asText()));
+            }
+
+            for (String order : List.of("ascending", "descending")) {
+                JsonNode page = body(mvc.perform(asWriter(get(USERS)
+                                .param("filter", "externalId eq \"sortkey\"")
+                                .param("sortBy", "emails.value")
+                                .param("sortOrder", order)))
+                        .andReturn());
+
+                List<String> expected = List.of("qp-sortkey-1", "qp-sortkey-3", "qp-sortkey-2");
+                assertThat(names(page)).as(order).containsExactlyElementsOf(
+                        order.equals("ascending") ? expected : expected.reversed());
+            }
+        } finally {
+            for (UUID id : mine) {
+                jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+            }
+        }
     }
 
     /**
@@ -962,6 +1016,12 @@ class ScimQueryProtocolIntegrationTests {
             assertThat(event.get("subject_id")).isNull();
             assertThat(event.get("result_count"))
                     .isEqualTo(body(result).get("itemsPerPage").asInt());
+            // "result count and filter shape only": the event names no resource, no changed
+            // attribute and no error beside them.
+            Map<String, Object> rest = jdbc.queryForMap(LATEST_EVENT_REST, connectorId);
+            assertThat(rest.get("resource_id")).as(call.path()).isNull();
+            assertThat((String) rest.get("changed_paths")).as(call.path()).isNullOrEmpty();
+            assertThat(rest.get("error_code")).as(call.path()).isNull();
         }
 
         long before = eventCount();
