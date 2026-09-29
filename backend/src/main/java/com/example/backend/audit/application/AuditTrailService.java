@@ -587,6 +587,38 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
+     * Records a User deleted. Fail-closed: the append joins the deletion's transaction, so a
+     * deletion the trail cannot record rolls back — and with it the tombstone and the
+     * after-commit revocation, which never fires.
+     */
+    @Transactional
+    @Override
+    public void recordScimUserDeleted(UUID connectorId, UUID userId) {
+        append(event(
+                AuditOperation.SCIM_USER_DELETE,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                userId,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /** Records a User deletion refused. Fail-open with an alert, as a refused write is. */
+    @Override
+    public void recordScimUserDeleteRejected(
+            UUID connectorId, UUID userId, AuditScimRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.SCIM_USER_DELETE,
+                AuditOutcome.FAILURE,
+                connectorId,
+                userId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /**
      * Records a post-commit session revocation and whether it worked. Fail-open with an alert:
      * the write it follows is already durable, so failing here could undo nothing and would only
      * turn a committed write into an error.

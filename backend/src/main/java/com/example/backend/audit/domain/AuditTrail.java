@@ -247,6 +247,18 @@ public interface AuditTrail {
     void recordScimUserWriteRejected(UUID connectorId, UUID userId, AuditScimRefusal reason);
 
     /**
+     * Records a connector deleting a User. Fail-closed: a deletion this service cannot account
+     * for does not happen.
+     */
+    void recordScimUserDeleted(UUID connectorId, UUID userId);
+
+    /**
+     * Records a User deletion refused after the User was found — an attempt to delete the
+     * Bootstrap Admin. Fail-open with an alert, as every refusal is.
+     */
+    void recordScimUserDeleteRejected(UUID connectorId, UUID userId, AuditScimRefusal reason);
+
+    /**
      * Records the outcome of ending a User's sessions after a committed write. Fail-open with an
      * alert: it runs after the commit, so there is no write left for a failed append to undo.
      *

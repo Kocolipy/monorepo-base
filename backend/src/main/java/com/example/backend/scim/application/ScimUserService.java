@@ -15,6 +15,8 @@ import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimPasswordChange;
 import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
+import com.example.backend.scim.domain.ScimResourceType;
+import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserEdit;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
@@ -81,6 +83,7 @@ public class ScimUserService {
     private final ScimExternalIdRepository aliases;
     private final ScimPasswordHistoryRepository passwordHistory;
     private final ScimUserSessions sessions;
+    private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
@@ -91,6 +94,7 @@ public class ScimUserService {
             ScimExternalIdRepository aliases,
             ScimPasswordHistoryRepository passwordHistory,
             ScimUserSessions sessions,
+            ScimTombstoneRepository tombstones,
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
             Clock clock) {
@@ -99,6 +103,7 @@ public class ScimUserService {
         this.aliases = aliases;
         this.passwordHistory = passwordHistory;
         this.sessions = sessions;
+        this.tombstones = tombstones;
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
@@ -219,6 +224,43 @@ public class ScimUserService {
             List<ScimUserPatchOperation> operations) {
         return write(connector, id, precondition,
                 stored -> ScimUserPatchOperation.fold(stored, operations));
+    }
+
+    /**
+     * Deletes a User — a DELETE.
+     *
+     * <p>The same order as a write, for the same reasons: read under the resource lock (absent is
+     * a {@code 404}, decided before the precondition), check {@code If-Match} against the locked
+     * version, then refuse the Bootstrap Admin, which no SCIM operation may delete.
+     *
+     * <p>The live rows go — profile, emails, credential, password history, memberships, connector
+     * aliases — and a tombstone holding only the id, the type and the time is written in the same
+     * transaction, beside the audit event. Nothing about the User is kept for uniqueness, so its
+     * former {@code userName} is free for the next create. The User's sessions end after the
+     * commit, so a delete that rolls back ends none.
+     *
+     * @return whether a live User was there to delete
+     */
+    @Transactional
+    public boolean delete(
+            AuthenticatedConnector connector, UUID id, ScimVersionPrecondition precondition) {
+        Optional<ScimUser> stored = users.findByIdForUpdate(id);
+        if (stored.isEmpty()) {
+            return false;
+        }
+        ScimUser current = stored.get();
+        precondition.requireSatisfiedBy(current.version());
+        UUID connectorId = connector.connectorId();
+        if (current.isProtectedFromWrites()) {
+            audit.recordScimUserDeleteRejected(connectorId, id, AuditScimRefusal.MUTABILITY);
+            throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);
+        }
+        Instant now = clock.instant();
+        users.deleteById(id, now);
+        tombstones.record(ScimResourceType.USER, id, now);
+        audit.recordScimUserDeleted(connectorId, id);
+        sessions.revokeAfterCommit(connectorId, id, EnumSet.of(ScimUserSessions.Cause.DELETED));
+        return true;
     }
 
     /** The shared shape of a User write; see the class documentation for its order. */

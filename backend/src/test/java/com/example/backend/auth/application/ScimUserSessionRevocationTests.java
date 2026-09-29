@@ -97,6 +97,24 @@ class ScimUserSessionRevocationTests {
                 .isEqualTo("FAILURE:USER_NAME");
     }
 
+    /**
+     * A deletion changed no attribute — the whole User went — so its revocation names no path,
+     * yet it still ends every session and is still recorded.
+     */
+    @Test
+    void a_deletion_ends_the_sessions_and_is_recorded_with_no_changed_path() {
+        sessions.open(user, "s-1");
+
+        revocation.revokeAfterCommit(CONNECTOR, user, Set.of(Cause.DELETED));
+        commit.commit();
+
+        assertThat(sessions.sessionsOf(user)).isEmpty();
+        assertThat(audit.of(AuditOperation.USER_SESSIONS_REVOKE))
+                .singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .isEqualTo("SUCCESS:");
+    }
+
     @Test
     void a_revocation_with_no_cause_is_a_programming_error_and_schedules_nothing() {
         assertThatThrownBy(() -> revocation.revokeAfterCommit(CONNECTOR, user, Set.of()))

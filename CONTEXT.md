@@ -164,14 +164,22 @@ Admin's membership.
 **SCIM tombstone** — the privacy-minimal record retained after SCIM deletion. It
 keeps the stable resource id, deletion time, and keyed hashes of normalized unique
 identifiers for redacted historical correlation without retaining readable PII.
-Tombstones never participate in uniqueness checks: a former `userName` or
+Its table has no column that could hold a profile, credential or membership value,
+and the application may insert and read tombstones but never change or remove one.
+The keyed identifier hashes are specified but not yet stored: today a tombstone is
+the resource type, stable id and deletion time (UTC) alone. Tombstones never
+participate in uniqueness checks: a former `userName`, Group `displayName` or
 connector-scoped `externalId` may be reused by a future resource. Readable profile
 and audit detail expire under the configured audit-retention policy.
 
-**Deleted SCIM User** — a SCIM User removed with `DELETE`. Deletion immediately
-revokes its sessions, removes its Group memberships, makes it unavailable through
-SCIM, and leaves a SCIM tombstone. It is not merely an inactive User and is not a
-hard-deleted database row.
+**Deleted SCIM User** — a SCIM User removed with `DELETE`. Deletion removes its
+live rows — profile, emails, credential and password history, Group memberships
+and connector aliases — advances the version of every Group it belonged to,
+revokes its sessions once the deletion commits, and leaves a SCIM tombstone. Every
+later operation on its id is `404`. It is not merely an inactive User, and nothing
+readable about it survives outside the audit stream; the tombstone is the only
+row that does. The Bootstrap Admin never enters this state because it cannot be
+deleted.
 
 **Deleted SCIM Group** — an ordinary, non-Admin Group removed with `DELETE`.
 Deletion removes its memberships, makes it unavailable through SCIM, and leaves
@@ -377,7 +385,8 @@ The triggers in force:
 - an Admin deactivating it, and the login path imposing a lockout on it;
 - a SCIM write that takes `active` from true to false;
 - a SCIM write that sets, changes or removes its password;
-- a SCIM write that changes its `userName`.
+- a SCIM write that changes its `userName`;
+- a SCIM `DELETE` of the User.
 
 Every trigger defers the revocation until after its transaction commits, so a
 write that was refused, stale or rolled back revokes nothing, and one SCIM write
@@ -391,8 +400,7 @@ revokes nothing, which is what keeps an Admin who mis-clicks their own row from
 signing themselves out. A failure run that stops short of the limit revokes
 nothing either.
 
-Specified but not yet implemented, each with its own ticket: User deletion,
-addition to or removal from the Admin group, an Admin-forced password change,
+Specified but not yet implemented, each with its own ticket: addition to or removal from the Admin group, an Admin-forced password change,
 self-service password change, and the scheduled inactivity, grace-period and
 dormant-authority jobs.
 

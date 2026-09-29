@@ -60,15 +60,20 @@ public class ScimUserSessionRevocation implements ScimUserSessions {
         });
     }
 
-    /** The attribute whose change each cause is, as the event's changed paths. */
+    /**
+     * The attribute whose change each cause is, as the event's changed paths. A deletion changed
+     * no attribute — the whole User went — so it contributes none; the revocation event is told
+     * apart by the {@code SCIM_USER_DELETE} event committed for the same subject before it.
+     */
     private static Set<AuditUserAttribute> paths(Set<Cause> causes) {
         Set<AuditUserAttribute> paths = EnumSet.noneOf(AuditUserAttribute.class);
         for (Cause cause : causes) {
-            paths.add(switch (cause) {
-                case DEACTIVATED -> AuditUserAttribute.ACTIVE;
-                case PASSWORD_CHANGED -> AuditUserAttribute.PASSWORD;
-                case USER_NAME_CHANGED -> AuditUserAttribute.USER_NAME;
-            });
+            switch (cause) {
+                case DEACTIVATED -> paths.add(AuditUserAttribute.ACTIVE);
+                case PASSWORD_CHANGED -> paths.add(AuditUserAttribute.PASSWORD);
+                case USER_NAME_CHANGED -> paths.add(AuditUserAttribute.USER_NAME);
+                case DELETED -> { }
+            }
         }
         return paths;
     }

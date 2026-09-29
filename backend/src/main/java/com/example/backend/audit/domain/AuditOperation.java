@@ -95,8 +95,17 @@ public enum AuditOperation {
     SCIM_USER_REPLACE,
 
     /**
+     * A connector deleted a User, or was refused — the Bootstrap Admin cannot be deleted. The
+     * event names the User by its stable id, which is what keeps the trail about this identity
+     * readable after its {@code userName} has been reused by another. The sessions the deletion
+     * ended are recorded after the commit as {@link #USER_SESSIONS_REVOKE}.
+     */
+    SCIM_USER_DELETE,
+
+    /**
      * A User's sessions were ended after a committed write changed something they were issued
-     * against — deactivation, a password change, a {@code userName} change. Recorded after the
+     * against — deactivation, a password change, a {@code userName} change, or the User's
+     * deletion. Recorded after the
      * commit, as its own event, because that is when the revocation happens and only then is its
      * outcome known: {@code SUCCESS} when the session store ended them, {@code FAILURE} when it
      * could not, in which case the write stands and its sessions survive. The changed paths name

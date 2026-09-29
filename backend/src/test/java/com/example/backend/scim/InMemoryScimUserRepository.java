@@ -159,6 +159,13 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         return Optional.of(updated);
     }
 
+    /** Removes the User; the Groups it belonged to are the in-memory Group repository's concern. */
+    @Override
+    public void deleteById(UUID id, Instant now) {
+        stored.remove(id);
+        writes++;
+    }
+
     @Override
     public List<ScimUser> findAllOrderedByNormalizedUserName() {
         return stored.values().stream()

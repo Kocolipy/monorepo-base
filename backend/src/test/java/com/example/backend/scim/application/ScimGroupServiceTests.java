@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -19,6 +20,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
@@ -52,10 +54,14 @@ class ScimGroupServiceTests {
 
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
+    private final InMemoryScimTombstoneRepository tombstones =
+            new InMemoryScimTombstoneRepository();
+
     private final ScimGroupService service = new ScimGroupService(
             groups,
             users,
             aliases,
+            tombstones,
             audit,
             Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC));
 
@@ -434,6 +440,9 @@ class ScimGroupServiceTests {
         assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
         assertThat(audit.of(AuditOperation.SCIM_GROUP_DELETE)).singleElement()
                 .satisfies(event -> assertThat(event.subjectId()).isEqualTo(created.id()));
+        assertThat(tombstones.recorded()).containsExactly(
+                new InMemoryScimTombstoneRepository.Tombstone(
+                        ScimResourceType.GROUP, created.id(), ScimIdentities.NOW));
     }
 
     @Test
@@ -463,6 +472,9 @@ class ScimGroupServiceTests {
         assertThat(service.delete(CONNECTOR, created.id(), current(created.id())))
                 .as("the delete must report what the repository did, not what the read found")
                 .isFalse();
+        assertThat(tombstones.recorded())
+                .as("the transaction that removed the row wrote its tombstone; a second collides")
+                .isEmpty();
     }
 
     // ---- the reserved resources ---------------------------------------------------------------
@@ -493,6 +505,7 @@ class ScimGroupServiceTests {
 
         assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id(), current(adminGroup.id())))
                 .isInstanceOf(ProtectedResourceException.class);
+        assertThat(tombstones.recorded()).isEmpty();
 
         assertThat(service.findById(CONNECTOR, adminGroup.id())).isPresent();
     }

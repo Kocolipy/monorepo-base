@@ -27,7 +27,9 @@ public interface ScimUserSessions {
         /** The password was set, changed or removed. */
         PASSWORD_CHANGED,
         /** {@code userName} changed. */
-        USER_NAME_CHANGED
+        USER_NAME_CHANGED,
+        /** The User was deleted. */
+        DELETED
     }
 
     /**

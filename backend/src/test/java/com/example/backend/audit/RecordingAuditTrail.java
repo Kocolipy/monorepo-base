@@ -210,6 +210,18 @@ public final class RecordingAuditTrail implements AuditTrail {
                 AuditOperation.SCIM_USER_REPLACE, connectorId, userId, reason.name()));
     }
 
+    @Override
+    public void recordScimUserDeleted(UUID connectorId, UUID userId) {
+        recorded.add(new Recorded(AuditOperation.SCIM_USER_DELETE, connectorId, userId, null));
+    }
+
+    @Override
+    public void recordScimUserDeleteRejected(
+            UUID connectorId, UUID userId, AuditScimRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_USER_DELETE, connectorId, userId, reason.name()));
+    }
+
     /** The detail is the outcome, then the causes: {@code "SUCCESS:ACTIVE,PASSWORD"}. */
     @Override
     public void recordUserSessionsRevoked(
