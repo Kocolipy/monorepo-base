@@ -54,7 +54,7 @@ public class ScimSearchService {
                 .forEach(user -> byId.put(user.id(), user));
         groups.resources(connector, result.idsOf(ScimResourceType.GROUP))
                 .forEach(group -> byId.put(group.id(), group));
-        List<ScimListedResource> ordered = new ArrayList<>(byId.size());
+        List<ScimListedResource> ordered = new ArrayList<>();
         for (ScimQuery.Hit hit : result.hits()) {
             ScimListedResource resource = byId.get(hit.id());
             if (resource != null) {

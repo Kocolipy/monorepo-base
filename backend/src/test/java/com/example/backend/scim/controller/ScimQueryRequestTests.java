@@ -90,6 +90,31 @@ class ScimQueryRequestTests {
                         refusal -> assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
     }
 
+    /**
+     * Each malformed body is refused by the rule it breaks, not by a later check it happens to
+     * reach: an array falls through to "no schema" if the object check is skipped, and a
+     * schemas member that is an object would be indexed as though it were an array.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:ListResponse\"]}",
+            "{\"schemas\":{\"0\":\"urn:ietf:params:scim:api:messages:2.0:SearchRequest\"}}",
+            "{\"schemas\":null}"})
+    void a_body_declaring_another_schema_is_refused_for_its_schema(String body) {
+        assertThatThrownBy(() -> ScimQueryRequest.fromSearchRequest(USERS, json.readTree(body)))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> assertThat(refusal)
+                        .hasMessage("A search request declares exactly the schema "
+                                + "urn:ietf:params:scim:api:messages:2.0:SearchRequest."));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "\"search\""})
+    void a_body_that_is_not_an_object_is_refused_as_not_an_object(String body) {
+        assertThatThrownBy(() -> ScimQueryRequest.fromSearchRequest(USERS, json.readTree(body)))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> assertThat(refusal)
+                        .hasMessage("A search request body is a JSON object."));
+    }
+
     @Test
     void a_missing_body_is_invalid_syntax() {
         assertThatThrownBy(() -> ScimQueryRequest.fromSearchRequest(USERS, null))

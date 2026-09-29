@@ -356,6 +356,17 @@ class ScimAttributeProjectionTests {
                 .containsKey("displayName");
     }
 
+    /** An empty entry in the list — a doubled or trailing comma — is skipped, not refused. */
+    @Test
+    void a_base_search_projection_skips_empty_list_entries() {
+        ScimAttributeProjection.Search projection =
+                ScimAttributeProjection.forSearch("userName,, displayName,", null);
+
+        assertThat(projection.user().apply(document())).containsKey("userName");
+        assertThat(projection.group().apply(groupDocument())).containsKey("displayName")
+                .doesNotContainKey("members");
+    }
+
     @Test
     void a_base_search_with_no_projection_renders_both_types_whole() {
         ScimAttributeProjection.Search projection = ScimAttributeProjection.forSearch(" ", null);

@@ -14,6 +14,6 @@ public record ScimSearchListing(
         List<ScimListedResource> resources, long totalResults, ScimPageRequest page) {
 
     public ScimSearchListing {
-        resources = resources == null ? List.of() : List.copyOf(resources);
+        resources = List.copyOf(resources);
     }
 }

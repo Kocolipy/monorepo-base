@@ -133,7 +133,7 @@ record ScimQueryRequest(ScimQuery query, String attributes, String excludedAttri
         if (!value.isArray()) {
             throw new InvalidScimQueryException(member + " must be a list of attribute paths.");
         }
-        List<String> paths = new ArrayList<>(value.size());
+        List<String> paths = new ArrayList<>();
         for (JsonNode path : value) {
             if (!path.isString()) {
                 throw new InvalidScimQueryException(member + " must be a list of attribute paths.");

@@ -74,8 +74,8 @@ public sealed interface AuditFilterShape {
 
         /** The last segment of the path, as a sub-attribute is written inside a value path. */
         String subAttributeName() {
-            int dot = path.indexOf('.');
-            return dot < 0 ? path : path.substring(dot + 1);
+            // With no dot, indexOf is -1 and the substring is the whole path.
+            return path.substring(path.indexOf('.') + 1);
         }
     }
 

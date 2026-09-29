@@ -48,7 +48,7 @@ class ScimSortTests {
     void a_complex_attribute_needs_a_sub_attribute(String sortBy) {
         assertThatThrownBy(() -> ScimSort.of(sortBy, null, USERS))
                 .isInstanceOf(InvalidScimQueryException.class)
-                .hasMessageContaining("sub-attribute");
+                .hasMessage("sortBy on a complex attribute needs a sub-attribute: " + sortBy);
     }
 
     @ParameterizedTest
