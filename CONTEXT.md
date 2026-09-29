@@ -161,13 +161,12 @@ resource id carries that authorization meaning: SCIM may change ordinary
 membership but may neither rename nor delete the Group, nor remove the Bootstrap
 Admin's membership.
 
-**SCIM tombstone** — the privacy-minimal record retained after SCIM deletion. It
-keeps the stable resource id, deletion time, and keyed hashes of normalized unique
-identifiers for redacted historical correlation without retaining readable PII.
-Its table has no column that could hold a profile, credential or membership value,
-and the application may insert and read tombstones but never change or remove one.
-The keyed identifier hashes are specified but not yet stored: today a tombstone is
-the resource type, stable id and deletion time (UTC) alone. Tombstones never
+**SCIM tombstone** — the privacy-minimal record retained after SCIM deletion: the
+resource type, stable resource id and deletion time (UTC), and nothing else. Its
+table has no column that could hold a profile, credential or membership value, and
+the application may insert and read tombstones but never change or remove one. It
+holds no hash of a former identifier, by design: historical correlation is by
+stable id through the audit stream. Tombstones never
 participate in uniqueness checks: a former `userName`, Group `displayName` or
 connector-scoped `externalId` may be reused by a future resource. Readable profile
 and audit detail expire under the configured audit-retention policy.

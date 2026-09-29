@@ -343,6 +343,49 @@ class ScimDeletionIntegrationTests {
         assertThat(createGroup("Delete Group Tombstone")).isNotEqualTo(group);
     }
 
+    // ---- a deleted id as a Group member reference ---------------------------------------
+
+    /**
+     * A deleted User's id is no longer a member reference: a Group create naming it and a
+     * PATCH adding it are both {@code 400 invalidValue}, and neither leaves anything behind.
+     *
+     * <p>The same id is first accepted as a member while the User is live, so the refusals
+     * afterwards are the deletion's doing rather than a malformed reference.
+     */
+    @Test
+    void a_deleted_users_id_cannot_become_a_group_member() throws Exception {
+        UUID user = createUser("delete-member-ref");
+        UUID target = createGroup("Delete Member Target");
+        MvcResult accepted = mvc.perform(conditional(tokenA, withBody(
+                patch(GROUPS + "/" + target),
+                patchOp("{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\""
+                        + user + "\"}]}")), target)).andReturn();
+        assertThat(accepted.getResponse().getStatus())
+                .as("while the User is live, its id is a valid member").isEqualTo(200);
+        assertThat(status(conditional(tokenA, delete(USERS + "/" + user), user))).isEqualTo(204);
+        long targetVersion = versionColumn(target);
+
+        MvcResult created = mvc.perform(as(tokenA, withBody(post(GROUPS),
+                "{\"schemas\":[\"" + GROUP_SCHEMA + "\"],\"displayName\":\"Delete Member Ref\","
+                        + "\"members\":[{\"value\":\"" + user + "\"}]}"))).andReturn();
+        assertThat(created.getResponse().getStatus()).isEqualTo(400);
+        assertThat(body(created).get("scimType").asText()).isEqualTo("invalidValue");
+        assertThat(createGroup("Delete Member Ref"))
+                .as("the refused create left no Group holding the displayName")
+                .isNotNull();
+
+        MvcResult patched = mvc.perform(conditional(tokenA, withBody(
+                patch(GROUPS + "/" + target),
+                patchOp("{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\""
+                        + user + "\"}]}")), target)).andReturn();
+        assertThat(patched.getResponse().getStatus()).isEqualTo(400);
+        assertThat(body(patched).get("scimType").asText()).isEqualTo("invalidValue");
+        assertThat(versionColumn(target))
+                .as("the refused PATCH changed nothing").isEqualTo(targetVersion);
+        assertThat(count("SELECT count(*) FROM scim_group_members WHERE group_id = ?", target))
+                .isZero();
+    }
+
     // ---- preconditions, authorization, existence ----------------------------------------
 
     @Test

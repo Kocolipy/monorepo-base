@@ -187,7 +187,7 @@ Prefer deployed-wire behavior seams over implementation tests:
 
 ## Resolved RFC decisions
 
-- Deleted `userName` and connector-scoped `externalId` values are reusable. Tombstone hashes remain for redacted historical correlation only and do not create uniqueness conflicts.
+- Deleted `userName` and connector-scoped `externalId` values are reusable. Tombstone hashes remain for redacted historical correlation only and do not create uniqueness conflicts. *Superseded:* tombstones hold no identifier hashes; see "DELETE and tombstones" in `docs/specs/scim-v2-account-management-plan.md`.
 - Connector tokens expire after 365 days by default and at most. Rotation overlap is configurable up to 14 days and cannot extend the old token's original expiry.
 
 The design-tree frontier is empty and the research has no unresolved factual prerequisite. The resulting implementation plan is recorded in `docs/specs/scim-v2-account-management-plan.md`.
