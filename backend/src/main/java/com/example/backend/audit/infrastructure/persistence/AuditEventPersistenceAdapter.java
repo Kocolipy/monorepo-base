@@ -46,7 +46,9 @@ class AuditEventPersistenceAdapter implements AuditEventRepository {
                 event.errorCode(),
                 event.httpMethod(),
                 event.httpPath(),
-                event.requestId()));
+                event.requestId(),
+                event.resultCount(),
+                event.filterShape()));
     }
 
     /** An empty list is stored as null, so "nothing changed" is one value. */

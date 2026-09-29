@@ -1,6 +1,7 @@
 package com.example.backend.audit;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
+import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -122,8 +123,14 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordScimUsersListed(UUID connectorId) {
-        recorded.add(new Recorded(AuditOperation.SCIM_USER_LIST, connectorId, null, null));
+    public void recordScimUsersQueried(UUID connectorId, int resultCount, AuditFilterShape filter) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_USER_LIST, connectorId, null, queryDetail(resultCount, filter)));
+    }
+
+    /** A bulk read's count and rendered shape, e.g. {@code 2 userName eq ?}, as the detail. */
+    private static String queryDetail(int resultCount, AuditFilterShape filter) {
+        return resultCount + (filter == null ? "" : " " + filter.render());
     }
 
     @Override
@@ -172,8 +179,17 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordScimGroupsListed(UUID connectorId) {
-        recorded.add(new Recorded(AuditOperation.SCIM_GROUP_LIST, connectorId, null, null));
+    public void recordScimGroupsQueried(UUID connectorId, int resultCount, AuditFilterShape filter) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_GROUP_LIST, connectorId, null, queryDetail(resultCount, filter)));
+    }
+
+    @Override
+    public void recordScimResourcesQueried(
+            UUID connectorId, int resultCount, AuditFilterShape filter) {
+        recorded.add(new Recorded(
+                AuditOperation.SCIM_RESOURCE_LIST, connectorId, null,
+                queryDetail(resultCount, filter)));
     }
 
     /**

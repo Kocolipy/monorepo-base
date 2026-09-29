@@ -147,17 +147,20 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     @Override
-    public List<ScimGroup> findPage(ScimPageRequest page) {
-        return stored.values().stream()
-                .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
-                .skip(page.offset())
-                .limit(page.count())
-                .toList();
+    public List<ScimGroup> findAllById(List<UUID> ids) {
+        return ids.stream().map(stored::get).filter(java.util.Objects::nonNull).toList();
     }
 
-    @Override
-    public long countAll() {
+    /** How many Groups are stored. */
+    public long size() {
         return stored.size();
+    }
+
+    /** Every stored Group, in the order the persistent query's default order gives them. */
+    public List<ScimGroup> allOrderedByNormalizedDisplayName() {
+        return stored.values().stream()
+                .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
+                .toList();
     }
 
     @Override

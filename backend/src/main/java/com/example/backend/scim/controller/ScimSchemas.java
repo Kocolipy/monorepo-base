@@ -48,6 +48,10 @@ public final class ScimSchemas {
     public static final String LIST_RESPONSE =
             "urn:ietf:params:scim:api:messages:2.0:ListResponse";
 
+    /** The schema of a {@code POST .search} request body. */
+    public static final String SEARCH_REQUEST =
+            "urn:ietf:params:scim:api:messages:2.0:SearchRequest";
+
     /** The schema of the capability document. */
     public static final String SERVICE_PROVIDER_CONFIG =
             "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig";

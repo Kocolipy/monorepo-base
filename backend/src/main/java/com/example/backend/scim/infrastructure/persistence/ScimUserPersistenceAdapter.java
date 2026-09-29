@@ -6,7 +6,6 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
@@ -16,7 +15,10 @@ import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEn
 import com.example.backend.scim.infrastructure.persistence.entity.ScimUserEmailValue;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimUserEntity;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -27,11 +29,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 class ScimUserPersistenceAdapter implements ScimUserRepository {
 
-    /**
-     * The order the port promises. Named here because the derived query method name
-     * already states it; this is what the {@link ScimOffsetPage} carries so the two
-     * cannot disagree.
-     */
+    /** The order the administrative listing promises: by normalized {@code userName}. */
     private static final Sort BY_NORMALIZED_USER_NAME = Sort.by("normalizedUserName");
 
     private final ScimUserJpaRepository users;
@@ -226,28 +224,16 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 .toList();
     }
 
-    /**
-     * One page of Users, in the port's stable order.
-     *
-     * <p>No {@code count == 0} guard here. {@link
-     * com.example.backend.scim.application.ScimUserService#list} already answers that
-     * case without calling the port at all — a zero-size page is a request for
-     * {@code totalResults} alone — so a second guard in the adapter is unreachable,
-     * and an unreachable guard is worse than none: it reads as the rule's home while
-     * the rule actually lives in the use case.
-     */
     @Override
-    public List<ScimUser> findPage(ScimPageRequest page) {
-        return users.findAllByOrderByNormalizedUserNameAsc(
-                        ScimOffsetPage.of(page.offset(), page.count(), BY_NORMALIZED_USER_NAME))
-                .stream()
-                .map(ScimUserPersistenceAdapter::toDomain)
-                .toList();
-    }
-
-    @Override
-    public long countAll() {
-        return users.count();
+    public List<ScimUser> findAllById(List<UUID> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, ScimUser> byId = new HashMap<>();
+        for (ScimUserEntity entity : users.findAllById(ids)) {
+            byId.put(entity.getResource().getId(), toDomain(entity));
+        }
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     private ScimUser insert(ScimUser user, ReservedResourceName reservedName) {

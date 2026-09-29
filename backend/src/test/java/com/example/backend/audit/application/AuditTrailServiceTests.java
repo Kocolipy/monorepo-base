@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditEvent;
+import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
@@ -61,6 +62,71 @@ class AuditTrailServiceTests {
 
     // The shape of what is recorded
 
+    /**
+     * A bulk read carries its count and its filter's rendered shape, names no subject, and is a
+     * success; every other event leaves both fields null.
+     */
+    @Test
+    void aBulkReadRecordsItsCountAndFilterShapeAndNoSubject() {
+        AuditFilterShape shape = new AuditFilterShape.And(
+                new AuditFilterShape.Comparison(
+                        AuditFilterShape.Attribute.USER_NAME, AuditFilterShape.Operator.EQ, false),
+                new AuditFilterShape.ValuePath(
+                        AuditFilterShape.Attribute.EMAILS,
+                        new AuditFilterShape.Not(new AuditFilterShape.Presence(
+                                AuditFilterShape.Attribute.EMAILS_TYPE, true))));
+
+        trail.recordScimUsersQueried(ACTOR, 7, shape);
+        trail.recordScimGroupsQueried(ACTOR, 0, null);
+        trail.recordScimResourcesQueried(ACTOR, 2, new AuditFilterShape.Or(
+                new AuditFilterShape.Presence(AuditFilterShape.Attribute.MEMBERS, false),
+                new AuditFilterShape.Comparison(
+                        AuditFilterShape.Attribute.META_CREATED, AuditFilterShape.Operator.GT, false)));
+        trail.recordLoginSuccess(SUBJECT);
+
+        assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
+                AuditOperation.SCIM_USER_LIST, AuditOperation.SCIM_GROUP_LIST,
+                AuditOperation.SCIM_RESOURCE_LIST, AuditOperation.LOGIN_SUCCESS);
+        assertThat(events.appended).extracting(AuditEvent::resourceType)
+                .containsExactly("User", "Group", "User,Group", "User");
+        assertThat(events.appended).extracting(AuditEvent::resultCount)
+                .containsExactly(7, 0, 2, null);
+        assertThat(events.appended).extracting(AuditEvent::filterShape).containsExactly(
+                "(userName eq ? and emails[not (type pr)])",
+                null,
+                "(members pr or meta.created gt ?)",
+                null);
+        assertThat(events.appended.subList(0, 3)).allSatisfy(event -> {
+            assertThat(event.actorId()).isEqualTo(ACTOR);
+            assertThat(event.subjectId()).isNull();
+            assertThat(event.resourceId()).isNull();
+            assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+            assertThat(event.statusClass()).isEqualTo("ok");
+            assertThat(event.errorCode()).isNull();
+            assertThat(event.changedPaths()).isEmpty();
+            assertThat(event.occurredAt()).isEqualTo(NOW);
+            assertThat(event.httpMethod()).isEqualTo("POST");
+            assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{username}/disable");
+            assertThat(event.requestId()).isEqualTo("req-1");
+            assertThat(event.id()).isNotNull();
+        });
+    }
+
+    /** Every operator renders as the RFC spells it, and every attribute as its canonical path. */
+    @Test
+    void aFilterShapeRendersEveryOperatorAndAttributeCanonically() {
+        for (AuditFilterShape.Operator operator : AuditFilterShape.Operator.values()) {
+            assertThat(new AuditFilterShape.Comparison(
+                            AuditFilterShape.Attribute.LOCALE, operator, false).render())
+                    .isEqualTo("locale " + operator.name().toLowerCase(java.util.Locale.ROOT) + " ?");
+        }
+        assertThat(new AuditFilterShape.Comparison(
+                        AuditFilterShape.Attribute.GROUPS_REF, AuditFilterShape.Operator.EQ, true)
+                .render()).isEqualTo("$ref eq ?");
+        assertThat(new AuditFilterShape.Presence(AuditFilterShape.Attribute.USER_NAME, true).render())
+                .as("a top-level attribute has no shorter in-value-path name")
+                .isEqualTo("userName pr");
+    }
     @Test
     void anAcceptedLoginIsRecordedAgainstTheAccountsStableId() {
         trail.recordLoginSuccess(SUBJECT);
@@ -182,7 +248,7 @@ class AuditTrailServiceTests {
         trail.recordAccountDisabled(ACTOR, SUBJECT);
         trail.recordAccountEnabled(ACTOR, SUBJECT);
         trail.recordScimUserCreated(ACTOR, SUBJECT);
-        trail.recordScimUsersListed(ACTOR);
+        trail.recordScimUsersQueried(ACTOR, 3, null);
 
         assertThat(events.appended)
                 .extracting(AuditEvent::resourceType)
@@ -408,7 +474,11 @@ class AuditTrailServiceTests {
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordScimGroupDeleted(ACTOR, GROUP))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordScimGroupsListed(ACTOR))
+        assertThatThrownBy(() -> trail.recordScimGroupsQueried(ACTOR, 0, null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> trail.recordScimUsersQueried(ACTOR, 0, null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> trail.recordScimResourcesQueried(ACTOR, 0, null))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordReservedResourceSeeded(SUBJECT, false))
                 .isInstanceOf(IllegalStateException.class);

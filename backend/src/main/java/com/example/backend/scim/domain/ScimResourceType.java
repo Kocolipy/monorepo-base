@@ -11,23 +11,31 @@ package com.example.backend.scim.domain;
 public enum ScimResourceType {
 
     /** A person or provisioning identity. */
-    USER("User"),
+    USER("User", "urn:ietf:params:scim:schemas:core:2.0:User"),
 
-    /**
-     * A collection of Users conferring authority. Declared now because the id
-     * namespace it shares with {@link #USER} is the reason that namespace is a
-     * table; the Group resource itself arrives with its own ticket.
-     */
-    GROUP("Group");
+    /** A collection of Users conferring authority. */
+    GROUP("Group", "urn:ietf:params:scim:schemas:core:2.0:Group");
 
     private final String resourceTypeName;
 
-    ScimResourceType(String resourceTypeName) {
+    private final String schemaUri;
+
+    ScimResourceType(String resourceTypeName, String schemaUri) {
         this.resourceTypeName = resourceTypeName;
+        this.schemaUri = schemaUri;
     }
 
     /** The name RFC 7643 gives this resource type, exactly as it goes on the wire. */
     public String resourceTypeName() {
         return resourceTypeName;
+    }
+
+    /**
+     * The URI of this type's core schema, which a filter path may be qualified with —
+     * {@code urn:ietf:params:scim:schemas:core:2.0:User:userName}. The same string the web
+     * adapter renders in {@code schemas}; a test holds the two equal.
+     */
+    public String schemaUri() {
+        return schemaUri;
     }
 }

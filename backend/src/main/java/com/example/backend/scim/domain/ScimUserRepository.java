@@ -147,20 +147,13 @@ public interface ScimUserRepository {
     List<ScimUser> findAllOrderedByNormalizedUserName();
 
     /**
-     * One page of live Users, ordered by the normalized {@code userName}.
+     * The live Users with these ids, in the order the ids are given; an id naming no live User
+     * is skipped.
      *
-     * <p>Ordering is the port's promise rather than the caller's sort, because only the
-     * adapter can push it into the query, and a stable order is what makes stateless
-     * paging return each resource once. The normalized form is the sort key so the order
-     * does not depend on case.
+     * <p>How a query's page is loaded: the query port decided which Users and in what order,
+     * and this assembles them without deciding either again. An id can name nothing by the
+     * time it is loaded — the User was deleted between the two reads — and a page one short is
+     * the stateless answer SCIM pagination already tells clients to tolerate.
      */
-    List<ScimUser> findPage(ScimPageRequest page);
-
-    /**
-     * How many live Users there are, irrespective of the page.
-     *
-     * <p>Separate from {@link #findPage} because {@code totalResults} must be reported
-     * even for {@code count=0}, where there is no page to count.
-     */
-    long countAll();
+    List<ScimUser> findAllById(List<UUID> ids);
 }

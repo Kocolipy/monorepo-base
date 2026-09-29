@@ -11,7 +11,8 @@ import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimQuery;
+import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
@@ -72,6 +73,7 @@ public class ScimGroupService {
     private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
     private final Clock clock;
+    private final ScimQueryRepository queries;
 
     public ScimGroupService(
             ScimGroupRepository groups,
@@ -79,7 +81,9 @@ public class ScimGroupService {
             ScimExternalIdRepository aliases,
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
-            Clock clock) {
+            Clock clock,
+            ScimQueryRepository queries) {
+        this.queries = queries;
         this.groups = groups;
         this.users = users;
         this.aliases = aliases;
@@ -138,22 +142,29 @@ public class ScimGroupService {
     }
 
     /**
-     * A page of Groups, and the total the page came from.
+     * A query of the Group collection — {@code GET /Groups} or {@code POST /Groups/.search} —
+     * and the total it matched.
      *
-     * <p>Audited as a bulk read before the page is returned, whatever the page size and
-     * whatever comes back. The audit call is inside the transaction that reads, so a trail that
-     * cannot record the read is a read that does not complete.
+     * <p>Audited as exactly one bulk read before the page is returned, on the terms the User
+     * query is: whatever the page size and whatever comes back, with the number of Groups
+     * returned and the filter's shape, inside the transaction that reads.
      */
     @Transactional
-    public ScimGroupListing list(AuthenticatedConnector connector, ScimPageRequest page) {
-        long total = groups.countAll();
-        List<ScimGroupResource> resources = page.count() == 0
-                ? List.of()
-                : groups.findPage(page).stream()
-                        .map(group -> projection(connector, group))
-                        .toList();
-        audit.recordScimGroupsListed(connector.connectorId());
-        return new ScimGroupListing(resources, total, page);
+    public ScimGroupListing query(AuthenticatedConnector connector, ScimQuery query, String baseUri) {
+        ScimQuery.Result result = queries.query(query, connector.connectorId(), baseUri);
+        List<ScimGroupResource> resources =
+                resources(connector, result.idsOf(ScimResourceType.GROUP));
+        audit.recordScimGroupsQueried(
+                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter()));
+        return new ScimGroupListing(resources, result.totalResults(), query.page());
+    }
+
+    /**
+     * These Groups as this connector sees them, in the order given; an id naming no live Group
+     * is skipped. Not audited: the caller is a query that audits itself.
+     */
+    List<ScimGroupResource> resources(AuthenticatedConnector connector, List<UUID> ids) {
+        return groups.findAllById(ids).stream().map(group -> projection(connector, group)).toList();
     }
 
     /**

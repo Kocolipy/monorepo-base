@@ -35,7 +35,7 @@ public record ScimGroupResource(
         String externalId,
         long version,
         Instant createdAt,
-        Instant lastModifiedAt) {
+        Instant lastModifiedAt) implements ScimListedResource {
 
     public ScimGroupResource {
         members = members == null ? List.of() : List.copyOf(members);

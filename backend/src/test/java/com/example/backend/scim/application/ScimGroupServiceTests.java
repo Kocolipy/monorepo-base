@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -20,6 +21,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
@@ -27,6 +29,7 @@ import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,7 +66,8 @@ class ScimGroupServiceTests {
             aliases,
             tombstones,
             audit,
-            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC));
+            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
+            new InMemoryScimQueryRepository(users, groups));
 
     private ScimUser alice;
 
@@ -172,11 +176,14 @@ class ScimGroupServiceTests {
 
     @Test
     void a_collection_read_is_audited_even_when_it_returns_nothing() {
-        ScimGroupListing listing = service.list(CONNECTOR, new ScimPageRequest(1, 0));
+        ScimGroupListing listing = service.query(CONNECTOR, groupQuery(1, 0), BASE_URI);
 
         assertThat(listing.resources()).isEmpty();
         assertThat(listing.totalResults()).isZero();
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_LIST)).hasSize(1);
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_LIST))
+                .singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .isEqualTo("0");
     }
 
     @Test
@@ -184,10 +191,37 @@ class ScimGroupServiceTests {
         service.create(CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
         service.create(CONNECTOR, new NewScimGroup("Support", List.of(), null));
 
-        ScimGroupListing listing = service.list(CONNECTOR, new ScimPageRequest(1, 0));
+        ScimGroupListing listing = service.query(CONNECTOR, groupQuery(1, 0), BASE_URI);
 
         assertThat(listing.resources()).isEmpty();
         assertThat(listing.totalResults()).isEqualTo(2);
+    }
+
+    /** The recorded count is what the response carried, not the total that matched. */
+    @Test
+    void a_collection_read_records_how_many_groups_the_page_returned() {
+        service.create(CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
+        service.create(CONNECTOR, new NewScimGroup("Support", List.of(), null));
+        audit.reset();
+
+        ScimGroupListing listing = service.query(CONNECTOR, groupQuery(2, 5), BASE_URI);
+
+        assertThat(listing.resources()).extracting(ScimGroupResource::displayName)
+                .containsExactly("Support");
+        assertThat(listing.totalResults()).isEqualTo(2);
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_LIST))
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
+                    assertThat(event.detail()).isEqualTo("1");
+                });
+    }
+
+    private static final String BASE_URI = "https://scim.example/scim/v2";
+
+    private static ScimQuery groupQuery(int startIndex, int count) {
+        return new ScimQuery(
+                Set.of(ScimResourceType.GROUP), null, null, new ScimPageRequest(startIndex, count));
     }
 
     // ---- replace and patch --------------------------------------------------------------------

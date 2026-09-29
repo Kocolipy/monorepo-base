@@ -73,8 +73,9 @@ public enum AuditOperation {
     SCIM_USER_CREATE,
 
     /**
-     * A connector read the User collection — a bulk read, whatever it asked for and
-     * whatever came back.
+     * A connector queried the User collection — {@code GET /Users} or
+     * {@code POST /Users/.search} — a bulk read, whatever it asked for and whatever came
+     * back. The event carries how many resources the response held and the filter's shape.
      *
      * <p>Recorded for an empty result and for a single-resource page alike, because
      * what the event exists to make visible is a credential enumerating the
@@ -145,6 +146,13 @@ public enum AuditOperation {
      * Retrieving ONE Group by its id is not this operation and is not recorded.
      */
     SCIM_GROUP_LIST,
+
+    /**
+     * A connector searched Users and Groups together through the base {@code /.search}
+     * endpoint — one bulk read spanning both types, recorded once, for the reason
+     * {@link #SCIM_USER_LIST} is recorded that way.
+     */
+    SCIM_RESOURCE_LIST,
 
     /**
      * The server created one of the resources it reserves for recovery — the Bootstrap

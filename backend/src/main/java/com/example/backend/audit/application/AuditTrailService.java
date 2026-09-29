@@ -3,6 +3,7 @@ package com.example.backend.audit.application;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
+import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
@@ -341,7 +342,7 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records a connector reading the User collection. <strong>Fail-closed</strong>,
+     * Records a connector querying the User collection. <strong>Fail-closed</strong>,
      * which is the one place a READ is treated the way a write is.
      *
      * <p>The reason is what the event is for. A bulk read is the shape a credential
@@ -354,16 +355,13 @@ public class AuditTrailService implements AuditTrail {
      */
     @Transactional
     @Override
-    public void recordScimUsersListed(UUID connectorId) {
-        append(event(
+    public void recordScimUsersQueried(UUID connectorId, int resultCount, AuditFilterShape filter) {
+        append(queryEvent(
                 AuditOperation.SCIM_USER_LIST,
-                AuditOutcome.SUCCESS,
                 connectorId,
-                null,
                 AuditEvent.USER_RESOURCE_TYPE,
-                List.of(),
-                AuditEvent.STATUS_OK,
-                null));
+                resultCount,
+                filter));
     }
 
     /**
@@ -477,22 +475,33 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records a connector reading the Group collection. <strong>Fail-closed</strong>, for the
+     * Records a connector querying the Group collection. <strong>Fail-closed</strong>, for the
      * reason the User collection read is: a bulk read is the shape a credential enumerating
      * the directory takes, and the honest outcome of an append that cannot commit is that the
      * caller gets an error rather than that the service hands over every Group and forgets.
      */
     @Transactional
     @Override
-    public void recordScimGroupsListed(UUID connectorId) {
-        append(groupEvent(
+    public void recordScimGroupsQueried(UUID connectorId, int resultCount, AuditFilterShape filter) {
+        append(queryEvent(
                 AuditOperation.SCIM_GROUP_LIST,
-                AuditOutcome.SUCCESS,
                 connectorId,
-                null,
-                List.of(),
-                AuditEvent.STATUS_OK,
-                null));
+                AuditEvent.GROUP_RESOURCE_TYPE,
+                resultCount,
+                filter));
+    }
+
+    /** Records a base search across Users and Groups. Fail-closed, as the other bulk reads are. */
+    @Transactional
+    @Override
+    public void recordScimResourcesQueried(
+            UUID connectorId, int resultCount, AuditFilterShape filter) {
+        append(queryEvent(
+                AuditOperation.SCIM_RESOURCE_LIST,
+                connectorId,
+                AuditEvent.USER_AND_GROUP_RESOURCE_TYPE,
+                resultCount,
+                filter));
     }
 
     /**
@@ -809,6 +818,39 @@ public class AuditTrailService implements AuditTrail {
                 errorCode,
                 request.method(),
                 request.pathTemplate(),
-                request.requestId());
+                request.requestId(),
+                null,
+                null);
+    }
+
+    /**
+     * A bulk read: a success with no subject, carrying how many resources it returned and the
+     * filter's shape. The shape is rendered here, inside the audit slice, from a value that has
+     * nowhere to hold a literal — so the stored string is closed-vocabulary by construction.
+     */
+    private AuditEvent queryEvent(
+            AuditOperation operation,
+            UUID connectorId,
+            String resourceType,
+            int resultCount,
+            AuditFilterShape filter) {
+        AuditRequest request = requests.current();
+        return new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                operation,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                null,
+                resourceType,
+                null,
+                List.of(),
+                AuditEvent.STATUS_OK,
+                null,
+                request.method(),
+                request.pathTemplate(),
+                request.requestId(),
+                resultCount,
+                filter == null ? null : filter.render());
     }
 }

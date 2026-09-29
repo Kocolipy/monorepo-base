@@ -86,9 +86,17 @@ final class ScimAttributeProjection {
 
     /** No projection: the document is rendered whole. */
     static final ScimAttributeProjection NONE =
-            new ScimAttributeProjection(Kind.USER, Map.of(), Map.of());
+            new ScimAttributeProjection(Kind.USER, false, Map.of(), Map.of());
 
     private final Kind kind;
+
+    /**
+     * Whether this is an {@code attributes} projection. Carried separately from
+     * {@link #included} because an inclusion can legitimately name nothing of one type: in a
+     * base search, {@code attributes=userName} includes nothing of a Group but its
+     * always-returned attributes, which is not the same as not projecting the Group at all.
+     */
+    private final boolean inclusive;
 
     /** Requested attribute -> requested sub-attributes, empty meaning the whole value. */
     private final Map<String, Set<String>> included;
@@ -96,10 +104,86 @@ final class ScimAttributeProjection {
     private final Map<String, Set<String>> excluded;
 
     private ScimAttributeProjection(
-            Kind kind, Map<String, Set<String>> included, Map<String, Set<String>> excluded) {
+            Kind kind,
+            boolean inclusive,
+            Map<String, Set<String>> included,
+            Map<String, Set<String>> excluded) {
         this.kind = kind;
+        this.inclusive = inclusive;
         this.included = included;
         this.excluded = excluded;
+    }
+
+    /**
+     * The projections of a base search, one per resource type.
+     *
+     * <p>A path is valid when either type has it, and applies only to the type that does —
+     * the projection counterpart of a base-search filter treating an attribute one type lacks
+     * as having no value there. A path neither type has is refused, as it is on a single-type
+     * endpoint.
+     *
+     * @param user  the projection applied to each User on the page
+     * @param group the projection applied to each Group on the page
+     */
+    record Search(ScimAttributeProjection user, ScimAttributeProjection group) {
+    }
+
+    /**
+     * The base search's projections for the two mutually exclusive parameters.
+     *
+     * @throws ScimErrorException {@code 400 invalidValue} when both are supplied, or when a
+     *                            path is an attribute of neither type
+     */
+    static Search forSearch(String attributes, String excludedAttributes) {
+        boolean hasIncluded = isPresent(attributes);
+        boolean hasExcluded = isPresent(excludedAttributes);
+        if (hasIncluded && hasExcluded) {
+            throw bothSupplied();
+        }
+        if (!hasIncluded && !hasExcluded) {
+            return new Search(NONE, new ScimAttributeProjection(Kind.GROUP, false, Map.of(), Map.of()));
+        }
+        String parameter = hasIncluded ? attributes : excludedAttributes;
+        Map<String, Set<String>> userPaths = new LinkedHashMap<>();
+        Map<String, Set<String>> groupPaths = new LinkedHashMap<>();
+        for (String raw : parameter.split(",")) {
+            String path = raw.trim();
+            if (path.isEmpty()) {
+                continue;
+            }
+            ScimErrorException userRefusal = addPath(Kind.USER, path, userPaths);
+            ScimErrorException groupRefusal = addPath(Kind.GROUP, path, groupPaths);
+            if (userRefusal != null && groupRefusal != null) {
+                throw userRefusal;
+            }
+        }
+        return new Search(
+                projection(Kind.USER, hasIncluded, userPaths),
+                projection(Kind.GROUP, hasIncluded, groupPaths));
+    }
+
+    private static ScimAttributeProjection projection(
+            Kind kind, boolean inclusive, Map<String, Set<String>> paths) {
+        Map<String, Set<String>> frozen = Map.copyOf(paths);
+        return inclusive
+                ? new ScimAttributeProjection(kind, true, frozen, Map.of())
+                : new ScimAttributeProjection(kind, false, Map.of(), frozen);
+    }
+
+    /** Adds one path to a type's projection, or reports why that type does not have it. */
+    private static ScimErrorException addPath(
+            Kind kind, String path, Map<String, Set<String>> into) {
+        try {
+            addPath(kind, into, path);
+            return null;
+        } catch (ScimErrorException notThisType) {
+            return notThisType;
+        }
+    }
+
+    private static ScimErrorException bothSupplied() {
+        return ScimErrorException.invalidValue(
+                "attributes and excludedAttributes are mutually exclusive.");
     }
 
     /**
@@ -123,21 +207,21 @@ final class ScimAttributeProjection {
         boolean hasIncluded = isPresent(attributes);
         boolean hasExcluded = isPresent(excludedAttributes);
         if (hasIncluded && hasExcluded) {
-            throw ScimErrorException.invalidValue(
-                    "attributes and excludedAttributes are mutually exclusive.");
+            throw bothSupplied();
         }
         if (hasIncluded) {
-            return new ScimAttributeProjection(kind, parse(kind, attributes), Map.of());
+            return new ScimAttributeProjection(kind, true, parse(kind, attributes), Map.of());
         }
         if (hasExcluded) {
-            return new ScimAttributeProjection(kind, Map.of(), parse(kind, excludedAttributes));
+            return new ScimAttributeProjection(
+                    kind, false, Map.of(), parse(kind, excludedAttributes));
         }
         return NONE;
     }
 
     /** The rendered document with the projection applied. */
     Map<String, Object> apply(Map<String, Object> rendered) {
-        if (included.isEmpty() && excluded.isEmpty()) {
+        if (!inclusive && excluded.isEmpty()) {
             return rendered;
         }
         Map<String, Object> projected = new LinkedHashMap<>();
@@ -147,7 +231,7 @@ final class ScimAttributeProjection {
                 projected.put(name, attribute.getValue());
                 continue;
             }
-            if (!included.isEmpty()) {
+            if (inclusive) {
                 Set<String> requestedSub = included.get(name);
                 if (requestedSub != null) {
                     projected.put(name, restrictedTo(attribute.getValue(), requestedSub));
@@ -226,18 +310,24 @@ final class ScimAttributeProjection {
     private static Map<String, Set<String>> parse(Kind kind, String parameter) {
         Map<String, Set<String>> paths = new LinkedHashMap<>();
         for (String raw : parameter.split(",")) {
-            String path = unqualified(kind, raw.trim());
-            if (path.isEmpty()) {
-                continue;
-            }
-            int dot = path.indexOf('.');
-            String top = canonicalTopLevel(kind, dot < 0 ? path : path.substring(0, dot));
-            Set<String> sub = paths.computeIfAbsent(top, name -> new LinkedHashSet<>());
-            if (dot >= 0) {
-                sub.add(canonicalSubAttribute(kind, top, path.substring(dot + 1)));
+            String path = raw.trim();
+            if (!path.isEmpty()) {
+                addPath(kind, paths, path);
             }
         }
         return Map.copyOf(paths);
+    }
+
+    /** One path, canonicalized and added; a path this type does not have is refused. */
+    private static void addPath(Kind kind, Map<String, Set<String>> paths, String raw) {
+        String path = unqualified(kind, raw);
+        int dot = path.indexOf('.');
+        String top = canonicalTopLevel(kind, dot < 0 ? path : path.substring(0, dot));
+        String sub = dot < 0 ? null : canonicalSubAttribute(kind, top, path.substring(dot + 1));
+        Set<String> subs = paths.computeIfAbsent(top, name -> new LinkedHashSet<>());
+        if (sub != null) {
+            subs.add(sub);
+        }
     }
 
     /** The path with a leading schema URI for this resource type removed, if it carried one. */

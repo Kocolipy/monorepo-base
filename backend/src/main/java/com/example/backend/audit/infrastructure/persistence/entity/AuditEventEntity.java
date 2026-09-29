@@ -78,6 +78,14 @@ public class AuditEventEntity {
     @Column(updatable = false, length = 128)
     private String requestId;
 
+    /** How many resources a bulk read returned; null for any other operation. */
+    @Column(updatable = false)
+    private Integer resultCount;
+
+    /** A bulk read's filter as its shape — never its values; null when it had none. */
+    @Column(updatable = false)
+    private String filterShape;
+
     protected AuditEventEntity() {
     }
 
@@ -95,7 +103,9 @@ public class AuditEventEntity {
             String errorCode,
             String httpMethod,
             String httpPath,
-            String requestId) {
+            String requestId,
+            Integer resultCount,
+            String filterShape) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -110,6 +120,8 @@ public class AuditEventEntity {
         this.httpMethod = httpMethod;
         this.httpPath = httpPath;
         this.requestId = requestId;
+        this.resultCount = resultCount;
+        this.filterShape = filterShape;
     }
 
     /*

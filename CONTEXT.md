@@ -195,7 +195,11 @@ sets one. Collection requests default `count` to 100 and clamp it to 200, while
 returning `totalResults`, one-based `startIndex`, and `itemsPerPage`. Filtering
 implements the complete RFC 7644 grammar over supported attributes, including
 comparison, presence, boolean, grouping, and value-path expressions; unsupported
-paths fail predictably rather than being silently misread. `PUT`, `PATCH`, and
+paths fail predictably rather than being silently misread. Sorting takes one
+attribute, puts missing values last ascending and first descending, and breaks ties
+by `id`. The same query may be sent as a `SearchRequest` body to `/Users/.search`,
+`/Groups/.search`, or the base `/.search`, which spans both types and treats an
+attribute one type lacks as having no value there. `PUT`, `PATCH`, and
 `DELETE` of an existing resource require exactly one strong `If-Match` ETag,
 checked after authorization and existence: a missing precondition is `428`, a
 wildcard, list or malformed one is `400 invalidValue`, and a stale version is
@@ -220,7 +224,10 @@ connector cannot detect. Bulk's `supported: false` is permanent rather than stag
 **SCIM audit trail** — the append-only local history of provisioning and connector
 token activity. An event records the connector-token identity, operation,
 resource id, outcome, changed attribute paths, redacted details, and timestamp;
-it never records a password or bearer token. The Accounts page exposes the
+it never records a password or bearer token. Every collection query and search is
+one bulk-read event carrying the number of resources returned and the filter's
+shape (`userName eq ?`), never its values; a single-resource read is not recorded.
+The Accounts page exposes the
 history, and deployment configuration controls retention with a one-year default.
 
 **Operational Accounts page** — the target Admin screen. It reports SCIM-owned

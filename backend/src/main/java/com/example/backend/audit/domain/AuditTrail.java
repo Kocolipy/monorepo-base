@@ -114,16 +114,23 @@ public interface AuditTrail {
     void recordScimUserCreateRejectedAsDuplicate(UUID connectorId);
 
     /**
-     * Records a connector reading the User collection — a bulk read.
+     * Records a connector querying the User collection — a bulk read — through
+     * {@code GET /Users} or {@code POST /Users/.search}.
      *
-     * <p>Takes no count and no filter, which is what keeps this boundary free of
-     * text: the result count and the filter's shape arrive with the ticket that
-     * implements filtering, as closed-set and numeric fields rather than as a
-     * rendered query string.
+     * <p>Exactly one event per query that ran, whatever it asked for and whatever came back:
+     * an empty result and a one-resource page are recorded like a full page, because a
+     * zero-result probe and a directory sync are the two things the event exists to make
+     * visible. A query refused before it runs — a malformed filter, a sort on an unknown
+     * attribute — read nothing and is not recorded.
      *
-     * @param connectorId the connector that read the collection
+     * <p>The count and the shape are numeric and closed-set, which is what keeps this boundary
+     * free of text: the filter itself never crosses it.
+     *
+     * @param connectorId the connector that ran the query
+     * @param resultCount how many resources the response carried
+     * @param filter      the filter's shape, or {@code null} when the query had no filter
      */
-    void recordScimUsersListed(UUID connectorId);
+    void recordScimUsersQueried(UUID connectorId, int resultCount, AuditFilterShape filter);
 
     /**
      * Records an administrative change refused because of what it would leave behind.
@@ -187,11 +194,18 @@ public interface AuditTrail {
     void recordScimGroupDeleted(UUID connectorId, UUID groupId);
 
     /**
-     * Records a connector reading the Group collection — a bulk read, whatever it asked for
-     * and whatever came back, for the reason {@link #recordScimUsersListed} is recorded that
-     * way.
+     * Records a connector querying the Group collection — {@code GET /Groups} or
+     * {@code POST /Groups/.search} — for the reasons and on the terms
+     * {@link #recordScimUsersQueried} is.
      */
-    void recordScimGroupsListed(UUID connectorId);
+    void recordScimGroupsQueried(UUID connectorId, int resultCount, AuditFilterShape filter);
+
+    /**
+     * Records a connector searching Users and Groups together — {@code POST /.search} — as one
+     * bulk read. One event rather than one per type, because it was one request and one result
+     * set: splitting it would make a single probe read as two.
+     */
+    void recordScimResourcesQueried(UUID connectorId, int resultCount, AuditFilterShape filter);
 
     /**
      * Records the server creating a resource it reserves for recovery, on a database that

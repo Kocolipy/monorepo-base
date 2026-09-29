@@ -6,11 +6,12 @@ import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.application.ScimUserResource;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -49,14 +50,8 @@ import tools.jackson.databind.JsonNode;
 @RequestMapping(ScimSchemas.BASE_PATH + "/Users")
 class ScimUserController {
 
-    /** Query parameters this ticket does not implement, each advertised as unsupported. */
-    private static final String FILTERING_UNSUPPORTED =
-            "This service does not support filtering; ServiceProviderConfig advertises"
-                    + " filter.supported as false.";
-
-    private static final String SORTING_UNSUPPORTED =
-            "This service does not support sorting; ServiceProviderConfig advertises"
-                    + " sort.supported as false.";
+    /** The resource type every query on this endpoint is over. */
+    private static final Set<ScimResourceType> TYPES = Set.of(ScimResourceType.USER);
 
     private final ScimUserService users;
 
@@ -117,16 +112,11 @@ class ScimUserController {
     }
 
     /**
-     * A page of Users.
+     * A query of the User collection — RFC 7644 §3.4.2, written as query parameters.
      *
-     * <p>{@code filter}, {@code sortBy} and {@code sortOrder} are refused rather than
-     * ignored while unimplemented, because an ignored one returns every User to a caller
-     * that asked for some and believes the answer was selected for it. Discovery advertises
-     * both as unsupported, so the refusal is what a connector reading discovery expects.
-     *
-     * <p>{@code startIndex} and {@code count} are read as strings and parsed here so a
-     * non-numeric value is a SCIM {@code 400 invalidValue} rather than a binder's error in
-     * some other shape.
+     * <p>Filtering, sorting, paging and projection all apply. A malformed filter is a
+     * {@code 400 invalidFilter} and an unsortable {@code sortBy} a {@code 400 invalidValue}, both
+     * refused before anything is read.
      */
     @GetMapping(produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
     ResponseEntity<Map<String, Object>> page(
@@ -138,19 +128,39 @@ class ScimUserController {
             @RequestParam(required = false) String count,
             @RequestParam(required = false) String attributes,
             @RequestParam(required = false) String excludedAttributes) {
-        if (filter != null) {
-            throw ScimErrorException.unsupportedQuery(FILTERING_UNSUPPORTED);
-        }
-        if (sortBy != null || sortOrder != null) {
-            throw ScimErrorException.unsupportedQuery(SORTING_UNSUPPORTED);
-        }
-        ScimAttributeProjection projection =
-                ScimAttributeProjection.ofUser(attributes, excludedAttributes);
-        ScimPageRequest page = ScimPageRequest.of(
-                integer(startIndex, "startIndex"), integer(count, "count"));
-        ScimUserListing listing = users.list(connector, page);
-        return ResponseEntity.ok(
-                ScimUserRenderer.renderList(listing, baseUri(), projection));
+        return respond(connector, ScimQueryRequest.fromParameters(
+                TYPES, filter, sortBy, sortOrder, startIndex, count, attributes,
+                excludedAttributes));
+    }
+
+    /**
+     * The same query, written as a {@code SearchRequest} body — RFC 7644 §3.4.3.
+     *
+     * <p>The path a connector should prefer when its filter carries personal values, since a body
+     * stays out of URLs and access logs. A {@code POST} that reads: the namespace's scope rule lets
+     * a read-only token call it, and it is audited as the same bulk read the {@code GET} is.
+     */
+    @PostMapping(
+            path = "/.search",
+            consumes = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE},
+            produces = {ScimSchemas.MEDIA_TYPE, MediaType.APPLICATION_JSON_VALUE})
+    ResponseEntity<Map<String, Object>> search(
+            @AuthenticationPrincipal AuthenticatedConnector connector,
+            @RequestBody JsonNode body) {
+        return respond(connector, ScimQueryRequest.fromSearchRequest(TYPES, body));
+    }
+
+    /**
+     * Runs a query and renders its page. The projection is validated before the query runs, so a
+     * bad attribute path is refused without a read.
+     */
+    private ResponseEntity<Map<String, Object>> respond(
+            AuthenticatedConnector connector, ScimQueryRequest request) {
+        ScimAttributeProjection projection = ScimAttributeProjection.ofUser(
+                request.attributes(), request.excludedAttributes());
+        String baseUri = baseUri();
+        ScimUserListing listing = users.query(connector, request.query(), baseUri);
+        return ResponseEntity.ok(ScimUserRenderer.renderList(listing, baseUri, projection));
     }
 
     /**
@@ -260,16 +270,6 @@ class ScimUserController {
         }
     }
 
-    private static Integer integer(String value, String parameter) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(value.trim());
-        } catch (NumberFormatException notANumber) {
-            throw ScimErrorException.invalidValue(parameter + " must be an integer.");
-        }
-    }
 
     /**
      * This service's SCIM base URI, absolute, taken from the request.

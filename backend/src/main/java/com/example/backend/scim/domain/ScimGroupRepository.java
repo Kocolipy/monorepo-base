@@ -111,22 +111,14 @@ public interface ScimGroupRepository {
     boolean deleteById(UUID id, Instant now);
 
     /**
-     * One page of live Groups, ordered by the normalized {@code displayName}.
+     * The live Groups with these ids, in the order the ids are given; an id naming no live
+     * Group is skipped.
      *
-     * <p>Ordering is the port's promise rather than the caller's sort, because only the
-     * adapter can push it into the query, and a stable total order is what makes stateless
-     * paging return each resource once. The normalized form is unique, so it is total with
-     * no tie-breaker needed.
+     * <p>How a query's page is loaded. The query port decided which Groups and in what order;
+     * this assembles them — memberships included, in one membership read for the whole page —
+     * without deciding either again.
      */
-    List<ScimGroup> findPage(ScimPageRequest page);
-
-    /**
-     * How many live Groups there are, irrespective of the page.
-     *
-     * <p>Separate from {@link #findPage} because {@code totalResults} must be reported even
-     * for {@code count=0}, where there is no page to count.
-     */
-    long countAll();
+    List<ScimGroup> findAllById(List<UUID> ids);
 
     /**
      * The Groups this User is a direct member of, for the read-only reverse view on User.
