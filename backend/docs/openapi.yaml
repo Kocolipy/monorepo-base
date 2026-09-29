@@ -540,10 +540,11 @@ paths:
       description: |
         Public: a connector reads this before it holds a credential. The document
         describes what this deployment implements, not SCIM in general — `patch`,
-        `filter` and `sort` are advertised unsupported while their tickets are
-        outstanding, `bulk` is unsupported permanently with zero limits, and `etag`
-        is supported. A `filter` parameter is refused rather than ignored, because an
-        ignored filter is indistinguishable from a match.
+        `filter` (with `maxResults` 200) and `sort` are supported, `bulk` is unsupported
+        permanently with zero limits, and `etag` is supported. Discovery endpoints
+        themselves ignore paging, as RFC 7644 requires, but refuse a `filter` parameter
+        rather than ignoring it, because an ignored filter is indistinguishable from a
+        match.
       operationId: getScimServiceProviderConfig
       security: []
       responses:
@@ -645,17 +646,55 @@ paths:
   /scim/v2/Users:
     get:
       tags: [SCIM]
-      summary: Retrieve a page of Users
+      summary: Query the User collection
       description: |
-        A bulk read, audited as one event whatever the page size and whatever comes
-        back. `startIndex` is one-based and defaults to 1; `count` defaults to 100
-        and is capped at 200; `count=0` returns no `Resources` but still reports
-        `totalResults`. `filter`, `sortBy` and `sortOrder` are refused with `403`
-        while unimplemented, matching what ServiceProviderConfig advertises.
+        RFC 7644 §3.4.2: filter, sort, page and project the Users. The same query can be
+        sent as a `SearchRequest` body to `POST /scim/v2/Users/.search`, which returns the
+        same result and keeps personal values in the filter out of URLs and access logs.
+
+        **Filtering** — the complete RFC 7644 grammar over every advertised attribute:
+        `eq ne co sw ew gt ge lt le pr`, `and`/`or`/`not` with the RFC's precedence
+        (`not` > `and` > `or`), parentheses, schema-qualified paths, complex
+        sub-attributes (`name.familyName`) and value paths
+        (`emails[type eq "work" and value co "@example.com"]`). Attribute names and
+        operators are case-insensitive; string values compare as each attribute's
+        advertised `caseExact` says (`userName` case-insensitively, `displayName`
+        exactly). A bare multi-valued attribute compares its `value`
+        (`emails co "example.com"`). An attribute with no value satisfies no comparison
+        except `ne`, which is defined as `not eq`; `eq null` means "has no value". The
+        common attributes `id`, `externalId` (the calling connector's alias only) and
+        `meta.*` are filterable too. Every literal is bound as a statement parameter.
+
+        Refused with `400 invalidFilter`, before anything is read: malformed grammar, an
+        attribute this service does not advertise, any `password` path, an operator or
+        literal the attribute's type does not support (e.g. `active gt true`,
+        `meta.created co "2020"`), filter text over 8 KiB (UTF-8), nesting deeper than 20
+        levels, or more than 100 expressions.
+
+        **Sorting** — one `sortBy` and `sortOrder=ascending|descending` (default
+        ascending). A complex attribute needs a sub-attribute (`name` is refused,
+        `name.familyName` is not); a multi-valued one sorts by its primary value, else its
+        first; a missing value sorts last ascending and first descending; resources with
+        equal keys are ordered by `id`. Text sorts in byte order, lower-cased first for a
+        case-insensitive attribute. An unsortable `sortBy` or unknown `sortOrder` is
+        `400 invalidValue`. With no `sortBy` the order is by normalized `userName`.
+
+        **Paging** — `startIndex` is one-based and defaults to 1 (anything lower becomes
+        1); `count` defaults to 100, is capped at 200, and a negative value becomes 0;
+        `count=0` returns no `Resources` but still reports `totalResults`. Paging is
+        stateless.
+
+        **Audit** — one bulk-read event per query, whatever it returned (an empty result
+        and a one-User page included), carrying the number of Users returned and the
+        filter's shape (`userName eq ?`) — never a literal. A query refused as invalid
+        read nothing and records nothing. `GET /scim/v2/Users/{id}` is not audited.
       operationId: listScimUsers
       security:
         - connectorBearer: []
       parameters:
+        - $ref: "#/components/parameters/ScimFilter"
+        - $ref: "#/components/parameters/ScimSortBy"
+        - $ref: "#/components/parameters/ScimSortOrder"
         - $ref: "#/components/parameters/ScimStartIndex"
         - $ref: "#/components/parameters/ScimCount"
         - $ref: "#/components/parameters/ScimAttributes"
@@ -671,8 +710,6 @@ paths:
           $ref: "#/components/responses/ScimBadRequest"
         "401":
           $ref: "#/components/responses/ScimUnauthenticated"
-        "403":
-          $ref: "#/components/responses/ScimUnsupportedQuery"
     post:
       tags: [SCIM]
       summary: Create a User
@@ -738,6 +775,44 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+  /scim/v2/Users/.search:
+    post:
+      tags: [SCIM]
+      summary: Query the User collection with a SearchRequest body
+      description: |
+        RFC 7644 §3.4.3. Exactly the query `GET /scim/v2/Users` answers — same filter
+        grammar and limits, sorting, paging, projection and audit — written as a body, so
+        the filter's personal values stay out of URLs and access logs. A `POST` that
+        reads: a `READ_ONLY` token may call it.
+
+        The body must declare exactly the `SearchRequest` schema and carry only its
+        members, matched case-insensitively; an unknown member, a missing schema or a
+        body that is not an object is `400 invalidSyntax`, and a member of the wrong type
+        (a string `count`, a numeric `filter`) is `400 invalidValue`. `attributes` and
+        `excludedAttributes` are arrays of paths and are mutually exclusive.
+      operationId: searchScimUsers
+      security:
+        - connectorBearer: []
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+      responses:
+        "200":
+          description: A ListResponse of User resources, as the equivalent GET returns.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/Users/{id}:
     get:
       tags: [SCIM]
@@ -892,9 +967,9 @@ paths:
 
         A value filter is one or more `<sub> eq <value>` comparisons on `value`, `type`
         or `primary`, joined by `and`; `type` compares case-insensitively, `value`
-        exactly. Any other operator, `or`, `not` or grouping is `400 invalidFilter` —
-        the full filter grammar is not implemented yet, and an approximation would
-        select values the client did not ask for.
+        exactly. Any other operator, `or`, `not` or grouping is `400 invalidFilter` in a
+        PATCH path — the full grammar applies to queries, and a PATCH selector that
+        approximated it would change values the client did not ask for.
 
         | Refusal | `scimType` |
         | --- | --- |
@@ -1010,18 +1085,21 @@ paths:
   /scim/v2/Groups:
     get:
       tags: [SCIM]
-      summary: Retrieve a page of Groups
+      summary: Query the Group collection
       description: |
-        A bulk read, audited as one event whatever the page size and whatever comes
-        back. Paging behaves exactly as it does for Users: `startIndex` is one-based
-        and defaults to 1, `count` defaults to 100 and is capped at 200, and
-        `count=0` returns no `Resources` but still reports `totalResults`. `filter`,
-        `sortBy` and `sortOrder` are refused with `403` while unimplemented, matching
-        what ServiceProviderConfig advertises.
+        The User collection's query contract over Groups: the same filter grammar, limits,
+        sorting, paging, projection and audit, against the Group vocabulary (`displayName`
+        compares case-insensitively; `members.value`, `members.display`,
+        `members.$ref` and `members.type` are filterable; a deleted User is no longer a
+        member). With no `sortBy` the order is by normalized `displayName`. The same query
+        can be sent to `POST /scim/v2/Groups/.search`.
       operationId: listScimGroups
       security:
         - connectorBearer: []
       parameters:
+        - $ref: "#/components/parameters/ScimFilter"
+        - $ref: "#/components/parameters/ScimSortBy"
+        - $ref: "#/components/parameters/ScimSortOrder"
         - $ref: "#/components/parameters/ScimStartIndex"
         - $ref: "#/components/parameters/ScimCount"
         - $ref: "#/components/parameters/ScimAttributes"
@@ -1037,8 +1115,6 @@ paths:
           $ref: "#/components/responses/ScimBadRequest"
         "401":
           $ref: "#/components/responses/ScimUnauthenticated"
-        "403":
-          $ref: "#/components/responses/ScimUnsupportedQuery"
     post:
       tags: [SCIM]
       summary: Create a Group
@@ -1117,6 +1193,80 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+  /scim/v2/Groups/.search:
+    post:
+      tags: [SCIM]
+      summary: Query the Group collection with a SearchRequest body
+      description: |
+        The Group counterpart of `POST /scim/v2/Users/.search`: exactly the query
+        `GET /scim/v2/Groups` answers, written as a `SearchRequest` body, on the same
+        terms. A `READ_ONLY` token may call it.
+      operationId: searchScimGroups
+      security:
+        - connectorBearer: []
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+      responses:
+        "200":
+          description: A ListResponse of Group resources, as the equivalent GET returns.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+  /scim/v2/.search:
+    post:
+      tags: [SCIM]
+      summary: Search Users and Groups together
+      description: |
+        RFC 7644 §3.4.3 at the service root: one `SearchRequest` over both resource
+        types, returned as one ListResponse. A `READ_ONLY` token may call it.
+
+        A path is valid when either type has it. Where one type lacks it, the filter
+        treats it as having no value there — `userName pr` selects no Group,
+        `not (userName pr)` selects every Group, and `ne` is true — and a schema-qualified
+        path (`urn:ietf:params:scim:schemas:core:2.0:Group:displayName`) applies to that
+        type only. Projection works the same way: `attributes=["userName"]` leaves each
+        Group its `schemas` and `id`. A path neither type has is refused as it is on a
+        single-type endpoint.
+
+        `totalResults` counts both types. With no `sortBy` the Users come first, each type
+        in its own default order; with one, a type lacking the attribute sorts as missing.
+        Audited as ONE bulk read (`SCIM_RESOURCE_LIST`, resource type `User,Group`) with
+        the number of resources returned and the filter's shape.
+      operationId: searchScimResources
+      security:
+        - connectorBearer: []
+      requestBody:
+        required: true
+        content:
+          application/scim+json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScimSearchRequest"
+      responses:
+        "200":
+          description: A ListResponse of User and Group resources, interleaved in order.
+          content:
+            application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
+        "400":
+          $ref: "#/components/responses/ScimBadRequest"
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/Groups/{id}:
     get:
       tags: [SCIM]
@@ -1360,6 +1510,37 @@ components:
         Accepted in that header and nowhere else — never from a query string, a form
         body or a cookie. There is no authorization server and no grant flow.
   parameters:
+    ScimFilter:
+      name: filter
+      in: query
+      required: false
+      description: |
+        An RFC 7644 §3.4.2.2 filter, e.g. `userName eq "bjensen" and emails[type eq "work"]`.
+        See the collection operation for the grammar, the semantics and the limits
+        (8 KiB, 20 levels, 100 expressions). Prefer the `.search` endpoint when the
+        filter carries personal values. An invalid filter is `400 invalidFilter`.
+      schema:
+        type: string
+        maxLength: 8192
+    ScimSortBy:
+      name: sortBy
+      in: query
+      required: false
+      description: |
+        One attribute path to sort by — a simple attribute or a sub-attribute, never a
+        complex attribute itself, never `password`. Unsortable is `400 invalidValue`.
+      schema:
+        type: string
+    ScimSortOrder:
+      name: sortOrder
+      in: query
+      required: false
+      description: |
+        `ascending` (the default) or `descending`, case-insensitive; ignored without a
+        `sortBy`. Anything else is `400 invalidValue`.
+      schema:
+        type: string
+        enum: [ascending, descending]
     ScimStartIndex:
       name: startIndex
       in: query
@@ -1536,10 +1717,9 @@ components:
         a credential ever existed. No body.
     ScimUnsupportedQuery:
       description: |
-        The request asked for a query capability this service does not implement —
-        filtering or sorting, or a filter on a discovery path. `403` rather than a
-        silently ignored parameter, which RFC 7644 §3.4.2.2 permits and which is the
-        only answer a client cannot mistake for a match. No `scimType`.
+        A `filter` parameter on a discovery path, which RFC 7644 says discovery ignores.
+        `403` rather than a silently ignored parameter, because an ignored filter is the
+        only answer a client cannot tell from a match. No `scimType`.
       content:
         application/scim+json:
           schema:
@@ -2152,6 +2332,49 @@ components:
           type: array
           items:
             type: object
+    ScimSearchRequest:
+      type: object
+      required: [schemas]
+      description: |
+        RFC 7644 §3.4.3. Member names are matched case-insensitively; no other member is
+        accepted. The values mean exactly what the query parameters of the same names
+        mean on a collection `GET`.
+      additionalProperties: false
+      properties:
+        schemas:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: string
+            enum: ["urn:ietf:params:scim:api:messages:2.0:SearchRequest"]
+        filter:
+          type: string
+          maxLength: 8192
+        sortBy:
+          type: string
+        sortOrder:
+          type: string
+          enum: [ascending, descending]
+        startIndex:
+          type: integer
+        count:
+          type: integer
+        attributes:
+          type: array
+          items:
+            type: string
+        excludedAttributes:
+          type: array
+          items:
+            type: string
+      example:
+        schemas: ["urn:ietf:params:scim:api:messages:2.0:SearchRequest"]
+        filter: 'userName eq "bjensen" and emails[type eq "work"]'
+        sortBy: name.familyName
+        startIndex: 1
+        count: 50
+        attributes: [userName, emails]
     ScimServiceProviderConfig:
       type: object
       description: |

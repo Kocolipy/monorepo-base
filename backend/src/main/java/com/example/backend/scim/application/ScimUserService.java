@@ -11,7 +11,8 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
-import com.example.backend.scim.domain.ScimPageRequest;
+import com.example.backend.scim.domain.ScimQuery;
+import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimPasswordChange;
 import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
@@ -87,6 +88,7 @@ public class ScimUserService {
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final ScimQueryRepository queries;
 
     public ScimUserService(
             ScimUserRepository users,
@@ -97,7 +99,9 @@ public class ScimUserService {
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
-            Clock clock) {
+            Clock clock,
+            ScimQueryRepository queries) {
+        this.queries = queries;
         this.users = users;
         this.groups = groups;
         this.aliases = aliases;
@@ -163,22 +167,33 @@ public class ScimUserService {
     }
 
     /**
-     * A page of Users, and the total the page came from.
+     * A query of the User collection — {@code GET /Users} or {@code POST /Users/.search} — and
+     * the total it matched.
      *
-     * <p>Audited as a bulk read before the page is returned, whatever the page size and
-     * whatever comes back. The audit call is inside the transaction that reads, so a
-     * trail that cannot record the read is a read that does not complete.
+     * <p>Audited as exactly one bulk read before the page is returned, whatever the page size
+     * and whatever comes back — an empty result and a one-User page included — with the number
+     * of Users returned and the filter's shape. The audit call is inside the transaction that
+     * reads, so a trail that cannot record the read is a read that does not complete.
+     *
+     * @param query   a query over Users alone
+     * @param baseUri the absolute SCIM base URI, against which {@code $ref} and
+     *                {@code meta.location} filters are evaluated as rendered
      */
     @Transactional
-    public ScimUserListing list(AuthenticatedConnector connector, ScimPageRequest page) {
-        long total = users.countAll();
-        List<ScimUserResource> resources = page.count() == 0
-                ? List.of()
-                : users.findPage(page).stream()
-                        .map(user -> projection(connector, user))
-                        .toList();
-        audit.recordScimUsersListed(connector.connectorId());
-        return new ScimUserListing(resources, total, page);
+    public ScimUserListing query(AuthenticatedConnector connector, ScimQuery query, String baseUri) {
+        ScimQuery.Result result = queries.query(query, connector.connectorId(), baseUri);
+        List<ScimUserResource> resources = resources(connector, result.idsOf(ScimResourceType.USER));
+        audit.recordScimUsersQueried(
+                connector.connectorId(), resources.size(), ScimAuditFilterShapes.of(query.filter()));
+        return new ScimUserListing(resources, result.totalResults(), query.page());
+    }
+
+    /**
+     * These Users as this connector sees them, in the order given; an id naming no live User is
+     * skipped. Not audited: the caller is a query that audits itself.
+     */
+    List<ScimUserResource> resources(AuthenticatedConnector connector, List<UUID> ids) {
+        return users.findAllById(ids).stream().map(user -> projection(connector, user)).toList();
     }
 
     /**

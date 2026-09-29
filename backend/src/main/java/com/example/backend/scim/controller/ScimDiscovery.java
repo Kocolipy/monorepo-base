@@ -15,7 +15,7 @@ import java.util.Map;
  * provisions against a directory it has misread. Each flag below is therefore paired with
  * a test that exercises the corresponding request and asserts the flag agrees with the
  * answer — {@code patch.supported=false} beside a PATCH that is refused,
- * {@code filter.supported=false} beside a filtered GET that is refused, and
+ * {@code filter.supported=true} beside filtered GETs and searches that are honoured, and
  * {@code etag.supported=true} beside a create whose response carries one.
  *
  * <p>The flags are constants here rather than in the rendered map so those tests can name
@@ -50,11 +50,14 @@ public final class ScimDiscovery {
 
     public static final int BULK_MAX_PAYLOAD_SIZE = 0;
 
-    /** Filtering arrives with the query-protocol ticket. */
-    public static final boolean FILTER_SUPPORTED = false;
+    /**
+     * The full RFC 7644 filter grammar over every advertised attribute, on {@code GET} and on
+     * all three {@code .search} endpoints.
+     */
+    public static final boolean FILTER_SUPPORTED = true;
 
-    /** Sorting arrives with the query-protocol ticket. */
-    public static final boolean SORT_SUPPORTED = false;
+    /** Sorting by any advertised simple attribute or sub-attribute. */
+    public static final boolean SORT_SUPPORTED = true;
 
     /**
      * SCIM's {@code changePassword} capability means a client may change a User's password
@@ -81,9 +84,8 @@ public final class ScimDiscovery {
                 "supported", BULK_SUPPORTED,
                 "maxOperations", BULK_MAX_OPERATIONS,
                 "maxPayloadSize", BULK_MAX_PAYLOAD_SIZE));
-        // maxResults is advertised even though filtering is not supported: it is the page
-        // ceiling every collection response obeys, and it comes from the same constant the
-        // paging rule enforces rather than from a number written twice.
+        // maxResults is the page ceiling every collection response obeys, and it comes from the
+        // same constant the paging rule enforces rather than from a number written twice.
         document.put("filter", Map.of(
                 "supported", FILTER_SUPPORTED,
                 "maxResults", ScimPageRequest.MAX_COUNT));

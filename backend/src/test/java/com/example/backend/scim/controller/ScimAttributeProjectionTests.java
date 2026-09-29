@@ -316,4 +316,92 @@ class ScimAttributeProjectionTests {
                         .apply(document()))
                 .containsOnlyKeys("schemas", "id", "userName", "active", "emails");
     }
+
+    // ---- base search -----------------------------------------------------------------------------
+
+    private static Map<String, Object> groupDocument() {
+        Map<String, Object> group = new LinkedHashMap<>();
+        group.put("schemas", List.of(ScimSchemas.GROUP));
+        group.put("id", "8a5c1f4e-0000-4000-8000-000000000002");
+        group.put("displayName", "Engineering");
+        group.put("members", List.of(new LinkedHashMap<>(Map.of("value", "m1", "type", "User"))));
+        group.put("meta", new LinkedHashMap<>(Map.of("resourceType", "Group")));
+        return group;
+    }
+
+    /**
+     * An inclusion naming only User attributes leaves a Group its always-returned attributes —
+     * not the whole Group, which is what "no projection" would mean.
+     */
+    @Test
+    void a_base_search_inclusion_applies_each_path_to_the_type_that_has_it() {
+        ScimAttributeProjection.Search projection =
+                ScimAttributeProjection.forSearch("userName, members.value, displayName", null);
+
+        assertThat(projection.user().apply(document())).containsOnlyKeys("schemas", "id", "userName");
+        Map<String, Object> group = projection.group().apply(groupDocument());
+        assertThat(group).containsOnlyKeys("schemas", "id", "members", "displayName");
+        assertThat(ScimAttributeProjection.forSearch("userName", null).group().apply(groupDocument()))
+                .containsOnlyKeys("schemas", "id");
+    }
+
+    @Test
+    void a_base_search_exclusion_applies_each_path_to_the_type_that_has_it() {
+        ScimAttributeProjection.Search projection =
+                ScimAttributeProjection.forSearch(null, "emails,members,meta");
+
+        assertThat(projection.user().apply(document())).doesNotContainKeys("emails", "meta")
+                .containsKeys("userName", "name");
+        assertThat(projection.group().apply(groupDocument())).doesNotContainKeys("members", "meta")
+                .containsKey("displayName");
+    }
+
+    /** An empty entry in the list — a doubled or trailing comma — is skipped, not refused. */
+    @Test
+    void a_base_search_projection_skips_empty_list_entries() {
+        ScimAttributeProjection.Search projection =
+                ScimAttributeProjection.forSearch("userName,, displayName,", null);
+
+        assertThat(projection.user().apply(document())).containsKey("userName");
+        assertThat(projection.group().apply(groupDocument())).containsKey("displayName")
+                .doesNotContainKey("members");
+    }
+
+    @Test
+    void a_base_search_with_no_projection_renders_both_types_whole() {
+        ScimAttributeProjection.Search projection = ScimAttributeProjection.forSearch(" ", null);
+
+        assertThat(projection.user().apply(document())).isEqualTo(document());
+        assertThat(projection.group().apply(groupDocument())).isEqualTo(groupDocument());
+    }
+
+    /** Qualified with one type's schema, a path belongs to that type only. */
+    @Test
+    void a_base_search_path_qualified_by_one_schema_applies_to_that_type_only() {
+        ScimAttributeProjection.Search projection = ScimAttributeProjection.forSearch(
+                ScimSchemas.GROUP + ":displayName", null);
+
+        assertThat(projection.group().apply(groupDocument()))
+                .containsOnlyKeys("schemas", "id", "displayName");
+        assertThat(projection.user().apply(document())).containsOnlyKeys("schemas", "id");
+    }
+
+    @Test
+    void a_base_search_path_neither_type_has_or_both_parameters_are_refused() {
+        assertThatThrownBy(() -> ScimAttributeProjection.forSearch("userName,nickName", null))
+                .isInstanceOfSatisfying(ScimErrorException.class,
+                        refusal -> assertThat(refusal.scimType()).isEqualTo("invalidValue"));
+        assertThatThrownBy(() -> ScimAttributeProjection.forSearch("userName", "meta"))
+                .isInstanceOfSatisfying(ScimErrorException.class,
+                        refusal -> assertThat(refusal.detail()).contains("mutually exclusive"));
+    }
+
+    /** A sub-path refused for one type does not leave a partial entry behind for it. */
+    @Test
+    void a_path_one_type_refuses_leaves_that_types_projection_untouched() {
+        ScimAttributeProjection.Search projection =
+                ScimAttributeProjection.forSearch("members.value", null);
+
+        assertThat(projection.user().apply(document())).containsOnlyKeys("schemas", "id");
+    }
 }

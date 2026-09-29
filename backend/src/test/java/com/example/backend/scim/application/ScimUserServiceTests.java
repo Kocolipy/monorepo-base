@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
+import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -114,7 +115,8 @@ class ScimUserServiceTests {
             new InMemoryScimTombstoneRepository();
 
     private final ScimUserService service = new ScimUserService(
-            users, groups, aliases, history, sessions, tombstones, audit, encoder, clock);
+            users, groups, aliases, history, sessions, tombstones, audit, encoder, clock,
+            new InMemoryScimQueryRepository(users, groups));
 
     private ScimUserResource ada;
 

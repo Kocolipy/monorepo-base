@@ -132,24 +132,27 @@ class ScimDiscoveryIntegrationTests {
     }
 
     /**
-     * {@code filter.supported=false}, and a filtered query is refused. The pair is the
-     * assertion: either both change or the document is lying.
+     * {@code filter.supported=true}, and a filtered query is honoured: it selects exactly the
+     * matching User. The pair is the assertion — either both change or the document is lying.
      */
     @Test
     void the_filter_flag_agrees_with_what_a_filtered_query_does() throws Exception {
         assertThat(body(get(BASE + "/ServiceProviderConfig"))
                         .get("filter").get("supported").booleanValue())
                 .isEqualTo(ScimDiscovery.FILTER_SUPPORTED)
-                .isFalse();
+                .isTrue();
 
         MvcResult filtered = mvc.perform(asConnector(get(BASE + "/Users")
-                        .param("filter", "userName eq \"bjensen\"")))
+                        .param("filter", "userName eq \"no-such-user-anywhere\"")))
                 .andReturn();
 
-        assertThat(filtered.getResponse().getStatus()).isEqualTo(403);
-        assertThat(json.readTree(filtered.getResponse().getContentAsString()).get("schemas")
-                        .get(0).asText())
-                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
+        assertThat(filtered.getResponse().getStatus()).isEqualTo(200);
+        JsonNode list = json.readTree(filtered.getResponse().getContentAsString());
+        assertThat(list.get("schemas").get(0).asText())
+                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:ListResponse");
+        assertThat(list.get("totalResults").asInt())
+                .as("a filter that matches nobody selects nobody; an ignored one would not")
+                .isZero();
     }
 
     /** The page ceiling advertised is the one the paging rule enforces. */
@@ -165,11 +168,11 @@ class ScimDiscoveryIntegrationTests {
         assertThat(body(get(BASE + "/ServiceProviderConfig"))
                         .get("sort").get("supported").booleanValue())
                 .isEqualTo(ScimDiscovery.SORT_SUPPORTED)
-                .isFalse();
+                .isTrue();
 
         assertThat(mvc.perform(asConnector(get(BASE + "/Users").param("sortBy", "userName")))
                         .andReturn().getResponse().getStatus())
-                .isEqualTo(403);
+                .isEqualTo(200);
     }
 
     /**

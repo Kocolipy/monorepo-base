@@ -3,6 +3,8 @@ package com.example.backend.scim.controller;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.InvalidPreconditionException;
+import com.example.backend.scim.domain.InvalidScimFilterException;
+import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.PasswordHistoryPolicy;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.PreconditionFailedException;
@@ -137,6 +139,18 @@ class ScimExceptionHandler {
      * <p>The detail says which kind of resource was protected but not which resource, and nothing
      * about why this deployment reserves it.
      */
+    /** A filter this service does not evaluate. The message quotes no literal from it. */
+    @ExceptionHandler(InvalidScimFilterException.class)
+    ResponseEntity<Map<String, Object>> handle(InvalidScimFilterException invalid) {
+        return render(ScimErrorException.invalidFilter(invalid.getMessage()));
+    }
+
+    /** A sort, paging value or search body this service cannot honour. */
+    @ExceptionHandler(InvalidScimQueryException.class)
+    ResponseEntity<Map<String, Object>> handle(InvalidScimQueryException invalid) {
+        return render(ScimErrorException.invalidValue(invalid.getMessage()));
+    }
+
     @ExceptionHandler(ProtectedResourceException.class)
     ResponseEntity<Map<String, Object>> handle(ProtectedResourceException protectedResource) {
         return render(ScimErrorException.mutability(

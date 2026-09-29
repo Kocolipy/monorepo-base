@@ -174,15 +174,12 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     @Override
-    public List<ScimUser> findPage(ScimPageRequest page) {
-        return findAllOrderedByNormalizedUserName().stream()
-                .skip(page.offset())
-                .limit(page.count())
-                .toList();
+    public List<ScimUser> findAllById(List<UUID> ids) {
+        return ids.stream().map(stored::get).filter(java.util.Objects::nonNull).toList();
     }
 
-    @Override
-    public long countAll() {
+    /** How many Users are stored. */
+    public long size() {
         return stored.size();
     }
 

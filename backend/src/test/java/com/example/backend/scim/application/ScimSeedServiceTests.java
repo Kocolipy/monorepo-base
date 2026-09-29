@@ -141,14 +141,14 @@ class ScimSeedServiceTests {
     @Test
     void a_second_run_creates_nothing_and_records_nothing() {
         seeding.seed(ORDINARY, RECOVERY);
-        long usersAfterFirst = users.countAll();
-        long groupsAfterFirst = groups.countAll();
+        long usersAfterFirst = users.size();
+        long groupsAfterFirst = groups.size();
         audit.reset();
 
         seeding.seed(ORDINARY, RECOVERY);
 
-        assertThat(users.countAll()).isEqualTo(usersAfterFirst);
-        assertThat(groups.countAll()).isEqualTo(groupsAfterFirst);
+        assertThat(users.size()).isEqualTo(usersAfterFirst);
+        assertThat(groups.size()).isEqualTo(groupsAfterFirst);
         assertThat(audit.recorded()).isEmpty();
     }
 

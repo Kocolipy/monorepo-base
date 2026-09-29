@@ -42,6 +42,12 @@ import java.util.UUID;
  * @param httpPath      matched route TEMPLATE of the triggering request, never
  *                      the resolved path — that carries the username in it
  * @param requestId     correlation id minted for the triggering request
+ * @param resultCount   how many resources a bulk read returned; {@code null} for every
+ *                      other operation
+ * @param filterShape   a bulk read's filter as its shape — canonical paths and operators,
+ *                      {@code ?} for every value — or {@code null} when it had none or the
+ *                      operation is not a read. Rendered from {@link AuditFilterShape}, so
+ *                      no literal can be in it
  */
 public record AuditEvent(
         UUID id,
@@ -57,7 +63,9 @@ public record AuditEvent(
         String errorCode,
         String httpMethod,
         String httpPath,
-        String requestId) {
+        String requestId,
+        Integer resultCount,
+        String filterShape) {
 
     /**
      * A SCIM connector, as the audit trail names it.
@@ -94,6 +102,12 @@ public record AuditEvent(
      * inside the first one's event.
      */
     public static final String GROUP_RESOURCE_TYPE = "Group";
+
+    /**
+     * Both resource types at once: the resource type of a base {@code /.search}, which spans
+     * Users and Groups in one request and one result set.
+     */
+    public static final String USER_AND_GROUP_RESOURCE_TYPE = "User,Group";
 
     /** The request succeeded. */
     public static final String STATUS_OK = "ok";

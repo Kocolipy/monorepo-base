@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -259,21 +260,21 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     /**
-     * {@code filter} and sorting are refused, not ignored, while unimplemented — discovery
-     * advertises both as unsupported, so the refusal is what a connector reading it expects. An
-     * ignored filter would return every Group to a caller that asked for some.
-     *
-     * <p>{@code 403} rather than {@code 400}, and with no {@code scimType}: that is RFC 7644
-     * §3.4.2.2's prescribed answer for a provider that does not support filtering, which is a
-     * statement about the service's capability rather than about this request being malformed.
+     * A query parameter naming something a Group does not have is refused, never ignored: an
+     * ignored filter would return every Group to a caller that asked for some. {@code userName}
+     * is a User attribute, so it is unknown here.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"filter", "sortBy", "sortOrder"})
-    void an_unimplemented_query_parameter_is_refused(String parameter) throws Exception {
-        MvcResult refused = mvc.perform(asConnector(get(GROUPS).param(parameter, "displayName")))
+    @CsvSource({
+            "filter,    userName eq \"x\",  invalidFilter",
+            "sortBy,    userName,           invalidValue",
+            "sortOrder, sideways,           invalidValue"})
+    void a_query_parameter_this_resource_type_cannot_honour_is_refused(
+            String parameter, String value, String scimType) throws Exception {
+        MvcResult refused = mvc.perform(asConnector(get(GROUPS).param(parameter, value)))
                 .andReturn();
 
-        assertRefusal(refused, 403, null);
+        assertRefusal(refused, 400, scimType);
     }
 
     // ---- replace ------------------------------------------------------------------------------

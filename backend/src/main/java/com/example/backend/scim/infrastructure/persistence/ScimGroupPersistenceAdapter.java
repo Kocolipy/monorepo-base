@@ -6,7 +6,6 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
-import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupEntity;
@@ -14,15 +13,16 @@ import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMembe
 import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEntity;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -49,12 +49,6 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 class ScimGroupPersistenceAdapter implements ScimGroupRepository {
-
-    /**
-     * The order the port promises. Named here because the derived query method name already
-     * states it; this is what {@link ScimOffsetPage} carries so the two cannot disagree.
-     */
-    private static final Sort BY_NORMALIZED_DISPLAY_NAME = Sort.by("normalizedDisplayName");
 
     private final ScimGroupJpaRepository groups;
     private final ScimGroupMemberJpaRepository memberships;
@@ -208,22 +202,18 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     }
 
     @Override
-    public List<ScimGroup> findPage(ScimPageRequest page) {
-        List<ScimGroupEntity> entities = groups.findAllByOrderByNormalizedDisplayNameAsc(
-                ScimOffsetPage.of(page.offset(), page.count(), BY_NORMALIZED_DISPLAY_NAME));
-        if (entities.isEmpty()) {
+    public List<ScimGroup> findAllById(List<UUID> ids) {
+        if (ids.isEmpty()) {
             return List.of();
         }
         // One membership query for the whole page rather than one per Group: a page of two
         // hundred Groups is otherwise two hundred and one round trips.
-        Map<UUID, List<ScimGroupMember>> byGroup = membersOf(
-                entities.stream().map(entity -> entity.getResource().getId()).toList());
-        return entities.stream().map(entity -> toDomain(entity, byGroup)).toList();
-    }
-
-    @Override
-    public long countAll() {
-        return groups.count();
+        Map<UUID, List<ScimGroupMember>> byGroup = membersOf(ids);
+        Map<UUID, ScimGroup> byId = new HashMap<>();
+        for (ScimGroupEntity entity : groups.findAllById(ids)) {
+            byId.put(entity.getResource().getId(), toDomain(entity, byGroup));
+        }
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
     }
 
     @Override
