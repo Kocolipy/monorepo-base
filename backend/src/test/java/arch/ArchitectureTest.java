@@ -408,6 +408,70 @@ public class ArchitectureTest {
             .because("The audit slice records a connector by its stable id and has no"
                     + " reason to reach the credential types at all");
 
+    /**
+     * The self-read's projection has nowhere to put lockout state or a failure run.
+     *
+     * <p>{@code SelfRecord} is serialised as-is, so what it cannot hold cannot reach the wire.
+     * Two halves, because either alone leaves a way round: a component NAMED for the lock or
+     * the run, and a component TYPED as the login state that carries both. The name is a
+     * pattern so the nested {@code Group} record is held too.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_self_read_has_no_field_for_lockout_or_failures =
+        noFields()
+            .that().areDeclaredInClassesThat()
+                .haveNameMatching("com\\.example\\.backend\\.auth\\.application\\.SelfRecord(\\$.*)?")
+            .should().haveNameMatching("(?i).*(lock|fail|attempt).*")
+            .because("Telling a caller how close it is to a lock helps an attacker guessing its"
+                    + " password more than the owner; the self-read omits it by shape");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_self_read_cannot_carry_the_login_state =
+        noClasses()
+            .that().haveNameMatching("com\\.example\\.backend\\.auth\\.application\\.SelfRecord(\\$.*)?")
+            .should().dependOnClassesThat()
+                .haveNameMatching("com\\.example\\.backend\\.scim\\.domain\\.(ScimLoginState|ScimUser)(\\$.*)?")
+            .because("The login state holds the failure run, the lock and the hash; a projection"
+                    + " component typed as it would publish all three under an innocent name");
+
+    /**
+     * The self-read's handlers take nothing from the request that could name a User.
+     *
+     * <p>The User is the one the session belongs to. A path variable, query parameter, header or
+     * body on this adapter would be the first place a client-supplied identifier could enter, so
+     * the rule refuses the parameter rather than trusting a handler to ignore it.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_self_read_takes_no_identifier_from_the_request =
+        methods()
+            .that().areDeclaredIn(com.example.backend.auth.controller.SelfController.class)
+            .and().areAnnotatedWith(org.springframework.web.bind.annotation.GetMapping.class)
+            .should(new ArchCondition<JavaMethod>("declare no request-bound parameter") {
+                @Override
+                public void check(JavaMethod method, ConditionEvents events) {
+                    method.getParameters().stream()
+                            .filter(parameter -> parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.PathVariable.class)
+                                    || parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.RequestParam.class)
+                                    || parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.RequestHeader.class)
+                                    || parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.RequestBody.class)
+                                    || parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.CookieValue.class)
+                                    || parameter.isAnnotatedWith(
+                                            org.springframework.web.bind.annotation.ModelAttribute.class)
+                                    || parameter.getRawType().isEquivalentTo(java.util.UUID.class)
+                                    || parameter.getRawType().isEquivalentTo(String.class))
+                            .forEach(parameter -> events.add(SimpleConditionEvent.violated(
+                                    method, method.getFullName() + " binds " + parameter
+                                            + " from the request")));
+                }
+            })
+            .because("The self-read resolves the User from the session alone, so no request value"
+                    + " can name somebody else");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule onion_architecture =
         onionArchitecture()

@@ -189,6 +189,44 @@ paths:
             covers every reason, as for Login.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
+  /api/self:
+    get:
+      tags: [Authentication]
+      summary: Read the caller's own record
+      description: |
+        The signed-in User's own record, and no one else's. The User is the one
+        the SESSION belongs to — the stable id the login recorded in it — never
+        a value from the request: the operation takes no path, query, header or
+        body parameter, so a request supplying another User's id or userName is
+        not refused but simply never read, and `/api/self/{anything}` is no
+        route. Every field is read from the directory at request time, so a
+        rename, a membership change or a newly set change-required flag since
+        login is reported as it stands.
+
+        The lockout state and the failed-login count are omitted by shape — the
+        schema has no field for either — because telling a caller how close it
+        is to a lock helps someone guessing its password more than it helps the
+        owner.
+
+        Requires the `USER` role, so a session confined by the change-required
+        flag is refused with 403, as every operation beyond its three is; it
+        reads its own requirement from `GET /api/auth/me`.
+      operationId: getSelf
+      responses:
+        "200":
+          description: The caller's own record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelfRecord"
+        "401":
+          description: |
+            No authenticated session, or a session that names no live User. No
+            body.
+        "403":
+          description: |
+            The session is confined by the change-required flag and holds no
+            role. No body.
   /api/session:
     get:
       tags: [Session]
@@ -1976,6 +2014,54 @@ components:
             session may call `GET /api/auth/me`, `POST /api/auth/change-password`
             and `DELETE /api/auth/logout`; every other endpoint, `/api/admin/**`
             included, answers 403.
+    SelfRecord:
+      type: object
+      additionalProperties: false
+      required: [id, userName, displayName, groups, passwordChangeRequired, lastAuthenticatedAt]
+      description: |
+        The whole of what the self-read returns. There is deliberately no lockout
+        or failed-login field; `additionalProperties: false` states that the set
+        below is closed.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The caller's stable SCIM resource id.
+        userName:
+          type: string
+          description: The caller's login attribute, as stored now.
+        displayName:
+          type: [string, "null"]
+          description: The caller's display name, or `null` when none is set.
+        groups:
+          type: array
+          description: |
+            The Groups the caller is a DIRECT member of — the server-seeded Admin
+            group included, when it is one — by id and label only. Empty when
+            there are none.
+          items:
+            $ref: "#/components/schemas/SelfGroup"
+        passwordChangeRequired:
+          type: boolean
+          description: Whether the caller's change-required flag is set.
+        lastAuthenticatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            When the caller last logged in successfully or was last reactivated,
+            ISO-8601 in UTC; `null` when neither has happened.
+    SelfGroup:
+      type: object
+      additionalProperties: false
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The Group's stable SCIM resource id.
+        displayName:
+          type: string
+          description: The Group's label.
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]
