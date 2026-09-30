@@ -82,6 +82,22 @@ class ScimDiscoveryIntegrationTests {
 
     private final JsonMapper json = JsonMapper.builder().build();
 
+    /**
+     * Removes the User this class persists over the real SCIM surface ("etag-probe").
+     * This class is not {@code @Transactional} — the create is a real HTTP commit —
+     * so without this the fixed userName survives into a second run against a reused
+     * Postgres and collides on the userName uniqueness constraint. Deleting the
+     * {@code scim_resources} root cascades to {@code scim_users}. Scoped to the one
+     * name this class creates so it cannot remove another class's fixtures.
+     */
+    @org.junit.jupiter.api.AfterEach
+    void removeSeededUser() {
+        jdbc.update(
+                "DELETE FROM scim_resources WHERE id IN "
+                        + "(SELECT resource_id FROM scim_users WHERE normalized_user_name = ?)",
+                com.example.backend.scim.domain.NormalizedUserName.of("etag-probe").value());
+    }
+
     private MockMvc mvc;
 
     private String writeToken;

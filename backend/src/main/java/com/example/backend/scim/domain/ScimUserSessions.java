@@ -29,13 +29,17 @@ public interface ScimUserSessions {
         /** {@code userName} changed. */
         USER_NAME_CHANGED,
         /** The User was deleted. */
-        DELETED
+        DELETED,
+        /** The User's direct membership of the Admin group was removed. */
+        ADMIN_MEMBERSHIP_REMOVED
     }
 
     /**
      * Ends every session the User holds once the current transaction commits.
      *
-     * @param connectorId the connector whose write caused it, recorded as the actor
+     * @param connectorId the connector whose write caused it, recorded as the actor — or
+     *                    {@code null} when a scheduled dormancy job caused it, which is not a
+     *                    principal and is named by the event the revocation follows
      * @param userId      the User whose sessions end
      * @param causes      why; never empty
      */

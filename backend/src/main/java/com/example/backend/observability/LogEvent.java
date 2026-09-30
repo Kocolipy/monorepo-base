@@ -53,6 +53,21 @@ public final class LogEvent {
     /** How long one retention run took, in milliseconds. */
     public static final String RETENTION_DURATION_MS = "audit.retention.duration_ms";
 
+    /** A dormancy job's configured window, as an ISO-8601 duration. */
+    public static final String DORMANCY_WINDOW = "dormancy.window";
+
+    /** The cron expression a dormancy job runs on. */
+    public static final String DORMANCY_SCHEDULE = "dormancy.schedule";
+
+    /** How many Users one dormancy run changed. */
+    public static final String DORMANCY_PROCESSED = "dormancy.processed";
+
+    /**
+     * Whether a dormancy run did the work ({@code false}) or found another run of the same job
+     * holding its lock and skipped ({@code true}).
+     */
+    public static final String DORMANCY_SKIPPED = "dormancy.skipped";
+
     private LogEvent() {
     }
 }

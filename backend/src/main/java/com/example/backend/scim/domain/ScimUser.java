@@ -109,4 +109,37 @@ public record ScimUser(
     public boolean isExemptFromLockout() {
         return reservedName == ReservedResourceName.BOOTSTRAP_ADMIN;
     }
+
+    /**
+     * Whether the dormancy jobs must leave this User alone — neither deactivate it nor remove its
+     * Admin-group membership, however long it has gone without authenticating.
+     *
+     * <p>The Bootstrap Admin, read off the same marker as the lockout exemption and for the same
+     * reason: it is the recovery path for exactly the moment the external directory is
+     * unavailable, and a recovery identity that expired while nobody needed it is not one.
+     */
+    public boolean isExemptFromDormancy() {
+        return reservedName == ReservedResourceName.BOOTSTRAP_ADMIN;
+    }
+
+    /**
+     * The instant dormancy is measured from: the last successful login or explicit
+     * reactivation, or — for a User that has had neither — its creation.
+     *
+     * <p>The fallback is what keeps a User provisioned without a password from being dormant
+     * the moment it exists: it has never authenticated, but it has also not had the chance to.
+     */
+    public Instant dormancyBasis() {
+        Instant lastAuthenticatedAt = login.lastAuthenticatedAt();
+        return lastAuthenticatedAt == null ? createdAt : lastAuthenticatedAt;
+    }
+
+    /**
+     * Whether this User's dormancy basis lies strictly before {@code cutoff} — that is, whether
+     * it has gone longer than the window {@code cutoff} was computed from without
+     * authenticating. A basis exactly at the cutoff is not yet dormant.
+     */
+    public boolean isDormantAt(Instant cutoff) {
+        return dormancyBasis().isBefore(cutoff);
+    }
 }

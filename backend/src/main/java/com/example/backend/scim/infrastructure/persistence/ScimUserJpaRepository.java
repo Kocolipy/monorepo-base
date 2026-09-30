@@ -2,6 +2,7 @@ package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.infrastructure.persistence.entity.ScimUserEntity;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -61,4 +62,48 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update ScimUserEntity u set u.active = :active where u.resourceId = :id")
     int updateActive(@Param("id") UUID id, @Param("active") boolean active);
+
+    /**
+     * Reactivates an INACTIVE User and resets its dormancy basis to the reactivation instant, in
+     * one statement.
+     *
+     * <p>The {@code active = false} condition is the point: it is what makes this a transition
+     * rather than an assertion, so writing {@code true} over an active User matches no row and
+     * resets nothing.
+     *
+     * @return how many rows were written; zero when no inactive User has that id
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.active = true,
+                   u.login.lastAuthenticatedAt = :now
+             where u.resourceId = :id
+               and u.active = false""")
+    int reactivate(@Param("id") UUID id, @Param("now") Instant now);
+
+    /**
+     * Writes the dormancy basis alone. Not a SCIM attribute, so the resource row — and with it
+     * the version — is untouched.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.lastAuthenticatedAt = :authenticatedAt
+             where u.resourceId = :id""")
+    int recordAuthentication(
+            @Param("id") UUID id, @Param("authenticatedAt") Instant authenticatedAt);
+
+    /**
+     * Active, unreserved Users whose dormancy basis — the last authentication, or creation when
+     * there has been none — is strictly before the cutoff.
+     */
+    @Query("""
+            select u.resourceId
+              from ScimUserEntity u
+             where u.active = true
+               and u.resource.reservedName is null
+               and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
+             order by u.resourceId""")
+    List<UUID> findDormantActiveUserIds(@Param("cutoff") Instant cutoff);
 }

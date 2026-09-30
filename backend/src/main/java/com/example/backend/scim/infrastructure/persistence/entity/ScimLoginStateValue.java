@@ -38,13 +38,25 @@ public class ScimLoginStateValue {
     @Column(name = "locked_at")
     private Instant lockedAt;
 
+    /**
+     * When the User last authenticated or was explicitly reactivated, or null when neither has
+     * happened — the dormancy basis, with the resource's creation time as the fallback.
+     */
+    @Column(name = "last_authenticated_at")
+    private Instant lastAuthenticatedAt;
+
     protected ScimLoginStateValue() {
     }
 
-    public ScimLoginStateValue(String passwordHash, int failedLoginAttempts, Instant lockedAt) {
+    public ScimLoginStateValue(
+            String passwordHash,
+            int failedLoginAttempts,
+            Instant lockedAt,
+            Instant lastAuthenticatedAt) {
         this.passwordHash = passwordHash;
         this.failedLoginAttempts = failedLoginAttempts;
         this.lockedAt = lockedAt;
+        this.lastAuthenticatedAt = lastAuthenticatedAt;
     }
 
     public String getPasswordHash() {
@@ -57,6 +69,19 @@ public class ScimLoginStateValue {
 
     public Instant getLockedAt() {
         return lockedAt;
+    }
+
+    public Instant getLastAuthenticatedAt() {
+        return lastAuthenticatedAt;
+    }
+
+    /**
+     * Resets the dormancy basis to the instant of an explicit reactivation. Called only by a SCIM
+     * replacement that takes {@code active} from false to true — an inactive User cannot log in,
+     * so there is no concurrent login whose timestamp this could overwrite.
+     */
+    public void resetDormancyBasis(Instant reactivatedAt) {
+        this.lastAuthenticatedAt = reactivatedAt;
     }
 
     /**

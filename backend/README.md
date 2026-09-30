@@ -230,6 +230,40 @@ A scheduled job reports its runs through `ScheduledJobMetrics`
 retention job is `job="audit-retention"`. The alert rules already expect the
 inactivity job as `job="inactivity"`.
 
+### Inactivity governance
+
+| Variable                                   | Default          | Meaning                                                                 |
+| ------------------------------------------ | ---------------- | ----------------------------------------------------------------------- |
+| `APP_DORMANCY_DEACTIVATION_WINDOW`         | `90d` (90 days)  | How long a User may go without logging in before it is deactivated     |
+| `APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW` | `180d` (180 days)| How long before its direct Admin group membership is removed            |
+
+Two daily jobs apply them, both measured from the User's last successful login —
+or from its creation, if it has never logged in:
+
+- **Inactivity deactivation** (04:00 daily) sets `active=false` on every dormant
+  User, advances its SCIM version, ends its sessions and records an
+  `INACTIVITY_DEACTIVATION` audit event.
+- **Dormant-authority revocation** (04:30 daily) removes a dormant User's direct
+  membership of the Admin group — nothing else: baseline `USER` access and
+  ordinary Group memberships stay — advances the Admin group's and the User's
+  versions, ends the User's sessions and records a
+  `DORMANT_AUTHORITY_REVOCATION` audit event.
+
+The Bootstrap Admin is never processed by either. A connector re-asserting
+`active=true` does not reset the window; only an explicit reactivation (a write
+that takes `active` from false to true, over SCIM or the Accounts page) does. A
+connector that re-adds the Admin membership of a User that is still dormant
+sees it removed again on the next run.
+
+Each job is serialized on its own row in `scheduled_job_locks`
+(`SELECT … FOR UPDATE SKIP LOCKED`, held for the run's transaction), so two runs
+of the same job never overlap across instances and a run that finds its job
+already running skips; the two jobs never wait for each other. A zero or negative
+window fails startup. Neither default appears in `application.yaml` — both belong
+to `DormancyPolicy`. Every run logs its outcome (`event.action:
+identity.inactivity_deactivation` / `identity.dormant_authority_revocation`),
+including a run that skipped or changed nobody.
+
 ### Audit trail database roles
 
 The audit table is append-only, and that is a property of the database rather than

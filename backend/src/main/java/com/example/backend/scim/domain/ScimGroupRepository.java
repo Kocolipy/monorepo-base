@@ -142,4 +142,28 @@ public interface ScimGroupRepository {
      * member of the Admin group to answer a question about one User.
      */
     boolean isMemberOfReservedGroup(UUID userId, ReservedResourceName reservedName);
+
+    /**
+     * The ids of the unreserved direct members of the Group reserved under this name whose
+     * dormancy basis lies strictly before {@code cutoff}, ordered by id — active or not.
+     *
+     * <p>The dormant-authority job's candidate list, on the same basis as
+     * {@link ScimUserRepository#findDormantActiveUserIds}: {@code lastAuthenticatedAt}, or the
+     * creation time for a User that has never authenticated. Candidates only; the job re-reads
+     * each under its lock and decides again.
+     */
+    List<UUID> findDormantMemberIds(ReservedResourceName reservedName, Instant cutoff);
+
+    /**
+     * Removes one User's direct membership of one Group and advances the version of both, exactly
+     * as a connector-driven removal does: the Group's {@code members} and the User's
+     * {@code groups} each lost an entry.
+     *
+     * <p>Narrow on purpose: every other membership of the Group, and every other Group the User
+     * belongs to, is untouched — which is what a wholesale {@link #replace} could not promise
+     * without re-reading the whole membership inside the caller's lock.
+     *
+     * @return whether a membership was there to remove; nothing is advanced when it was not
+     */
+    boolean removeMember(UUID groupId, UUID userId, Instant now);
 }

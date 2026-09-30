@@ -9,7 +9,10 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,13 +21,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * The Redis half of "session-revocation-on-disable still works under the new
@@ -46,22 +44,7 @@ import org.testcontainers.utility.DockerImageName;
  */
 @SpringBootTest
 @Import(com.example.backend.ContainerTestConfiguration.class)
-@DirtiesContext
 class RedisSessionRevocationIntegrationTests {
-
-    private static final GenericContainer<?> REDIS =
-            new GenericContainer<>(DockerImageName.parse("redis:8.2-alpine"))
-                    .withExposedPorts(6379);
-
-    static {
-        REDIS.start();
-    }
-
-    @DynamicPropertySource
-    static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-    }
 
     @Autowired
     private ScimUserRepository users;
@@ -86,6 +69,8 @@ class RedisSessionRevocationIntegrationTests {
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
+
+    private final List<UUID> seeded = new ArrayList<>();
 
     /**
      * The full journey the acceptance criterion names: an identity is renamed
@@ -152,12 +137,29 @@ class RedisSessionRevocationIntegrationTests {
 
     /** An ordinary active identity with a credential, written through the real port. */
     private ScimUser create(String userName) {
-        return new TransactionTemplate(transactionManager).execute(status -> users.create(
+        ScimUser created = new TransactionTemplate(transactionManager).execute(status -> users.create(
                 ScimUser.created(
                         UUID.randomUUID(),
                         ScimIdentities.profile(userName, true),
                         "hash",
                         ScimIdentities.NOW)));
+        seeded.add(created.id());
+        return created;
+    }
+
+    /**
+     * Removes the resources this test seeded, by stable id so a rename does not
+     * hide the row. Deleting the {@code scim_resources} row cascades to
+     * {@code scim_users} and everything keyed off it. Without this the fixed
+     * {@code userName}s here (e.g. "before-rename") survive into a second run
+     * against a reused Postgres and collide on {@code uq_scim_users_normalized_user_name}.
+     */
+    @AfterEach
+    void removeSeededIdentities() {
+        for (UUID id : seeded) {
+            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+        }
+        seeded.clear();
     }
 
     private ScimUser require(String userName) {

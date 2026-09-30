@@ -25,20 +25,37 @@ import java.time.Instant;
  * about this value alone — a lock cannot be "in the past", so no caller has to agree
  * with the server about the time to agree about the state.
  *
+ * <p>{@code lastAuthenticatedAt} is the dormancy basis: when the User last logged in
+ * successfully, or was last explicitly reactivated. It is written by its own narrow port
+ * operation ({@link ScimUserRepository#recordAuthentication}) and by a reactivation, never
+ * by {@link ScimUserRepository#updateLoginState}, and like the other components it is not a
+ * SCIM attribute — recording a login does not move the version.
+ *
  * @param passwordHash         the stored credential, or {@code null} for a
  *                             credentialless User
  * @param failedLoginAttempts  consecutive rejected attempts, never negative
  * @param lockedAt             when a lock was imposed, or {@code null} when none is
+ * @param lastAuthenticatedAt  when the User last authenticated or was reactivated, or
+ *                             {@code null} when neither has happened
  */
-public record ScimLoginState(String passwordHash, int failedLoginAttempts, Instant lockedAt) {
+public record ScimLoginState(
+        String passwordHash, int failedLoginAttempts, Instant lockedAt, Instant lastAuthenticatedAt) {
 
     /** A User that cannot authenticate and has no history: what a SCIM create yields. */
-    public static final ScimLoginState CREDENTIALLESS = new ScimLoginState(null, 0, null);
+    public static final ScimLoginState CREDENTIALLESS = new ScimLoginState(null, 0, null, null);
 
     public ScimLoginState {
         if (failedLoginAttempts < 0) {
             throw new IllegalArgumentException("a failure run cannot be negative");
         }
+    }
+
+    /**
+     * A state with no recorded authentication — the shape every caller that reasons only about
+     * the credential and the failure run builds.
+     */
+    public ScimLoginState(String passwordHash, int failedLoginAttempts, Instant lockedAt) {
+        this(passwordHash, failedLoginAttempts, lockedAt, null);
     }
 
     /**
@@ -84,7 +101,10 @@ public record ScimLoginState(String passwordHash, int failedLoginAttempts, Insta
         }
         int attempts = failedLoginAttempts + 1;
         return new ScimLoginState(
-                passwordHash, attempts, attempts >= policy.maxAttempts() ? now : null);
+                passwordHash,
+                attempts,
+                attempts >= policy.maxAttempts() ? now : null,
+                lastAuthenticatedAt);
     }
 
     /**
@@ -98,7 +118,8 @@ public record ScimLoginState(String passwordHash, int failedLoginAttempts, Insta
      * the failures are still evidence — the audit trail records each of them either way.
      */
     public ScimLoginState withFailureCounted() {
-        return new ScimLoginState(passwordHash, failedLoginAttempts + 1, lockedAt);
+        return new ScimLoginState(
+                passwordHash, failedLoginAttempts + 1, lockedAt, lastAuthenticatedAt);
     }
 
     /**
@@ -116,6 +137,6 @@ public record ScimLoginState(String passwordHash, int failedLoginAttempts, Insta
         if (failedLoginAttempts == 0 && lockedAt == null) {
             return this;
         }
-        return new ScimLoginState(passwordHash, 0, null);
+        return new ScimLoginState(passwordHash, 0, null, lastAuthenticatedAt);
     }
 }

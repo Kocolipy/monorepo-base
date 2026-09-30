@@ -98,16 +98,62 @@ class LoginAttemptServiceTests {
     }
 
     /**
-     * An identity with no failure run has nothing to clear, so the login must not write
-     * to it — every accepted login would otherwise cost a pointless update.
+     * An identity with no failure run has nothing to clear, so the login must not rewrite
+     * its failure run — every accepted login would otherwise cost a pointless update. (The
+     * dormancy basis is still recorded, through its own narrow write, which the fake's write
+     * count does not include; see the tests below.)
      */
     @Test
-    void anAcceptedLoginOnAnUntouchedIdentityWritesNothing() {
+    void anAcceptedLoginOnAnUntouchedIdentityRewritesNoFailureRun() {
         int writesBefore = users.writes();
 
         attempts.recordSuccess("ada");
 
         assertThat(users.writes()).isEqualTo(writesBefore);
+    }
+
+    /**
+     * Every accepted login records when it happened — the basis the inactivity jobs measure
+     * dormancy from — and a later login moves it forward.
+     */
+    @Test
+    void everyAcceptedLoginRecordsWhenItHappened() {
+        assertThat(users.require("ada").login().lastAuthenticatedAt()).isNull();
+
+        attempts.recordSuccess("ada");
+        assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(NOW);
+
+        clock.advanceBy(Duration.ofDays(3));
+        attempts.recordSuccess("ada");
+        assertThat(users.require("ada").login().lastAuthenticatedAt())
+                .isEqualTo(NOW.plus(Duration.ofDays(3)));
+    }
+
+    /**
+     * Recording a login moves nothing a connector reads: the dormancy basis is not a SCIM
+     * attribute, so neither the version nor {@code lastModified} advances.
+     */
+    @Test
+    void recordingALoginDoesNotAdvanceTheVersion() {
+        ScimUser before = users.require("ada");
+        clock.advanceBy(Duration.ofHours(1));
+
+        attempts.recordSuccess("ada");
+
+        ScimUser after = users.require("ada");
+        assertThat(after.version()).isEqualTo(before.version());
+        assertThat(after.lastModifiedAt()).isEqualTo(before.lastModifiedAt());
+    }
+
+    /** A refused attempt is not an authentication, so it leaves the dormancy basis alone. */
+    @Test
+    void aRefusedAttemptDoesNotRecordAnAuthentication() {
+        attempts.recordSuccess("ada");
+        clock.advanceBy(Duration.ofDays(1));
+
+        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(NOW);
     }
 
     @Test

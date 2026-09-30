@@ -39,8 +39,21 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     private final InMemoryScimUserRepository users;
 
+    private List<UUID> staleDormantMemberCandidates;
+
+    private final List<UUID> lockedReads = new java.util.ArrayList<>();
+
     public InMemoryScimGroupRepository(InMemoryScimUserRepository users) {
         this.users = users;
+    }
+
+    /**
+     * Makes the dormant-member candidate query answer with these ids, whatever the stored state
+     * says — the window between the candidate read and the locked read, for the reason
+     * {@link InMemoryScimUserRepository#answerDormancyCandidatesWith} gives.
+     */
+    public void answerDormantMemberCandidatesWith(List<UUID> ids) {
+        staleDormantMemberCandidates = List.copyOf(ids);
     }
 
     @Override
@@ -62,10 +75,19 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return Optional.ofNullable(stored.get(id));
     }
 
-    /** No lock to take in memory; a single-threaded test has no second writer to exclude. */
+    /**
+     * No lock to take in memory; a single-threaded test has no second writer to exclude. The id
+     * is recorded, so a test can assert the caller took the serialization point it promises.
+     */
     @Override
     public Optional<ScimGroup> findByIdForUpdate(UUID id) {
+        lockedReads.add(id);
         return findById(id);
+    }
+
+    /** Every id read through {@link #findByIdForUpdate}, in call order. */
+    public List<UUID> lockedReads() {
+        return List.copyOf(lockedReads);
     }
 
     @Override
@@ -177,6 +199,47 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return findByReservedName(reservedName)
                 .map(group -> group.hasMember(userId))
                 .orElse(false);
+    }
+
+    /**
+     * Unreserved members of the reserved Group whose dormancy basis is before the cutoff, by id —
+     * or, once {@link #answerDormantMemberCandidatesWith} has been called, exactly the ids given.
+     */
+    @Override
+    public List<UUID> findDormantMemberIds(ReservedResourceName reservedName, Instant cutoff) {
+        if (staleDormantMemberCandidates != null) {
+            return staleDormantMemberCandidates;
+        }
+        return findByReservedName(reservedName).stream()
+                .flatMap(group -> group.members().stream())
+                .map(member -> users.findById(member.userId()))
+                .flatMap(Optional::stream)
+                .filter(user -> user.reservedName() == null)
+                .filter(user -> user.isDormantAt(cutoff))
+                .map(ScimUser::id)
+                .sorted()
+                .toList();
+    }
+
+    /** Drops one membership and advances the Group and the User, as the adapter does. */
+    @Override
+    public boolean removeMember(UUID groupId, UUID userId, Instant now) {
+        ScimGroup current = stored.get(groupId);
+        if (current == null || !current.hasMember(userId)) {
+            return false;
+        }
+        stored.put(groupId, new ScimGroup(
+                current.id(),
+                current.displayName(),
+                current.members().stream()
+                        .filter(member -> !member.userId().equals(userId))
+                        .toList(),
+                current.reservedName(),
+                current.version() + 1,
+                current.createdAt(),
+                now));
+        bumpUser(userId, now);
+        return true;
     }
 
     /** Puts a Group in the store directly, for a test arranging state rather than exercising a write. */

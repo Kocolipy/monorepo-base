@@ -125,6 +125,9 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         ScimUserEntity entity = stored.get();
         ScimUserProfile profile = user.profile();
         ScimName name = profile.name();
+        // Decided from the STORED flag, before the profile is replaced: a false-to-true
+        // transition is a reactivation and resets the dormancy window; true over true is not.
+        boolean reactivated = !entity.isActive() && profile.active();
         entity.replaceProfile(
                 profile.userName(),
                 profile.normalizedUserName().value(),
@@ -141,6 +144,9 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 profile.timezone(),
                 emailValues(profile.emails()));
         entity.getLogin().replacePasswordHash(user.login().passwordHash());
+        if (reactivated) {
+            entity.getLogin().resetDormancyBasis(now);
+        }
         try {
             users.saveAndFlush(entity);
         } catch (DataIntegrityViolationException violation) {
@@ -197,11 +203,26 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      */
     @Override
     public Optional<ScimUser> updateActive(UUID id, boolean active, Instant now) {
-        if (users.updateActive(id, active) == 0) {
+        // A reactivation is tried first, because only it resets the dormancy basis and only the
+        // statement's own `active = false` condition can tell a transition from an assertion
+        // without a read that could be stale by the time of the write.
+        int written = active ? users.reactivate(id, now) : 0;
+        if (written == 0 && users.updateActive(id, active) == 0) {
             return Optional.empty();
         }
         resources.advanceVersions(List.of(id), now);
         return findById(id);
+    }
+
+    /** The dormancy basis alone; the resource row and its version are untouched. */
+    @Override
+    public void recordAuthentication(UUID id, Instant authenticatedAt) {
+        users.recordAuthentication(id, authenticatedAt);
+    }
+
+    @Override
+    public List<UUID> findDormantActiveUserIds(Instant cutoff) {
+        return users.findDormantActiveUserIds(cutoff);
     }
 
     /**
@@ -260,7 +281,10 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 profile.userName(),
                 profile.normalizedUserName().value(),
                 new ScimLoginStateValue(
-                        login.passwordHash(), login.failedLoginAttempts(), login.lockedAt()),
+                        login.passwordHash(),
+                        login.failedLoginAttempts(),
+                        login.lockedAt(),
+                        login.lastAuthenticatedAt()),
                 profile.active(),
                 profile.displayName(),
                 name.formatted(),
@@ -308,7 +332,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 new ScimLoginState(
                         login.getPasswordHash(),
                         login.getFailedLoginAttempts(),
-                        login.getLockedAt()),
+                        login.getLockedAt(),
+                        login.getLastAuthenticatedAt()),
                 ReservedResourceName.ofStoredValue(resource.getReservedName()).orElse(null),
                 resource.getVersion(),
                 resource.getCreatedAt(),

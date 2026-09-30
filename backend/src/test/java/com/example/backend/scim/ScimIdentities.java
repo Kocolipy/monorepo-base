@@ -56,6 +56,21 @@ public final class ScimIdentities {
                 NOW);
     }
 
+    /**
+     * An active, credentialed User created at {@link #NOW} whose last successful login was at
+     * {@code at} — the shape the dormancy rules reason about.
+     */
+    public static ScimUser userAuthenticatedAt(String userName, Instant at) {
+        return new ScimUser(
+                UUID.randomUUID(),
+                profile(userName, true),
+                new ScimLoginState("hash", 0, null, at),
+                null,
+                ScimUser.INITIAL_VERSION,
+                NOW,
+                NOW);
+    }
+
     /** The minimum profile: a userName, an active flag, and nothing else assigned. */
     public static ScimUserProfile profile(String userName, boolean active) {
         return new ScimUserProfile(userName, null, null, null, null, null, active, List.of());

@@ -111,7 +111,7 @@ public class LoginAttemptService {
     }
 
     /**
-     * Clears the failure run of an identity that has just logged in.
+     * Clears the failure run of an identity that has just logged in, and records when it did.
      *
      * <p>The success event is fail-closed, unlike everything on the failure path: a session this
      * service could not account for is one it does not issue. The append joins this transaction, so
@@ -124,6 +124,10 @@ public class LoginAttemptService {
             if (cleared != user.login()) {
                 users.updateLoginState(user.id(), cleared);
             }
+            // Every accepted login moves the dormancy basis, the one thing the inactivity and
+            // dormant-authority jobs measure from. Its own narrow write, so it neither advances
+            // the version nor rewrites the failure run.
+            users.recordAuthentication(user.id(), clock.instant());
             audit.recordLoginSuccess(user.id());
         });
     }

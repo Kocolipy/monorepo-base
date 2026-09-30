@@ -94,6 +94,23 @@ class ScimEndToEndIntegrationTests {
 
     private String writeToken;
 
+    private final java.util.List<UUID> seeded = new java.util.ArrayList<>();
+
+    /**
+     * Removes the resources this test persisted over the real SCIM surface, by
+     * stable id (cascades from {@code scim_resources}). This class is not
+     * {@code @Transactional} — the writes are real HTTP commits — so without this
+     * the fixed userNames ("e2e-member", "e2e-promoted") survive into a second run
+     * against a reused Postgres and collide on the userName uniqueness constraint.
+     */
+    @org.junit.jupiter.api.AfterEach
+    void removeSeededResources() {
+        for (UUID id : seeded) {
+            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+        }
+        seeded.clear();
+    }
+
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context)
@@ -285,7 +302,9 @@ class ScimEndToEndIntegrationTests {
             throws Exception {
         MvcResult result = mvc.perform(scim(request, body)).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(201);
-        return json.readTree(result.getResponse().getContentAsString());
+        JsonNode created = json.readTree(result.getResponse().getContentAsString());
+        seeded.add(UUID.fromString(created.get("id").asText()));
+        return created;
     }
 
     private MockHttpServletRequestBuilder scim(MockHttpServletRequestBuilder request, String body) {

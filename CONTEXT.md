@@ -383,6 +383,45 @@ refusal is visible before the click rather than as a `409` after it. The page ne
 decides authorization — it renders behind the `ADMIN` guard, and the backend refuses
 `/api/admin/**` to any other role regardless.
 
+**Dormancy basis** — the instant a User's inactivity is measured from: its
+`lastAuthenticatedAt` — set by every successful Login and by an explicit
+reactivation — or, for a User that has had neither, its creation time. The
+fallback is what keeps a User provisioned without a password from being dormant
+the moment it exists. Application-owned authentication state, like the failure
+run: not a SCIM attribute, absent from `/Schemas`, and writing it moves no version.
+
+**Dormant User** — a User whose dormancy basis is further in the past than a
+configured window. Dormancy is relative to a window, not a stored state: the same
+User can be dormant for deactivation (90 days by default,
+`APP_DORMANCY_DEACTIVATION_WINDOW`) and not yet for authority revocation (180 days,
+`APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW`). The Bootstrap Admin is never treated
+as dormant by either job, by its reservation marker, for the reason it is exempt
+from lockout. Avoid "inactive" for this: an inactive User is one whose `active`
+flag is false, which a dormant User may or may not be.
+
+**Inactivity deactivation** — the scheduled job that deactivates every active
+dormant User: `active=false`, the version advanced, its sessions revoked after
+commit, and an actorless `INACTIVITY_DEACTIVATION` event. It takes priority over
+the directory. A connector re-asserting `active=true` resets nothing — a write
+that changes nothing writes nothing — so it cannot hold a dormant User open; only
+an explicit reactivation, a stored transition of `active` from false to true
+through SCIM or the Accounts page, resets the dormancy basis. A User reactivated
+while still dormant by a later run is deactivated again, by design.
+
+**Dormant-authority revocation** — the scheduled job that removes a dormant
+User's direct membership of the Admin group, and nothing else: baseline access is
+the inactivity job's business, and ordinary Group memberships confer no authority.
+The Admin group's and the User's versions advance, the User's sessions are revoked
+after commit, and an actorless `DORMANT_AUTHORITY_REVOCATION` event names the User.
+A connector may re-add the membership; while the User stays dormant the next run
+removes it again.
+
+**Scheduled job lock** — how the two dormancy jobs are serialized: each run takes
+its own job's row in `scheduled_job_locks` with `FOR UPDATE SKIP LOCKED` and holds
+it for the run's transaction. A second run of the same job, on any instance, skips;
+the other job holds a different row and never waits. Inside a run, each User is
+re-read under its resource lock and decided again, so no User is processed twice.
+
 **Session revocation** — ending the sessions a User is already holding, so its
 next request arrives as a Guest and the SPA sends it back to login. Sessions are
 found by the User's stable id, never its `userName`, so a rename cannot hide one.
@@ -392,7 +431,9 @@ The triggers in force:
 - a SCIM write that takes `active` from true to false;
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
-- a SCIM `DELETE` of the User.
+- a SCIM `DELETE` of the User;
+- inactivity deactivation, and dormant-authority revocation, by their scheduled
+  jobs — recorded with no actor, because the job is not a principal.
 
 Every trigger defers the revocation until after its transaction commits, so a
 write that was refused, stale or rolled back revokes nothing, and one SCIM write
@@ -406,9 +447,9 @@ revokes nothing, which is what keeps an Admin who mis-clicks their own row from
 signing themselves out. A failure run that stops short of the limit revokes
 nothing either.
 
-Specified but not yet implemented, each with its own ticket: addition to or removal from the Admin group, an Admin-forced password change,
-self-service password change, and the scheduled inactivity, grace-period and
-dormant-authority jobs.
+Specified but not yet implemented, each with its own ticket: a connector's addition
+to or removal from the Admin group, an Admin-forced password change, self-service
+password change, and the scheduled grace-period job.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in

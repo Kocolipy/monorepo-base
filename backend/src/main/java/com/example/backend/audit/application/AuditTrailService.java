@@ -662,8 +662,48 @@ public class AuditTrailService implements AuditTrail {
                     case ACTIVE -> "active";
                     case PASSWORD -> "password";
                     case EMAILS -> "emails";
+                    case GROUPS -> "groups";
                 })
                 .toList();
+    }
+
+    /**
+     * Records the inactivity job deactivating a dormant User. Fail-closed: the append joins the
+     * job's transaction, so a deactivation this service cannot account for rolls back with it —
+     * and the after-commit revocation never fires.
+     *
+     * <p>The actor is {@code null} because the scheduled job is not a principal; the operation is
+     * what names it, as seeding's does.
+     */
+    @Transactional
+    @Override
+    public void recordInactivityDeactivation(UUID userId) {
+        append(event(
+                AuditOperation.INACTIVITY_DEACTIVATION,
+                AuditOutcome.SUCCESS,
+                null,
+                userId,
+                ENABLED_PATHS,
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /**
+     * Records the dormant-authority job removing a dormant User's Admin-group membership.
+     * Fail-closed and actorless, as {@link #recordInactivityDeactivation} is: an unrecorded change
+     * to who holds Admin authority is the gap this trail exists to close.
+     */
+    @Transactional
+    @Override
+    public void recordDormantAuthorityRevocation(UUID userId) {
+        append(event(
+                AuditOperation.DORMANT_AUTHORITY_REVOCATION,
+                AuditOutcome.SUCCESS,
+                null,
+                userId,
+                userPaths(Set.of(AuditUserAttribute.GROUPS)),
+                AuditEvent.STATUS_OK,
+                null));
     }
 
     /**

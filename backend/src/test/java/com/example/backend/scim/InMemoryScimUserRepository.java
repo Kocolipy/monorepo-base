@@ -44,6 +44,21 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private int writes;
 
+    private List<UUID> staleDormancyCandidates;
+
+    /**
+     * Makes the dormancy candidate query answer with these ids, whatever the stored state says.
+     *
+     * <p>That is the window a dormancy job has to survive: the candidate list is read before each
+     * User is locked, so by the locked read a candidate may have logged in, been deactivated, or —
+     * were the query's filter ever lost — be the Bootstrap Admin. Against Postgres the window takes
+     * two transactions to hit; here it is one call, and the job must decide again on the locked
+     * read either way.
+     */
+    public void answerDormancyCandidatesWith(List<UUID> ids) {
+        staleDormancyCandidates = List.copyOf(ids);
+    }
+
     @Override
     public ScimUser create(ScimUser user) {
         return insert(user, null);
@@ -93,7 +108,9 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 new ScimLoginState(
                         current.login().passwordHash(),
                         loginState.failedLoginAttempts(),
-                        loginState.lockedAt()),
+                        loginState.lockedAt(),
+                        // Kept, as the adapter keeps it: this write is the failure run only.
+                        current.login().lastAuthenticatedAt()),
                 current.reservedName(),
                 // Deliberately unchanged: a failure run is not a SCIM attribute.
                 current.version(),
@@ -108,10 +125,13 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         if (current == null) {
             return Optional.empty();
         }
+        boolean reactivated = active && !current.profile().active();
         ScimUser updated = new ScimUser(
                 current.id(),
                 withActive(current.profile(), active),
-                current.login(),
+                // A stored false-to-true transition resets the dormancy basis, as the adapter's
+                // conditional statement does; true over true resets nothing.
+                reactivated ? withDormancyBasis(current.login(), now) : current.login(),
                 current.reservedName(),
                 // `active` IS a SCIM attribute, so the version moves — unlike the login state.
                 current.version() + 1,
@@ -143,13 +163,15 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         .equals(user.profile().normalizedUserName()))) {
             throw new com.example.backend.scim.domain.DuplicateUserNameException(null);
         }
+        boolean reactivated = user.profile().active() && !current.profile().active();
         ScimUser updated = new ScimUser(
                 current.id(),
                 user.profile(),
                 new ScimLoginState(
                         user.login().passwordHash(),
                         current.login().failedLoginAttempts(),
-                        current.login().lockedAt()),
+                        current.login().lockedAt(),
+                        reactivated ? now : current.login().lastAuthenticatedAt()),
                 current.reservedName(),
                 current.version() + 1,
                 current.createdAt(),
@@ -157,6 +179,45 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         stored.put(user.id(), updated);
         writes++;
         return Optional.of(updated);
+    }
+
+    /**
+     * Writes the dormancy basis alone, leaving the version where it is. Not counted in
+     * {@link #writes()}, which counts profile and failure-run writes: a login that had no failure
+     * run to clear still writes nothing a test of that rule is asking about.
+     */
+    @Override
+    public void recordAuthentication(UUID id, Instant authenticatedAt) {
+        ScimUser current = stored.get(id);
+        if (current == null) {
+            return;
+        }
+        stored.put(id, new ScimUser(
+                current.id(),
+                current.profile(),
+                withDormancyBasis(current.login(), authenticatedAt),
+                current.reservedName(),
+                current.version(),
+                current.createdAt(),
+                current.lastModifiedAt()));
+    }
+
+    /**
+     * Active, unreserved Users whose dormancy basis is strictly before the cutoff, by id — or, once
+     * {@link #answerDormancyCandidatesWith} has been called, exactly the ids given.
+     */
+    @Override
+    public List<UUID> findDormantActiveUserIds(Instant cutoff) {
+        if (staleDormancyCandidates != null) {
+            return staleDormancyCandidates;
+        }
+        return stored.values().stream()
+                .filter(user -> user.profile().active())
+                .filter(user -> user.reservedName() == null)
+                .filter(user -> user.isDormantAt(cutoff))
+                .map(ScimUser::id)
+                .sorted()
+                .toList();
     }
 
     /** Removes the User; the Groups it belonged to are the in-memory Group repository's concern. */
@@ -221,6 +282,11 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         stored.put(toStore.id(), toStore);
         writes++;
         return toStore;
+    }
+
+    private static ScimLoginState withDormancyBasis(ScimLoginState login, Instant basis) {
+        return new ScimLoginState(
+                login.passwordHash(), login.failedLoginAttempts(), login.lockedAt(), basis);
     }
 
     /**
