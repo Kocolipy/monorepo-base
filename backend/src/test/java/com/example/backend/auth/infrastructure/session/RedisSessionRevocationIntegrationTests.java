@@ -9,7 +9,10 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,6 +69,8 @@ class RedisSessionRevocationIntegrationTests {
 
     @Autowired
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
+
+    private final List<UUID> seeded = new ArrayList<>();
 
     /**
      * The full journey the acceptance criterion names: an identity is renamed
@@ -132,12 +137,29 @@ class RedisSessionRevocationIntegrationTests {
 
     /** An ordinary active identity with a credential, written through the real port. */
     private ScimUser create(String userName) {
-        return new TransactionTemplate(transactionManager).execute(status -> users.create(
+        ScimUser created = new TransactionTemplate(transactionManager).execute(status -> users.create(
                 ScimUser.created(
                         UUID.randomUUID(),
                         ScimIdentities.profile(userName, true),
                         "hash",
                         ScimIdentities.NOW)));
+        seeded.add(created.id());
+        return created;
+    }
+
+    /**
+     * Removes the resources this test seeded, by stable id so a rename does not
+     * hide the row. Deleting the {@code scim_resources} row cascades to
+     * {@code scim_users} and everything keyed off it. Without this the fixed
+     * {@code userName}s here (e.g. "before-rename") survive into a second run
+     * against a reused Postgres and collide on {@code uq_scim_users_normalized_user_name}.
+     */
+    @AfterEach
+    void removeSeededIdentities() {
+        for (UUID id : seeded) {
+            jdbc.update("DELETE FROM scim_resources WHERE id = ?", id);
+        }
+        seeded.clear();
     }
 
     private ScimUser require(String userName) {
