@@ -222,13 +222,21 @@ ignored `filter` is indistinguishable from a match, which is the one failure a
 connector cannot detect. Bulk's `supported: false` is permanent rather than staged.
 
 **SCIM audit trail** — the append-only local history of provisioning and connector
-token activity. An event records the connector-token identity, operation,
-resource id, outcome, changed attribute paths, redacted details, and timestamp;
-it never records a password or bearer token. Every collection query and search is
+token activity, and of the authentication, lockout, administrative, password-change
+and scheduled-job events recorded in the same stream. An event records the actor's
+stable id — the Admin or User for an authentication or administrative event, the
+connector (never the token) for a SCIM or token-lifecycle one, nobody for a
+scheduled job — plus operation, resource type and id, outcome, changed attribute
+paths, error classification and timestamp; it never records a password, bearer
+token, hash, `userName` or other profile value. Every collection query and search is
 one bulk-read event carrying the number of resources returned and the filter's
 shape (`userName eq ?`), never its values; a single-resource read is not recorded.
-The Accounts page exposes the
-history, and deployment configuration controls retention with a one-year default.
+Admins read it through the **audit listing** (`GET /api/admin/audit-events`): newest
+first, paginated, filterable by operation, outcome, actor, resource and time window.
+The listing returns the stored events as they are — redaction lives in what an event
+can hold, not in the read — and reading the trail is not itself recorded. It is the
+read the Accounts page's audit view is built on, and deployment configuration controls
+retention with a one-year default.
 
 **Operational Accounts page** — the target Admin screen. It reports SCIM-owned
 User and Group identity, application-owned lockout and session state, connector

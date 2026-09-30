@@ -127,11 +127,12 @@ public class AuditEventEntity {
     /*
      * No accessors, deliberately.
      *
-     * This entity is write-only: the audit trail is append-only, nothing in the
-     * application reads an event back, and every assertion about a recorded event is
-     * made against the stored ROW with SQL — because what is claimed about an audit
-     * record is a claim about the bytes that landed, and a mapping's opinion of them is
-     * not the same evidence.
+     * This entity is write-only: the audit trail is append-only, the one read path —
+     * the administrative listing, AuditEventReadAdapter — reads the stored ROW with SQL
+     * rather than through this mapping, and every assertion about a recorded event is
+     * made against that row too — because what is claimed about an audit record is a
+     * claim about the bytes that landed, and a mapping's opinion of them is not the
+     * same evidence.
      *
      * Hibernate needs none of them either: every mapping annotation above is on a
      * FIELD, so the provider uses field access and never looks for a getter. A previous
