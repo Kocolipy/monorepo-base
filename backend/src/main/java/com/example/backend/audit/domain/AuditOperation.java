@@ -181,5 +181,28 @@ public enum AuditOperation {
      * affected USER, with no actor and the changed path {@code groups}: the event is about whose
      * authority ended, and the Group whose membership moved is always the Admin group.
      */
-    DORMANT_AUTHORITY_REVOCATION
+    DORMANT_AUTHORITY_REVOCATION,
+
+    /**
+     * A password change was required of a User by an administrator — directly, or by lifting a
+     * lockout, which requires one because the credential that reached the threshold may be the one
+     * being guessed — or such a requirement was refused. The event never carries a password value;
+     * the changed path is the flag. A refusal carries its reason from
+     * {@link AuditAdministrativeRefusal}.
+     */
+    PASSWORD_CHANGE_REQUIRE,
+
+    /**
+     * A User submitted a self-service password change, accepted or refused. Neither the current nor
+     * the new value is ever recorded: an accepted change records the changed paths, a refusal its
+     * reason from {@link AuditPasswordChangeRefusal}.
+     */
+    PASSWORD_CHANGE,
+
+    /**
+     * The grace-period job deactivated a User that had left a required password change unmade past
+     * the configured window. Actorless, as {@link #INACTIVITY_DEACTIVATION} is; the sessions it
+     * ended are recorded after the commit as {@link #USER_SESSIONS_REVOKE}.
+     */
+    PASSWORD_CHANGE_GRACE_DEACTIVATION
 }

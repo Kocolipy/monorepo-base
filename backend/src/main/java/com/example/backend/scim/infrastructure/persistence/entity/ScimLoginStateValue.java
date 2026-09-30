@@ -45,6 +45,14 @@ public class ScimLoginStateValue {
     @Column(name = "last_authenticated_at")
     private Instant lastAuthenticatedAt;
 
+    /**
+     * When a password change was required of the User, or null when none is — the
+     * change-required flag, and the grace period's basis. Written only by its own narrow
+     * statements, never through this object's mutators.
+     */
+    @Column(name = "password_change_required_since")
+    private Instant passwordChangeRequiredSince;
+
     protected ScimLoginStateValue() {
     }
 
@@ -52,11 +60,17 @@ public class ScimLoginStateValue {
             String passwordHash,
             int failedLoginAttempts,
             Instant lockedAt,
-            Instant lastAuthenticatedAt) {
+            Instant lastAuthenticatedAt,
+            Instant passwordChangeRequiredSince) {
         this.passwordHash = passwordHash;
         this.failedLoginAttempts = failedLoginAttempts;
         this.lockedAt = lockedAt;
         this.lastAuthenticatedAt = lastAuthenticatedAt;
+        this.passwordChangeRequiredSince = passwordChangeRequiredSince;
+    }
+
+    public Instant getPasswordChangeRequiredSince() {
+        return passwordChangeRequiredSince;
     }
 
     public String getPasswordHash() {
@@ -91,5 +105,13 @@ public class ScimLoginStateValue {
      */
     public void replacePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    /**
+     * Sets the change-required flag, for a SCIM replacement that set a password. There is no
+     * mutator that clears it: the self-service change clears it through its own statement.
+     */
+    public void requirePasswordChange(Instant since) {
+        this.passwordChangeRequiredSince = since;
     }
 }

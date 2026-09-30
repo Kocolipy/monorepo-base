@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AccountSessions;
@@ -11,6 +12,7 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,8 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
  * Records how each login attempt ended, so repeated failures lock an identity and an accepted login
  * clears the run.
  *
- * <p>Its one caller is {@link LoginService}, which records every attempt it makes; nothing else
- * counts attempts. The counting is explicit rather than driven by Spring Security's authentication
+ * <p>Its callers are {@link LoginService}, which records every attempt it makes, and
+ * {@link PasswordChangeService}, whose wrong current password counts toward the same run; nothing
+ * else counts attempts. The counting is explicit rather than driven by Spring Security's authentication
  * events — see {@code /docs/adr/0001-count-login-attempts-on-the-login-path.md}. Enforcement is not
  * here: {@link LoginIdentityService} reports a locked identity to Spring Security, which rejects it
  * before any password is checked.
@@ -130,6 +133,37 @@ public class LoginAttemptService {
             users.recordAuthentication(user.id(), clock.instant());
             audit.recordLoginSuccess(user.id());
         });
+    }
+
+    /**
+     * Counts a self-service password change whose current password did not verify, exactly as a
+     * rejected login is counted — the same failure run, the same threshold, the same lock and the
+     * same session revocation on imposing it — so the change endpoint is not a second guessing
+     * surface beside the login one. The Bootstrap Admin's run is counted and never locks, as on
+     * the login path.
+     *
+     * <p>Recorded as a refused {@code PASSWORD_CHANGE} rather than a {@code LOGIN_FAILURE}: the
+     * attempt was made from inside an authenticated session, and a reader separating the two needs
+     * the operation to do it. Fail-open, as every refusal on this path is.
+     */
+    @Transactional
+    public void recordPasswordChangeFailure(UUID userId) {
+        Optional<ScimUser> found = users.findById(userId);
+        if (found.isEmpty()) {
+            return;
+        }
+        ScimUser user = found.get();
+        ScimLoginState before = user.login();
+        ScimLoginState after = user.isExemptFromLockout()
+                ? before.withFailureCounted()
+                : before.withFailureRecorded(policy, clock.instant());
+        users.updateLoginState(user.id(), after);
+        if (after.isLocked() && !before.isLocked()) {
+            audit.recordLockoutSet(user.id());
+            afterCommit.run(() -> sessions.revokeAll(user.id()));
+        }
+        audit.recordPasswordChangeRefused(
+                user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
     }
 
     /**

@@ -1,8 +1,12 @@
 package com.example.backend.auth.controller;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.auth.application.CurrentPasswordRejectedException;
+import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
+import com.example.backend.auth.application.PasswordChangeService;
+import com.example.backend.auth.application.PasswordPolicyViolationException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -43,6 +47,7 @@ public class AuthController {
     private static final String ADMIN_AUTHORITY = ROLE_PREFIX + ADMIN_ROLE;
 
     private final LoginService login;
+    private final PasswordChangeService passwordChanges;
     private final AuditTrail audit;
     private final SecurityContextRepository securityContextRepository;
     private final SessionAuthenticationStrategy sessionAuthenticationStrategy;
@@ -51,12 +56,14 @@ public class AuthController {
 
     public AuthController(
             LoginService login,
+            PasswordChangeService passwordChanges,
             AuditTrail audit,
             SecurityContextRepository securityContextRepository,
             SessionAuthenticationStrategy sessionAuthenticationStrategy,
             CsrfTokenRepository csrfTokenRepository,
             CookieSerializer cookieSerializer) {
         this.login = login;
+        this.passwordChanges = passwordChanges;
         this.audit = audit;
         this.securityContextRepository = securityContextRepository;
         this.sessionAuthenticationStrategy = sessionAuthenticationStrategy;
@@ -173,10 +180,18 @@ public class AuthController {
      * long after the commit that caused it.
      */
     private UserResponse userResponse(Authentication authentication) {
+        boolean changeRequired = authentication.getAuthorities().stream()
+                .anyMatch(authority -> LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY
+                        .equals(authority.getAuthority()));
+        if (changeRequired) {
+            // Confined: the session holds no role at all until the credential is replaced, so it
+            // reports none rather than one it cannot exercise.
+            return new UserResponse(authentication.getName(), null, true);
+        }
         boolean admin = authentication.getAuthorities().stream()
                 .anyMatch(authority -> ADMIN_AUTHORITY.equals(authority.getAuthority()));
         if (admin) {
-            return new UserResponse(authentication.getName(), ADMIN_ROLE);
+            return new UserResponse(authentication.getName(), ADMIN_ROLE, false);
         }
         String role = authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority())
@@ -185,7 +200,51 @@ public class AuthController {
                 .findFirst()
                 .orElseThrow(() ->
                         new IllegalStateException("Authenticated identity has no role"));
-        return new UserResponse(authentication.getName(), role);
+        return new UserResponse(authentication.getName(), role, false);
+    }
+
+    /**
+     * The self-service password change: the one capability besides logging out that a session
+     * confined by a required change holds, and open to every authenticated session.
+     *
+     * <p>The User is the one the SESSION belongs to, read from the stable id its principal index
+     * holds — never from the request — so there is no identifier to tamper with. On success every
+     * session of that User has been revoked after the commit, this one included; it is also
+     * invalidated here, directly, so the servlet container's copy cannot be written back when the
+     * request completes, and the cookie is expired so the next request arrives as a stranger.
+     */
+    @PostMapping("/change-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(
+            @Valid @RequestBody ChangePasswordRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response) {
+        HttpSession session = request.getSession(false);
+        if (session == null
+                || !(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
+                        instanceof String userId)) {
+            throw new CurrentPasswordRejectedException();
+        }
+        passwordChanges.changePassword(
+                UUID.fromString(userId), body.currentPassword(), body.newPassword());
+
+        session.invalidate();
+        SecurityContextHolder.clearContext();
+        cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
+        issueCsrfToken(request, response);
+    }
+
+    /** Wrong current password, lockout, inactive: the same bare {@code 401} Login gives. */
+    @ExceptionHandler(CurrentPasswordRejectedException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public void passwordChangeRejected() {
+    }
+
+    /** The unmet rule, by name and description; never either submitted value. */
+    @ExceptionHandler(PasswordPolicyViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public PasswordRuleViolation passwordPolicyViolated(PasswordPolicyViolationException violation) {
+        return new PasswordRuleViolation(violation.ruleName(), violation.getMessage());
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -197,6 +256,29 @@ public class AuthController {
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {
     }
 
-    public record UserResponse(String username, String role) {
+    /**
+     * Current and new password. {@link #toString()} is overridden because a record's generated one
+     * would print both, and a request body is exactly what reaches a log through a debugger or a
+     * validation message.
+     */
+    public record ChangePasswordRequest(
+            @NotBlank String currentPassword, @NotBlank String newPassword) {
+
+        @Override
+        public String toString() {
+            return "ChangePasswordRequest[redacted]";
+        }
+    }
+
+    /** A {@code 400} for a new password breaking a policy rule. */
+    public record PasswordRuleViolation(String rule, String message) {
+    }
+
+    /**
+     * @param role                   {@code USER} or {@code ADMIN}; {@code null} while a password
+     *                               change is required, because the session holds neither
+     * @param passwordChangeRequired whether the session is confined to the change flow
+     */
+    public record UserResponse(String username, String role, boolean passwordChangeRequired) {
     }
 }

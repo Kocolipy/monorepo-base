@@ -48,6 +48,7 @@ public class IdentityAdministrationService {
     private static final String DEACTIVATE_ACTION = "identity.deactivate";
     private static final String ACTIVATE_ACTION = "identity.activate";
     private static final String UNLOCK_ACTION = "identity.unlock";
+    private static final String FORCED_CHANGE_ACTION = "identity.force_password_change";
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
@@ -179,35 +180,131 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * Ends a lockout, clearing the failure run with it. Says nothing about whether the identity is
-     * active — a deactivated identity can be unlocked, and stays deactivated.
+     * Ends a lockout, clearing the failure run with it, and requires a password change. Says nothing
+     * about whether the identity is active — a deactivated identity can be unlocked, and stays
+     * deactivated.
      *
      * <p>The only way a lockout ends. Nothing expires it and no other operation lifts it, so an
      * identity that locked itself out stays locked until an administrator performs exactly this.
      *
-     * <p>Idempotent: an identity serving no lockout is returned unchanged and nothing is written.
-     * The version is not advanced either way, because the failure run is not a SCIM attribute —
-     * unlocking changes nothing a connector can read.
+     * <p>Lifting a lock always requires a change of password, because the credential that reached
+     * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
+     * and is confined to the change flow until it sets a new one. A credentialless User is unlocked
+     * without the requirement — it has no password to replace. The flag is not a SCIM attribute,
+     * so the version does not advance. No session is revoked: a locked User holds none, since
+     * imposing the lock ended them.
+     *
+     * <p>An Admin may not unlock their own account; recovering from a self-inflicted state takes a
+     * second Admin, or the Bootstrap Admin. The refusal is checked before anything is written.
+     *
+     * <p>Idempotent on an identity serving no lockout: it is returned unchanged, nothing is written
+     * and no change is required — there was no lockout for the credential to have reached.
      */
     @Transactional
     public IdentitySummary unlock(String userName, String requestedBy) {
         ScimUser user = require(userName);
-        ScimLoginState cleared = user.login().withFailureRunCleared();
-        if (cleared != user.login()) {
-            users.updateLoginState(user.id(), cleared);
+        UUID actorId = actorId(requestedBy);
+        if (isSelf(user, requestedBy)) {
+            log.atWarn()
+                    .addKeyValue(LogEvent.ACTION, UNLOCK_ACTION)
+                    .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                    .addKeyValue(LogEvent.REASON, AuditAdministrativeRefusal.SELF_TARGET.name())
+                    .log("Administrative identity change refused");
+            audit.recordUnlockRefused(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
+            throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
         }
-        audit.recordLockoutLiftedByUnlock(actorId(requestedBy), user.id());
+        ScimLoginState before = user.login();
+        ScimLoginState after = before.withFailureRunCleared();
+        if (after != before) {
+            users.updateLoginState(user.id(), after);
+        }
+        audit.recordLockoutLiftedByUnlock(actorId, user.id());
+        if (before.isLocked() && before.hasPassword()) {
+            after = after.withPasswordChangeRequired(clock.instant());
+            users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
+            audit.recordPasswordChangeRequired(actorId, user.id());
+        }
         succeeded(UNLOCK_ACTION);
         return summarize(
-                new ScimUser(
-                        user.id(),
-                        user.profile(),
-                        cleared,
-                        user.reservedName(),
-                        user.version(),
-                        user.createdAt(),
-                        user.lastModifiedAt()),
+                withLogin(user, after),
                 isAdmin(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP), user));
+    }
+
+    /**
+     * Requires the User to replace its password before it may do anything but submit that change
+     * or log out, and ends every session it holds so the requirement applies from its next request.
+     * The Admin never sees, chooses or transports the password: this invalidates the credential's
+     * standing, it does not disclose or replace it.
+     *
+     * <p>Refused, before anything is written:
+     *
+     * <ul>
+     *   <li>on the acting Admin's own account — except the Bootstrap Admin's, which only it may
+     *       flag;
+     *   <li>on the Bootstrap Admin, by anyone but itself;
+     *   <li>on a credentialless User, which already cannot log in and has nothing to replace.
+     * </ul>
+     *
+     * <p>Idempotent: a User already required to change is returned unchanged, and the grace period
+     * it is serving is not restarted.
+     */
+    @Transactional
+    public IdentitySummary forcePasswordChange(String userName, String requestedBy) {
+        ScimUser user = require(userName);
+        UUID actorId = actorId(requestedBy);
+        boolean self = isSelf(user, requestedBy);
+        boolean bootstrap = user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN;
+        if (bootstrap && !self) {
+            throw refuseForcedChange(actorId, user.id(),
+                    AuditAdministrativeRefusal.PROTECTED_RESOURCE,
+                    new ForbiddenIdentityChangeException(
+                            "Only the bootstrap administrator may require its own password change"));
+        }
+        if (self && !bootstrap) {
+            throw refuseForcedChange(actorId, user.id(),
+                    AuditAdministrativeRefusal.SELF_TARGET,
+                    new ForbiddenIdentityChangeException(
+                            "An Admin cannot force a password change on their own account"));
+        }
+        if (!user.login().hasPassword()) {
+            throw refuseForcedChange(actorId, user.id(),
+                    AuditAdministrativeRefusal.CREDENTIALLESS_TARGET,
+                    new UnsafeIdentityChangeException(
+                            "A User with no password has no credential to replace"));
+        }
+        Optional<ScimGroup> adminGroup =
+                groups.findByReservedName(ReservedResourceName.ADMIN_GROUP);
+        if (user.login().isPasswordChangeRequired()) {
+            return summarize(user, isAdmin(adminGroup, user));
+        }
+        ScimLoginState flagged = user.login().withPasswordChangeRequired(clock.instant());
+        users.requirePasswordChange(user.id(), flagged.passwordChangeRequiredSince());
+        audit.recordPasswordChangeRequired(actorId, user.id());
+        afterCommit.run(() -> sessions.revokeAll(user.id()));
+        succeeded(FORCED_CHANGE_ACTION);
+        return summarize(withLogin(user, flagged), isAdmin(adminGroup, user));
+    }
+
+    private RuntimeException refuseForcedChange(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason, RuntimeException refusal) {
+        log.atWarn()
+                .addKeyValue(LogEvent.ACTION, FORCED_CHANGE_ACTION)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .addKeyValue(LogEvent.REASON, reason.name())
+                .log("Administrative identity change refused");
+        audit.recordPasswordChangeRequirementRefused(actorId, subjectId, reason);
+        return refusal;
+    }
+
+    private static ScimUser withLogin(ScimUser user, ScimLoginState login) {
+        return new ScimUser(
+                user.id(),
+                user.profile(),
+                login,
+                user.reservedName(),
+                user.version(),
+                user.createdAt(),
+                user.lastModifiedAt());
     }
 
     /**
@@ -366,6 +463,7 @@ public class IdentityAdministrationService {
                 user.profile().active(),
                 user.login().isLocked(),
                 user.login().hasPassword(),
+                user.login().isPasswordChangeRequired(),
                 user.createdAt());
     }
 }

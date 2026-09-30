@@ -106,4 +106,35 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
                and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
              order by u.resourceId""")
     List<UUID> findDormantActiveUserIds(@Param("cutoff") Instant cutoff);
+
+    /** Sets the change-required flag alone; the resource row and its version are untouched. */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.passwordChangeRequiredSince = :since
+             where u.resourceId = :id""")
+    int requirePasswordChange(@Param("id") UUID id, @Param("since") Instant since);
+
+    /**
+     * Replaces the credential and clears the change-required flag in one statement. The caller
+     * advances the version, because {@code password} is a SCIM attribute.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.passwordHash = :passwordHash,
+                   u.login.passwordChangeRequiredSince = null
+             where u.resourceId = :id""")
+    int completePasswordChange(
+            @Param("id") UUID id, @Param("passwordHash") String passwordHash);
+
+    /** Active, unreserved Users whose change-required flag was set strictly before the cutoff. */
+    @Query("""
+            select u.resourceId
+              from ScimUserEntity u
+             where u.active = true
+               and u.resource.reservedName is null
+               and u.login.passwordChangeRequiredSince < :cutoff
+             order by u.resourceId""")
+    List<UUID> findPasswordChangeOverdueActiveUserIds(@Param("cutoff") Instant cutoff);
 }

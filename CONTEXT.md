@@ -276,7 +276,7 @@ authentication events is
 **Failure run** — the consecutive rejected logins recorded against one account,
 counted on the account itself as `failed_login_attempts`. A login the backend
 accepts ends the run and returns the count to zero; a login it rejects lengthens
-it. An unknown username has no run, because nothing is recorded for a name that
+it, and so does a wrong current password on the self-service password change. An unknown username has no run, because nothing is recorded for a name that
 names no account.
 
 **Lockout** — the state an account enters once its failure run reaches the
@@ -325,11 +325,47 @@ unlocking settles whether it is being penalised for failed logins right now. So:
   only when someone unlocks it.
 - Unlocking ends a lockout and clears the failure run with it, and says
   nothing about the `active` flag. A deactivated User can be unlocked and stays
-  deactivated.
+  deactivated. Unlocking a User that has a password also sets its
+  **change-required flag** (below); an Admin cannot unlock their own account.
 
 Restoring an account that was both suspended and locked out therefore takes two
 deliberate calls. That is the point: an Admin should have to say which of the two
 they mean.
+
+**Change-required flag** — application-owned state on a User saying its current
+password was imposed by somebody else and must be replaced before the User may do
+anything else. Stored as `password_change_required_since`: its presence is the
+flag, as `locked_at`'s is the lockout, and its value is when the grace period
+started. It is not a SCIM attribute, so setting it does not advance the version.
+It is **set** by every connector password write (create, PUT or PATCH carrying a
+password), by a **forced password change** and by an **Unlock** of a User that has
+a password — the credential that reached the lockout threshold may be the one an
+attacker was guessing. A credentialless User is unlocked without it, having no
+password to replace. It is **cleared** only by a successful self-service change;
+a connector write never clears it.
+
+**Confined session** — a session issued while the change-required flag is set. It
+holds no role, an Admin's included, so it may call only `GET /api/auth/me`, the
+self-service change and logout; every other endpoint, `/api/admin/**` included,
+answers `403`.
+
+**Forced password change** — an Admin action setting the change-required flag on
+another User and ending every session it holds. The Admin never sees, chooses or
+transports the password. Refused on the acting Admin's own account, on the
+Bootstrap Admin by anyone but itself, and (`409`) on a credentialless User.
+
+**Self-service password change** — `POST /api/auth/change-password`, for the User
+the session belongs to. A wrong current password lengthens the same failure run as
+a rejected Login, so it leads to the same lockout; a new password that breaks the
+password policy or repeats a recent one is refused by naming the rule, never
+echoing either value. Success hashes the new password, clears the flag, advances
+the version, records a `PASSWORD_CHANGE` audit event with no password value, and
+revokes every session of the User, the submitter's included.
+
+**Password-change grace period** — how long a User may stay flagged before a daily
+job deactivates it (`APP_PASSWORD_CHANGE_GRACE_PERIOD`, default 30 days, measured
+from when the flag was set). Deactivation ends its sessions and records a
+`PASSWORD_CHANGE_GRACE_DEACTIVATION` audit event. The Bootstrap Admin is exempt.
 
 **Recovery guard** — identity administration refuses three deactivation requests
 outright, with a `409`: an identity deactivating itself, the Bootstrap Admin, and

@@ -144,6 +144,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                 profile.timezone(),
                 emailValues(profile.emails()));
         entity.getLogin().replacePasswordHash(user.login().passwordHash());
+        if (user.login().isPasswordChangeRequired()) {
+            // Sets, never clears: a replacement is a connector's write, and no connector write
+            // clears the flag. Assigning the stored value leaves the column clean.
+            entity.getLogin().requirePasswordChange(user.login().passwordChangeRequiredSince());
+        }
         if (reactivated) {
             entity.getLogin().resetDormancyBasis(now);
         }
@@ -225,6 +230,30 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         return users.findDormantActiveUserIds(cutoff);
     }
 
+    /** The flag alone; the resource row and its version are untouched. */
+    @Override
+    public void requirePasswordChange(UUID id, Instant since) {
+        users.requirePasswordChange(id, since);
+    }
+
+    /**
+     * The credential and the flag in one statement, then the version once — for the reason
+     * {@link #updateActive} checks the statement's own row count rather than reading first.
+     */
+    @Override
+    public Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now) {
+        if (users.completePasswordChange(id, passwordHash) == 0) {
+            return Optional.empty();
+        }
+        resources.advanceVersions(List.of(id), now);
+        return findById(id);
+    }
+
+    @Override
+    public List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff) {
+        return users.findPasswordChangeOverdueActiveUserIds(cutoff);
+    }
+
     /**
      * Deletes the User and advances the version of every Group it belonged to.
      *
@@ -284,7 +313,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                         login.passwordHash(),
                         login.failedLoginAttempts(),
                         login.lockedAt(),
-                        login.lastAuthenticatedAt()),
+                        login.lastAuthenticatedAt(),
+                        login.passwordChangeRequiredSince()),
                 profile.active(),
                 profile.displayName(),
                 name.formatted(),
@@ -333,7 +363,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                         login.getPasswordHash(),
                         login.getFailedLoginAttempts(),
                         login.getLockedAt(),
-                        login.getLastAuthenticatedAt()),
+                        login.getLastAuthenticatedAt(),
+                        login.getPasswordChangeRequiredSince()),
                 ReservedResourceName.ofStoredValue(resource.getReservedName()).orElse(null),
                 resource.getVersion(),
                 resource.getCreatedAt(),

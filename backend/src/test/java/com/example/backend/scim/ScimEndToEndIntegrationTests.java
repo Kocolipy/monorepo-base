@@ -235,8 +235,11 @@ class ScimEndToEndIntegrationTests {
                 {"schemas":["%s"],"userName":"e2e-promoted","password":"a-real-password"}"""
                 .formatted(USER_SCHEMA));
         String userId = user.get("id").asText();
+        // A connector-set password requires a change before the identity holds any role; complete
+        // it so the logins below measure Admin authority, not the change-required confinement.
+        completeRequiredChange("e2e-promoted", "a-real-password", "a-replaced-password");
 
-        MockHttpSession beforePromotion = logInAs("e2e-promoted", "a-real-password", "USER");
+        MockHttpSession beforePromotion = logInAs("e2e-promoted", "a-replaced-password", "USER");
         mvc.perform(get("/api/admin/accounts").session(beforePromotion))
                 .andReturn();
         assertThat(mvc.perform(get("/api/admin/accounts").session(beforePromotion))
@@ -259,7 +262,7 @@ class ScimEndToEndIntegrationTests {
                 .isEqualTo(403);
 
         // A fresh login reads the membership and reports the new authority.
-        MockHttpSession afterPromotion = logInAs("e2e-promoted", "a-real-password", "ADMIN");
+        MockHttpSession afterPromotion = logInAs("e2e-promoted", "a-replaced-password", "ADMIN");
         assertThat(mvc.perform(get("/api/admin/accounts").session(afterPromotion))
                         .andReturn().getResponse().getStatus())
                 .as("the next login derives authority from the membership that now exists")
@@ -290,6 +293,32 @@ class ScimEndToEndIntegrationTests {
         assertThat(json.readTree(login.getResponse().getContentAsString()).get("role").asText())
                 .isEqualTo(expectedRole);
         return (MockHttpSession) login.getRequest().getSession(false);
+    }
+
+    /**
+     * Logs in with a connector-set password, which confines the session to the change flow, and
+     * replaces it. The change ends the session, so the caller logs in again with {@code next}.
+     */
+    private void completeRequiredChange(String userName, String current, String next)
+            throws Exception {
+        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"%s\",\"password\":\"%s\"}"
+                                .formatted(userName, current)))
+                .andReturn();
+        assertThat(login.getResponse().getStatus()).isEqualTo(200);
+        assertThat(json.readTree(login.getResponse().getContentAsString())
+                        .get("passwordChangeRequired").booleanValue())
+                .as("a connector-set password requires a change")
+                .isTrue();
+        MockHttpSession confined = (MockHttpSession) login.getRequest().getSession(false);
+        MvcResult change = mvc.perform(withCsrf(post("/api/auth/change-password"))
+                        .session(confined)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
+                                .formatted(current, next)))
+                .andReturn();
+        assertThat(change.getResponse().getStatus()).isEqualTo(204);
     }
 
     private JsonNode okBody(MockHttpServletRequestBuilder request) throws Exception {

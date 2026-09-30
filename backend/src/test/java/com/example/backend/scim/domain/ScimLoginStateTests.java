@@ -40,6 +40,56 @@ class ScimLoginStateTests {
         assertThat(locked.withFailureRunCleared().lastAuthenticatedAt()).isEqualTo(last);
     }
 
+    /**
+     * The change-required flag survives every failure-run transition: a rejected login, a
+     * counted failure and an Unlock's clearing all leave it standing. Only a completed change
+     * clears it, and that is a port operation, not a transition here.
+     */
+    @Test
+    void every_failure_run_transition_carries_the_change_required_flag_unchanged() {
+        ScimLoginState running = new ScimLoginState("hash", 2, null, null, NOW);
+        ScimLoginState locked = new ScimLoginState("hash", 3, NOW, null, NOW);
+
+        assertThat(running.withFailureRecorded(AFTER_THREE, NOW).passwordChangeRequiredSince())
+                .as("the failure that locks").isEqualTo(NOW);
+        assertThat(new ScimLoginState("hash", 0, null, null, NOW)
+                .withFailureRecorded(AFTER_THREE, NOW).passwordChangeRequiredSince())
+                .as("a failure that does not lock").isEqualTo(NOW);
+        assertThat(running.withFailureCounted().passwordChangeRequiredSince()).isEqualTo(NOW);
+        assertThat(locked.withFailureRunCleared().passwordChangeRequiredSince()).isEqualTo(NOW);
+    }
+
+    @Test
+    void requiring_a_change_dates_the_flag_and_keeps_everything_else() {
+        Instant last = NOW.minusSeconds(60);
+        ScimLoginState state = new ScimLoginState("hash", 2, NOW, last);
+        Instant later = NOW.plusSeconds(10);
+
+        ScimLoginState flagged = state.withPasswordChangeRequired(later);
+
+        assertThat(state.isPasswordChangeRequired()).isFalse();
+        assertThat(flagged).isEqualTo(new ScimLoginState("hash", 2, NOW, last, later));
+        assertThat(flagged.isPasswordChangeRequired()).isTrue();
+        assertThat(flagged.withPasswordChangeRequired(later.plusSeconds(5))
+                .passwordChangeRequiredSince())
+                .as("a newly imposed credential re-dates the grace period")
+                .isEqualTo(later.plusSeconds(5));
+        assertThatThrownBy(() -> state.withPasswordChangeRequired(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void a_change_is_overdue_only_strictly_before_the_cutoff() {
+        ScimLoginState flagged = new ScimLoginState("hash", 0, null, null, NOW);
+
+        assertThat(flagged.isPasswordChangeOverdueAt(NOW.plusNanos(1))).isTrue();
+        assertThat(flagged.isPasswordChangeOverdueAt(NOW)).isFalse();
+        assertThat(flagged.isPasswordChangeOverdueAt(NOW.minusNanos(1))).isFalse();
+        assertThat(ScimLoginState.of("hash").isPasswordChangeOverdueAt(NOW.plusSeconds(1)))
+                .as("an unflagged state is never overdue")
+                .isFalse();
+    }
+
     @Test
     void a_state_built_without_an_authentication_has_none() {
         assertThat(new ScimLoginState("hash", 0, null).lastAuthenticatedAt()).isNull();

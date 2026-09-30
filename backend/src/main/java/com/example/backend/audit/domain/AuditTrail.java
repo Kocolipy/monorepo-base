@@ -298,4 +298,35 @@ public interface AuditTrail {
      * Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
      */
     void recordDormantAuthorityRevocation(UUID userId);
+
+    /**
+     * Records an administrator requiring a password change of a User — directly, or by lifting its
+     * lockout. Fail-closed: a requirement this service cannot account for is not imposed.
+     */
+    void recordPasswordChangeRequired(UUID actorId, UUID subjectId);
+
+    /** Records a forced password change refused. Fail-open with an alert, as every refusal is. */
+    void recordPasswordChangeRequirementRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason);
+
+    /** Records an Unlock refused. Fail-open with an alert, as every refusal is. */
+    void recordUnlockRefused(UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason);
+
+    /**
+     * Records a User replacing its own password. Fail-closed: a credential change this service
+     * cannot account for does not happen. Names the changed paths, never a value.
+     */
+    void recordPasswordChanged(UUID userId);
+
+    /**
+     * Records a self-service password change refused. Fail-open with an alert: the caller is
+     * already receiving a refusal, and that answer does not change.
+     */
+    void recordPasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason);
+
+    /**
+     * Records the grace-period job deactivating a User that left a required password change
+     * unmade. Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
+     */
+    void recordPasswordChangeGraceDeactivation(UUID userId);
 }

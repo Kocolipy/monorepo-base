@@ -46,6 +46,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private List<UUID> staleDormancyCandidates;
 
+    private List<UUID> stalePasswordChangeCandidates;
+
     /**
      * Makes the dormancy candidate query answer with these ids, whatever the stored state says.
      *
@@ -57,6 +59,15 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      */
     public void answerDormancyCandidatesWith(List<UUID> ids) {
         staleDormancyCandidates = List.copyOf(ids);
+    }
+
+    /**
+     * Makes the password-change-overdue candidate query answer with these ids, whatever the stored
+     * state says — the same query-then-lock window as {@link #answerDormancyCandidatesWith}, for
+     * the grace-period job.
+     */
+    public void answerPasswordChangeCandidatesWith(List<UUID> ids) {
+        stalePasswordChangeCandidates = List.copyOf(ids);
     }
 
     @Override
@@ -110,7 +121,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         loginState.failedLoginAttempts(),
                         loginState.lockedAt(),
                         // Kept, as the adapter keeps it: this write is the failure run only.
-                        current.login().lastAuthenticatedAt()),
+                        current.login().lastAuthenticatedAt(),
+                        current.login().passwordChangeRequiredSince()),
                 current.reservedName(),
                 // Deliberately unchanged: a failure run is not a SCIM attribute.
                 current.version(),
@@ -171,7 +183,10 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         user.login().passwordHash(),
                         current.login().failedLoginAttempts(),
                         current.login().lockedAt(),
-                        reactivated ? now : current.login().lastAuthenticatedAt()),
+                        reactivated ? now : current.login().lastAuthenticatedAt(),
+                        user.login().isPasswordChangeRequired()
+                                ? user.login().passwordChangeRequiredSince()
+                                : current.login().passwordChangeRequiredSince()),
                 current.reservedName(),
                 current.version() + 1,
                 current.createdAt(),
@@ -286,7 +301,69 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private static ScimLoginState withDormancyBasis(ScimLoginState login, Instant basis) {
         return new ScimLoginState(
-                login.passwordHash(), login.failedLoginAttempts(), login.lockedAt(), basis);
+                login.passwordHash(),
+                login.failedLoginAttempts(),
+                login.lockedAt(),
+                basis,
+                login.passwordChangeRequiredSince());
+    }
+
+    /** The flag alone, as the adapter's narrow statement writes it; the version is untouched. */
+    @Override
+    public void requirePasswordChange(UUID id, Instant since) {
+        ScimUser current = stored.get(id);
+        if (current == null) {
+            return;
+        }
+        stored.put(id, new ScimUser(
+                current.id(),
+                current.profile(),
+                current.login().withPasswordChangeRequired(since),
+                current.reservedName(),
+                current.version(),
+                current.createdAt(),
+                current.lastModifiedAt()));
+        writes++;
+    }
+
+    /** The credential and the cleared flag together, advancing the version once. */
+    @Override
+    public Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now) {
+        ScimUser current = stored.get(id);
+        if (current == null) {
+            return Optional.empty();
+        }
+        ScimLoginState login = current.login();
+        ScimUser updated = new ScimUser(
+                current.id(),
+                current.profile(),
+                new ScimLoginState(
+                        passwordHash,
+                        login.failedLoginAttempts(),
+                        login.lockedAt(),
+                        login.lastAuthenticatedAt(),
+                        null),
+                current.reservedName(),
+                current.version() + 1,
+                current.createdAt(),
+                now);
+        stored.put(id, updated);
+        writes++;
+        return Optional.of(updated);
+    }
+
+    @Override
+    public List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff) {
+        if (stalePasswordChangeCandidates != null) {
+            return stalePasswordChangeCandidates;
+        }
+        return stored.values().stream()
+                .filter(user -> user.profile().active())
+                .filter(user -> user.reservedName() == null)
+                .filter(user -> user.login().isPasswordChangeOverdueAt(cutoff))
+                .map(ScimUser::id)
+                .sorted()
+                .toList();
     }
 
     /**

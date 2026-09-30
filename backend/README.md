@@ -264,6 +264,31 @@ to `DormancyPolicy`. Every run logs its outcome (`event.action:
 identity.inactivity_deactivation` / `identity.dormant_authority_revocation`),
 including a run that skipped or changed nobody.
 
+### Password-change grace period
+
+| Variable                           | Default         | Meaning                                                                                  |
+| ---------------------------------- | --------------- | ---------------------------------------------------------------------------------------- |
+| `APP_PASSWORD_CHANGE_GRACE_PERIOD` | `30d` (30 days) | How long a User may leave a required password change unmade before it is deactivated |
+
+A password change is required of a User — the change-required flag — by every
+connector password write (SCIM create, PUT or PATCH carrying `password`), by an
+Admin's **Force password change** and by an Admin **Unlock** of an account that
+has a password. Only a successful self-service change
+(`POST /api/auth/change-password`) clears it; a connector write never does. While
+flagged, a session may call `GET /api/auth/me`, the change and
+`DELETE /api/auth/logout`, and nothing else — `/api/admin/**` included, for a
+flagged Admin.
+
+The **grace-period job** (05:00 daily) deactivates every User still flagged
+after the grace period, measured from when the flag was last set: it sets
+`active=false`, advances the SCIM version, ends the User's sessions and records a
+`PASSWORD_CHANGE_GRACE_DEACTIVATION` audit event. The Bootstrap Admin is never
+processed. The job is serialized on its own `scheduled_job_locks` row
+(`password-change-grace-deactivation`), exactly as the inactivity jobs are, and
+logs every run as `event.action: identity.password_change_grace_deactivation`.
+A zero or negative period fails startup; the default is not in
+`application.yaml` — it belongs to `PasswordChangeGracePolicy`.
+
 ### Audit trail database roles
 
 The audit table is append-only, and that is a property of the database rather than

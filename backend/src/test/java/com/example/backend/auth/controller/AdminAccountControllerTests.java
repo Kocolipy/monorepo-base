@@ -29,8 +29,8 @@ class AdminAccountControllerTests {
         List<IdentitySummary> response = controller.listAccounts();
 
         assertThat(response).containsExactly(
-                new IdentitySummary(ADA, "ada", true, true, false, true, CREATED_AT),
-                new IdentitySummary(BOB, "bob", false, false, true, true, CREATED_AT));
+                new IdentitySummary(ADA, "ada", true, true, false, true, false, CREATED_AT),
+                new IdentitySummary(BOB, "bob", false, false, true, true, false, CREATED_AT));
     }
 
     @Test
@@ -67,6 +67,21 @@ class AdminAccountControllerTests {
         assertThat(service.calls).containsExactly("enable:bob:ada", "unlock:bob:ada");
     }
 
+    /** Each operation answers with the summary its service call returned. */
+    @Test
+    void enablingUnlockingAndForcingAChangeAnswerWithTheServicesSummary() {
+        RecordingService service = new RecordingService(List.of());
+        AdminAccountController controller = new AdminAccountController(service);
+
+        assertThat(controller.enable("bob", principal))
+                .isEqualTo(summary(BOB, "bob", false, true, false));
+        assertThat(controller.unlock("bob", principal))
+                .isEqualTo(summary(BOB, "bob", false, true, false));
+        assertThat(controller.forcePasswordChange("bob", principal))
+                .isEqualTo(new IdentitySummary(BOB, "bob", false, true, false, true, true, CREATED_AT));
+        assertThat(service.calls).endsWith("force-password-change:bob:ada");
+    }
+
     /**
      * The guarantee the whole endpoint exists to respect. It is asserted here, on
      * the adapter that publishes the type, because this is where a field reaching
@@ -82,12 +97,13 @@ class AdminAccountControllerTests {
         assertThat(IdentitySummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly(
-                        "id", "userName", "admin", "active", "locked", "hasPassword", "createdAt");
+                        "id", "userName", "admin", "active", "locked", "hasPassword",
+                        "passwordChangeRequired", "createdAt");
     }
 
     private static IdentitySummary summary(
             UUID id, String userName, boolean admin, boolean active, boolean locked) {
-        return new IdentitySummary(id, userName, admin, active, locked, true, CREATED_AT);
+        return new IdentitySummary(id, userName, admin, active, locked, true, false, CREATED_AT);
     }
 
     private static final class RecordingService extends IdentityAdministrationService {
@@ -121,6 +137,12 @@ class AdminAccountControllerTests {
         public IdentitySummary unlock(String userName, String requestedBy) {
             calls.add("unlock:" + userName + ":" + requestedBy);
             return summary(BOB, userName, false, true, false);
+        }
+
+        @Override
+        public IdentitySummary forcePasswordChange(String userName, String requestedBy) {
+            calls.add("force-password-change:" + userName + ":" + requestedBy);
+            return new IdentitySummary(BOB, userName, false, true, false, true, true, CREATED_AT);
         }
     }
 }

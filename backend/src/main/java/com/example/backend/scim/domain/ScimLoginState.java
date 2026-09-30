@@ -37,12 +37,26 @@ import java.time.Instant;
  * @param lockedAt             when a lock was imposed, or {@code null} when none is
  * @param lastAuthenticatedAt  when the User last authenticated or was reactivated, or
  *                             {@code null} when neither has happened
+ * @param passwordChangeRequiredSince when a password change was required of the User, or
+ *                             {@code null} when none is — the change-required flag. Present when
+ *                             the current credential was imposed on the User by somebody else (a
+ *                             connector, an Admin forcing a change or lifting a lockout); its
+ *                             value is the instant the grace period is measured from. A presence
+ *                             rather than a boolean plus a timestamp, as the lock is, so the two
+ *                             cannot disagree. Written only by its own narrow port operations,
+ *                             never by {@link ScimUserRepository#updateLoginState}, and not a
+ *                             SCIM attribute.
  */
 public record ScimLoginState(
-        String passwordHash, int failedLoginAttempts, Instant lockedAt, Instant lastAuthenticatedAt) {
+        String passwordHash,
+        int failedLoginAttempts,
+        Instant lockedAt,
+        Instant lastAuthenticatedAt,
+        Instant passwordChangeRequiredSince) {
 
     /** A User that cannot authenticate and has no history: what a SCIM create yields. */
-    public static final ScimLoginState CREDENTIALLESS = new ScimLoginState(null, 0, null, null);
+    public static final ScimLoginState CREDENTIALLESS =
+            new ScimLoginState(null, 0, null, null, null);
 
     public ScimLoginState {
         if (failedLoginAttempts < 0) {
@@ -55,7 +69,16 @@ public record ScimLoginState(
      * the credential and the failure run builds.
      */
     public ScimLoginState(String passwordHash, int failedLoginAttempts, Instant lockedAt) {
-        this(passwordHash, failedLoginAttempts, lockedAt, null);
+        this(passwordHash, failedLoginAttempts, lockedAt, null, null);
+    }
+
+    /** A state with no change required — the shape every caller predating the flag builds. */
+    public ScimLoginState(
+            String passwordHash,
+            int failedLoginAttempts,
+            Instant lockedAt,
+            Instant lastAuthenticatedAt) {
+        this(passwordHash, failedLoginAttempts, lockedAt, lastAuthenticatedAt, null);
     }
 
     /**
@@ -87,6 +110,23 @@ public record ScimLoginState(
     }
 
     /**
+     * Whether the User must replace its password before it may do anything but submit that change
+     * or log out. As with {@link #isLocked()}, the recorded instant being present is the state.
+     */
+    public boolean isPasswordChangeRequired() {
+        return passwordChangeRequiredSince != null;
+    }
+
+    /**
+     * Whether the change has been required since strictly before {@code cutoff} — whether the grace
+     * period {@code cutoff} was computed from has run out. An instant exactly at the cutoff is still
+     * within it, and a User with no change required is never overdue.
+     */
+    public boolean isPasswordChangeOverdueAt(Instant cutoff) {
+        return passwordChangeRequiredSince != null && passwordChangeRequiredSince.isBefore(cutoff);
+    }
+
+    /**
      * The state after one rejected login attempt.
      *
      * <p>A locked User is returned unchanged: the lock is already in force, so attempts
@@ -104,7 +144,8 @@ public record ScimLoginState(
                 passwordHash,
                 attempts,
                 attempts >= policy.maxAttempts() ? now : null,
-                lastAuthenticatedAt);
+                lastAuthenticatedAt,
+                passwordChangeRequiredSince);
     }
 
     /**
@@ -119,7 +160,11 @@ public record ScimLoginState(
      */
     public ScimLoginState withFailureCounted() {
         return new ScimLoginState(
-                passwordHash, failedLoginAttempts + 1, lockedAt, lastAuthenticatedAt);
+                passwordHash,
+                failedLoginAttempts + 1,
+                lockedAt,
+                lastAuthenticatedAt,
+                passwordChangeRequiredSince);
     }
 
     /**
@@ -137,6 +182,20 @@ public record ScimLoginState(
         if (failedLoginAttempts == 0 && lockedAt == null) {
             return this;
         }
-        return new ScimLoginState(passwordHash, 0, null, lastAuthenticatedAt);
+        return new ScimLoginState(
+                passwordHash, 0, null, lastAuthenticatedAt, passwordChangeRequiredSince);
+    }
+
+    /**
+     * The state with a password change required as of {@code since}. Re-dated rather than kept
+     * when already set: each imposed credential is a new one the User did not choose, and the grace
+     * period runs from the credential it must replace.
+     */
+    public ScimLoginState withPasswordChangeRequired(Instant since) {
+        if (since == null) {
+            throw new IllegalArgumentException("a required change has an instant");
+        }
+        return new ScimLoginState(
+                passwordHash, failedLoginAttempts, lockedAt, lastAuthenticatedAt, since);
     }
 }
