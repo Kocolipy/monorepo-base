@@ -20,6 +20,33 @@ class ScimLoginStateTests {
 
     private static final LockoutPolicy AFTER_THREE = new LockoutPolicy(3);
 
+    /**
+     * The dormancy basis survives every failure-run transition. A rejected login or an Unlock is
+     * not an authentication, and a transition that dropped the basis would make a User who once
+     * logged in look as if it never had.
+     */
+    @Test
+    void every_failure_run_transition_carries_the_dormancy_basis_unchanged() {
+        Instant last = NOW.minusSeconds(3_600);
+        ScimLoginState running = new ScimLoginState("hash", 2, null, last);
+        ScimLoginState locked = new ScimLoginState("hash", 3, NOW, last);
+
+        assertThat(running.withFailureRecorded(AFTER_THREE, NOW).lastAuthenticatedAt())
+                .as("the failure that locks").isEqualTo(last);
+        assertThat(new ScimLoginState("hash", 0, null, last)
+                .withFailureRecorded(AFTER_THREE, NOW).lastAuthenticatedAt())
+                .as("a failure that does not lock").isEqualTo(last);
+        assertThat(running.withFailureCounted().lastAuthenticatedAt()).isEqualTo(last);
+        assertThat(locked.withFailureRunCleared().lastAuthenticatedAt()).isEqualTo(last);
+    }
+
+    @Test
+    void a_state_built_without_an_authentication_has_none() {
+        assertThat(new ScimLoginState("hash", 0, null).lastAuthenticatedAt()).isNull();
+        assertThat(ScimLoginState.of("hash").lastAuthenticatedAt()).isNull();
+        assertThat(ScimLoginState.CREDENTIALLESS.lastAuthenticatedAt()).isNull();
+    }
+
     @Test
     void a_negative_failure_run_is_refused() {
         assertThatThrownBy(() -> new ScimLoginState("hash", -1, null))

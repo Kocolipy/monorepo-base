@@ -3,6 +3,7 @@ package com.example.backend.scim.infrastructure.persistence;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMemberEntity;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMemberId;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -106,4 +107,33 @@ interface ScimGroupMemberJpaRepository
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from ScimGroupMemberEntity m where m.id.groupId = :groupId")
     int deleteMembershipsOf(@Param("groupId") UUID groupId);
+
+    /**
+     * Removes one membership row and nothing else.
+     *
+     * @return how many rows were removed — zero when the User was not a member
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            delete from ScimGroupMemberEntity m
+             where m.id.groupId = :groupId
+               and m.id.userId = :userId""")
+    int deleteMembership(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
+
+    /**
+     * The unreserved direct members of the reserved Group whose dormancy basis — the last
+     * authentication, or creation when there has been none — is strictly before the cutoff.
+     * Active or not: authority is revoked from a dormant User whatever its standing.
+     */
+    @Query("""
+            select u.resourceId
+              from ScimGroupMemberEntity m
+              join ScimGroupEntity g on g.resourceId = m.id.groupId
+              join ScimUserEntity u on u.resourceId = m.id.userId
+             where g.resource.reservedName = :reservedName
+               and u.resource.reservedName is null
+               and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
+             order by u.resourceId""")
+    List<UUID> findDormantMemberIds(
+            @Param("reservedName") String reservedName, @Param("cutoff") Instant cutoff);
 }

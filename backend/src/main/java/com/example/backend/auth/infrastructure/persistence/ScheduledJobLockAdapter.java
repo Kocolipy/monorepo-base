@@ -1,0 +1,61 @@
+package com.example.backend.auth.infrastructure.persistence;
+
+import com.example.backend.auth.domain.ScheduledJob;
+import com.example.backend.auth.domain.ScheduledJobLock;
+import java.util.List;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+/**
+ * Serializes each scheduled job on its own row of {@code scheduled_job_locks}.
+ *
+ * <p>{@code FOR UPDATE SKIP LOCKED} is the whole mechanism. The row lock is held until the
+ * calling transaction ends, so a second run of the same job — in this process or another one
+ * against the same database — skips the row and learns it is not the one to run, without
+ * waiting. A run of the other job locks a different row and never sees this one.
+ *
+ * <p>JDBC rather than JPA: the row has no attributes worth mapping, and the statement is a lock,
+ * not a read. It joins the caller's transaction through the shared data source.
+ */
+@Repository
+class ScheduledJobLockAdapter implements ScheduledJobLock {
+
+    /** Whole statements as constants, never assembled; see the local Semgrep ruleset. */
+    private static final String LOCK_JOB_ROW = """
+            SELECT job_name FROM scheduled_job_locks
+             WHERE job_name = ?
+               FOR UPDATE SKIP LOCKED""";
+
+    private static final String COUNT_JOB_ROW =
+            "SELECT count(*) FROM scheduled_job_locks WHERE job_name = ?";
+
+    private final JdbcTemplate jdbc;
+
+    ScheduledJobLockAdapter(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * Locks the job's row, or reports it held.
+     *
+     * <p>{@code SKIP LOCKED} returns nothing both for a row another run holds and for a row that
+     * does not exist, and the two must not be confused: a missing row would otherwise read as
+     * "someone else is running it" forever, and the job would silently never run. So an empty
+     * result is followed by a plain read, which does not wait for the lock, and a missing row
+     * fails the run loudly.
+     */
+    @Override
+    public boolean tryAcquire(ScheduledJob job) {
+        List<String> locked = jdbc.queryForList(LOCK_JOB_ROW, String.class, job.lockName());
+        if (!locked.isEmpty()) {
+            return true;
+        }
+        Integer rows = jdbc.queryForObject(COUNT_JOB_ROW, Integer.class, job.lockName());
+        if (rows == null || rows == 0) {
+            throw new IllegalStateException(
+                    "No lock row exists for scheduled job " + job.lockName()
+                            + "; the migration that creates it has not run.");
+        }
+        return false;
+    }
+}

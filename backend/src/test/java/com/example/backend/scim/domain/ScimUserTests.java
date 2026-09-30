@@ -152,4 +152,55 @@ class ScimUserTests {
         assertThat(otherwiseReserved.isProtectedFromWrites()).isTrue();
         assertThat(otherwiseReserved.isExemptFromLockout()).isFalse();
     }
+
+    // ---- dormancy -------------------------------------------------------------------------
+
+    private static final Instant CREATED = Instant.parse("2026-01-01T00:00:00Z");
+
+    private static ScimUser authenticatedAt(Instant lastAuthenticatedAt, ReservedResourceName r) {
+        return new ScimUser(
+                ID,
+                profile(),
+                new ScimLoginState("hash", 0, null, lastAuthenticatedAt),
+                r,
+                1L,
+                CREATED,
+                CREATED);
+    }
+
+    /** A User that has never authenticated is measured from its creation. */
+    @Test
+    void a_user_that_never_authenticated_is_measured_from_its_creation() {
+        assertThat(authenticatedAt(null, null).dormancyBasis()).isEqualTo(CREATED);
+    }
+
+    @Test
+    void a_user_that_authenticated_is_measured_from_its_last_authentication() {
+        Instant last = CREATED.plusSeconds(86_400);
+
+        assertThat(authenticatedAt(last, null).dormancyBasis()).isEqualTo(last);
+    }
+
+    /** Strictly before the cutoff is dormant; exactly at it is not yet. */
+    @Test
+    void a_user_is_dormant_only_when_its_basis_is_strictly_before_the_cutoff() {
+        ScimUser user = authenticatedAt(null, null);
+
+        assertThat(user.isDormantAt(CREATED.plusNanos(1))).isTrue();
+        assertThat(user.isDormantAt(CREATED)).isFalse();
+        assertThat(user.isDormantAt(CREATED.minusNanos(1))).isFalse();
+    }
+
+    /**
+     * Only the Bootstrap Admin is exempt from the dormancy jobs; an unreserved User is not, and
+     * neither is a resource carrying some other reservation.
+     */
+    @Test
+    void only_the_bootstrap_admin_is_exempt_from_dormancy() {
+        assertThat(authenticatedAt(null, ReservedResourceName.BOOTSTRAP_ADMIN)
+                .isExemptFromDormancy()).isTrue();
+        assertThat(authenticatedAt(null, null).isExemptFromDormancy()).isFalse();
+        assertThat(authenticatedAt(null, ReservedResourceName.ADMIN_GROUP)
+                .isExemptFromDormancy()).isFalse();
+    }
 }

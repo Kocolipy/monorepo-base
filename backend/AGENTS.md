@@ -46,18 +46,19 @@ grep -E "inding|GATE_EXIT" "${TMPDIR:-/tmp}/gate.log"
 
 Mutation testing checks that a test is **load-bearing**: that it fails when the behavior it names breaks. It sits outside the baseline gate, and its **trigger** is writing a unit test or changing an existing one — scoped to the tests you touched, never the whole module. PIT is configured in `pom.xml` and bound to no lifecycle phase, so the baseline gate never runs it.
 
-Target the touched test class and the production class it covers:
+Target the touched test class and the production class it covers. Always run the **expanded mutator set** — do not run the default set first. `-Dmutators` *replaces* PIT's operator list rather than adding to it, so the set below is written as a proper superset of `DEFAULTS`: `STRONGER` is itself a superset of `DEFAULTS`, and the trailing operators add the ones `DEFAULTS` omits. Running this once therefore covers everything a bare `mutationCoverage` would, plus the lines `DEFAULTS` leaves unmutated — there is no reason for a separate default pass:
 
 ```bash
 ./mvnw org.pitest:pitest-maven:mutationCoverage \
   -DtargetClasses="com.example.backend.<package>.<ClassUnderTest>*" \
-  -DtargetTests="com.example.backend.<package>.<TouchedTests>"
+  -DtargetTests="com.example.backend.<package>.<TouchedTests>" \
+  -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE
 ```
 
 A PIT run takes tens of minutes, far past any shell's foreground window, so launch it **detached** with the same log-and-sentinel shape as the baseline gate:
 
 ```bash
-setsid nohup bash -c './mvnw org.pitest:pitest-maven:mutationCoverage -DtargetClasses="..." -DtargetTests="..." > "${TMPDIR:-/tmp}/pit.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/pit.log"' </dev/null >/dev/null 2>&1 &
+setsid nohup bash -c './mvnw org.pitest:pitest-maven:mutationCoverage -DtargetClasses="..." -DtargetTests="..." -Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE > "${TMPDIR:-/tmp}/pit.log" 2>&1; echo "GATE_EXIT=$?" >> "${TMPDIR:-/tmp}/pit.log"' </dev/null >/dev/null 2>&1 &
 ```
 
 Then hand the wait to a **monitor**: your runtime's scheduled wake that checks the log for `GATE_EXIT` on an interval and resumes you once it appears. End the turn after arming it. The run finishes no sooner for a turn held open on a sleep loop or on repeated reads of the log; it only spends the turn. Until the sentinel lands, leave this worktree's `target/` alone (no compile, test, or `clean`), because PIT is reading that bytecode and a rebuild voids the run.
@@ -66,11 +67,7 @@ Then hand the wait to a **monitor**: your runtime's scheduled wake that checks t
 
 The tests are done when every mutant is KILLED, or a survivor carries a justification that names the test asserting the mutated behavior and says why that test still passes with the mutant alive — the mutation is masked by something the code does anyway, as when a domain record coerces the caller's null back to List.of(). A justification with no such test to name has found an unasserted line, not an equivalent mutant: three succeeded(...) calls on AccountAdministrationService read as equivalent because a void call has no return value to trace, while in fact no test asserted the log at all. The surviving mutant plus the test that pins it belong in the change summary.
 
-Treat a clean score under the default mutators as provisional. PIT's `DEFAULTS` set leaves some lines unmutated, so a line can be both unmutated and untested while the score reads 100% — a call whose return value is discarded, such as `request.changeSessionId()`, yielded no mutant while session-fixation rotation went unexercised. Line coverage below 100% beside a 100% score points at those lines. Confirm with the expanded set before reporting a score as clean:
-
-```bash
--Dmutators=STRONGER,NON_VOID_METHOD_CALLS,CONSTRUCTOR_CALLS,EXPERIMENTAL_NAKED_RECEIVER,EXPERIMENTAL_MEMBER_VARIABLE
-```
+The expanded set exists because PIT's `DEFAULTS` leaves some lines unmutated, so a line can be both unmutated and untested while the score reads 100% — a call whose return value is discarded, such as `request.changeSessionId()`, yields no mutant under `DEFAULTS` while session-fixation rotation goes unexercised. The extra operators (`NON_VOID_METHOD_CALLS`, `EXPERIMENTAL_NAKED_RECEIVER`, and the rest) mutate exactly those lines. Because you run the superset from the start, a clean score under it is final rather than provisional; line coverage below 100% beside a 100% score points at any line no operator reached.
 
 ## Architecture constraints
 

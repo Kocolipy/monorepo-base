@@ -164,5 +164,22 @@ public enum AuditOperation {
      * consequential thing that happens to this directory, and "it was always there" and
      * "it was created at 03:14 on a restart nobody expected" must be distinguishable.
      */
-    SCIM_RESOURCE_SEED
+    SCIM_RESOURCE_SEED,
+
+    /**
+     * The inactivity job deactivated a User that had gone longer than the configured window
+     * without authenticating. Recorded with no actor, because the actor is the scheduled job
+     * rather than a principal — the operation itself is what names it. The changed path is
+     * {@code active}; the sessions it ended are recorded after the commit as
+     * {@link #USER_SESSIONS_REVOKE}, also with no actor.
+     */
+    INACTIVITY_DEACTIVATION,
+
+    /**
+     * The dormant-authority job removed a User's direct membership of the Admin group, because it
+     * had gone longer than the configured window without authenticating. Recorded against the
+     * affected USER, with no actor and the changed path {@code groups}: the event is about whose
+     * authority ended, and the Group whose membership moved is always the Admin group.
+     */
+    DORMANT_AUTHORITY_REVOCATION
 }

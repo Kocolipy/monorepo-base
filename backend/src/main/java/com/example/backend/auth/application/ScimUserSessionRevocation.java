@@ -72,6 +72,7 @@ public class ScimUserSessionRevocation implements ScimUserSessions {
                 case DEACTIVATED -> paths.add(AuditUserAttribute.ACTIVE);
                 case PASSWORD_CHANGED -> paths.add(AuditUserAttribute.PASSWORD);
                 case USER_NAME_CHANGED -> paths.add(AuditUserAttribute.USER_NAME);
+                case ADMIN_MEMBERSHIP_REMOVED -> paths.add(AuditUserAttribute.GROUPS);
                 case DELETED -> { }
             }
         }

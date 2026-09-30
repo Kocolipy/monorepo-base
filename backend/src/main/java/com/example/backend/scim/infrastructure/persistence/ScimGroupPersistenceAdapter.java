@@ -226,6 +226,24 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         return memberships.isMemberOfReservedGroup(userId, reservedName.storedValue());
     }
 
+    @Override
+    public List<UUID> findDormantMemberIds(ReservedResourceName reservedName, Instant cutoff) {
+        return memberships.findDormantMemberIds(reservedName.storedValue(), cutoff);
+    }
+
+    /**
+     * Deletes the one membership row and, only when there was one, advances the Group's and the
+     * User's versions together — both representations lost an entry.
+     */
+    @Override
+    public boolean removeMember(UUID groupId, UUID userId, Instant now) {
+        if (memberships.deleteMembership(groupId, userId) == 0) {
+            return false;
+        }
+        resources.advanceVersions(List.of(groupId, userId), now);
+        return true;
+    }
+
     private ScimGroup insert(ScimGroup group, ReservedResourceName reservedName) {
         ScimResourceEntity resource = new ScimResourceEntity(
                 group.id(),

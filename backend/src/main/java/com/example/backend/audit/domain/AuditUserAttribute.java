@@ -17,5 +17,11 @@ public enum AuditUserAttribute {
     TIMEZONE,
     ACTIVE,
     PASSWORD,
-    EMAILS
+    EMAILS,
+    /**
+     * The User's read-only {@code groups} view. No SCIM write moves it directly; it changes when a
+     * membership does, and is named when that change is what ends the User's sessions — the
+     * dormant-authority job removing its Admin-group membership.
+     */
+    GROUPS
 }

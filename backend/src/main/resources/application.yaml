@@ -45,6 +45,13 @@ spring:
     # dropping to the runtime role.
     user: ${DATABASE_USERNAME:backend}
     password: ${DATABASE_PASSWORD:backend}
+  task:
+    scheduling:
+      pool:
+        # One thread per scheduled job — audit retention, inactivity deactivation,
+        # dormant-authority revocation — so a slow run of one never delays another
+        # in-process. Across instances each job is serialized by its own lock row.
+        size: 3
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -115,6 +122,13 @@ app:
       # Override with APP_AUDIT_RETENTION_PERIOD (e.g. 400d) and
       # APP_AUDIT_RETENTION_SCHEDULE; see README.md's Configuration section for
       # the exact default and floor. A value below 90 days fails startup.
+  dormancy:
+    # `deactivation.window` and `authority.revocation.window` are deliberately
+    # absent, for the reason the retention settings are: both defaults — 90 days
+    # and 180 days — belong to DormancyPolicy, so an unset setting reaches the
+    # rule as unset. Override with APP_DORMANCY_DEACTIVATION_WINDOW and
+    # APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW (e.g. 60d); see README.md's
+    # Configuration section. A zero or negative window fails startup.
 
 management:
   endpoints:

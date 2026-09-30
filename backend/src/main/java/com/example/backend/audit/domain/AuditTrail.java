@@ -276,9 +276,26 @@ public interface AuditTrail {
      * Records the outcome of ending a User's sessions after a committed write. Fail-open with an
      * alert: it runs after the commit, so there is no write left for a failed append to undo.
      *
-     * @param causes    the attributes whose change ended the sessions
-     * @param succeeded whether the session store ended them
+     * @param connectorId the connector whose write ended them, or {@code null} when a scheduled
+     *                    job did — the job is not a principal, and the event it follows names it
+     * @param causes      the attributes whose change ended the sessions
+     * @param succeeded   whether the session store ended them
      */
     void recordUserSessionsRevoked(
             UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded);
+
+    /**
+     * Records the inactivity job deactivating a dormant User. Fail-closed: the append joins the
+     * job's transaction, so a deactivation the trail cannot record does not happen.
+     *
+     * <p>No actor parameter, because there is none: the scheduled job is not a principal, and the
+     * operation is what says the job did it.
+     */
+    void recordInactivityDeactivation(UUID userId);
+
+    /**
+     * Records the dormant-authority job removing a dormant User's Admin-group membership.
+     * Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
+     */
+    void recordDormantAuthorityRevocation(UUID userId);
 }

@@ -71,7 +71,7 @@ class ScimUserSessionRevocationTests {
                 .satisfies(event -> {
                     assertThat(event.actorId()).isEqualTo(CONNECTOR);
                     assertThat(event.subjectId()).isEqualTo(user);
-                    assertThat(event.detail()).isEqualTo("SUCCESS:ACTIVE,PASSWORD,USER_NAME");
+                    assertThat(event.detail()).isEqualTo("SUCCESS:ACTIVE,GROUPS,PASSWORD,USER_NAME");
                 });
     }
 

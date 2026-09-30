@@ -249,6 +249,17 @@ public final class RecordingAuditTrail implements AuditTrail {
                 (succeeded ? "SUCCESS:" : "FAILURE:") + joined(causes)));
     }
 
+    @Override
+    public void recordInactivityDeactivation(UUID userId) {
+        recorded.add(new Recorded(AuditOperation.INACTIVITY_DEACTIVATION, null, userId, null));
+    }
+
+    @Override
+    public void recordDormantAuthorityRevocation(UUID userId) {
+        recorded.add(new Recorded(
+                AuditOperation.DORMANT_AUTHORITY_REVOCATION, null, userId, null));
+    }
+
     private static String joined(Set<? extends Enum<?>> values) {
         return values.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
     }

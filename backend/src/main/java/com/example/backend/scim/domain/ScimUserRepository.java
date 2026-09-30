@@ -63,6 +63,12 @@ public interface ScimUserRepository {
      * Replaces the User's profile and credential with the given ones and advances its version
      * exactly once, reporting the User as it now stands.
      *
+     * <p>A replacement that takes {@code active} from false to true is a reactivation and resets
+     * the dormancy window, as {@link #updateActive} does: {@code lastAuthenticatedAt} becomes
+     * {@code now}. A replacement restating {@code active=true} over an active User resets
+     * nothing, so a connector re-asserting {@code active} on every sync cannot hold a dormant
+     * User open.
+     *
      * <p>Writes only what differs. The login path writes the failure run on this row on every
      * rejected attempt without taking the resource lock, so a full-row write carrying the failure
      * run read at the start of a SCIM write could erase an attempt counted in between; writing only
@@ -108,6 +114,16 @@ public interface ScimUserRepository {
     void updateLoginState(UUID id, ScimLoginState loginState);
 
     /**
+     * Records a successful login: writes {@code lastAuthenticatedAt} and nothing else.
+     *
+     * <p>Narrow for the reason {@link #updateLoginState} is, and like it this does NOT
+     * advance the version: the dormancy basis is not a SCIM attribute, so a login changes
+     * nothing a connector reads. A write matching no row is silently nothing — the User was
+     * deleted between authenticating and this call.
+     */
+    void recordAuthentication(UUID id, Instant authenticatedAt);
+
+    /**
      * Writes only the {@code active} column, advancing the version and
      * {@code lastModified}.
      *
@@ -116,9 +132,26 @@ public interface ScimUserRepository {
      * attribute, so deactivating a User changes what a connector reads and must change
      * the ETag it reads it behind.
      *
+     * <p>A stored transition from inactive to active is a reactivation, and it resets the
+     * dormancy window: {@code lastAuthenticatedAt} becomes {@code now}. Without that a
+     * reactivated User would still be dormant by its old basis and the next inactivity run
+     * would deactivate it again. Writing {@code true} over {@code true} resets nothing.
+     *
      * @return the User as it now stands, or empty when no User has that id
      */
     Optional<ScimUser> updateActive(UUID id, boolean active, Instant now);
+
+    /**
+     * The ids of every active, unreserved User whose dormancy basis — {@code lastAuthenticatedAt},
+     * or the creation time when it has never authenticated — lies strictly before
+     * {@code cutoff}, ordered by id.
+     *
+     * <p>The inactivity job's candidate list. Candidates only: the job re-reads each under its
+     * resource lock and decides again, so a User that logged in or was reactivated between this
+     * read and that one is left alone. Reserved Users are excluded here so the Bootstrap Admin is
+     * never so much as locked by the job; the job checks the exemption again regardless.
+     */
+    List<UUID> findDormantActiveUserIds(Instant cutoff);
 
     /**
      * Deletes the User — its resource row and, through the cascades, its profile, emails,
