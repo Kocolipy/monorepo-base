@@ -1492,6 +1492,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+  /actuator/prometheus:
+    get:
+      tags: [Health]
+      summary: Scrape operational telemetry
+      operationId: scrapeMetrics
+      description: |
+        Prometheus text exposition of the service's operational telemetry: request
+        count and latency histogram (`http_server_requests_seconds`) tagged by route
+        template, method, status, status class (`outcome`), `scim_resource_type`,
+        `scim_type` and `scim_connector`; database-pool, Tomcat-thread, Redis and
+        scheduled-job saturation gauges. No tag carries a userName, externalId,
+        resource id, filter text or token value.
+
+        Admin sessions only, decided by the filter chain before this operation runs:
+        an account with any other role gets 403. A connector bearer token is not a
+        credential on this path and gets 401. Deployments may move it to an internal
+        management port (`MANAGEMENT_SERVER_PORT`), where the same rule applies.
+      responses:
+        "200":
+          description: The current scrape.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
 security:
   - sessionCookie: []
 components:

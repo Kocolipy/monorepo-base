@@ -209,6 +209,27 @@ long it took (`event.action: audit.retention`). A run that deleted nothing is
 logged too — "nothing had aged out" and "the job has not run for a month" are
 different facts.
 
+### Operational telemetry
+
+| Variable                 | Default    | Meaning                                              |
+| ------------------------ | ---------- | ---------------------------------------------------- |
+| `MANAGEMENT_SERVER_PORT` | the app's  | Serve `/actuator/**` on this port instead of the app's |
+
+`/actuator/prometheus` is the metrics scrape, and it is Admin-only: an ordinary
+User gets `403`, and a connector token gets `401` because the SCIM bearer chain
+does not cover `/actuator`. Setting `MANAGEMENT_SERVER_PORT` moves all of actuator,
+including `/actuator/health`, to that port and keeps it behind the same Admin
+rule. The exposure and histogram settings live in `src/main/resources/telemetry.yaml`,
+which the test configuration imports too. The tag policy (what a metric may be
+labelled with) lives in `ScimRequestObservationConvention`. The alert rules are
+`ops/prometheus/alerts.yaml`. Deployment steps, the internal-port setup and the
+alert table are in `/infra/README.md` under "Operational telemetry".
+
+A scheduled job reports its runs through `ScheduledJobMetrics`
+(`app_job_runs_total{job,outcome}`, `app_job_last_success_seconds{job}`). The audit
+retention job is `job="audit-retention"`. The alert rules already expect the
+inactivity job as `job="inactivity"`.
+
 ### Audit trail database roles
 
 The audit table is append-only, and that is a property of the database rather than

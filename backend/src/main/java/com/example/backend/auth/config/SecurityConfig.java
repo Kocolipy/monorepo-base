@@ -216,6 +216,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/login", "/actuator/health").permitAll()
                         .requestMatchers("/api/admin", "/api/admin/**").hasRole("ADMIN")
+                        // Operational telemetry (the Prometheus scrape) and every other
+                        // actuator endpoint but health. Admin-only because a scrape
+                        // describes the whole service's traffic, which no ordinary User
+                        // is entitled to. A connector token is not a credential here at
+                        // all: the SCIM chain matches /scim/v2/** only, so a bearer
+                        // header on this path reaches THIS chain, which has no bearer
+                        // authentication and answers 401.
+                        .requestMatchers("/actuator", "/actuator/**").hasRole("ADMIN")
                         .requestMatchers(this::isFrontendGet).permitAll()
                         .anyRequest().authenticated())
                 .build();

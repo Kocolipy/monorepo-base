@@ -3,6 +3,7 @@ package com.example.backend.audit.config;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.ScheduledJobMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
@@ -32,19 +33,27 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
     private static final Logger log =
             LoggerFactory.getLogger(AuditRetentionScheduleConfig.class);
 
+    /** The {@code job} tag of this job's run metrics ({@link ScheduledJobMetrics}). */
+    static final String RETENTION_JOB = "audit-retention";
+
     private final AuditRetentionService retention;
     private final AuditRetentionPolicy policy;
+    private final ScheduledJobMetrics jobs;
 
     public AuditRetentionScheduleConfig(
-            AuditRetentionService retention, AuditRetentionPolicy policy) {
+            AuditRetentionService retention,
+            AuditRetentionPolicy policy,
+            ScheduledJobMetrics jobs) {
         this.retention = retention;
         this.policy = policy;
+        this.jobs = jobs;
     }
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
-                retention::deleteAgedOutEvents, new CronTrigger(policy.schedule())));
+                jobs.instrument(RETENTION_JOB, retention::deleteAgedOutEvents),
+                new CronTrigger(policy.schedule())));
         log.atInfo()
                 .addKeyValue(LogEvent.ACTION, AuditRetentionService.RETENTION_ACTION)
                 .addKeyValue(LogEvent.RETENTION_SCHEDULE, policy.schedule())

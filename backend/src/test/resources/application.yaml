@@ -4,8 +4,10 @@ spring:
     # repository type it needs is imported from the same document the deployed
     # service reads rather than copied here. Without it these contexts would wire
     # a session repository that cannot be searched by principal and
-    # AccountSessionsAdapter would have nothing to inject.
-    import: classpath:session.yaml
+    # AccountSessionsAdapter would have nothing to inject. `telemetry.yaml` is
+    # imported for the same reason: the scrape a test reads must be exposed and
+    # bucketed exactly as the deployed one is.
+    import: classpath:session.yaml,classpath:telemetry.yaml
   # No spring.datasource.* here: ContainerTestConfiguration's @ServiceConnection
   # Postgres container registers the URL, username and password onto the context
   # directly, and Flyway migrations are PostgreSQL syntax that only a real

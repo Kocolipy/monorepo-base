@@ -2,11 +2,12 @@ spring:
   application:
     name: backend
   config:
-    # The session repository type and configure-action live in `session.yaml`, and
-    # the structured log format in `logging.yaml`, so the test resources'
+    # The session repository type and configure-action live in `session.yaml`,
+    # the structured log format in `logging.yaml`, and the actuator exposure and
+    # metrics settings in `telemetry.yaml`, so the test resources'
     # `application.yaml` — which shadows this file entirely — can import the same
     # documents instead of restating them.
-    import: classpath:session.yaml,classpath:logging.yaml
+    import: classpath:session.yaml,classpath:logging.yaml,classpath:telemetry.yaml
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME:backend}
@@ -115,14 +116,3 @@ app:
       # Override with APP_AUDIT_RETENTION_PERIOD (e.g. 400d) and
       # APP_AUDIT_RETENTION_SCHEDULE; see README.md's Configuration section for
       # the exact default and floor. A value below 90 days fails startup.
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
-    health:
-      probes:
-        enabled: true
-      show-details: never

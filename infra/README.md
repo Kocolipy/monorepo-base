@@ -207,6 +207,84 @@ curl $ALB_URL/api/count -b cookies.txt
 
 ---
 
+## Operational telemetry
+
+The service publishes Prometheus metrics at `/actuator/prometheus`: request
+traffic, latency histograms and error class for every SCIM endpoint and for
+Login, plus saturation gauges for the database pool (`hikaricp_connections_*`),
+Tomcat's request threads (`tomcat_threads_*`), Redis commands (`lettuce_*`) and
+the scheduled jobs (`app_job_*`). Requests are tagged by route template, method,
+status and status class (`outcome`), SCIM resource type, SCIM `scimType` and
+connector id, and never by `userName`, `externalId`, resource id, filter text or
+token value.
+
+### Who can read it
+
+- **An Admin session only.** Every actuator path except `/actuator/health` needs
+  `ROLE_ADMIN`; an ordinary User gets `403`, a caller with no session `401`.
+- **Never a connector token.** The SCIM bearer chain covers `/scim/v2/**` only, so
+  `Authorization: Bearer <connector token>` on `/actuator/prometheus` is not a
+  credential there and gets `401`.
+- `/actuator/health` stays public: it is the ALB's health check.
+
+### Keep it off the internet
+
+In this stack the ALB forwards every path to port 8080, so the scrape is reachable
+from the internet. It is Admin-gated there, but the metrics surface belongs on the
+internal network. Move actuator to its own port, which only the VPC can reach:
+
+```bash
+# in the service's environment on the EC2 instance
+MANAGEMENT_SERVER_PORT=9090
+```
+
+With that set, port 8080 stops serving `/actuator/**`, and port 9090 serves it
+**still behind the Admin gate**. The port adds a network boundary; it does not
+replace the access rule. Two things change with it:
+
+- **The ALB health check moves too.** Set the target group's `HealthCheckPort` to
+  `9090`, keep `HealthCheckPath: /actuator/health`, and allow 9090 from the ALB
+  security group. Otherwise every target reports unhealthy.
+- **Scrapers must be inside the VPC.** Allow 9090 in the EC2 security group from
+  the monitoring host's security group only, never from `0.0.0.0/0`. Do not add a
+  listener rule that forwards to 9090.
+
+`infrastructure.yaml` does not apply any of this yet. Change it, and review it
+against the live stack, before you rely on the internal port.
+
+### Scraping
+
+A scrape presents an Admin session cookie (`POST /api/auth/login` as an Admin,
+then send the returned cookie). Sessions end after 15 minutes idle and 8 hours
+absolute, so a long-running Prometheus has to log in again. No machine
+credential for metrics exists yet.
+
+### Alerts
+
+The alert rules are code: `backend/ops/prometheus/alerts.yaml`. Load them with
+`rule_files:` in the Prometheus that scrapes the service. Each rule carries its
+own runbook text:
+
+| Alert | Fires on | Usually means |
+| ----- | -------- | ------------- |
+| `ScimAuthenticationFailuresSustained` | sustained SCIM `401` | a connector's token expired or was revoked, or probing |
+| `LoginAuthenticationFailuresSustained` | sustained Login `401` | a guessing campaign spread across accounts |
+| `ScimPreconditionFailuresSustained` | sustained SCIM `412` / `428` | writers colliding, or a connector sending no `If-Match` |
+| `ScimUniquenessConflictsSustained` | sustained SCIM `409` | a connector re-creating identities it believes are missing |
+| `InactivityJobFailed` / `InactivityJobNotRunning` | the inactivity job throws, or has not succeeded for 26 h | inactive accounts are not being deactivated |
+
+The thresholds are starting points. Tune them against a week of normal traffic.
+The inactivity rules stay silent until that job exists: its series appear when
+it is scheduled under `job="inactivity"`. `InactivityJobNotRunning` measures from
+the last success **or the last restart**, so an instance that restarts more often
+than daily masks a stuck job. Alert on restarts separately if that happens.
+
+`OperationalTelemetryIntegrationTests` checks every selector in the rule file
+against a real scrape, so renaming a metric or tag fails the backend build instead
+of silently disarming an alert.
+
+---
+
 ## Parameters Reference
 
 | Parameter            | Description        | Required | Default            |
