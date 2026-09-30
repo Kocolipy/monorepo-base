@@ -1,0 +1,44 @@
+# The operational-telemetry contract, in one place.
+#
+# Imported by both `application.yaml` and the test resources' `application.yaml`
+# (`spring.config.import`), because the test file shadows the main one wholesale:
+# a test that scrapes /actuator/prometheus has to be reading the exposure and the
+# histogram settings a deployment gets, not a copy of them.
+#
+# Tag policy — what a metric may be labelled with — is not configuration and does
+# not live here: it is ScimRequestObservationConvention's, and ScimTelemetryTests
+# pins it against a real scrape.
+management:
+  endpoints:
+    web:
+      exposure:
+        # `prometheus` is the operational-telemetry scrape. It is NOT public: the
+        # application chain (SecurityConfig) gives every actuator path but health
+        # to ADMIN only, and the SCIM chain never matches /actuator, so a connector
+        # bearer token is not a credential here at all. infra/README.md's
+        # "Operational telemetry" section covers binding it to an internal port.
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    distribution:
+      # Latency as a distribution, not an average: histogram buckets are what let
+      # Prometheus compute p50/p95/p99 across instances with histogram_quantile.
+      # Bounded at both ends so each endpoint carries a small, fixed set of
+      # buckets rather than Micrometer's full default range.
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 5ms
+      maximum-expected-value:
+        http.server.requests: 10s
+
+server:
+  tomcat:
+    # Registers Tomcat's MBeans, without which the request-thread saturation
+    # gauges (tomcat.threads.busy / tomcat.threads.config.max) are never published.
+    mbeanregistry:
+      enabled: true

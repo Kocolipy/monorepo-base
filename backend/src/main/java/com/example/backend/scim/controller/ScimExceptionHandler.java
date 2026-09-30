@@ -1,5 +1,6 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.InvalidPreconditionException;
@@ -173,6 +174,8 @@ class ScimExceptionHandler {
         body.put("status", String.valueOf(refusal.status().value()));
         if (refusal.scimType() != null) {
             body.put("scimType", refusal.scimType());
+            // The error-class dimension of the request metric: "4xx by scimType".
+            MetricTag.recordOnCurrentRequest(MetricTag.SCIM_TYPE, refusal.scimType());
         }
         body.put("detail", refusal.detail());
         return ResponseEntity.status(refusal.status())

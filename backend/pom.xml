@@ -86,6 +86,15 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <!--
+          The operational-telemetry exporter: Actuator's /actuator/prometheus scrape
+          endpoint exists only when this registry is on the classpath. Version comes
+          from the Micrometer BOM that Spring Boot manages, so it moves with Boot.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!--
           Spring Security's Argon2PasswordEncoder delegates to BouncyCastle for
           the actual Argon2 primitive; it is not transitively pulled in by
           spring-security-crypto, so it has to be declared explicitly.
@@ -99,6 +108,16 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          Test contexts disable metrics export by default; @AutoConfigureMetrics,
+          which lives here in Boot 4, turns the Prometheus scrape back on for the
+          telemetry tests that read it.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-metrics-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

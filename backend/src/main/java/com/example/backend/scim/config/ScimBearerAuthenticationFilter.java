@@ -1,5 +1,6 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimWriteScopeRule;
@@ -88,6 +89,11 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
         }
 
         authenticate(connector.get());
+        // Traffic per connector, by its non-secret id. Recorded here because this is
+        // the only place that knows it: the security context is cleared below, before
+        // the request metric is taken.
+        MetricTag.record(
+                request, MetricTag.SCIM_CONNECTOR, connector.get().connectorId().toString());
         try {
             chain.doFilter(request, response);
         } finally {

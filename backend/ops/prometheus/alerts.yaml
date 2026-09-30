@@ -1,0 +1,129 @@
+# Prometheus alerting rules for the provisioning surface.
+#
+# The four conditions the SCIM plan's "Operational telemetry" section names: each
+# means an integration is broken or hostile rather than merely busy. Load this file
+# with `rule_files:` in the Prometheus that scrapes /actuator/prometheus; the
+# scrape itself, and who may read it, is in infra/README.md.
+#
+# Every selector here is checked against a real scrape by
+# OperationalTelemetryIntegrationTests, so a metric or tag renamed in code turns
+# the build red instead of leaving a rule that silently matches nothing.
+#
+# Thresholds are starting points in requests per second, sustained for the `for:`
+# window. They are deployment-specific — a directory with thousands of users
+# reconciles far harder than one with fifty — so tune them against a week of
+# normal traffic rather than reading them as a standard.
+groups:
+  - name: provisioning-surface
+    rules:
+      # 1. Sustained authentication failures: dead or probing credentials.
+      - alert: ScimAuthenticationFailuresSustained
+        expr: >
+          sum by (scim_resource_type) (
+            rate(http_server_requests_seconds_count{status="401", scim_resource_type!="none"}[5m])
+          ) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SCIM requests are being refused for their credential
+          description: >
+            A sustained rate of 401s on the SCIM namespace. Either a connector's token
+            expired or was revoked and the connector has not been given its
+            replacement, or something is presenting tokens it does not hold.
+          runbook: >
+            List the connectors (GET /api/admin/connectors) and look for a token past
+            its expiry or revoked, then issue or rotate one. Which connector is
+            affected is not in this metric: a refused token authenticated no one. If
+            every connector's token is current, treat it as probing and take the
+            source addresses from the edge (load balancer) access log.
+      - alert: LoginAuthenticationFailuresSustained
+        expr: >
+          sum(rate(http_server_requests_seconds_count{uri="/api/auth/login", status="401"}[5m])) > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Password logins are failing at a sustained rate
+          description: >
+            A sustained rate of rejected logins. Lockout stops any one account being
+            guessed past its limit, so this is the signal for a campaign spread across
+            many accounts — which lockout alone never sees.
+          runbook: >
+            Read the audit trail's LOGIN_FAILURE events for which accounts are
+            targeted, and the edge (load balancer) access log for where the attempts
+            come from. Locked accounts stay locked until an Admin unlocks them.
+
+      # 2. Precondition failures: writers colliding (412), or a client ignoring the
+      #    precondition contract altogether (428).
+      - alert: ScimPreconditionFailuresSustained
+        expr: >
+          sum by (status) (
+            rate(http_server_requests_seconds_count{status=~"412|428", scim_resource_type!="none"}[5m])
+          ) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SCIM writes are failing their precondition
+          description: >
+            412 means two writers are updating the same resources and one keeps losing;
+            428 means a connector is sending PUT/PATCH/DELETE without If-Match, which
+            this service requires and will never accept.
+          runbook: >
+            428: the connector is misconfigured — enable its ETag / If-Match support.
+            412: find the second writer (another connector, or an Admin editing the same
+            Users) from the audit trail's actor on the conflicting resources.
+
+      # 3. Uniqueness conflicts: a connector re-creating identities it believes are
+      #    missing.
+      - alert: ScimUniquenessConflictsSustained
+        expr: >
+          sum(rate(http_server_requests_seconds_count{status="409", scim_resource_type!="none"}[5m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: SCIM creates are colliding with existing identities
+          description: >
+            A sustained rate of 409 uniqueness refusals: a connector is POSTing Users or
+            Groups that already exist, usually because it lost its own mapping of
+            externalId to resource id and is re-provisioning from scratch.
+          runbook: >
+            Compare the connector's provisioning log with the directory. Re-linking is
+            the connector's job (find by filter, then PUT); deleting the existing
+            identities to let the creates succeed destroys their history and ids.
+
+      # 4. The inactivity job failing to run. The job arrives with its own ticket;
+      #    until it is scheduled these series do not exist and neither rule can fire.
+      #    It must register itself with ScheduledJobMetrics under job="inactivity".
+      - alert: InactivityJobFailed
+        expr: >
+          increase(app_job_runs_total{job="inactivity", outcome="failure"}[1h]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: The inactivity-governance job threw
+          description: >
+            A run of the job that deactivates inactive Users and revokes dormant Admin
+            authority failed. Accounts that should have been deactivated are still
+            active.
+          runbook: >
+            Read the scheduler's ERROR record in the structured log for the failure's
+            type and stack, fix the cause, and confirm the next scheduled run
+            increments outcome="success".
+      - alert: InactivityJobNotRunning
+        expr: >
+          time() - app_job_last_success_seconds{job="inactivity"} > 26 * 3600
+        labels:
+          severity: critical
+        annotations:
+          summary: The inactivity-governance job has not succeeded in over a day
+          description: >
+            The daily job has gone 26 hours without a successful run — its schedule is
+            not firing, or every run fails. Inactive accounts are not being
+            deactivated.
+          runbook: >
+            Check InactivityJobFailed first. If it is silent the trigger is not firing:
+            confirm the instance is up and was not restarted into a configuration that
+            no longer schedules the job.

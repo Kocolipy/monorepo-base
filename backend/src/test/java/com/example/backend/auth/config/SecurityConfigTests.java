@@ -183,6 +183,40 @@ class SecurityConfigTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    /**
+     * Every actuator endpoint but health is Admin-only: the telemetry scrape describes the
+     * whole service's traffic. Proven here against the chain alone;
+     * {@code OperationalTelemetryIntegrationTests} proves it against the real scrape.
+     */
+    @Test
+    void userRoleCannotReachActuatorEndpointsOtherThanHealth() throws Exception {
+        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/actuator/prometheus").session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * Admitted, which in this class reads as {@code 404}: the chain is driven standalone in
+     * front of a probe controller that maps no actuator handler, so a request the chain lets
+     * through finds nothing — where a refused one never gets that far (401 or 403 above).
+     */
+    @Test
+    void adminRoleCanReachActuatorEndpoints() throws Exception {
+        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/prometheus").session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void healthStaysPublicWhileTheRestOfActuatorIsAdminOnly() throws Exception {
+        mvc.perform(get("/actuator/health"))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/actuator/info"))
+                .andExpect(status().isUnauthorized());
+    }
+
     private MockHttpSession authenticatedSession(String authority) {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new TestingAuthenticationToken("account", null, authority));
