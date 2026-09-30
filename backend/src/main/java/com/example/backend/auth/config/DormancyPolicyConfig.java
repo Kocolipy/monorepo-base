@@ -1,6 +1,7 @@
 package com.example.backend.auth.config;
 
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.PasswordChangeGracePolicy;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -32,5 +33,16 @@ public class DormancyPolicyConfig {
             @Value("${app.dormancy.authority.revocation.window:#{null}}")
                     Duration authorityRevocationWindow) {
         return new DormancyPolicy(deactivationWindow, authorityRevocationWindow);
+    }
+
+    /**
+     * Binds the password-change grace period — {@code APP_PASSWORD_CHANGE_GRACE_PERIOD} through
+     * relaxed binding — leaving its 30-day default to {@link PasswordChangeGracePolicy}. A zero or
+     * negative window fails startup rather than deactivating every flagged User on the next run.
+     */
+    @Bean
+    public PasswordChangeGracePolicy passwordChangeGracePolicy(
+            @Value("${app.password-change.grace-period:#{null}}") Duration gracePeriod) {
+        return new PasswordChangeGracePolicy(gracePeriod);
     }
 }

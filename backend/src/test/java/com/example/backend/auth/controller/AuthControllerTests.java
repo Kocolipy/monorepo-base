@@ -5,16 +5,23 @@ import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
+import com.example.backend.auth.application.PasswordChangeService;
+import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.auth.application.ScimUserSessionRevocation;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.scim.InMemoryScimGroupRepository;
+import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
 import jakarta.servlet.http.Cookie;
@@ -39,6 +46,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -88,18 +96,25 @@ class AuthControllerTests {
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
+        Clock clock = Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC);
+        com.example.backend.auth.InMemoryAccountSessions accountSessions =
+                new com.example.backend.auth.InMemoryAccountSessions();
+        com.example.backend.auth.PendingCommit transaction =
+                new com.example.backend.auth.PendingCommit();
+        LoginAttemptService attempts = new LoginAttemptService(
+                users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
         controller = new AuthController(
-                new LoginService(
-                        manager,
-                        new LoginAttemptService(
-                                users,
-                                new com.example.backend.auth.InMemoryAccountSessions(),
-                                new com.example.backend.auth.PendingCommit(),
-                                new LockoutPolicy(3),
-                                audit,
-                                Clock.fixed(
-                                        Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC)),
-                        identities),
+                new LoginService(manager, attempts, identities),
+                // The same flow against Postgres and Redis, the security filter chain included, is
+                // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
+                new PasswordChangeService(
+                        users,
+                        new InMemoryScimPasswordHistoryRepository(),
+                        passwordEncoder,
+                        attempts,
+                        new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                        audit,
+                        clock),
                 audit,
                 config.securityContextRepository(),
                 config.sessionAuthenticationStrategy(),
@@ -402,5 +417,135 @@ class AuthControllerTests {
 
         assertThat(request.getSession(false)).isNull();
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    // ---- self-service password change ------------------------------------------------------
+
+    private static final String NEW_PASSWORD = "a-brand-new-passphrase";
+
+    /**
+     * The User is the one the session's principal index names — which login writes as the stable
+     * id — and on success this session is ended here, directly, with its cookie expired and a
+     * fresh CSRF token issued for the login that must follow.
+     */
+    @Test
+    void changingThePasswordReplacesTheCredentialOfTheSessionsUserAndEndsTheSession() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new Cookie(CSRF_COOKIE, "token-from-the-confined-session"));
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+        MockHttpSession session = (MockHttpSession) request.getSession(false);
+        assertThat(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME))
+                .isEqualTo(users.require("ada").id().toString());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.changePassword(
+                new AuthController.ChangePasswordRequest("correct-password", NEW_PASSWORD),
+                request,
+                response);
+
+        assertThat(new SecurityConfig().passwordEncoder()
+                .matches(NEW_PASSWORD, users.require("ada").login().passwordHash())).isTrue();
+        assertThat(new SecurityConfig().passwordEncoder()
+                .matches("another-correct-password", users.require("grace").login().passwordHash()))
+                .as("nobody else's credential moves")
+                .isTrue();
+        assertThat(session.isInvalid()).isTrue();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        Cookie cleared = response.getCookie(SESSION_COOKIE);
+        assertThat(cleared).isNotNull();
+        assertThat(cleared.getValue()).isEmpty();
+        assertThat(cleared.getMaxAge()).isZero();
+        Cookie issued = response.getCookie(CSRF_COOKIE);
+        assertThat(issued).isNotNull();
+        assertThat(issued.getValue())
+                .isNotBlank()
+                .isNotEqualTo("token-from-the-confined-session");
+    }
+
+    @Test
+    void aChangeWithoutASessionIsRefusedAsALoginWouldBe() {
+        assertThatThrownBy(() -> controller.changePassword(
+                        new AuthController.ChangePasswordRequest("correct-password", NEW_PASSWORD),
+                        new MockHttpServletRequest(),
+                        new MockHttpServletResponse()))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+    }
+
+    @Test
+    void aChangeFromASessionWithNoPrincipalIndexIsRefused() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = (MockHttpSession) request.getSession(true);
+
+        assertThatThrownBy(() -> controller.changePassword(
+                        new AuthController.ChangePasswordRequest("correct-password", NEW_PASSWORD),
+                        request,
+                        new MockHttpServletResponse()))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+        assertThat(session.isInvalid()).isFalse();
+    }
+
+    /** Over MockMvc, because the statuses and the rule body are annotation-driven. */
+    @Test
+    void aRefusedChangeAnswers401BareAndABrokenRule400NamingOnlyTheRule() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+                users.require("ada").id().toString());
+
+        mvc.perform(post("/api/auth/change-password")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"wrong-password\","
+                                + "\"newPassword\":\"" + NEW_PASSWORD + "\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(""));
+
+        mvc.perform(post("/api/auth/change-password")
+                        .session(session)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"correct-password\","
+                                + "\"newPassword\":\"short-pass1\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.rule").value(PasswordPolicy.Rule.TOO_SHORT.name()))
+                .andExpect(jsonPath("$.message").value(PasswordPolicy.Rule.TOO_SHORT.message()))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("short-pass1"))));
+    }
+
+    @Test
+    void thePolicyHandlerCarriesTheRuleNameAndDescription() {
+        AuthController.PasswordRuleViolation body = controller.passwordPolicyViolated(
+                new PasswordPolicyViolationException(PasswordPolicy.Rule.CONTAINS_USER_NAME));
+
+        assertThat(body).isEqualTo(new AuthController.PasswordRuleViolation(
+                PasswordPolicy.Rule.CONTAINS_USER_NAME.name(),
+                PasswordPolicy.Rule.CONTAINS_USER_NAME.message()));
+    }
+
+    /** A confined session holds no role, so it reports none, and says the change is due. */
+    @Test
+    void currentUserReportsAConfinedSessionWithNoRole() {
+        AuthController.UserResponse response = controller.currentUser(new TestingAuthenticationToken(
+                "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY));
+
+        assertThat(response).isEqualTo(new AuthController.UserResponse("ada", null, true));
+    }
+
+    @Test
+    void currentUserReportsAnUnconfinedSessionAsNotDue() {
+        assertThat(controller.currentUser(new TestingAuthenticationToken("ada", null, "ROLE_USER")))
+                .isEqualTo(new AuthController.UserResponse("ada", "USER", false));
+        assertThat(controller.currentUser(
+                        new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN")))
+                .isEqualTo(new AuthController.UserResponse("grace", "ADMIN", false));
+    }
+
+    @Test
+    void theChangeRequestNeverPrintsEitherPassword() {
+        assertThat(new AuthController.ChangePasswordRequest("current-secret", "next-secret"))
+                .hasToString("ChangePasswordRequest[redacted]");
     }
 }

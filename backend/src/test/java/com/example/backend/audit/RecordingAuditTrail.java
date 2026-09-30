@@ -4,6 +4,7 @@ import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
@@ -258,6 +259,41 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordDormantAuthorityRevocation(UUID userId) {
         recorded.add(new Recorded(
                 AuditOperation.DORMANT_AUTHORITY_REVOCATION, null, userId, null));
+    }
+
+    @Override
+    public void recordPasswordChangeRequired(UUID actorId, UUID subjectId) {
+        recorded.add(new Recorded(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId, null));
+    }
+
+    @Override
+    public void recordPasswordChangeRequirementRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        recorded.add(new Recorded(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE, actorId, subjectId, reason.name()));
+    }
+
+    @Override
+    public void recordUnlockRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        recorded.add(new Recorded(AuditOperation.LOCKOUT_LIFT, actorId, subjectId, reason.name()));
+    }
+
+    @Override
+    public void recordPasswordChanged(UUID userId) {
+        recorded.add(new Recorded(AuditOperation.PASSWORD_CHANGE, userId, userId, null));
+    }
+
+    @Override
+    public void recordPasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason) {
+        recorded.add(new Recorded(AuditOperation.PASSWORD_CHANGE, userId, userId, reason.name()));
+    }
+
+    @Override
+    public void recordPasswordChangeGraceDeactivation(UUID userId) {
+        recorded.add(new Recorded(
+                AuditOperation.PASSWORD_CHANGE_GRACE_DEACTIVATION, null, userId, null));
     }
 
     private static String joined(Set<? extends Enum<?>> values) {

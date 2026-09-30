@@ -133,6 +133,12 @@ public class ScimUserService {
         Instant now = clock.instant();
         String passwordHash = hashed(command.password());
         ScimUser user = ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now);
+        if (passwordHash != null) {
+            // A credential chosen and transported by a connector is known outside the User, so
+            // the User must replace it before using it for anything else. A User provisioned
+            // without one is not flagged; the flag arrives with its first password.
+            user = withLogin(user, user.login().withPasswordChangeRequired(now));
+        }
         ScimUser created;
         try {
             created = users.create(user);
@@ -328,7 +334,8 @@ public class ScimUserService {
         Instant now = clock.instant();
         ScimUser written;
         try {
-            written = users.replace(desired(current, after.profile(), passwordHash), now)
+            written = users.replace(desired(current, after.profile(), passwordHash,
+                            password.kind() == ScimPasswordChange.Kind.SET ? now : null), now)
                     .orElseThrow();
         } catch (DuplicateUserNameException duplicate) {
             audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
@@ -440,17 +447,45 @@ public class ScimUserService {
     /**
      * The User to write: the new profile and credential, everything else as stored. The failure
      * run is carried but not written — the port's replacement leaves it to the login path.
+     *
+     * <p>{@code passwordChangeRequiredAt} is the instant a connector-set password requires a change
+     * as of, or {@code null} when this write sets no password. It only ever SETS the flag: every
+     * connector-set password is one the User did not choose, and no connector write — omitting the
+     * password, removing it, or changing anything else — clears it. {@code null} keeps the stored
+     * flag, and the port's replacement never writes a null over a set one.
      */
-    private static ScimUser desired(ScimUser current, ScimUserProfile profile, String passwordHash) {
+    private static ScimUser desired(
+            ScimUser current,
+            ScimUserProfile profile,
+            String passwordHash,
+            Instant passwordChangeRequiredAt) {
         ScimLoginState login = current.login();
         return new ScimUser(
                 current.id(),
                 profile,
-                new ScimLoginState(passwordHash, login.failedLoginAttempts(), login.lockedAt()),
+                new ScimLoginState(
+                        passwordHash,
+                        login.failedLoginAttempts(),
+                        login.lockedAt(),
+                        login.lastAuthenticatedAt(),
+                        passwordChangeRequiredAt == null
+                                ? login.passwordChangeRequiredSince()
+                                : passwordChangeRequiredAt),
                 current.reservedName(),
                 current.version(),
                 current.createdAt(),
                 current.lastModifiedAt());
+    }
+
+    private static ScimUser withLogin(ScimUser user, ScimLoginState login) {
+        return new ScimUser(
+                user.id(),
+                user.profile(),
+                login,
+                user.reservedName(),
+                user.version(),
+                user.createdAt(),
+                user.lastModifiedAt());
     }
 
     private static AuditScimRefusal refusal(ScimPatchRefusedException refused) {

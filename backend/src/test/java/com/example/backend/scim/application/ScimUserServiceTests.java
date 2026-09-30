@@ -23,6 +23,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimEmailFilter;
 import com.example.backend.scim.domain.ScimEmailPart;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimUser;
@@ -175,6 +176,77 @@ class ScimUserServiceTests {
                 CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
 
         assertThat(history.findRecentHashes(grace.id())).isEmpty();
+    }
+
+    // ---- a connector-set password requires a change ----------------------------------------
+
+    /**
+     * A credential chosen and transported by a connector is known outside the User, so it must be
+     * replaced before it is used for anything else: a create carrying one flags the User as of
+     * the create.
+     */
+    @Test
+    void a_create_with_a_password_requires_a_change() {
+        assertThat(stored().login().passwordChangeRequiredSince()).isEqualTo(LATER);
+        assertThat(stored().createdAt()).as("flagging keeps the creation stamps").isEqualTo(LATER);
+        assertThat(stored().lastModifiedAt()).isEqualTo(LATER);
+        assertThat(ada.createdAt()).isEqualTo(LATER);
+    }
+
+    @Test
+    void a_write_that_sets_no_password_does_not_flag_an_unflagged_user() {
+        ScimUserResource grace = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
+        UUID id = grace.id();
+
+        service.replace(CONNECTOR, id, versionOf(id),
+                new ScimUserReplacement(minimal("grace", false), null, null));
+
+        assertThat(users.findById(id).orElseThrow().login().isPasswordChangeRequired()).isFalse();
+    }
+
+    @Test
+    void a_create_without_a_password_requires_no_change() {
+        ScimUserResource grace = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
+
+        assertThat(users.findById(grace.id()).orElseThrow().login().isPasswordChangeRequired())
+                .isFalse();
+    }
+
+    @Test
+    void a_put_or_patch_setting_a_password_requires_a_change() {
+        ScimUserResource grace = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
+        UUID id = grace.id();
+        service.replace(CONNECTOR, id, versionOf(id),
+                new ScimUserReplacement(minimal("grace", true), "a-put-password", null));
+        assertThat(users.findById(id).orElseThrow().login().isPasswordChangeRequired())
+                .as("PUT with a password").isTrue();
+
+        ScimUser hopper =
+                users.given(ScimIdentities.userWithLoginState("hopper", ScimLoginState.of("hash")));
+        service.patch(CONNECTOR, hopper.id(), versionOf(hopper.id()),
+                List.of(new SetPassword("a-patch-password")));
+        assertThat(users.require("hopper").login().passwordChangeRequiredSince())
+                .as("PATCH with a password").isEqualTo(LATER);
+    }
+
+    /** Neither omitting the password, removing it, nor any other attribute clears the flag. */
+    @Test
+    void no_connector_write_clears_the_requirement() {
+        put(minimal("ada", true), null, "ext-ada");
+        assertThat(stored().login().isPasswordChangeRequired()).as("PUT omitting it").isTrue();
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+        assertThat(stored().login().isPasswordChangeRequired()).as("a profile change").isTrue();
+        patch(new RemovePassword());
+        assertThat(stored().login().isPasswordChangeRequired())
+                .as("removing the password").isTrue();
+    }
+
+    private ScimVersionPrecondition versionOf(UUID id) {
+        return ScimVersionPrecondition.ofIfMatch(
+                List.of("\"" + users.findById(id).orElseThrow().version() + "\""));
     }
 
     // ---- full replacement -----------------------------------------------------------------

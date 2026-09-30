@@ -42,6 +42,8 @@ import java.util.UUID;
  * @param hasPassword  whether a credential is set at all; a credentialless User exists and
  *                     cannot log in, which is otherwise indistinguishable from a forgotten
  *                     password
+ * @param passwordChangeRequired whether the User must replace its password before it may do
+ *                     anything but submit that change or log out
  * @param createdAt    when the resource was created
  */
 public record IdentitySummary(
@@ -51,5 +53,6 @@ public record IdentitySummary(
         boolean active,
         boolean locked,
         boolean hasPassword,
+        boolean passwordChangeRequired,
         Instant createdAt) {
 }

@@ -215,6 +215,14 @@ public class SecurityConfig {
                         .authenticationEntryPoint(unauthorized))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/login", "/actuator/health").permitAll()
+                        // The whole of what a session confined by a required password change may
+                        // do: read its own standing (which also seeds the CSRF token the change
+                        // submission needs), submit the change, and log out. Any authenticated
+                        // session, flagged or not, may reach these three.
+                        .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/auth/change-password")
+                                .authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/auth/logout").authenticated()
                         .requestMatchers("/api/admin", "/api/admin/**").hasRole("ADMIN")
                         // Operational telemetry (the Prometheus scrape) and every other
                         // actuator endpoint but health. Admin-only because a scrape
@@ -225,7 +233,11 @@ public class SecurityConfig {
                         // authentication and answers 401.
                         .requestMatchers("/actuator", "/actuator/**").hasRole("ADMIN")
                         .requestMatchers(this::isFrontendGet).permitAll()
-                        .anyRequest().authenticated())
+                        // ROLE_USER, not merely authenticated: a session issued while a password
+                        // change was required carries neither role, so it is refused here with
+                        // 403 — every other application endpoint, as /api/admin/** above refuses
+                        // it too. Every active User without the flag holds ROLE_USER.
+                        .anyRequest().hasRole("USER"))
                 .build();
     }
 

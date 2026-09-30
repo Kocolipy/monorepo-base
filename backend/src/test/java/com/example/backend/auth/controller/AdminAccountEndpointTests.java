@@ -37,6 +37,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The endpoint as a caller meets it: the real filter chain, the real controller,
@@ -140,18 +142,26 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The acceptance criterion that matters most: no hash on the wire, ever. The
-     * lower-case match is deliberate — {@code hasPassword} is a boolean saying
-     * whether a credential exists at all, and that is not the credential.
+     * The acceptance criterion that matters most: no hash on the wire, ever. Asserted as the exact
+     * field set of every listed identity, so any added field — a hash under whatever name — fails
+     * here; {@code hasPassword} and {@code passwordChangeRequired} are booleans about the
+     * credential, not the credential. The hash-format checks catch a value smuggled into an
+     * existing field.
      */
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
+        String body = mvc.perform(get("/api/admin/accounts")
+                        .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
-                .andExpect(content().string(Matchers.not(Matchers.containsString("password"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
-                .andExpect(jsonPath("$[0].passwordHash").doesNotExist());
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode listing = JsonMapper.builder().build().readTree(body);
+        assertThat(listing.size()).isPositive();
+        listing.valueStream().forEach(identity -> assertThat(identity.propertyNames())
+                .containsExactlyInAnyOrder("id", "userName", "admin", "active", "locked",
+                        "hasPassword", "passwordChangeRequired", "createdAt"));
     }
 
     @Test

@@ -34,5 +34,17 @@ public enum AuditAdministrativeRefusal {
      * The target is the only administrator still able to act, so disabling it would leave
      * nobody able to enable it again.
      */
-    LAST_ENABLED_ADMINISTRATOR
+    LAST_ENABLED_ADMINISTRATOR,
+
+    /**
+     * An administrator aimed an Unlock or a forced password change at their own account. Refused so
+     * that recovering from a self-inflicted state takes a second administrator.
+     */
+    SELF_TARGET,
+
+    /**
+     * A forced password change aimed at a User with no credential, which already cannot log in and
+     * has no password to replace.
+     */
+    CREDENTIALLESS_TARGET
 }

@@ -1,5 +1,6 @@
 package com.example.backend.auth.controller;
 
+import com.example.backend.auth.application.ForbiddenIdentityChangeException;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
 import com.example.backend.auth.application.UnknownIdentityException;
@@ -67,10 +68,26 @@ public class AdminAccountController {
         return identities.activate(username, principal.getName());
     }
 
-    /** Ends a lockout early. Says nothing about whether the account is enabled. */
+    /** Ends a lockout and requires a password change. Says nothing about whether it is enabled. */
     @PostMapping("/{username}/unlock")
     public IdentitySummary unlock(@PathVariable String username, Principal principal) {
         return identities.unlock(username, principal.getName());
+    }
+
+    /**
+     * Requires the account to replace its password before it may do anything else, ending the
+     * sessions it holds. The Admin never learns or chooses the password.
+     */
+    @PostMapping("/{username}/force-password-change")
+    public IdentitySummary forcePasswordChange(
+            @PathVariable String username, Principal principal) {
+        return identities.forcePasswordChange(username, principal.getName());
+    }
+
+    /** A refusal about whose account it is — the caller's own, or the Bootstrap Admin. */
+    @ExceptionHandler(ForbiddenIdentityChangeException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public void forbiddenChange() {
     }
 
     @ExceptionHandler(UnknownIdentityException.class)

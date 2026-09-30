@@ -2,8 +2,10 @@ package com.example.backend.auth.config;
 
 import com.example.backend.auth.application.DormantAuthorityRevocationService;
 import com.example.backend.auth.application.InactivityDeactivationService;
+import com.example.backend.auth.application.PasswordChangeGraceService;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.PasswordChangeGracePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
@@ -36,19 +38,28 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     /** Daily at 04:30. */
     public static final String AUTHORITY_REVOCATION_SCHEDULE = "0 30 4 * * *";
 
+    /** Daily at 05:00, staggered after both dormancy jobs. */
+    public static final String PASSWORD_CHANGE_GRACE_SCHEDULE = "0 0 5 * * *";
+
     private static final Logger log = LoggerFactory.getLogger(DormancyScheduleConfig.class);
 
     private final InactivityDeactivationService deactivation;
     private final DormantAuthorityRevocationService authorityRevocation;
+    private final PasswordChangeGraceService passwordChangeGrace;
     private final DormancyPolicy policy;
+    private final PasswordChangeGracePolicy gracePolicy;
 
     public DormancyScheduleConfig(
             InactivityDeactivationService deactivation,
             DormantAuthorityRevocationService authorityRevocation,
-            DormancyPolicy policy) {
+            PasswordChangeGraceService passwordChangeGrace,
+            DormancyPolicy policy,
+            PasswordChangeGracePolicy gracePolicy) {
         this.deactivation = deactivation;
         this.authorityRevocation = authorityRevocation;
+        this.passwordChangeGrace = passwordChangeGrace;
         this.policy = policy;
+        this.gracePolicy = gracePolicy;
     }
 
     @Override
@@ -58,10 +69,15 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
         registrar.addCronTask(new CronTask(
                 authorityRevocation::revokeDormantAuthority,
                 new CronTrigger(AUTHORITY_REVOCATION_SCHEDULE)));
+        registrar.addCronTask(new CronTask(
+                passwordChangeGrace::deactivateOverdueUsers,
+                new CronTrigger(PASSWORD_CHANGE_GRACE_SCHEDULE)));
         scheduled(InactivityDeactivationService.ACTION, DEACTIVATION_SCHEDULE,
                 policy.deactivationWindow().toString());
         scheduled(DormantAuthorityRevocationService.ACTION, AUTHORITY_REVOCATION_SCHEDULE,
                 policy.authorityRevocationWindow().toString());
+        scheduled(PasswordChangeGraceService.ACTION, PASSWORD_CHANGE_GRACE_SCHEDULE,
+                gracePolicy.window().toString());
     }
 
     private static void scheduled(String action, String schedule, String window) {

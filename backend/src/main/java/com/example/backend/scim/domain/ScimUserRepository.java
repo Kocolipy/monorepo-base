@@ -154,6 +154,34 @@ public interface ScimUserRepository {
     List<UUID> findDormantActiveUserIds(Instant cutoff);
 
     /**
+     * Sets the change-required flag as of {@code since}, and nothing else.
+     *
+     * <p>Narrow for the reason {@link #updateLoginState} is: every setter of the flag — a
+     * connector's password write, an Admin's forced change, an Unlock — is racing the login path's
+     * own writes to the same row, and a whole-state write would revert whichever landed between the
+     * read and this call. It does NOT advance the version: the flag is not a SCIM attribute, so
+     * setting it changes nothing a connector reads. A write matching no row is silently nothing.
+     */
+    void requirePasswordChange(UUID id, Instant since);
+
+    /**
+     * Replaces the credential and clears the change-required flag in one write — the self-service
+     * change, and the only operation that clears the flag. Advances the version and
+     * {@code lastModified}, because {@code password} is a SCIM attribute even though its value is
+     * never rendered.
+     *
+     * @return the User as it now stands, or empty when no User has that id
+     */
+    Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now);
+
+    /**
+     * The ids of every active, unreserved User whose change-required flag was set strictly before
+     * {@code cutoff}, ordered by id — the grace-period job's candidates. Candidates only, as
+     * {@link #findDormantActiveUserIds} are: the job re-reads each under its resource lock.
+     */
+    List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff);
+
+    /**
      * Deletes the User — its resource row and, through the cascades, its profile, emails,
      * credential, password history, memberships and connector aliases — and advances the
      * version of every Group it was a member of, whose {@code members} just lost an entry.

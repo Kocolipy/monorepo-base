@@ -80,8 +80,8 @@ class IdentityAdministrationServiceTests {
         givenAdminGroup(ada);
 
         assertThat(service.listIdentities()).containsExactly(
-                new IdentitySummary(ada.id(), "ada", true, true, false, true, NOW),
-                new IdentitySummary(bob.id(), "bob", false, true, false, true, NOW));
+                new IdentitySummary(ada.id(), "ada", true, true, false, true, false, NOW),
+                new IdentitySummary(bob.id(), "bob", false, true, false, true, false, NOW));
     }
 
     @Test
@@ -747,8 +747,9 @@ class IdentityAdministrationServiceTests {
 
         service.unlock("bob", BOOTSTRAP);
 
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), null));
+        assertThat(audit.recorded()).containsExactly(
+                new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), null),
+                new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
     }
 
     /**
@@ -888,6 +889,181 @@ class IdentityAdministrationServiceTests {
                                     LogEvent.REASON,
                                     AuditAdministrativeRefusal.SELF_DISABLE.name()));
         }
+    }
+
+    // Unlock requires a password change (IM8 as-15 / ac-6)
+
+    /**
+     * The credential that reached the lockout threshold may be the one an attacker was guessing,
+     * so lifting the lock requires it to be replaced: the flag is set as of the Unlock, reported
+     * in the summary, and recorded as a requirement the Admin imposed.
+     */
+    @Test
+    void unlockingALockedCredentialedUserRequiresAPasswordChange() {
+        ScimUser recovery = givenBootstrapAdmin();
+        ScimUser bob = givenLocked("bob");
+        clock.advanceBy(Duration.ofHours(1));
+
+        IdentitySummary unlocked = service.unlock("bob", BOOTSTRAP);
+
+        assertThat(unlocked.passwordChangeRequired()).isTrue();
+        assertThat(users.require("bob").login().passwordChangeRequiredSince())
+                .isEqualTo(clock.instant());
+        assertThat(users.require("bob").version())
+                .as("the flag is not a SCIM attribute")
+                .isEqualTo(bob.version());
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE_REQUIRE)).containsExactly(
+                new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
+    }
+
+    /** A credentialless User has no password to replace, so it is unlocked without the flag. */
+    @Test
+    void unlockingACredentiallessUserDoesNotRequireAChange() {
+        users.given(ScimIdentities.userWithLoginState(
+                "carol", new ScimLoginState(null, 3, NOW)));
+
+        IdentitySummary unlocked = service.unlock("carol", BOOTSTRAP);
+
+        assertThat(unlocked.locked()).isFalse();
+        assertThat(unlocked.passwordChangeRequired()).isFalse();
+        assertThat(users.require("carol").login().isPasswordChangeRequired()).isFalse();
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE_REQUIRE)).isEmpty();
+    }
+
+    /** No lockout was reached, so there is no credential under suspicion. */
+    @Test
+    void anIdempotentUnlockRequiresNoChange() {
+        given("bob");
+
+        assertThat(service.unlock("bob", BOOTSTRAP).passwordChangeRequired()).isFalse();
+        assertThat(users.require("bob").login().isPasswordChangeRequired()).isFalse();
+    }
+
+    @Test
+    void anAdminCannotUnlockTheirOwnAccount() {
+        ScimUser ada = givenLocked("ada");
+        int before = users.writes();
+
+        assertThatThrownBy(() -> service.unlock("ADA", "ada"))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
+
+        assertThat(users.writes()).isEqualTo(before);
+        assertThat(users.require("ada").login().isLocked()).isTrue();
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOCKOUT_LIFT, ada.id(), ada.id(),
+                AuditAdministrativeRefusal.SELF_TARGET.name()));
+    }
+
+    // Forced password change
+
+    @Test
+    void forcingAChangeFlagsTheUserAndRevokesItsSessionsAfterCommit() {
+        ScimUser recovery = givenBootstrapAdmin();
+        ScimUser bob = given("bob");
+        sessions.open(bob.id(), "bob-session");
+
+        IdentitySummary forced = service.forcePasswordChange("bob", BOOTSTRAP);
+
+        assertThat(forced.passwordChangeRequired()).isTrue();
+        assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
+        assertThat(users.require("bob").version()).isEqualTo(bob.version());
+        assertThat(sessions.sessionsOf(bob.id())).as("revocation waits for the commit").hasSize(1);
+        transaction.commit();
+        assertThat(sessions.sessionsOf(bob.id())).isEmpty();
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
+    }
+
+    /** A User already flagged keeps the grace period it is serving; nothing is re-imposed. */
+    @Test
+    void forcingAChangeOnAFlaggedUserIsANoOp() {
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 0, null, null, NOW)));
+        clock.advanceBy(Duration.ofDays(3));
+        int before = users.writes();
+
+        assertThat(service.forcePasswordChange("bob", BOOTSTRAP).passwordChangeRequired()).isTrue();
+
+        assertThat(users.writes()).isEqualTo(before);
+        assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
+        assertThat(transaction.pending()).isZero();
+        assertThat(audit.recorded()).isEmpty();
+    }
+
+    /** The returned summary is the stored User's, the Admin flag and creation time included. */
+    @Test
+    void forcingAChangeOnAnAdminReportsItAsAnAdminOnEitherPath() {
+        givenBootstrapAdmin();
+        ScimUser eve = given("eve");
+        ScimUser fay = users.given(ScimIdentities.userWithLoginState(
+                "fay", new ScimLoginState("hash", 0, null, null, NOW)));
+        givenAdminGroup(eve, fay);
+
+        IdentitySummary flagged = service.forcePasswordChange("eve", BOOTSTRAP);
+        IdentitySummary alreadyFlagged = service.forcePasswordChange("fay", BOOTSTRAP);
+
+        assertThat(flagged.admin()).isTrue();
+        assertThat(flagged.createdAt()).isEqualTo(eve.createdAt()).isNotNull();
+        assertThat(alreadyFlagged.admin()).isTrue();
+        assertThat(alreadyFlagged.createdAt()).isEqualTo(fay.createdAt()).isNotNull();
+    }
+
+    @Test
+    void forcingAChangeOnACredentiallessUserIsRefused() {
+        ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
+
+        assertThatThrownBy(() -> service.forcePasswordChange("carol", BOOTSTRAP))
+                .isInstanceOf(UnsafeIdentityChangeException.class);
+
+        assertRefusedWithoutEffect(carol, AuditAdministrativeRefusal.CREDENTIALLESS_TARGET);
+    }
+
+    @Test
+    void anAdminCannotForceAChangeOnTheirOwnAccount() {
+        ScimUser ada = given("ada");
+
+        assertThatThrownBy(() -> service.forcePasswordChange("ada", "Ada"))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
+
+        assertRefusedWithoutEffect(ada, AuditAdministrativeRefusal.SELF_TARGET);
+    }
+
+    @Test
+    void nobodyButTheBootstrapAdminMayFlagIt() {
+        ScimUser recovery = givenBootstrapAdmin();
+        given("ada");
+
+        assertThatThrownBy(() -> service.forcePasswordChange(BOOTSTRAP, "ada"))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
+
+        assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isFalse();
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE,
+                users.require("ada").id(),
+                recovery.id(),
+                AuditAdministrativeRefusal.PROTECTED_RESOURCE.name()));
+    }
+
+    @Test
+    void theBootstrapAdminMayFlagItself() {
+        givenBootstrapAdmin();
+
+        assertThat(service.forcePasswordChange(BOOTSTRAP, BOOTSTRAP).passwordChangeRequired())
+                .isTrue();
+        assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isTrue();
+    }
+
+    private void assertRefusedWithoutEffect(ScimUser target, AuditAdministrativeRefusal reason) {
+        assertThat(users.require(target.profile().userName()).login().isPasswordChangeRequired())
+                .isFalse();
+        assertThat(transaction.pending()).isZero();
+        assertThat(audit.recorded())
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE_REQUIRE);
+                    assertThat(event.subjectId()).isEqualTo(target.id());
+                    assertThat(event.detail()).isEqualTo(reason.name());
+                });
     }
 
     private ScimUser given(String userName) {

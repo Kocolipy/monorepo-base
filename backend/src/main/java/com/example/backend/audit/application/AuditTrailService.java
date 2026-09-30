@@ -7,6 +7,7 @@ import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
@@ -71,6 +72,14 @@ public class AuditTrailService implements AuditTrail {
 
     /** The administrative standing column. */
     private static final List<String> ENABLED_PATHS = List.of("active");
+
+    /** What requiring a password change sets: the flag, and nothing about the credential. */
+    private static final List<String> PASSWORD_CHANGE_REQUIRED_PATHS =
+            List.of("passwordChangeRequiredSince");
+
+    /** What a self-service change moves: the credential, and the flag it clears. */
+    private static final List<String> PASSWORD_CHANGED_PATHS =
+            List.of("password", "passwordChangeRequiredSince");
 
     /** What a Group rename changes. */
     private static final List<String> GROUP_NAME_PATHS = List.of("displayName");
@@ -702,6 +711,92 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 userId,
                 userPaths(Set.of(AuditUserAttribute.GROUPS)),
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /** Records an administrator requiring a password change. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordPasswordChangeRequired(UUID actorId, UUID subjectId) {
+        append(event(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE,
+                AuditOutcome.SUCCESS,
+                actorId,
+                subjectId,
+                PASSWORD_CHANGE_REQUIRED_PATHS,
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /** Records a forced password change refused. Fail-open with an alert. */
+    @Override
+    public void recordPasswordChangeRequirementRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.PASSWORD_CHANGE_REQUIRE,
+                AuditOutcome.FAILURE,
+                actorId,
+                subjectId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /** Records an Unlock refused. Fail-open with an alert. */
+    @Override
+    public void recordUnlockRefused(
+            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.LOCKOUT_LIFT,
+                AuditOutcome.FAILURE,
+                actorId,
+                subjectId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /**
+     * Records a User replacing its own password. Fail-closed. The User is its own actor, and the
+     * paths name the credential and the flag — never a value.
+     */
+    @Transactional
+    @Override
+    public void recordPasswordChanged(UUID userId) {
+        append(event(
+                AuditOperation.PASSWORD_CHANGE,
+                AuditOutcome.SUCCESS,
+                userId,
+                userId,
+                PASSWORD_CHANGED_PATHS,
+                AuditEvent.STATUS_OK,
+                null));
+    }
+
+    /** Records a self-service password change refused. Fail-open with an alert. */
+    @Override
+    public void recordPasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason) {
+        appendRaisingAlertOnFailure(event(
+                AuditOperation.PASSWORD_CHANGE,
+                AuditOutcome.FAILURE,
+                userId,
+                userId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                reason.name()));
+    }
+
+    /** Records the grace-period job deactivating a User. Fail-closed and actorless. */
+    @Transactional
+    @Override
+    public void recordPasswordChangeGraceDeactivation(UUID userId) {
+        append(event(
+                AuditOperation.PASSWORD_CHANGE_GRACE_DEACTIVATION,
+                AuditOutcome.SUCCESS,
+                null,
+                userId,
+                ENABLED_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }

@@ -96,6 +96,10 @@ paths:
     get:
       tags: [Authentication]
       summary: Get the authenticated user
+      description: |
+        Also answers a session confined by the change-required flag, reporting
+        `passwordChangeRequired: true` and no role, so a client can route it to
+        the change flow.
       operationId: getCurrentUser
       responses:
         "200":
@@ -127,6 +131,62 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/CsrfTokenRejected"
+  /api/auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change the session's own password
+      description: |
+        Self-service password change for the User the session belongs to — read
+        from the session, never from the request. Open to every authenticated
+        session, and one of the three operations (with `GET /api/auth/me` and
+        logout) a session confined by the change-required flag may call.
+
+        On success the new password is hashed, the change-required flag is
+        cleared, the SCIM version advances, a `PASSWORD_CHANGE` audit event is
+        recorded with no password value, and EVERY session of the User is
+        revoked — this one included — so the caller logs in again with the new
+        password.
+
+        A wrong current password counts toward the same consecutive-failure
+        lockout as Login. At the threshold the account locks: Login and further
+        change attempts are refused until an Admin calls `unlock`; nothing lifts
+        a lockout on its own.
+      operationId: changePassword
+      parameters:
+        - $ref: "#/components/parameters/CsrfToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: The password was changed and every session of the User ended.
+          headers:
+            Set-Cookie:
+              description: |
+                An expired session cookie, and a replacement `XSRF-TOKEN` cookie
+                usable for the next login.
+              schema:
+                type: string
+        "400":
+          description: |
+            The body is missing, malformed or fails validation, or the new
+            password breaks a policy rule or repeats a recent one. A policy
+            refusal carries a `PasswordRuleViolation` body naming the rule; neither
+            submitted value is ever echoed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordRuleViolation"
+        "401":
+          description: |
+            No usable session, or the change was refused: wrong current password,
+            an account locked out, or an inactive account. One bodiless answer
+            covers every reason, as for Login.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/session:
@@ -321,8 +381,15 @@ paths:
         nothing about `enabled`: a disabled account can be unlocked and stays
         disabled.
 
+        Lifting a lockout always sets the change-required flag on an account that
+        has a password, because the credential that reached the threshold may be
+        the one being guessed: the account then authenticates into the change
+        flow and is confined to it until a new password is set. A credentialless
+        account is unlocked without the flag — it has no password to replace. The
+        flag is not a SCIM attribute, so the version does not advance.
+
         Idempotent — an account serving no lockout is answered 200 with nothing
-        written.
+        written and no change required.
       operationId: unlockUser
       parameters:
         - $ref: "#/components/parameters/Username"
@@ -333,9 +400,47 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          description: |
+            The caller is not an Admin (see `AdminRoleRequired`), or is an Admin
+            targeting their own account: recovering from a self-inflicted lockout
+            takes a second Admin or the Bootstrap Admin.
         "404":
           $ref: "#/components/responses/UnknownAccount"
+  /api/admin/accounts/{username}/force-password-change:
+    post:
+      tags: [Administration]
+      summary: Require an account to change its password
+      description: |
+        Sets the change-required flag and ends every session the account holds,
+        so from its next login it is confined to `POST /api/auth/change-password`
+        and logout. The Admin never sees, chooses or transports a password. Starts
+        the grace period (`APP_PASSWORD_CHANGE_GRACE_PERIOD`, default 30 days),
+        after which a still-flagged account is deactivated. Records a
+        `PASSWORD_CHANGE_REQUIRE` audit event, refusals included.
+
+        Idempotent — an account already flagged is answered 200 unchanged, and
+        the grace period it is serving is not restarted.
+      operationId: forcePasswordChange
+      parameters:
+        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/CsrfToken"
+      responses:
+        "200":
+          $ref: "#/components/responses/AdminAccount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            The caller is not an Admin (see `AdminRoleRequired`); or the target is
+            the caller's own account; or the target is the Bootstrap Admin and the
+            caller is not the Bootstrap Admin itself — only it may flag its own
+            password.
+        "404":
+          $ref: "#/components/responses/UnknownAccount"
+        "409":
+          description: |
+            The account has no password, so there is no credential to replace. Not
+            403: the caller holds the right role, the action itself is refused.
   /api/admin/connectors:
     get:
       tags: [Connectors]
@@ -1724,7 +1829,9 @@ components:
       description: |
         The session is valid and was accepted; the account's role is what was
         refused. Distinct from 401, which means no usable session arrived at all —
-        a client must not treat this as a signal to sign in again.
+        a client must not treat this as a signal to sign in again. A session
+        confined by the change-required flag holds no role, so it receives this
+        on every endpoint but the change flow, an Admin's included.
     ScimBadRequest:
       description: |
         The request was not acceptable SCIM: an unparseable or non-object body, a
@@ -1851,17 +1958,58 @@ components:
           format: password
     UserResponse:
       type: object
-      required: [username, role]
+      required: [username, role, passwordChangeRequired]
       properties:
         username:
           type: string
         role:
+          type: [string, "null"]
+          enum: [USER, ADMIN, null]
+          description: |
+            The account role used for authorization. `null` while
+            `passwordChangeRequired` is true: a confined session holds no role
+            until the password is replaced, an Admin's included.
+        passwordChangeRequired:
+          type: boolean
+          description: |
+            Whether this session is confined to the change flow. While true, the
+            session may call `GET /api/auth/me`, `POST /api/auth/change-password`
+            and `DELETE /api/auth/logout`; every other endpoint, `/api/admin/**`
+            included, answers 403.
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
           type: string
-          enum: [USER, ADMIN]
-          description: The account role used for authorization.
+          minLength: 1
+          pattern: ".*\\S.*"
+          format: password
+        newPassword:
+          type: string
+          minLength: 1
+          pattern: ".*\\S.*"
+          format: password
+    PasswordRuleViolation:
+      type: object
+      required: [rule, message]
+      description: |
+        The first password-policy rule the new password failed. Names the rule;
+        never echoes the current or the new value.
+      properties:
+        rule:
+          type: string
+          enum: [TOO_SHORT, TOO_LONG, CONTAINS_USER_NAME, REUSED]
+          description: |
+            `TOO_SHORT` below 12 characters, `TOO_LONG` above 256,
+            `CONTAINS_USER_NAME` when it contains the user name (case-insensitive), `REUSED` when it
+            equals the current password or one of the 3 most recent ones.
+        message:
+          type: string
+          description: A human-readable statement of the rule.
     AccountSummary:
       type: object
-      required: [id, userName, admin, active, locked, hasPassword, createdAt]
+      required: [id, userName, admin, active, locked, hasPassword, passwordChangeRequired, createdAt]
       properties:
         id:
           type: string
@@ -1917,6 +2065,15 @@ components:
 
             The value itself is never reported, here or anywhere: this schema has
             no field a hash could occupy.
+        passwordChangeRequired:
+          type: boolean
+          description: |
+            The change-required flag: whether the identity must replace its
+            password before it may do anything but submit that change or log out.
+            Set by every connector password write, by `force-password-change` and
+            by `unlock` of an identity that has a password; cleared only by a
+            successful `POST /api/auth/change-password`. An identity left flagged
+            past the grace period is deactivated.
         createdAt:
           type: string
           format: date-time

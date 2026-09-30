@@ -56,6 +56,20 @@ public class LoginIdentityService implements UserDetailsService {
     private static final String ADMIN_ROLE = "ADMIN";
 
     /**
+     * The only authority a User with a pending required password change receives: it may read its
+     * own requirement, submit the change and log out, and nothing else. Deliberately not a role and
+     * not combined with {@code ROLE_USER} or {@code ROLE_ADMIN} — a flagged Admin holds no
+     * administrative authority until the credential is replaced, and the filter chain, which grants
+     * every other application endpoint to {@code ROLE_USER} only, refuses it everywhere else.
+     *
+     * <p>Decided here, at authentication, rather than per request: the flag is not enumerable before
+     * login (the User authenticates normally), and a session carries the authority it was issued
+     * with, so clearing the flag takes effect at the next login — which the change forces, by
+     * revoking every session.
+     */
+    public static final String PASSWORD_CHANGE_REQUIRED_AUTHORITY = "PASSWORD_CHANGE_REQUIRED";
+
+    /**
      * A fixed passphrase encoded with the same {@link PasswordEncoder} this service is
      * configured with, standing in for a credentialless User's absent hash. Computed once, on
      * first use, from whatever encoder is injected — mirroring how
@@ -105,11 +119,16 @@ public class LoginIdentityService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) {
         ScimUser user = users.findByNormalizedUserName(normalized(username))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
-        return User.withUsername(user.profile().userName())
+        User.UserBuilder builder = User.withUsername(user.profile().userName())
                 .password(user.login().hasPassword()
                         ? user.login().passwordHash()
-                        : noPasswordSetMarker())
-                .roles(rolesOf(user))
+                        : noPasswordSetMarker());
+        if (user.login().isPasswordChangeRequired()) {
+            builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+        } else {
+            builder.roles(rolesOf(user));
+        }
+        return builder
                 .accountLocked(user.login().isLocked())
                 // `active` is what the administrative listing reports, so authentication has to
                 // honour it: an inactive User that could still log in would make the listing a

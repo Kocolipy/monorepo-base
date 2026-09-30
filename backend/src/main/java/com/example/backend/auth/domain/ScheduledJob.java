@@ -14,7 +14,10 @@ public enum ScheduledJob {
     INACTIVITY_DEACTIVATION("inactivity-deactivation"),
 
     /** Removes the Admin-group membership of Users past the dormant-authority window. */
-    DORMANT_AUTHORITY_REVOCATION("dormant-authority-revocation");
+    DORMANT_AUTHORITY_REVOCATION("dormant-authority-revocation"),
+
+    /** Deactivates Users that left a required password change unmade past the grace period. */
+    PASSWORD_CHANGE_GRACE_DEACTIVATION("password-change-grace-deactivation");
 
     private final String lockName;
 

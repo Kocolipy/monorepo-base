@@ -196,6 +196,17 @@ directory that a test run writes into belongs on this list.
 | `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | account administration, restricted to `ADMIN`           |
 | `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                        |
 
+**Change-password route — backend only, not yet rendered.** The backend confines
+a session whose password must be replaced (the change-required flag, see
+`/CONTEXT.md`): `GET /api/auth/me` and the login response report
+`passwordChangeRequired: true` with `role: null`, and every endpoint but
+`POST /api/auth/change-password` and logout answers `403`. The SPA does not read
+the flag yet — `AuthUser` has no field for it — so such a session is routed as
+authenticated, lands on `/showcase`, and sees its data calls refused. The page
+that closes this is a `/change-password` route that `resolveSessionRoute` sends
+every flagged session to (and nowhere else), submitting current and new password
+and returning to login on `204`, since the change ends every session.
+
 `resolveSessionRoute` is the pure transition table behind both guard adapters.
 It sends a Visitor to login with a return destination, renders authenticated
 routes for either role, and redirects a role mismatch to `/showcase`. Spring

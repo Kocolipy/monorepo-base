@@ -49,6 +49,28 @@ class LoginIdentityServiceTests {
 
     // Reporting the stored identity to Spring Security
 
+    /**
+     * A User with a required password change authenticates normally — the refusal is at
+     * authorization, so the state is not enumerable before login — but receives the confined
+     * authority ONLY: no {@code ROLE_USER}, and for a member of the Admin group no
+     * {@code ROLE_ADMIN} either.
+     */
+    @Test
+    void aUserRequiredToChangeItsPasswordReceivesOnlyTheConfinedAuthority() {
+        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
+                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
+        groups.createReserved(
+                ScimIdentities.group("Admins", grace), ReservedResourceName.ADMIN_GROUP);
+
+        UserDetails details = service.loadUserByUsername("grace");
+
+        assertThat(details.getAuthorities())
+                .extracting(GrantedAuthority::getAuthority)
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+        assertThat(details.isEnabled()).isTrue();
+        assertThat(details.isAccountNonLocked()).isTrue();
+        assertThat(details.getPassword()).isEqualTo("hash");
+    }
     @Test
     void loadsThePersistedIdentityAsSpringSecurityUserDetails() {
         users.given(ScimIdentities.user("admin"));
