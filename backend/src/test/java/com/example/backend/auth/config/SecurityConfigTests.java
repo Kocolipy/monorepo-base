@@ -28,8 +28,6 @@ import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -38,12 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootTest
 @Import(com.example.backend.ContainerTestConfiguration.class)
-// Every assertion here is about what this configuration builds, and the chain is
-// built once per context. Evicting the cached context before each method makes
-// each of them observe a real startup rather than wiring inherited from whichever
-// test happened to run first, which is also what keeps each assertion answerable
-// for the chain line it covers.
-@DirtiesContext(classMode = ClassMode.BEFORE_EACH_TEST_METHOD)
+// Every assertion here reads immutable configuration beans (the filter chain and
+// the CSRF / security-context repositories) and builds its own local MockMvc per
+// method, so nothing here mutates the application context. The context is
+// therefore shared with the other @SpringBootTest classes via the context cache
+// rather than rebuilt per method — booting it once instead of eleven times.
 class SecurityConfigTests {
 
     private static final String CSRF_COOKIE = "XSRF-TOKEN";

@@ -2,6 +2,7 @@ package com.example.backend;
 
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
@@ -27,9 +28,37 @@ public class ContainerTestConfiguration {
     private static final DockerImageName POSTGRES_IMAGE =
             DockerImageName.parse("postgres:18.6-alpine");
 
+    private static final DockerImageName REDIS_IMAGE =
+            DockerImageName.parse("redis:8.2-alpine");
+
     @Bean
     @ServiceConnection
     PostgreSQLContainer<?> postgresContainer() {
         return new PostgreSQLContainer<>(POSTGRES_IMAGE);
+    }
+
+    /**
+     * The one place a Redis container is declared for tests, for the same reason
+     * Postgres is: a container declared as a {@code @Bean} here is created once
+     * per test {@code ApplicationContext} and shared through Spring's context
+     * cache across every {@code @SpringBootTest} that imports this configuration
+     * with identical context configuration.
+     *
+     * <p>Previously each Redis-backed integration class started its own
+     * {@code GenericContainer} in a {@code static} block and bound it with
+     * {@code @DynamicPropertySource}. A per-class dynamic property is a distinct
+     * context-cache key, so every such class booted its own context (and needed
+     * {@code @DirtiesContext} to evict the container-bound context afterwards).
+     * Moving the container here collapses them onto the shared context instead.
+     *
+     * <p>{@code @ServiceConnection("redis")} names the connection type explicitly
+     * because a {@code GenericContainer} — unlike {@code PostgreSQLContainer} —
+     * carries no built-in service hint, so Spring Boot cannot infer it from the
+     * container type alone.
+     */
+    @Bean
+    @ServiceConnection("redis")
+    GenericContainer<?> redisContainer() {
+        return new GenericContainer<>(REDIS_IMAGE).withExposedPorts(6379);
     }
 }
