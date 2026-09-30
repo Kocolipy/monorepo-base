@@ -259,6 +259,11 @@ then send the returned cookie). Sessions end after 15 minutes idle and 8 hours
 absolute, so a long-running Prometheus has to log in again. No machine
 credential for metrics exists yet.
 
+With the internal port set, the login still goes to the application port, because
+`/api/auth/login` is served only there. The same session cookie is then accepted on
+port 9090. The session lives in Redis, and the management port reads it through the
+application's own session filter (`ManagementSessionConfiguration`).
+
 ### Alerts
 
 The alert rules are code: `backend/ops/prometheus/alerts.yaml`. Load them with
