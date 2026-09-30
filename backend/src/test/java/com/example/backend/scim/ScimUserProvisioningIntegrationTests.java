@@ -12,9 +12,11 @@ import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import jakarta.servlet.Filter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -97,6 +99,9 @@ class ScimUserProvisioningIntegrationTests {
 
     private String writeToken;
 
+    /** Every resource this test created, so teardown removes exactly those and nothing else. */
+    private final List<UUID> createdResources = new ArrayList<>();
+
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.webAppContextSetup(context)
@@ -104,6 +109,27 @@ class ScimUserProvisioningIntegrationTests {
                 .build();
         connectorId = connectors.create("Okta", "test-admin").id();
         writeToken = issueTokenFor(connectorId, ConnectorTokenScope.READ_WRITE);
+    }
+
+    /**
+     * Removes the resources THIS test created, and only those.
+     *
+     * <p>This class shares one Spring context and one Postgres with every other integration
+     * test, and {@code userName} and {@code displayName} are server-unique. Without teardown a
+     * name created here (e.g. "member") leaks into a later class that creates the same name,
+     * which then gets a {@code 409} depending only on Surefire's class ordering. Scoped to
+     * tracked ids for the same reason ScimGroupProvisioningIntegrationTests gives: a broader
+     * delete would remove other classes' fixtures.
+     *
+     * <p>Deleting the {@code scim_resources} row cascades to the type-specific table and to any
+     * membership, so this is one statement per resource regardless of its kind.
+     */
+    @AfterEach
+    void removeOnlyWhatThisTestCreated() {
+        for (UUID id : createdResources) {
+            jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
+        }
+        createdResources.clear();
     }
 
     /**
@@ -222,6 +248,7 @@ class ScimUserProvisioningIntegrationTests {
                 .andReturn();
         assertThat(group.getResponse().getStatus()).isEqualTo(201);
         UUID groupId = UUID.fromString(body(group).get("id").asText());
+        createdResources.add(groupId);
 
         JsonNode reread = readAs(writeToken, id);
         assertThat(reread.get("groups")).hasSize(1);
@@ -559,9 +586,14 @@ class ScimUserProvisioningIntegrationTests {
                 .doesNotContain("never-logged");
     }
 
+    /** Every User create goes through here, so every created User is tracked for teardown. */
     private MvcResult create(String body) throws Exception {
-        return mvc.perform(asConnector(post(USERS)).contentType(SCIM_JSON).content(body))
+        MvcResult result = mvc.perform(asConnector(post(USERS)).contentType(SCIM_JSON).content(body))
                 .andReturn();
+        if (result.getResponse().getStatus() == 201) {
+            createdResources.add(UUID.fromString(body(result).get("id").asText()));
+        }
+        return result;
     }
 
     private JsonNode readAs(String token, UUID id) throws Exception {
