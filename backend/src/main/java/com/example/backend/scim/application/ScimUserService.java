@@ -11,6 +11,7 @@ import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimAttributeLimits;
+import com.example.backend.scim.domain.ScimAttributeValueException;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -27,7 +28,6 @@ import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimUserSessions;
-import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
@@ -71,8 +71,9 @@ import org.springframework.transaction.annotation.Transactional;
  *       without one is applied unconditionally, still under the lock and in one transaction with
  *       its version advance, so unconditional writers serialize rather than interleave;
  *   <li>refuse the Bootstrap Admin, which no SCIM write may change;
- *   <li>compute the desired state in memory, refuse a value longer than its column
- *       ({@link ScimAttributeLimits}), refuse a password the {@link PasswordPolicy} does
+ *   <li>compute the desired state in memory, refuse a value its column cannot hold — too long,
+ *       or carrying a forbidden control character ({@link ScimAttributeLimits}) — refuse a
+ *       password the {@link PasswordPolicy} does
  *       not accept — its intrinsic rules, then reuse — and write only if something differs — a
  *       write that changed nothing advances no version;
  *   <li>audit what moved, and end the User's sessions after the commit when the change is one
@@ -130,8 +131,8 @@ public class ScimUserService {
      * not the row, not the projection returned. Its hash starts the User's password
      * history, so a later change back to it is refused like any other reuse.
      *
-     * <p>A value longer than its column — see {@link ScimAttributeLimits} — is refused first, as
-     * {@code invalidValue} naming the attribute and its limit, and audited fail-open as that.
+     * <p>A value its column cannot hold — see {@link ScimAttributeLimits} — is refused first, as
+     * {@code invalidValue} naming the attribute and the rule, and audited fail-open as that.
      * Without it the INSERT would fail on the column and the failure could only be guessed at.
      *
      * <p>A submitted password must satisfy {@link PasswordPolicy} before anything else happens; a
@@ -148,9 +149,9 @@ public class ScimUserService {
         try {
             ScimAttributeLimits.requireWithin(command.profile());
             ScimAttributeLimits.requireExternalIdWithin(command.externalId());
-        } catch (ScimValueTooLongException tooLong) {
+        } catch (ScimAttributeValueException unacceptable) {
             audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
-            throw tooLong;
+            throw unacceptable;
         }
         if (command.password() != null) {
             // A User being created has no credential and no history, so nothing can be reused;
@@ -344,9 +345,9 @@ public class ScimUserService {
         } catch (ScimPatchRefusedException refused) {
             audit.recordScimUserWriteRejected(connectorId, id, refusal(refused));
             throw refused;
-        } catch (ScimValueTooLongException tooLong) {
+        } catch (ScimAttributeValueException unacceptable) {
             audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.INVALID_VALUE);
-            throw tooLong;
+            throw unacceptable;
         }
 
         ScimPasswordChange password = after.password();

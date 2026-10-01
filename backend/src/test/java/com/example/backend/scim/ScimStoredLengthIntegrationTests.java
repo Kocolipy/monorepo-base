@@ -14,6 +14,7 @@ import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -56,6 +57,9 @@ import tools.jackson.databind.json.JsonMapper;
  * back as {@code 409 uniqueness} naming {@code userName}, and an over-length {@code externalId}
  * as the servlet container's own {@code 500} body. Postgres is what decides those outcomes, so
  * they are asserted here rather than against the in-memory fakes, which have no columns.
+ *
+ * <p>A U+0000 in any stored string is the same kind of refusal: PostgreSQL cannot store it, so
+ * it is refused as {@code 400 invalidValue} before the statement rather than failing at it.
  */
 @SpringBootTest
 @ExtendWith(OutputCaptureExtension.class)
@@ -80,6 +84,10 @@ class ScimStoredLengthIntegrationTests {
 
     /** The value a forced CHECK constraint refuses, so the database alone turns the write down. */
     private static final String FORCED = "forced-violation";
+
+    /** How a refusal names the characters a {@code userName} or {@code displayName} refuses. */
+    private static final String CONTROL_CHARACTERS =
+            "control characters (U+0000 to U+001F, U+007F)";
 
     @Autowired
     private WebApplicationContext context;
@@ -340,6 +348,124 @@ class ScimStoredLengthIntegrationTests {
         assertThat(refusalCodes("SCIM_GROUP_CREATE")).containsExactly("UNIQUENESS");
     }
 
+    // ---- characters a column or a name refuses ---------------------------------------------
+
+    /** U+0000 as a JSON escape, which is how a connector sends it: JSON allows it in a string. */
+    private static final String NUL = "\\" + "u0000";
+
+    /**
+     * Each stored User attribute — one or more per table: {@code scim_users}, its emails and
+     * {@code scim_external_ids} — holding U+0000 is {@code 400 invalidValue} on every verb that
+     * can write it, naming the attribute and not the value, and the refusal changes nothing and
+     * is audited as an invalid value. PostgreSQL cannot store the character at all, so before
+     * this check the write failed at the statement and surfaced as a fault.
+     */
+    @ParameterizedTest(name = "{1} {0}")
+    @MethodSource("userAttributesByVerb")
+    void a_user_value_holding_a_nul_is_an_invalid_value_on_every_verb(
+            UserAttribute attribute, String verb) throws Exception {
+        String holding = "nul-" + NUL + "-value";
+        String userName = "nul-" + UUID.randomUUID();
+
+        MvcResult refused;
+        UUID target = null;
+        String etagBefore = null;
+        if (verb.equals("POST")) {
+            refused = createUser(userBody(userName, attribute, holding));
+        } else {
+            MvcResult base = createUser(userBody(userName, null, null));
+            assertThat(base.getResponse().getStatus()).isEqualTo(201);
+            target = id(base);
+            etagBefore = base.getResponse().getHeader(HttpHeaders.ETAG);
+            refused = verb.equals("PUT")
+                    ? perform(put(USERS + "/" + target), etagBefore,
+                            userBody(userName, attribute, holding))
+                    : perform(patch(USERS + "/" + target), etagBefore,
+                            patchOp(attribute.patchPath(), attribute.patchValue().apply(holding)));
+        }
+
+        String forbidden = Set.of("userName", "displayName").contains(attribute.attribute())
+                ? CONTROL_CHARACTERS : "the NUL character (U+0000)";
+        assertRefusedCharacter(refused, attribute.attribute(), forbidden);
+        if (target == null) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM scim_users WHERE user_name = ?", Long.class, userName))
+                    .as("the refused create stored nothing").isZero();
+            assertThat(refusalCodes("SCIM_USER_CREATE")).containsExactly("INVALID_VALUE");
+        } else {
+            assertThat(etagOf(USERS, target)).as("the refused write changed nothing")
+                    .isEqualTo(etagBefore);
+            assertThat(refusalCodes("SCIM_USER_REPLACE")).containsExactly("INVALID_VALUE");
+        }
+    }
+
+    /** The Group table and its alias: {@code displayName} and {@code externalId}, every verb. */
+    @Test
+    void a_group_value_holding_a_nul_is_an_invalid_value_on_every_verb() throws Exception {
+        String holding = "nul-" + NUL + "-group";
+        assertRefusedCharacter(createGroup("""
+                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, holding)),
+                "displayName", CONTROL_CHARACTERS);
+        assertRefusedCharacter(createGroup("""
+                {"schemas":["%s"],"displayName":"nul-group-ext","externalId":"%s"}"""
+                .formatted(GROUP_SCHEMA, holding)), "externalId", "the NUL character (U+0000)");
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM scim_groups WHERE display_name = 'nul-group-ext'",
+                Long.class)).isZero();
+        assertThat(refusalCodes("SCIM_GROUP_CREATE"))
+                .containsExactly("INVALID_VALUE", "INVALID_VALUE");
+
+        MvcResult base = createGroup("""
+                {"schemas":["%s"],"displayName":"nul-group"}""".formatted(GROUP_SCHEMA));
+        UUID group = id(base);
+        String etag = base.getResponse().getHeader(HttpHeaders.ETAG);
+
+        assertRefusedCharacter(perform(put(GROUPS + "/" + group), etag, """
+                {"schemas":["%s"],"displayName":"%s"}""".formatted(GROUP_SCHEMA, holding)),
+                "displayName", CONTROL_CHARACTERS);
+        assertRefusedCharacter(perform(patch(GROUPS + "/" + group), etag,
+                        patchOp("displayName", "\"" + holding + "\"")),
+                "displayName", CONTROL_CHARACTERS);
+        assertRefusedCharacter(perform(put(GROUPS + "/" + group), etag, """
+                {"schemas":["%s"],"displayName":"nul-group","externalId":"%s"}"""
+                .formatted(GROUP_SCHEMA, holding)), "externalId", "the NUL character (U+0000)");
+        assertRefusedCharacter(perform(patch(GROUPS + "/" + group), etag,
+                        patchOp("externalId", "\"" + holding + "\"")),
+                "externalId", "the NUL character (U+0000)");
+        assertThat(etagOf(GROUPS, group)).isEqualTo(etag);
+        assertThat(refusalCodes("SCIM_GROUP_REPLACE"))
+                .containsExactly("INVALID_VALUE", "INVALID_VALUE", "INVALID_VALUE", "INVALID_VALUE");
+    }
+
+    /**
+     * The names refuse every C0 control, not only NUL, because they are what an administrator
+     * reads and what the logs carry; elsewhere PostgreSQL stores the other controls and so does
+     * this service — a tab in {@code name.formatted} round-trips.
+     */
+    @Test
+    void a_name_refuses_other_controls_that_another_attribute_stores() throws Exception {
+        for (String control : List.of("\\n", "\\t", "\\" + "u001b", "\\" + "u007f")) {
+            assertRefusedCharacter(createUser(userBody("ctl" + control + "name", null, null)),
+                    "userName", CONTROL_CHARACTERS);
+            assertRefusedCharacter(createUser("""
+                    {"schemas":["%s"],"userName":"ctl-%s","displayName":"a%sb"}"""
+                    .formatted(USER_SCHEMA, UUID.randomUUID(), control)),
+                    "displayName", CONTROL_CHARACTERS);
+            assertRefusedCharacter(createGroup("""
+                    {"schemas":["%s"],"displayName":"ctl%sgroup"}"""
+                    .formatted(GROUP_SCHEMA, control)), "displayName", CONTROL_CHARACTERS);
+        }
+        assertThat(refusalCodes("SCIM_USER_CREATE")).hasSize(8).containsOnly("INVALID_VALUE");
+        assertThat(refusalCodes("SCIM_GROUP_CREATE")).hasSize(4).containsOnly("INVALID_VALUE");
+
+        MvcResult stored = createUser("""
+                {"schemas":["%s"],"userName":"ctl-kept-%s","name":{"formatted":"Ada\\tKing"}}"""
+                .formatted(USER_SCHEMA, UUID.randomUUID()));
+        assertThat(stored.getResponse().getStatus())
+                .as(stored.getResponse().getContentAsString()).isEqualTo(201);
+        assertThat(body(stored).get("name").get("formatted").asText()).isEqualTo("Ada\tKing");
+    }
+
     // ---- an integrity violation the checks above the database did not catch -----------------
 
     /**
@@ -438,6 +564,22 @@ class ScimStoredLengthIntegrationTests {
         assertThat(error.get("detail").asText())
                 .isEqualTo(attribute + " must be at most " + limit + " characters long.");
         assertThat(raw).doesNotContain(value);
+    }
+
+    private void assertRefusedCharacter(MvcResult result, String attribute, String forbidden)
+            throws Exception {
+        String raw = result.getResponse().getContentAsString();
+        assertThat(result.getResponse().getStatus()).as(raw).isEqualTo(400);
+        JsonNode error = json.readTree(raw);
+        assertThat(error.get("schemas").get(0).asText())
+                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
+        assertThat(error.get("status").asText()).isEqualTo("400");
+        assertThat(error.get("scimType").asText()).isEqualTo("invalidValue");
+        assertThat(error.get("detail").asText())
+                .isEqualTo(attribute + " must not contain " + forbidden + ".");
+        // Neither the value around the character nor the character itself is echoed.
+        assertThat(raw).doesNotContain("nul-").doesNotContain("ctl").doesNotContain(NUL)
+                .doesNotContain(String.valueOf((char) 0));
     }
 
     private void assertServerError(MvcResult result) throws Exception {

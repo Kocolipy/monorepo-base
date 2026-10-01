@@ -1,14 +1,16 @@
 package com.example.backend.scim.domain;
 
+import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbidden;
+
 /**
- * The longest value each stored SCIM attribute accepts, and the check that refuses a longer one
- * before anything is written.
+ * What each stored SCIM attribute accepts — its longest value and the characters it refuses —
+ * and the check that refuses anything else before it is written.
  *
- * <p>The numbers are the {@code VARCHAR} widths of the columns in the Flyway migrations, and
+ * <p>The lengths are the {@code VARCHAR} widths of the columns in the Flyway migrations, and
  * this class exists so a value that does not fit is refused as what it is — a {@code 400
- * invalidValue} naming the attribute and its limit — rather than reaching the database, whose
- * refusal is an integrity violation indistinguishable, from outside, from a conflict or a fault.
- * RFC 7643 has no {@code maxLength} characteristic, so the limits are advertised in
+ * invalidValue} naming the attribute — rather than reaching the database, whose refusal is an
+ * integrity violation or a driver error indistinguishable, from outside, from a conflict or a
+ * fault. RFC 7643 has no {@code maxLength} characteristic, so the rules are advertised in
  * {@code docs/openapi.yaml} and in the refusal's {@code detail}, not in {@code /Schemas}.
  *
  * <p>Lengths are counted in Unicode code points, which is what PostgreSQL's
@@ -19,6 +21,14 @@ package com.example.backend.scim.domain;
  * <p>The two unique names are also checked in their NORMALIZED form, because that is a column
  * of the same width too: NFKC can expand a character into several (U+FDFA becomes eighteen), so
  * a {@code userName} that fits can normalize into one that does not.
+ *
+ * <p>No stored string may contain U+0000: JSON can carry it, but PostgreSQL refuses it in any
+ * {@code text} or {@code varchar}, so the write would fail below every check. {@code userName} and
+ * {@code displayName}, of a User and of a Group, additionally refuse every other C0 control and
+ * DEL. PostgreSQL stores those, but these two are the names shown to an administrator and written
+ * into logs, where a newline or an escape sequence forges a line or repaints a terminal. The
+ * other attributes keep them, because a connector may legitimately send, say, a tab in a
+ * formatted name, and nothing renders those as a heading.
  */
 public final class ScimAttributeLimits {
 
@@ -47,50 +57,59 @@ public final class ScimAttributeLimits {
     }
 
     /**
-     * Refuses a User profile holding any value longer than its column.
+     * Refuses a User profile holding any value its column cannot hold.
      *
-     * @throws ScimValueTooLongException naming the first attribute found too long
+     * @throws ScimAttributeValueException naming the first attribute found unacceptable
      */
     public static void requireWithin(ScimUserProfile profile) {
-        require("userName", profile.userName(), USER_NAME);
-        require("userName", profile.normalizedUserName().value(), USER_NAME);
+        require("userName", profile.userName(), USER_NAME, Forbidden.CONTROL);
+        requireLength("userName", profile.normalizedUserName().value(), USER_NAME);
         ScimName name = profile.name();
-        require("name.formatted", name.formatted(), NAME_PART);
-        require("name.familyName", name.familyName(), NAME_PART);
-        require("name.givenName", name.givenName(), NAME_PART);
-        require("name.middleName", name.middleName(), NAME_PART);
-        require("name.honorificPrefix", name.honorificPrefix(), NAME_PART);
-        require("name.honorificSuffix", name.honorificSuffix(), NAME_PART);
-        require("displayName", profile.displayName(), DISPLAY_NAME);
-        require("preferredLanguage", profile.preferredLanguage(), LOCALIZATION);
-        require("locale", profile.locale(), LOCALIZATION);
-        require("timezone", profile.timezone(), LOCALIZATION);
+        require("name.formatted", name.formatted(), NAME_PART, Forbidden.NUL);
+        require("name.familyName", name.familyName(), NAME_PART, Forbidden.NUL);
+        require("name.givenName", name.givenName(), NAME_PART, Forbidden.NUL);
+        require("name.middleName", name.middleName(), NAME_PART, Forbidden.NUL);
+        require("name.honorificPrefix", name.honorificPrefix(), NAME_PART, Forbidden.NUL);
+        require("name.honorificSuffix", name.honorificSuffix(), NAME_PART, Forbidden.NUL);
+        require("displayName", profile.displayName(), DISPLAY_NAME, Forbidden.CONTROL);
+        require("preferredLanguage", profile.preferredLanguage(), LOCALIZATION, Forbidden.NUL);
+        require("locale", profile.locale(), LOCALIZATION, Forbidden.NUL);
+        require("timezone", profile.timezone(), LOCALIZATION, Forbidden.NUL);
         for (ScimEmail email : profile.emails()) {
-            require("emails.value", email.value(), EMAIL_VALUE);
-            require("emails.type", email.type(), EMAIL_TYPE);
+            require("emails.value", email.value(), EMAIL_VALUE, Forbidden.NUL);
+            require("emails.type", email.type(), EMAIL_TYPE, Forbidden.NUL);
         }
     }
 
     /**
-     * Refuses a Group {@code displayName} longer than its column, as submitted or normalized.
+     * Refuses a Group {@code displayName} longer than its column, as submitted or normalized, or
+     * holding a control character.
      *
-     * @throws ScimValueTooLongException naming {@code displayName}
+     * @throws ScimAttributeValueException naming {@code displayName}
      */
     public static void requireGroupDisplayNameWithin(String displayName) {
-        require("displayName", displayName, DISPLAY_NAME);
-        require("displayName", NormalizedDisplayName.of(displayName).value(), DISPLAY_NAME);
+        require("displayName", displayName, DISPLAY_NAME, Forbidden.CONTROL);
+        requireLength("displayName", NormalizedDisplayName.of(displayName).value(), DISPLAY_NAME);
     }
 
     /**
-     * Refuses an {@code externalId} longer than its column. An absent one is within any limit.
+     * Refuses an {@code externalId} longer than its column or holding U+0000. An absent one is
+     * within every rule.
      *
-     * @throws ScimValueTooLongException naming {@code externalId}
+     * @throws ScimAttributeValueException naming {@code externalId}
      */
     public static void requireExternalIdWithin(String externalId) {
-        require("externalId", externalId, EXTERNAL_ID);
+        require("externalId", externalId, EXTERNAL_ID, Forbidden.NUL);
     }
 
-    private static void require(String attribute, String value, int limit) {
+    private static void require(String attribute, String value, int limit, Forbidden forbidden) {
+        if (value != null && value.codePoints().anyMatch(forbidden::includes)) {
+            throw new ScimValueControlCharacterException(attribute, forbidden);
+        }
+        requireLength(attribute, value, limit);
+    }
+
+    private static void requireLength(String attribute, String value, int limit) {
         if (value != null && value.codePointCount(0, value.length()) > limit) {
             throw new ScimValueTooLongException(attribute, limit);
         }
