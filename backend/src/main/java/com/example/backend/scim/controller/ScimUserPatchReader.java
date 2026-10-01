@@ -4,6 +4,7 @@ import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimEmailFilter;
 import com.example.backend.scim.domain.ScimEmailPart;
 import com.example.backend.scim.domain.ScimName;
+import com.example.backend.scim.domain.ScimRequestLimits;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserPatchOperation.EmailUpdate;
 import com.example.backend.scim.domain.ScimUserPatchOperation.NamePart;
@@ -112,6 +113,10 @@ final class ScimUserPatchReader {
         if (operations == null || !operations.isArray() || operations.isEmpty()) {
             throw ScimErrorException.invalidSyntax(
                     "A PatchOp must carry a non-empty Operations array.");
+        }
+        if (operations.size() > ScimRequestLimits.MAX_PATCH_OPERATIONS) {
+            throw ScimErrorException.invalidValue("A PatchOp may carry at most "
+                    + ScimRequestLimits.MAX_PATCH_OPERATIONS + " operations.");
         }
         List<ScimUserPatchOperation> read = new ArrayList<>();
         for (JsonNode operation : operations) {

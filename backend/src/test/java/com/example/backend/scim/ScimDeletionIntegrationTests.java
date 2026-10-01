@@ -438,6 +438,9 @@ class ScimDeletionIntegrationTests {
     void the_bootstrap_admin_cannot_be_deleted_and_the_refusal_is_audited() throws Exception {
         UUID bootstrap = userRepository
                 .findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow().id();
+        // Counted as a delta: the Bootstrap Admin is shared by every suite on this context and
+        // audit rows are append-only, so another suite's refused delete is already there.
+        int refusalsBefore = auditCount("SCIM_USER_DELETE", bootstrap, "FAILURE");
 
         MvcResult refused = mvc.perform(conditional(tokenA, delete(USERS + "/" + bootstrap),
                 bootstrap)).andReturn();
@@ -445,7 +448,8 @@ class ScimDeletionIntegrationTests {
         assertThat(refused.getResponse().getStatus()).isEqualTo(400);
         assertThat(body(refused).get("scimType").asText()).isEqualTo("mutability");
         assertStillThere(bootstrap);
-        assertThat(auditCount("SCIM_USER_DELETE", bootstrap, "FAILURE")).isEqualTo(1);
+        assertThat(auditCount("SCIM_USER_DELETE", bootstrap, "FAILURE"))
+                .isEqualTo(refusalsBefore + 1);
     }
 
     // ---- sessions and audit -------------------------------------------------------------

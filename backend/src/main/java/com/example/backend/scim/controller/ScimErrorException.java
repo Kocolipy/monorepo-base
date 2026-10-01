@@ -106,6 +106,22 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(HttpStatus.FORBIDDEN, null, detail);
     }
 
+    /** The request body ran past the namespace's size bound while it was being read. */
+    public static ScimErrorException payloadTooLarge(String detail) {
+        return new ScimErrorException(HttpStatus.CONTENT_TOO_LARGE, null, detail);
+    }
+
+    /**
+     * An endpoint RFC 7644 defines and this service deliberately does not implement.
+     *
+     * <p>{@code 501} rather than {@code 404}: the path is SCIM's and a client probing for it is
+     * told that this provider does not offer the operation, which RFC 7644 §3.12 lists as
+     * {@code 501}'s meaning, rather than that it named a resource that does not exist.
+     */
+    public static ScimErrorException notImplemented(String detail) {
+        return new ScimErrorException(HttpStatus.NOT_IMPLEMENTED, null, detail);
+    }
+
     public HttpStatus status() {
         return status;
     }

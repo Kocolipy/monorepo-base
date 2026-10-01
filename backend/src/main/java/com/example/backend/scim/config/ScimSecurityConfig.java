@@ -14,6 +14,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
+import org.springframework.security.web.header.HeaderWriterFilter;
 
 /**
  * The SCIM namespace's own security chain: stateless, bearer-authenticated, and
@@ -152,6 +153,14 @@ public class ScimSecurityConfig {
                 .addFilterBefore(
                         new ScimReleaseGateFilter(releaseGate),
                         WebAsyncManagerIntegrationFilter.class)
+                // Next, ahead of authentication and of the header writer: an oversized body is
+                // refused on its declared length before anything reads it, and the
+                // dispatcher's own refusals (404, 405, 406, 415) are rendered as SCIM error
+                // documents. Ahead of HeaderWriterFilter so its response wrapper sits inside
+                // ours and still writes the security headers when the dispatcher sends an
+                // error. ScimSecurityChainOrderTests pins both positions.
+                .addFilterBefore(new ScimRequestBodyLimitFilter(), HeaderWriterFilter.class)
+                .addFilterBefore(new ScimDispatcherErrorFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(
                         new ScimBearerAuthenticationFilter(connectors), AuthorizationFilter.class)
                 .exceptionHandling(exceptions -> exceptions

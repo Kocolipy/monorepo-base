@@ -34,6 +34,35 @@ info:
     accepted and understood, and a response defaults to `application/scim+json`.
     SCIM errors are documents of their own shape (`ScimError`) and never the
     application chain's error shape.
+
+    **Every SCIM refusal is a `ScimError`, whichever layer makes it** — a handler's,
+    or the dispatcher's own for a path nothing serves, a method a path does not
+    take, an unacceptable `Accept` or an unreadable body type. The credential
+    refusals (`401`, and `403 insufficient_scope`) are the exception: they are a
+    status and a `WWW-Authenticate` challenge with no body, by design. The refusals
+    that can happen in front of any SCIM operation, or where no operation exists,
+    are listed once under `x-namespace-responses` rather than repeated on each
+    operation. The namespace's per-request safety bounds — not rate limits, which are
+    the deployment edge's — are a 1 MiB request body (`413`), filter text of 8 KiB, 20
+    levels of nesting and 100 expressions (`400 invalidFilter`), 100 operations in one
+    PatchOp and 200 resources in one page (`400 invalidValue` / a capped `count`).
+
+    The contract is checked mechanically: `src/test/java/com/example/backend/contract/`
+    holds every response its fixtures receive against this document — status,
+    documented headers, media type and body schema — and fails for a status this
+    document promises that no fixture produced. See `docs/api-contract-check.md`.
+x-namespace-responses:
+  /scim/v2:
+    "401":
+      $ref: "#/components/responses/ScimUnauthenticated"
+    "404":
+      $ref: "#/components/responses/ScimNoSuchEndpoint"
+    "405":
+      $ref: "#/components/responses/ScimMethodNotAllowed"
+    "406":
+      $ref: "#/components/responses/ScimNotAcceptable"
+    "413":
+      $ref: "#/components/responses/ScimPayloadTooLarge"
 servers:
   - url: http://localhost:8080
     description: Local development
@@ -789,8 +818,13 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimServiceProviderConfig"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimServiceProviderConfig"
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
+        "401":
+          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
   /scim/v2/ResourceTypes:
     get:
       tags: [SCIM]
@@ -807,8 +841,13 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
+        "401":
+          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
   /scim/v2/ResourceTypes/{resourceType}:
     get:
       tags: [SCIM]
@@ -829,18 +868,24 @@ paths:
             application/scim+json:
               schema:
                 type: object
+            application/json:
+              schema:
+                type: object
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "404":
           $ref: "#/components/responses/ScimNotFound"
+        "401":
+          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
   /scim/v2/Schemas:
     get:
       tags: [SCIM]
       summary: List the SCIM schemas served
       description: |
-        Public. The core User schema alone, listing exactly the attributes this
-        service stores — no unimplemented core attribute and no extension. `password`
-        is declared `mutability: writeOnly` and `returned: never`.
+        Public. The core User and core Group schemas, each listing exactly the
+        attributes this service stores — no unimplemented core attribute and no
+        extension. `password` is declared `mutability: writeOnly` and
+        `returned: never`.
       operationId: listScimSchemas
       security: []
       responses:
@@ -850,8 +895,13 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
+        "401":
+          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
   /scim/v2/Schemas/{schemaUri}:
     get:
       tags: [SCIM]
@@ -874,10 +924,15 @@ paths:
             application/scim+json:
               schema:
                 type: object
+            application/json:
+              schema:
+                type: object
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "404":
           $ref: "#/components/responses/ScimNotFound"
+        "401":
+          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
   /scim/v2/Users:
     get:
       tags: [SCIM]
@@ -941,6 +996,9 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
@@ -995,6 +1053,9 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimUser"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimUser"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
@@ -1010,6 +1071,8 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
   /scim/v2/Users/.search:
     post:
       tags: [SCIM]
@@ -1044,10 +1107,15 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
           $ref: "#/components/responses/ScimUnauthenticated"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
   /scim/v2/Users/{id}:
     get:
       tags: [SCIM]
@@ -1083,6 +1151,9 @@ paths:
                 type: string
           content:
             application/scim+json:
+              schema:
+                $ref: "#/components/schemas/ScimUser"
+            application/json:
               schema:
                 $ref: "#/components/schemas/ScimUser"
         "400":
@@ -1173,6 +1244,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "428":
           $ref: "#/components/responses/ScimPreconditionRequired"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
     patch:
       tags: [SCIM]
       summary: Modify a User
@@ -1264,6 +1337,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "428":
           $ref: "#/components/responses/ScimPreconditionRequired"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
     delete:
       tags: [SCIM]
       summary: Delete a User
@@ -1346,6 +1421,9 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
@@ -1413,6 +1491,9 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimGroup"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimGroup"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
@@ -1428,6 +1509,8 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimError"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
   /scim/v2/Groups/.search:
     post:
       tags: [SCIM]
@@ -1455,10 +1538,15 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
           $ref: "#/components/responses/ScimUnauthenticated"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
   /scim/v2/.search:
     post:
       tags: [SCIM]
@@ -1498,10 +1586,15 @@ paths:
             application/scim+json:
               schema:
                 $ref: "#/components/schemas/ScimListResponse"
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScimListResponse"
         "400":
           $ref: "#/components/responses/ScimBadRequest"
         "401":
           $ref: "#/components/responses/ScimUnauthenticated"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
   /scim/v2/Groups/{id}:
     get:
       tags: [SCIM]
@@ -1590,6 +1683,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "428":
           $ref: "#/components/responses/ScimPreconditionRequired"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
     patch:
       tags: [SCIM]
       summary: Modify a Group
@@ -1604,17 +1699,25 @@ paths:
         because none was ever written.
 
         Each operation requires a `path`, and the supported paths are a closed set —
-        a Group has two writable attributes, so anything else is `400 invalidValue`
-        rather than something interpreted deeper in:
+        a Group has two writable attributes. Paths and `op` are matched
+        case-insensitively, and a path may carry the core Group schema URN as a prefix:
 
         | `op` | `path` | Meaning |
         | --- | --- | --- |
         | `add`, `replace` | `displayName` | Set the label. The attribute is single-valued, so adding to it replaces it (RFC 7644 §3.5.2.1). |
-        | `remove` | `displayName` | Refused: `displayName` is required. |
+        | `remove` | `displayName` | Refused with `mutability`: `displayName` is required. |
         | `add` | `members` | Add the named Users, leaving existing members in place. An id already present is a no-op, not a conflict. |
         | `replace` | `members` | Replace the whole membership. |
         | `remove` | `members` | With a value, remove the named Users; with none, clear the membership. Removing a non-member is a no-op. |
         | `remove` | `members[value eq "<id>"]` | Remove one member. The only value-path form accepted, because it is the one that occurs. |
+
+        | Refusal | `scimType` |
+        | --- | --- |
+        | not a `PatchOp`, no operations | `invalidSyntax` |
+        | an unimplemented path, or a members value path on anything but `remove` | `invalidPath` |
+        | `id`, `meta` or `schemas` as a path; removing `displayName` | `mutability` |
+        | `remove` with no path (RFC 7644 §3.5.2.2) | `noTarget` |
+        | `add`/`replace` with no path, an unknown `op`, a value of the wrong type, a member that is not a live User, more than 100 operations | `invalidValue` |
 
         Returns `200` with the patched resource rather than `204`, which RFC 7644
         permits either of: a membership change advances versions, and a client given
@@ -1662,6 +1765,8 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "428":
           $ref: "#/components/responses/ScimPreconditionRequired"
+        "415":
+          $ref: "#/components/responses/ScimUnsupportedMediaType"
     delete:
       tags: [SCIM]
       summary: Delete a Group
@@ -1702,6 +1807,66 @@ paths:
           $ref: "#/components/responses/ScimPreconditionFailed"
         "428":
           $ref: "#/components/responses/ScimPreconditionRequired"
+  /scim/v2/Me:
+    get:
+      tags: [SCIM]
+      summary: Not implemented — /Me
+      description: |
+        RFC 7644 §3.11's alias for the authenticated User. A connector token
+        represents a directory, not an end User, so `/Me` has nothing to name:
+        every method is `501` once the credential is accepted.
+      operationId: getScimMe
+      security:
+        - connectorBearer: []
+      responses:
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "501":
+          $ref: "#/components/responses/ScimNotImplemented"
+    post:
+      tags: [SCIM]
+      summary: Not implemented — /Me
+      operationId: createScimMe
+      security:
+        - connectorBearer: []
+      responses:
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "501":
+          $ref: "#/components/responses/ScimNotImplemented"
+    put:
+      tags: [SCIM]
+      summary: Not implemented — /Me
+      operationId: replaceScimMe
+      security:
+        - connectorBearer: []
+      responses:
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "501":
+          $ref: "#/components/responses/ScimNotImplemented"
+    patch:
+      tags: [SCIM]
+      summary: Not implemented — /Me
+      operationId: patchScimMe
+      security:
+        - connectorBearer: []
+      responses:
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "501":
+          $ref: "#/components/responses/ScimNotImplemented"
+    delete:
+      tags: [SCIM]
+      summary: Not implemented — /Me
+      operationId: deleteScimMe
+      security:
+        - connectorBearer: []
+      responses:
+        "401":
+          $ref: "#/components/responses/ScimUnauthenticated"
+        "501":
+          $ref: "#/components/responses/ScimNotImplemented"
   /actuator/health:
     get:
       tags: [Health]
@@ -1751,6 +1916,30 @@ paths:
             text/plain:
               schema:
                 type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
+  /actuator/info:
+    get:
+      tags: [Health]
+      summary: Read the build and application info
+      operationId: getInfo
+      description: |
+        Spring Boot's info endpoint, exposed beside the scrape and under the same rule:
+        Admin sessions only, decided by the filter chain. It carries whatever
+        `InfoContributor`s the deployment enables, which by default is nothing, so
+        the body is an empty object.
+      responses:
+        "200":
+          description: The info document.
+          content:
+            application/vnd.spring-boot.actuator.v3+json:
+              schema:
+                type: object
+            application/json:
+              schema:
+                type: object
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1971,7 +2160,9 @@ components:
         schema other than this service's one User schema, a missing required
         attribute, an attribute or sub-attribute this service does not implement, a
         value of the wrong JSON type, or a projection naming something that is not an
-        attribute. `scimType` is `invalidSyntax` or `invalidValue`.
+        attribute. `scimType` is `invalidSyntax` or `invalidValue`; for a query also
+        `invalidFilter`, and for a PATCH also `invalidPath`, `noTarget` or
+        `mutability` — see the operation.
       content:
         application/scim+json:
           schema:
@@ -2032,6 +2223,9 @@ components:
         application/scim+json:
           schema:
             $ref: "#/components/schemas/ScimUser"
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ScimUser"
     ScimGroupResource:
       description: |
         The canonical Group resource. `ETag` is its strong validator, the same string
@@ -2047,6 +2241,9 @@ components:
             type: string
       content:
         application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimGroup"
+        application/json:
           schema:
             $ref: "#/components/schemas/ScimGroup"
     ScimProtectedOrBadRequest:
@@ -2071,6 +2268,66 @@ components:
 
         A refused write changes nothing: every check runs before anything is written,
         so the resource re-reads unchanged, version included.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimDiscoveryCredentialRefused:
+      description: |
+        A discovery endpoint needs no credential, but one that IS presented is still
+        authenticated, and a malformed, unknown, expired or revoked token is refused
+        with `401` and `WWW-Authenticate: Bearer error="invalid_token"`, as RFC 6750
+        §3.1 specifies — the caller is told its credential is bad rather than having
+        it silently ignored. No body. Send no `Authorization` header to read
+        discovery anonymously.
+    ScimUnsupportedMediaType:
+      description: |
+        The request body is neither `application/scim+json` nor `application/json`.
+        Refused before the body is read; nothing is written. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimNoSuchEndpoint:
+      description: |
+        No endpoint is served at this path — including `/scim/v2/Bulk`, which this
+        service does not implement and discovery advertises as unsupported — or the
+        deployment has closed the SCIM release gate. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimMethodNotAllowed:
+      description: |
+        The path is served but not for this method — e.g. `PUT /scim/v2/Users`.
+        Carries an `Allow` header listing the methods that are. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimNotAcceptable:
+      description: |
+        The `Accept` header names neither `application/scim+json` nor
+        `application/json`, the only representations served. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimPayloadTooLarge:
+      description: |
+        The request body exceeds 1 MiB. A body that declares its length is refused
+        on that declaration, before it is read and before the credential is
+        checked; one sent without a length is refused as it crosses the bound.
+        Either way nothing is written. No `scimType`.
+      content:
+        application/scim+json:
+          schema:
+            $ref: "#/components/schemas/ScimError"
+    ScimNotImplemented:
+      description: |
+        `/Me` is defined by RFC 7644 §3.11 as an alias for the authenticated User,
+        and a connector token does not represent a User, so there is nothing it
+        could name. `501` for every method, after authentication. No `scimType`.
       content:
         application/scim+json:
           schema:
@@ -2618,7 +2875,8 @@ components:
           example: "409"
         scimType:
           type: string
-          enum: [invalidSyntax, invalidValue, invalidFilter, uniqueness]
+          enum: [invalidSyntax, invalidValue, invalidFilter, invalidPath, noTarget,
+                 mutability, uniqueness]
         detail:
           type: string
     ScimMeta:
@@ -2681,11 +2939,15 @@ components:
           type: boolean
     ScimUser:
       type: object
-      required: [schemas, userName]
+      required: [schemas]
       description: |
         A SCIM core User, as this service implements it. Unimplemented core attributes
         and every extension are absent from `/Schemas` and refused when asserted on a
         write.
+
+        `userName` is required on every write, and present on every read except one
+        whose `attributes`/`excludedAttributes` projection leaves it out — so it is
+        not listed as `required` here, where one schema serves both directions.
 
         On a write: `id`, `meta` and `groups` are ignored if present, `password` is
         write-only and never returned, and `externalId` is scoped to the calling
@@ -2738,11 +3000,14 @@ components:
           $ref: "#/components/schemas/ScimMeta"
     ScimGroup:
       type: object
-      required: [schemas, displayName]
+      required: [schemas]
       description: |
         A SCIM core Group, as this service implements it: a label and a direct-User
         membership, and nothing else. What a Group is FOR here is conferring
         authority, so no other attribute would change who may do what.
+
+        `displayName` is required on every write and present on every read that does
+        not project it away, as `userName` is for a User.
 
         On a write: `id` and `meta` are ignored if present, `externalId` is scoped to
         the calling connector and is discarded on a PUT, and every `members`
@@ -2851,7 +3116,7 @@ components:
           description: |
             `displayName`, `members`, or `members[value eq "<uuid>"]` — the only
             value-path form accepted, and only with `remove`. Any other path is
-            `400 invalidValue`.
+            `400 invalidPath`.
           example: members
         value:
           description: |

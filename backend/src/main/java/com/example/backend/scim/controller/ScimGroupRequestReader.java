@@ -3,6 +3,7 @@ package com.example.backend.scim.controller;
 import com.example.backend.scim.application.NewScimGroup;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupReplacement;
+import com.example.backend.scim.domain.ScimRequestLimits;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +39,12 @@ final class ScimGroupRequestReader {
 
     /** Attributes accepted on a write, from the one list that says what is implemented. */
     private static final Set<String> WRITABLE = ScimGroupAttributes.writableNames();
+
+    /** Attributes a PATCH path may name but never change — {@code mutability} when it tries. */
+    private static final Set<String> READ_ONLY = Set.of("id", "meta", "schemas");
+
+    /** The core Group schema URN as a path prefix, matched case-insensitively. */
+    private static final String SCHEMA_PREFIX = ScimSchemas.GROUP + ":";
 
     /**
      * A {@code members} value path naming one member by its id — {@code members[value eq "…"]}.
@@ -105,11 +112,23 @@ final class ScimGroupRequestReader {
         if (body == null || !body.isObject()) {
             throw ScimErrorException.invalidSyntax("The request body must be a SCIM PatchOp.");
         }
-        requireSchema(body, ScimSchemas.PATCH_OP, "This service implements one PATCH schema only: ");
+        // A PatchOp that does not declare the PatchOp schema is not a PatchOp at all, so this is
+        // a syntax refusal — as it is for a User — not the value refusal a resource body
+        // declaring the wrong resource schema receives.
+        JsonNode schemas = body.get("schemas");
+        if (schemas == null || !schemas.isArray() || schemas.size() != 1
+                || !ScimSchemas.PATCH_OP.equals(schemas.get(0).asText())) {
+            throw ScimErrorException.invalidSyntax(
+                    "A PATCH body must declare exactly the schema " + ScimSchemas.PATCH_OP);
+        }
         JsonNode operations = body.get("Operations");
         if (operations == null || !operations.isArray() || operations.isEmpty()) {
             throw ScimErrorException.invalidSyntax(
                     "A PatchOp must carry a non-empty Operations array.");
+        }
+        if (operations.size() > ScimRequestLimits.MAX_PATCH_OPERATIONS) {
+            throw ScimErrorException.invalidValue("A PatchOp may carry at most "
+                    + ScimRequestLimits.MAX_PATCH_OPERATIONS + " operations.");
         }
         List<ScimGroupPatchOperation> read = new ArrayList<>(operations.size());
         for (JsonNode operation : operations) {
@@ -136,6 +155,11 @@ final class ScimGroupRequestReader {
         JsonNode value = operation.get("value");
 
         if (path == null) {
+            // RFC 7644 §3.5.2.2 names noTarget for a path-less remove. A path-less add or replace
+            // is an attribute merge this service does not implement, which is a value refusal.
+            if ("remove".equals(op)) {
+                throw ScimErrorException.noTarget("A remove operation requires a path.");
+            }
             throw ScimErrorException.invalidValue(
                     "This service requires a path on each PATCH operation, naming displayName"
                             + " or members.");
@@ -144,20 +168,30 @@ final class ScimGroupRequestReader {
         Matcher memberValuePath = MEMBER_VALUE_PATH.matcher(path);
         if (memberValuePath.matches()) {
             if (!"remove".equals(op)) {
-                throw ScimErrorException.invalidValue(
+                throw ScimErrorException.invalidPath(
                         "A members value path is supported for remove only.");
             }
             return new ScimGroupPatchOperation.RemoveMembers(
                     List.of(memberId(memberValuePath.group(1))));
         }
 
-        String attribute = path.toLowerCase(Locale.ROOT);
+        String attribute = unqualified(path).toLowerCase(Locale.ROOT);
+        if (READ_ONLY.contains(attribute)) {
+            throw ScimErrorException.mutability(attribute + " is read-only.");
+        }
         return switch (attribute) {
             case "displayname" -> readDisplayNameOperation(op, value);
             case "members" -> readMembersOperation(op, value);
-            default -> throw ScimErrorException.invalidValue(
+            default -> throw ScimErrorException.invalidPath(
                     "This service does not implement the Group PATCH path: " + sanitized(path));
         };
+    }
+
+    /** A path with the core Group schema URN prefix removed, which RFC 7644 §3.10 allows. */
+    private static String unqualified(String path) {
+        return path.regionMatches(true, 0, SCHEMA_PREFIX, 0, SCHEMA_PREFIX.length())
+                ? path.substring(SCHEMA_PREFIX.length())
+                : path;
     }
 
     /**
@@ -170,7 +204,7 @@ final class ScimGroupRequestReader {
         return switch (op) {
             case "add", "replace" -> new ScimGroupPatchOperation.SetDisplayName(
                     requiredStringValue(value, "displayName"));
-            case "remove" -> throw ScimErrorException.invalidValue(
+            case "remove" -> throw ScimErrorException.mutability(
                     "displayName is required and cannot be removed.");
             default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
         };

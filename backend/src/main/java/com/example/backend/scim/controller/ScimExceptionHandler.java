@@ -12,11 +12,13 @@ import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.PreconditionRequiredException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
+import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -27,9 +29,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * chain's errors keep their existing shape — a SCIM error body on a browser request
  * would be a change to the SPA's contract — so this advice must not be global. What
  * that scoping costs is that a refusal raised BEFORE a handler is selected (an
- * unsupported method on a mapped path, an unsupported content type) is not rendered
- * here; those are refusals of the dispatcher rather than of these endpoints, and the
- * conformance-fixture ticket owns making the whole namespace's error surface uniform.
+ * unsupported method on a mapped path, an unsupported content type, a path nothing
+ * serves) is not rendered here; {@code ScimDispatcherErrorFilter} in the namespace's
+ * security chain renders those as the same document, and {@code ScimRequestBodyLimitFilter}
+ * refuses a body declaring more than the size bound before any of this runs.
  *
  * <p>The body is built as an ordered map rather than a record so the field order is
  * {@code schemas}, {@code status}, {@code scimType}, {@code detail} as RFC 7644's
@@ -43,6 +46,27 @@ class ScimExceptionHandler {
     @ExceptionHandler(ScimErrorException.class)
     ResponseEntity<Map<String, Object>> handle(ScimErrorException refusal) {
         return render(refusal);
+    }
+
+    /**
+     * A body the JSON codec could not read: absent, not JSON, or one that ran past the size bound
+     * while being read.
+     *
+     * <p>The codec raises all three as one exception, so the size case is found in the cause
+     * chain — a body that declared its length was already refused by the namespace's limit filter,
+     * and this is the chunked one that could only be measured as it streamed. The codec's own
+     * message is not rendered: it quotes the offending input.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<Map<String, Object>> handle(HttpMessageNotReadableException unreadable) {
+        for (Throwable cause = unreadable; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ScimRequestBodyTooLargeException) {
+                return render(ScimErrorException.payloadTooLarge(
+                        "The request body exceeds the 1 MiB limit."));
+            }
+        }
+        return render(ScimErrorException.invalidSyntax(
+                "The request body must be a single JSON object."));
     }
 
     /**

@@ -26,6 +26,7 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.SetPassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.TextAttribute;
 import com.example.backend.scim.domain.ScimUserPatchOperation.UpdateEmails;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -327,5 +328,15 @@ class ScimUserPatchReaderTests {
                         new SetActive(false),
                         new RemoveText(TextAttribute.DISPLAY_NAME),
                         new SetText(TextAttribute.LOCALE, "en-GB"));
+    }
+
+    /** The per-request bound: 100 operations are read, the 101st makes the body a refusal. */
+    @Test
+    void a_patch_op_carries_at_most_one_hundred_operations() {
+        String operation = "{\"op\":\"replace\",\"path\":\"active\",\"value\":false}";
+        assertThat(read("[" + String.join(",", Collections.nCopies(100, operation)) + "]"))
+                .hasSize(100);
+        refused("[" + String.join(",", Collections.nCopies(101, operation)) + "]",
+                400, "invalidValue");
     }
 }
