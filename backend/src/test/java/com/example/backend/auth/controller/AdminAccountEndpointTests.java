@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -18,7 +19,6 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.UUID;
 import org.hamcrest.Matchers;
@@ -32,14 +32,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -113,9 +110,6 @@ class AdminAccountEndpointTests {
     @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     private MockMvc mvc;
 
@@ -433,10 +427,7 @@ class AdminAccountEndpointTests {
 
     /** Echoes a CSRF value the shared repository minted, exactly as the SPA does. */
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        CsrfToken csrf = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request
-                .cookie(new Cookie("XSRF-TOKEN", csrf.getToken()))
-                .header("X-XSRF-TOKEN", csrf.getToken());
+        return SessionCsrf.withCsrf(mvc, request);
     }
 
     private MockHttpSession authenticatedSession(String authority) {

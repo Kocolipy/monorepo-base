@@ -272,7 +272,7 @@ Only `Authorization: Bearer <token>` is accepted. Missing credentials return `40
 Implement two ordered Spring Security chains:
 
 1. **SCIM chain:** matches `/scim/v2/**`, is stateless, creates no HTTP session, disables browser CSRF only for this namespace, permits discovery GETs and authenticates every resource/search request with the connector bearer filter.
-2. **Application chain:** retains the current session repository, login path, CSRF double-submit, SPA behavior and security headers, and builds its path/method authorization from the configured authorization matrix rather than inline rules.
+2. **Application chain:** retains the current session repository, login path, CSRF protection, SPA behavior and security headers, and builds its path/method authorization from the configured authorization matrix rather than inline rules. CSRF is the Synchronizer Token Pattern bound to the HTTP session (`HttpSessionCsrfTokenRepository`, XOR-masked by the default handler), served to the SPA in the body of `GET /api/auth/csrf` and never in a cookie. This replaces the double-submit cookie this plan originally specified, which the access-control standard prohibits; see `/docs/adr/0009-csrf-synchronizer-token.md`.
 
 SCIM traffic must use TLS at the deployment edge. Production deployment must not expose the service over plaintext or forward bearer tokens through an untrusted hop. Request/access logging must redact `Authorization`, `password`, cookies and request bodies carrying SCIM secrets.
 

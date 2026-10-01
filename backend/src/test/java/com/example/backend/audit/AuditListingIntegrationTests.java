@@ -4,11 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -24,10 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -76,9 +73,6 @@ class AuditListingIntegrationTests {
 
     @Autowired
     private WebApplicationContext context;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -341,10 +335,7 @@ class AuditListingIntegrationTests {
     }
 
     private MockHttpSession logIn(String userName, String password) throws Exception {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        MvcResult login = mvc.perform(post("/api/auth/login")
-                        .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                        .header("X-XSRF-TOKEN", token.getToken())
+        MvcResult login = mvc.perform(SessionCsrf.withCsrf(mvc, post("/api/auth/login"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}"
                                 .formatted(userName, password)))

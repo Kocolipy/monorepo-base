@@ -2,11 +2,14 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as http from "@/lib/http";
+
 import * as authApi from "./api";
 import { AuthProvider } from "./auth-context";
 import { useAuthState } from "./auth-context-value";
 
 vi.mock("./api");
+vi.mock("@/lib/http");
 
 const api = vi.mocked(authApi);
 
@@ -129,6 +132,16 @@ describe("AuthProvider", () => {
       status: "authenticated",
     });
     expect(result.current.user).toEqual(USER);
+  });
+
+  it("forgets the CSRF token of a session the backend has ended", async () => {
+    api.getCurrentUser.mockResolvedValue(USER);
+    const { result } = await mounted();
+    expect(http.discardCsrfToken).not.toHaveBeenCalled();
+
+    act(() => result.current.expireSession());
+
+    expect(http.discardCsrfToken).toHaveBeenCalledOnce();
   });
 
   it("clears the expiry provenance on the next login", async () => {

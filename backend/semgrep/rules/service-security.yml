@@ -13,15 +13,33 @@ rules:
     languages: [java]
     severity: ERROR
     message: >-
-      CSRF protection is being disabled. The SPA contract in FRONTEND.md is a
-      double-submit: the browser reads the XSRF-TOKEN cookie and echoes it in
-      the X-XSRF-TOKEN header on every unsafe request. Disabling the filter
-      makes every one of those requests succeed without the token, so the
-      contract silently stops being enforced and the frontend tests still pass.
+      CSRF protection is being disabled. The SPA contract (frontend/AGENTS.md,
+      "Backend contract") is a session-bound synchronizer token: the SPA fetches
+      it from GET /api/auth/csrf and echoes it in the header that endpoint names
+      on every unsafe request. Disabling the filter makes every one of those
+      requests succeed without the token, so the contract silently stops being
+      enforced and the frontend tests still pass.
     pattern-either:
       - pattern: $HTTP.csrf($C -> $C.disable())
       - pattern: $HTTP.csrf(AbstractHttpConfigurer::disable)
       - pattern: $HTTP.csrf($C -> $C.ignoringRequestMatchers(...))
+
+  - id: be-csrf-cookie-token
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A cookie-borne CSRF token is coming back. The standard prohibits
+      cookie-based CSRF outright (docs/adr/0009-csrf-synchronizer-token.md): the
+      token must live in the HTTP session (HttpSessionCsrfTokenRepository), be
+      XOR-masked by the default request handler, and reach the SPA only in the
+      body of GET /api/auth/csrf. CookieCsrfTokenRepository writes an
+      XSRF-TOKEN cookie, and csrf.spa() installs that repository together with
+      a handler that accepts the unmasked token.
+    pattern-either:
+      - pattern: CookieCsrfTokenRepository.$FACTORY(...)
+      - pattern: new CookieCsrfTokenRepository(...)
+      - pattern: new SpaCsrfTokenRequestHandler(...)
+      - pattern: $C.spa()
 
   - id: be-authorize-any-request-permit-all
     languages: [java]

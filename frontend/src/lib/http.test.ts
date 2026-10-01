@@ -1,50 +1,37 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createElement } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch, csrfToken } from "./http";
+import { App } from "@/App";
 
-function setCookie(value: string) {
-  document.cookie = `XSRF-TOKEN=${value}; path=/`;
-}
+import { apiFetch, discardCsrfToken } from "./http";
 
-function clearCookies() {
-  for (const entry of document.cookie.split("; ")) {
-    const name = entry.split("=")[0];
-    if (name) document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-  }
-}
+const CSRF_PATH = "/api/auth/csrf";
+
+/** A `GET /api/auth/csrf` answer, as the backend's session repository names its header. */
+const grant = (token: string, headerName = "X-CSRF-TOKEN") => Response.json({ headerName, token });
+
+/** The request the token fetch itself is: a credentialed GET with nothing else on it. */
+const TOKEN_FETCH = [CSRF_PATH, { credentials: "include" }] as const;
 
 const decodeCount = async (response: Response): Promise<number> => {
   const body = (await response.json()) as { count: number };
   return body.count;
 };
 
-describe("csrfToken", () => {
-  afterEach(clearCookies);
-
-  it("is undefined when the cookie has not been seeded", () => {
-    expect(csrfToken()).toBeUndefined();
-  });
-
-  it("picks the token out of unrelated cookies", () => {
-    document.cookie = "other=first; path=/";
-    setCookie("token-1");
-    document.cookie = "another=last; path=/";
-
-    expect(csrfToken()).toBe("token-1");
-  });
-});
-
 describe("apiFetch", () => {
+  beforeEach(discardCsrfToken);
+
   afterEach(() => {
     vi.unstubAllGlobals();
-    clearCookies();
   });
 
   it("sends the session cookie and returns no-content success for a safe request", async () => {
-    setCookie("token-1");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
 
     await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "ok", data: undefined });
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/api/count", { credentials: "include" });
   });
 
@@ -57,22 +44,152 @@ describe("apiFetch", () => {
     });
   });
 
-  it("echoes the cookie in the CSRF header on an unsafe request", async () => {
-    setCookie("token-1");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
+  // ---- token fetch ------------------------------------------------------------------
 
-    await apiFetch("/api/count/increment", { method: "POST" });
+  it("fetches the session's token before the first unsafe request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("token-1"))
+      .mockResolvedValueOnce(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
 
-    expect(fetch).toHaveBeenCalledWith("/api/count/increment", {
+    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      kind: "ok",
+      data: undefined,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, ...TOKEN_FETCH);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/count/increment", {
       credentials: "include",
-      headers: { "X-XSRF-TOKEN": "token-1" },
+      headers: { "X-CSRF-TOKEN": "token-1" },
       method: "POST",
     });
   });
 
+  it("holds the token in memory and reuses it, fetching it once", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("token-1"))
+      .mockResolvedValue(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/count/increment", { method: "POST" });
+    await apiFetch("/api/count/reset", { method: "POST" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url as string)).toEqual([
+      CSRF_PATH,
+      "/api/count/increment",
+      "/api/count/reset",
+    ]);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/reset", {
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": "token-1" },
+      method: "POST",
+    });
+    // Memory, not storage: nothing the backend handed out reaches a cookie.
+    expect(document.cookie).not.toContain("token-1");
+  });
+
+  it("fetches again after the token is discarded, as a session change does", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("before"))
+      .mockResolvedValueOnce(new Response(null))
+      .mockResolvedValueOnce(grant("after"))
+      .mockResolvedValueOnce(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/auth/login", { method: "POST" });
+    discardCsrfToken();
+    await apiFetch("/api/count/increment", { method: "POST" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(3, ...TOKEN_FETCH);
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": "after" },
+      method: "POST",
+    });
+  });
+
+  it.each(["GET", "HEAD", "OPTIONS", "get", undefined])(
+    "sends safe method %s with no token and without fetching one",
+    async (method) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
+
+      await apiFetch("/api/count", method === undefined ? {} : { method });
+
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).not.toHaveBeenCalledWith(CSRF_PATH, expect.anything());
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.headers).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["answers 500", () => Promise.resolve(new Response(null, { status: 500 }))],
+    ["answers 401", () => Promise.resolve(new Response(null, { status: 401 }))],
+    ["throws", () => Promise.reject(new TypeError("offline"))],
+    ["answers a body that is not JSON", () => Promise.resolve(new Response("<html>"))],
+    ["answers no token", () => Promise.resolve(Response.json({ headerName: "X-CSRF-TOKEN" }))],
+    ["answers no header name", () => Promise.resolve(Response.json({ token: "token-1" }))],
+    ["answers an empty token", () => Promise.resolve(grant(""))],
+    ["answers an empty header name", () => Promise.resolve(grant("token-1", ""))],
+    [
+      "answers a non-string token",
+      () => Promise.resolve(Response.json({ headerName: "h", token: 1 })),
+    ],
+    ["answers a non-object", () => Promise.resolve(Response.json(null))],
+    ["answers a bare string", () => Promise.resolve(Response.json("token-1"))],
+    // Refused on the status, not merely because the body failed to parse.
+    [
+      "answers 403 with a token-shaped body",
+      () =>
+        Promise.resolve(
+          Response.json({ headerName: "X-CSRF-TOKEN", token: "token-1" }, { status: 403 }),
+        ),
+    ],
+  ])(
+    "returns csrf-expired without sending the request when the token fetch %s",
+    async (_, answer) => {
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(answer)
+        .mockResolvedValue(new Response(null));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+        kind: "csrf-expired",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(...TOKEN_FETCH);
+    },
+  );
+
+  // ---- header attachment ------------------------------------------------------------
+
+  it("sends the token in whichever header the endpoint names", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(grant("token-1", "X-Renamed-Csrf"))
+        .mockResolvedValueOnce(new Response(null)),
+    );
+
+    await apiFetch("/api/count/increment", { method: "DELETE" });
+
+    expect(fetch).toHaveBeenLastCalledWith("/api/count/increment", {
+      credentials: "include",
+      headers: { "X-Renamed-Csrf": "token-1" },
+      method: "DELETE",
+    });
+  });
+
   it("keeps the caller's own headers alongside the token", async () => {
-    setCookie("token-1");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(grant("token-1")).mockResolvedValueOnce(new Response(null)),
+    );
 
     await apiFetch("/api/auth/login", {
       body: "{}",
@@ -80,102 +197,125 @@ describe("apiFetch", () => {
       method: "POST",
     });
 
-    expect(fetch).toHaveBeenCalledWith("/api/auth/login", {
+    expect(fetch).toHaveBeenLastCalledWith("/api/auth/login", {
       body: "{}",
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "token-1" },
+      headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "token-1" },
       method: "POST",
     });
   });
 
-  it("omits the header when no token has been seeded yet", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
+  // ---- re-fetch and retry -----------------------------------------------------------
 
-    await apiFetch("/api/count/increment", { method: "POST" });
-
-    expect(fetch).toHaveBeenCalledWith("/api/count/increment", {
-      credentials: "include",
-      headers: {},
-      method: "POST",
-    });
-    // The matcher above ignores keys whose value is `undefined`, and a real
-    // `fetch` would send such a header as the string "undefined".
-    const init = vi.mocked(fetch).mock.calls[0]?.[1];
-    expect(Object.keys(init?.headers ?? { missing: true })).toEqual([]);
-  });
-
-  it("reads the cookie per request, so a rotated token is picked up", async () => {
-    setCookie("token-1");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null)));
-
-    await apiFetch("/api/auth/logout", { method: "DELETE" });
-    setCookie("token-2");
-    await apiFetch("/api/auth/logout", { method: "DELETE" });
-
-    expect(fetch).toHaveBeenNthCalledWith(1, "/api/auth/logout", {
-      credentials: "include",
-      headers: { "X-XSRF-TOKEN": "token-1" },
-      method: "DELETE",
-    });
-    expect(fetch).toHaveBeenNthCalledWith(2, "/api/auth/logout", {
-      credentials: "include",
-      headers: { "X-XSRF-TOKEN": "token-2" },
-      method: "DELETE",
-    });
-  });
-
-  // 200 is a signed-in session's seed; 401 is a guest's, which still carries a
-  // fresh cookie — the case a guest's first login after a lost cookie depends on.
-  it.each([200, 401])(
-    "re-seeds the cookie and retries once after a 403 (seed %i)",
-    async (seedStatus) => {
-      setCookie("stale");
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValueOnce(new Response(null, { status: 403 }))
-        .mockImplementationOnce(() => {
-          setCookie("fresh");
-          return Promise.resolve(new Response(null, { status: seedStatus }));
-        })
-        .mockResolvedValueOnce(Response.json({ count: 1 }));
-      vi.stubGlobal("fetch", fetchMock);
-
-      await expect(
-        apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
-      ).resolves.toEqual({ kind: "ok", data: 1 });
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
-      expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/increment", {
-        credentials: "include",
-        headers: { "X-XSRF-TOKEN": "fresh" },
-        method: "POST",
-      });
-    },
-  );
-
-  it("returns forbidden after a second 403, with exactly one retry", async () => {
-    setCookie("stale");
+  it("re-fetches the token and retries once after a 403", async () => {
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(grant("stale"))
       .mockResolvedValueOnce(new Response(null, { status: 403 }))
-      .mockResolvedValueOnce(new Response(null))
-      .mockResolvedValueOnce(new Response(null, { status: 403 }));
+      .mockResolvedValueOnce(grant("fresh"))
+      .mockResolvedValueOnce(Response.json({ count: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
+    ).resolves.toEqual({ kind: "ok", data: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, ...TOKEN_FETCH);
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": "fresh" },
+      method: "POST",
+    });
+  });
+
+  it("keeps the re-fetched token for the requests after the retry", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("stale"))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValueOnce(grant("fresh"))
+      .mockResolvedValue(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/count/increment", { method: "POST" });
+    await apiFetch("/api/count/reset", { method: "POST" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/count/reset", {
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": "fresh" },
+      method: "POST",
+    });
+  });
+
+  it("returns forbidden after a second 403, with exactly one retry", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("stale"))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValueOnce(grant("fresh"))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
       kind: "forbidden",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/increment", {
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/count/increment", {
       credentials: "include",
-      headers: { "X-XSRF-TOKEN": "stale" },
+      headers: { "X-CSRF-TOKEN": "fresh" },
+      method: "POST",
+    });
+  });
+
+  it.each([
+    ["answers 500", () => Promise.resolve(new Response(null, { status: 500 }))],
+    ["answers 403", () => Promise.resolve(new Response(null, { status: 403 }))],
+    ["throws", () => Promise.reject(new TypeError("offline"))],
+    ["answers no token", () => Promise.resolve(Response.json({}))],
+  ])("returns csrf-expired without retrying when the re-fetch %s", async (_, refetch) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("stale"))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockImplementationOnce(refetch)
+      .mockResolvedValue(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      kind: "csrf-expired",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, ...TOKEN_FETCH);
+  });
+
+  it("forgets a stale token whose re-fetch failed, so the next request fetches again", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("stale"))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(grant("fresh"))
+      .mockResolvedValueOnce(new Response(null));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/count/increment", { method: "POST" });
+    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      kind: "ok",
+      data: undefined,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(4, ...TOKEN_FETCH);
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/count/increment", {
+      credentials: "include",
+      headers: { "X-CSRF-TOKEN": "fresh" },
       method: "POST",
     });
   });
 
   it.each(["GET", "HEAD", "OPTIONS", "get", undefined])(
-    "returns forbidden for a 403 on safe method %s without touching the CSRF seed",
+    "returns forbidden for a 403 on safe method %s without touching the CSRF token",
     async (method) => {
       const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
       vi.stubGlobal("fetch", fetchMock);
@@ -184,39 +324,23 @@ describe("apiFetch", () => {
         apiFetch("/api/admin/accounts", method === undefined ? {} : { method }),
       ).resolves.toEqual({ kind: "forbidden" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(fetchMock).not.toHaveBeenCalledWith("/api/auth/me", expect.anything());
+      expect(fetchMock).not.toHaveBeenCalledWith(CSRF_PATH, expect.anything());
     },
   );
 
-  it.each([
-    ["answers 500", () => Promise.resolve(new Response(null, { status: 500 }))],
-    ["answers 403", () => Promise.resolve(new Response(null, { status: 403 }))],
-    ["throws", () => Promise.reject(new TypeError("offline"))],
-  ])("returns csrf-expired without retrying when the re-seed %s", async (_, seed) => {
-    setCookie("stale");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(null, { status: 403 }))
-      .mockImplementationOnce(seed)
-      .mockResolvedValue(new Response(null));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
-      kind: "csrf-expired",
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
-  });
+  // ---- status classification --------------------------------------------------------
 
   it("classifies 401 as unauthenticated without retrying", async () => {
-    setCookie("token-1");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(grant("token-1"))
+      .mockResolvedValue(new Response(null, { status: 401 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(apiFetch("/api/auth/logout", { method: "DELETE" })).resolves.toEqual({
       kind: "unauthenticated",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("classifies other unsuccessful statuses as failed", async () => {
@@ -241,7 +365,13 @@ describe("apiFetch", () => {
   it("decodes a failure body only for a caller that asks for one", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(Response.json({ rule: "TOO_SHORT" }, { status: 400 }))),
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === CSRF_PATH
+            ? grant("token-1")
+            : Response.json({ rule: "TOO_SHORT" }, { status: 400 }),
+        ),
+      ),
     );
 
     await expect(
@@ -264,10 +394,111 @@ describe("apiFetch", () => {
   });
 
   it("keeps the status when a failure body does not decode", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 400 })));
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(grant("token-1"))
+        .mockResolvedValueOnce(new Response("not json", { status: 400 })),
+    );
 
     await expect(
       apiFetch("/api/auth/change-password", { method: "POST" }, undefined, decodeRule),
     ).resolves.toStrictEqual({ kind: "failed", status: 400, detail: undefined });
+  });
+});
+
+/**
+ * Logout on a session that already expired, through the whole SPA: the token
+ * held died with the session, so the backend refuses the logout `403`; the
+ * transport re-fetches a token (for a fresh, anonymous session) and retries
+ * once, and that is refused too — `401`, or `403` again. The User asked to be
+ * signed out and is: local state is cleared and login shown, with no error and
+ * no "session ended" notice, because nothing went wrong.
+ */
+describe("logout on an expired session", () => {
+  beforeEach(discardCsrfToken);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it.each([401, 403])(
+    "clears the session and routes to login silently when the retry answers %i",
+    async (retryStatus) => {
+      window.history.replaceState(null, "", "/showcase");
+      let tokens = 0;
+      let logouts = 0;
+      const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+        if (input === CSRF_PATH) return Promise.resolve(grant(`token-${++tokens}`));
+        if (input === "/api/auth/logout" && init?.method === "DELETE") {
+          logouts += 1;
+          return Promise.resolve(new Response(null, { status: logouts === 1 ? 403 : retryStatus }));
+        }
+        if (input === "/api/auth/me")
+          return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+        return Promise.resolve(Response.json({ count: 0 }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(createElement(App));
+
+      await user.click(await screen.findByRole("button", { name: "Sign out" }));
+
+      expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/");
+      expect(screen.queryByText("Signed in as ada")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      const logoutCalls = fetchMock.mock.calls.filter(([url]) => url === "/api/auth/logout");
+      expect(logoutCalls).toEqual([
+        [
+          "/api/auth/logout",
+          { credentials: "include", headers: { "X-CSRF-TOKEN": "token-1" }, method: "DELETE" },
+        ],
+        [
+          "/api/auth/logout",
+          { credentials: "include", headers: { "X-CSRF-TOKEN": "token-2" }, method: "DELETE" },
+        ],
+      ]);
+    },
+  );
+
+  it("fetches a new token for the next login instead of reusing the dead one", async () => {
+    window.history.replaceState(null, "", "/showcase");
+    let tokens = 0;
+    let logouts = 0;
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input === CSRF_PATH) return Promise.resolve(grant(`token-${++tokens}`));
+      if (input === "/api/auth/logout" && init?.method === "DELETE") {
+        logouts += 1;
+        return Promise.resolve(new Response(null, { status: logouts === 1 ? 403 : 401 }));
+      }
+      if (input === "/api/auth/login")
+        return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+      if (input === "/api/auth/me")
+        return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+      return Promise.resolve(Response.json({ count: 0 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(createElement(App));
+
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    await user.type(await screen.findByLabelText("Username"), "ada");
+    await user.type(screen.getByLabelText("Password"), "correct-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    const urls = fetchMock.mock.calls.map(([url]) => url);
+    // The token fetched just before the login, not the one the dead session held.
+    expect(urls[urls.indexOf("/api/auth/login") - 1]).toBe(CSRF_PATH);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/login",
+      expect.objectContaining({
+        headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "token-3" },
+      }),
+    );
   });
 });

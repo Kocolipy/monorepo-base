@@ -72,21 +72,30 @@ existed for `APP_SESSION_ABSOLUTE_LIFETIME` (default 8 hours), regardless of how
 recently it was used. Both bounds apply to every authenticated session, `ADMIN`
 included; whichever is reached first ends the session.
 
-Log in and keep the returned `JSESSIONID` in a cookie jar:
+Every unsafe request (POST, PUT, PATCH, DELETE) needs the session's CSRF token in
+the `X-CSRF-TOKEN` header. It is fetched, never read from a cookie: `GET
+/api/auth/csrf` returns it in the body (and opens a session when there is none).
+Login discards the pre-login token, so fetch again once signed in. Log in and keep
+the returned session cookie in a cookie jar:
 
 ```bash
-curl -c cookies.txt \
+csrf() { curl -s -c cookies.txt -b cookies.txt http://localhost:8080/api/auth/csrf | jq -r .token; }
+
+curl -c cookies.txt -b cookies.txt \
   -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
+  -H "X-CSRF-TOKEN: $(csrf)" \
   -d '{"username":"admin","password":"P@ssw0rd"}'
+
+token=$(csrf)
 
 curl -b cookies.txt http://localhost:8080/api/auth/me
 ```
 
-All API endpoints other than login and the health check require that cookie.
-Counter and session endpoints accept either authenticated role; administration
-endpoints under `/api/admin/**` require `ADMIN`. Continue sending the cookie when
-using the session API:
+All API endpoints other than login, the CSRF token and the health check require
+that cookie. Counter and session endpoints accept either authenticated role;
+administration endpoints under `/api/admin/**` require `ADMIN`. Continue sending
+the cookie, and the token on unsafe requests, when using the session API:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/session
@@ -94,11 +103,13 @@ curl -b cookies.txt http://localhost:8080/api/session
 curl -b cookies.txt \
   -X PUT http://localhost:8080/api/session \
   -H 'Content-Type: application/json' \
+  -H "X-CSRF-TOKEN: $token" \
   -d '{"displayName":"Ada"}'
 
 curl -b cookies.txt http://localhost:8080/api/session
 
-curl -b cookies.txt -X DELETE http://localhost:8080/api/auth/logout
+curl -b cookies.txt -X DELETE -H "X-CSRF-TOKEN: $token" \
+  http://localhost:8080/api/auth/logout
 ```
 
 Review who has access. This needs an `ADMIN` session; a `USER` session is
@@ -128,18 +139,16 @@ field.
 Control an identity. Activating and unlocking are **separate capabilities**:
 deactivating leaves the failure run standing, activating leaves a lockout
 standing, and unlocking says nothing about `active`. Each is a POST, so each
-needs the CSRF header:
+needs the CSRF header (`$token`, fetched above):
 
 ```bash
-token=$(awk '/XSRF-TOKEN/{print $7}' cookies.txt)
-
-curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
   http://localhost:8080/api/admin/accounts/user/disable
 
-curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
   http://localhost:8080/api/admin/accounts/user/enable
 
-curl -b cookies.txt -X POST -H "X-XSRF-TOKEN: $token" \
+curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
   http://localhost:8080/api/admin/accounts/user/unlock
 ```
 
@@ -152,8 +161,8 @@ Increment or reset the count belonging to the authenticated user:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/count
-curl -b cookies.txt -X POST http://localhost:8080/api/count/increment
-curl -b cookies.txt -X POST http://localhost:8080/api/count/reset
+curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" http://localhost:8080/api/count/increment
+curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" http://localhost:8080/api/count/reset
 ```
 
 ## Configuration

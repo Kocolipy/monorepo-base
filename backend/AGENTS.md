@@ -98,7 +98,7 @@ For domain terminology and architectural decisions, follow `/docs/agents/domain.
 
 Treat authentication, authorization rules, logout, session invalidation, cookie attributes, and credential handling as security-sensitive. Cover changed behavior with tests and keep production secrets out of tracked files.
 
-The SPA depends on several of these at runtime: CSRF double-submit, the `401` versus `403` split, the session window, and the CSP. `frontend/AGENTS.md`'s "Backend contract" section states what it relies on — read it before changing any of the four, and update it in the same change.
+The SPA depends on several of these at runtime: the session-bound CSRF synchronizer token from `GET /api/auth/csrf`, the `401` versus `403` split, the session window, and the CSP. `frontend/AGENTS.md`'s "Backend contract" section states what it relies on — read it before changing any of the four, and update it in the same change. The token never travels in a cookie: `CookieCsrfTokenRepository` and `csrf.spa()` are banned by the `be-csrf-cookie-token` Semgrep rule, and `/docs/adr/0009-csrf-synchronizer-token.md` records why.
 
 ## API contract
 

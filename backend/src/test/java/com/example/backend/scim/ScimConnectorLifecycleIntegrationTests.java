@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
@@ -42,8 +43,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -145,9 +144,6 @@ class ScimConnectorLifecycleIntegrationTests {
 
     @Autowired
     private TransactionTemplate transactions;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -579,10 +575,7 @@ class ScimConnectorLifecycleIntegrationTests {
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
                 securityContext);
 
-        CsrfToken csrfToken = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request.session(session)
-                .cookie(new Cookie("XSRF-TOKEN", csrfToken.getToken()))
-                .header("X-XSRF-TOKEN", csrfToken.getToken());
+        return SessionCsrf.withCsrf(mvc, request.session(session));
     }
 
     /** An alias pointing at a real resource row, which the foreign key now requires. */

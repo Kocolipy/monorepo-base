@@ -8,7 +8,6 @@ import com.example.backend.scim.domain.ConnectorTokenScope;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
-import java.net.HttpCookie;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -34,6 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.yaml.snakeyaml.Yaml;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -484,33 +484,28 @@ class OperationalTelemetryIntegrationTests {
     }
 
     /**
-     * A password login through the real CSRF double-submit: a safe request seeds the
-     * {@code XSRF-TOKEN} cookie, and the login echoes it in {@code X-XSRF-TOKEN}, exactly
-     * as the SPA does.
+     * A password login through the real CSRF handshake: {@code GET /api/auth/csrf} opens a
+     * session and returns its token, and the login echoes it in the header that response
+     * names, exactly as the SPA does.
      */
     private Session login(String username, String password) throws Exception {
         CookieManager jar = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         HttpClient client = HttpClient.newBuilder().cookieHandler(jar).build();
-        send(client, request("/api/auth/me").GET());
+        JsonNode csrf = json.readTree(send(client, request("/api/auth/csrf").GET()).body());
+        String token = csrf.get("token").asText();
         String body = json.writeValueAsString(Map.of("username", username, "password", password));
         HttpResponse<String> response = send(client, request("/api/auth/login")
                 .header("Content-Type", "application/json")
-                .header("X-XSRF-TOKEN", cookie(jar, "XSRF-TOKEN"))
+                .header(csrf.get("headerName").asText(), token)
                 .POST(HttpRequest.BodyPublishers.ofString(body)));
         // Every cookie the login left behind (the session's, whatever this context names
-        // it, and the rotated CSRF token): all of them are secrets a scrape must not echo.
-        List<String> secrets = response.statusCode() == 200
-                ? jar.getCookieStore().getCookies().stream().map(HttpCookie::getValue).toList()
-                : List.of();
-        return new Session(response.statusCode(), client, secrets);
-    }
-
-    private static String cookie(CookieManager jar, String name) {
-        return jar.getCookieStore().getCookies().stream()
-                .filter(cookie -> cookie.getName().equals(name))
-                .map(HttpCookie::getValue)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("no " + name + " cookie was issued"));
+        // it) and the CSRF token: all of them are secrets a scrape must not echo.
+        List<String> secrets = new ArrayList<>();
+        if (response.statusCode() == 200) {
+            jar.getCookieStore().getCookies().forEach(cookie -> secrets.add(cookie.getValue()));
+            secrets.add(token);
+        }
+        return new Session(response.statusCode(), client, List.copyOf(secrets));
     }
 
     private HttpRequest.Builder request(String path) {

@@ -5,11 +5,28 @@ const ADMIN_CREDENTIALS = ["admin", "P@ssw0rd"] as const;
 /**
  * The backend's session cookie (`server.servlet.session.cookie.name`).
  *
- * The CSRF cookie is deliberately not this one: `CookieCsrfTokenRepository`
- * holds the token outside the session, which is what lets `expireSession()`
- * below produce a `401` rather than a `403`.
+ * There is no CSRF cookie at all: the token lives in the session and is fetched
+ * from `GET /api/auth/csrf`, so removing this cookie (see `expireSession()`)
+ * takes the token with it.
  */
 export const SESSION_COOKIE = "JSESSIONID";
+
+/**
+ * The CSRF header for an unsafe request made through `api`'s cookie jar,
+ * fetched exactly as the SPA fetches it: `GET /api/auth/csrf` returns the
+ * session's token and the header to send it in, and opens a session on a cold
+ * jar. `page.request` is such a context, sharing its page's cookies.
+ *
+ * Fetch it after anything that changes the session — a login rotates the id and
+ * discards the pre-login token.
+ */
+export async function csrfHeaderFor(api: APIRequestContext): Promise<Record<string, string>> {
+  const response = await api.get("/api/auth/csrf");
+  expect(response.status(), "GET /api/auth/csrf").toBe(200);
+  const { headerName, token } = (await response.json()) as { headerName: string; token: string };
+  expect(token, "the backend should have returned a CSRF token").toBeTruthy();
+  return { [headerName]: token };
+}
 
 /** Fill and submit the login form, without asserting where it lands. */
 export async function submitLogin(page: Page, username: string, password: string) {
@@ -35,12 +52,12 @@ export async function login(page: Page) {
 
 /**
  * Expire the session the way a server-side timeout looks to the SPA: the next
- * request carries no session cookie, so the backend answers `401`.
+ * request carries no session cookie. A safe request is answered `401`; an
+ * unsafe one is first refused `403` (its token belonged to the session), and
+ * `apiFetch`'s single re-fetch-and-retry then lands on the same `401`.
  *
  * Only this browser context is touched — the session stays valid on the
- * backend, so a spec using this cannot break one running beside it. Every other
- * cookie is put back, the CSRF token included, because a request missing *that*
- * is a `403` and would exercise the wrong branch of `apiFetch`.
+ * backend, so a spec using this cannot break one running beside it.
  */
 export async function expireSession(context: BrowserContext) {
   const surviving = (await context.cookies()).filter((cookie) => cookie.name !== SESSION_COOKIE);
@@ -67,19 +84,12 @@ export async function captureSessionCookie(context: BrowserContext) {
  * Reset the counter through the API, obeying the backend's CSRF contract.
  *
  * `page.request` shares the browser context's cookie jar but adds no header of
- * its own, so the token has to be read out and echoed exactly as the SPA does —
+ * its own, so the token has to be fetched and echoed exactly as the SPA does —
  * otherwise this returns `403` rather than resetting anything.
  */
 export async function resetCounterViaApi(page: Page) {
-  // A safe request first: it guarantees a token exists even on a cold context.
-  await page.request.get("/api/auth/me");
-
-  const cookies = await page.context().cookies();
-  const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
-  expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
-
   const response = await page.request.post("/api/count/reset", {
-    headers: { "X-XSRF-TOKEN": String(token) },
+    headers: await csrfHeaderFor(page.request),
   });
   expect(response.ok()).toBe(true);
 }
@@ -100,36 +110,21 @@ export async function submitLoginViaApi(
   username: string,
   password: string,
 ) {
-  // A safe request first: it seeds an XSRF-TOKEN cookie in this jar even though
-  // nothing here is authenticated.
-  await api.get("/api/auth/me");
-
-  const { cookies } = await api.storageState();
-  const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
-  expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
+  // The fetch opens the anonymous session the token — and then the login — belongs to.
+  const csrf = await csrfHeaderFor(api);
 
   return api.post("/api/auth/login", {
     data: { username, password },
     // A login refused for the credentials and a login refused for a missing
     // token are both 401/403 shaped, so the token has to be present for the
     // response to mean anything about the password.
-    headers: { "X-XSRF-TOKEN": String(token) },
+    headers: csrf,
   });
 }
 
-/**
- * The CSRF header for an unsafe request made through this page's cookie jar,
- * read out exactly as the SPA reads it. A safe request first guarantees a token
- * exists even on a cold context.
- */
+/** The CSRF header for an unsafe request made through this page's cookie jar. */
 async function csrfHeader(page: Page): Promise<Record<string, string>> {
-  await page.request.get("/api/auth/me");
-
-  const cookies = await page.context().cookies();
-  const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
-  expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
-
-  return { "X-XSRF-TOKEN": String(token) };
+  return csrfHeaderFor(page.request);
 }
 
 /**

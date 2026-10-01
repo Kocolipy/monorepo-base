@@ -5,10 +5,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -25,10 +25,7 @@ import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.PropertySourcesPropertyResolver;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -90,9 +87,6 @@ class EcsLogFormatTests {
     @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     private ScimUserRepository users;
@@ -389,9 +383,6 @@ class EcsLogFormatTests {
     }
 
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request
-                .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                .header("X-XSRF-TOKEN", token.getToken());
+        return SessionCsrf.withCsrf(mvc, request);
     }
 }

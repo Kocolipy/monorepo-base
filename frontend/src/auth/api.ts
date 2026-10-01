@@ -1,4 +1,10 @@
-import { apiFetch, CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE, type ApiResult } from "@/lib/http";
+import {
+  apiFetch,
+  CSRF_EXPIRED_MESSAGE,
+  discardCsrfToken,
+  FORBIDDEN_MESSAGE,
+  type ApiResult,
+} from "@/lib/http";
 
 export type AuthRole = "USER" | "ADMIN";
 
@@ -63,6 +69,9 @@ export async function login(username: string, password: string): Promise<AuthUse
 
   switch (result.kind) {
     case "ok":
+      // The session id rotated and the pre-login token went with the old one;
+      // the next unsafe request fetches the signed-in session's.
+      discardCsrfToken();
       return result.data;
     case "unauthenticated":
       throw new Error("The username or password is incorrect.");
@@ -75,14 +84,24 @@ export async function login(username: string, password: string): Promise<AuthUse
   }
 }
 
+/**
+ * Ends the session, and treats a session that had already ended as ended.
+ *
+ * Logout is CSRF-protected like any unsafe request, so on an expired session
+ * the token held is dead too: the backend answers `403`, `apiFetch` re-fetches
+ * a token (for a fresh, anonymous session) and retries, and the retry is
+ * refused `401` — or `403` again. Neither is an error to the user, who asked to
+ * be signed out and is, so both resolve. Either way the token is forgotten: it
+ * belonged to the session that just ended, and the next login fetches its own.
+ */
 export async function logout(): Promise<void> {
   const result: ApiResult<void> = await apiFetch("/api/auth/logout", { method: "DELETE" });
   switch (result.kind) {
     case "ok":
     case "unauthenticated":
-      return;
     case "forbidden":
-      throw new Error(FORBIDDEN_MESSAGE);
+      discardCsrfToken();
+      return;
     case "csrf-expired":
       throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
@@ -127,9 +146,10 @@ const decodeRuleMessage = async (response: Response): Promise<string | undefined
  */
 async function classifyRejection(): Promise<PasswordChangeOutcome> {
   const probe = await apiFetch("/api/auth/me");
-  return probe.kind === "unauthenticated"
-    ? { kind: "locked" }
-    : { kind: "current-password-rejected" };
+  if (probe.kind !== "unauthenticated") return { kind: "current-password-rejected" };
+  // The lockout revoked this session, and its token with it.
+  discardCsrfToken();
+  return { kind: "locked" };
 }
 
 /**
@@ -156,6 +176,8 @@ export async function changePassword(
 
   switch (result.kind) {
     case "ok":
+      // Every session of the User ended, this one and its token included.
+      discardCsrfToken();
       return { kind: "changed" };
     case "unauthenticated":
       return classifyRejection();

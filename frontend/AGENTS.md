@@ -106,22 +106,29 @@ This section is the authority on the runtime contract with the backend — read 
 before changing anything that issues a request, and update it here when the
 backend side moves. What the SPA has to honour:
 
-- **Every unsafe request carries `X-XSRF-TOKEN`.** The backend enforces CSRF
-  double-submit, so a `POST` / `PUT` / `PATCH` / `DELETE` without the header
-  comes back `403`. `src/lib/http.ts` is the only place that deals with this:
-  `apiFetch()` reads the `XSRF-TOKEN` cookie **per request** (login and logout
-  both rotate it, so a cached value goes stale), adds the header on unsafe
-  methods only, and always sends `credentials: "include"`.
+- **Every unsafe request carries the session's CSRF token.** The backend uses
+  the Synchronizer Token Pattern: the token is bound to the HTTP session, and a
+  `POST` / `PUT` / `PATCH` / `DELETE` without it — or with another session's, or
+  with one fetched before login rotated the session — comes back `403`. There is
+  no CSRF cookie. `src/lib/http.ts` is the only place that deals with this:
+  `apiFetch()` fetches the token from `GET /api/auth/csrf` (public; it opens a
+  session for a guest, which is what the login form needs), holds it **in memory
+  only**, sends it in the header that response names (`X-CSRF-TOKEN`) on unsafe
+  methods only, and always sends `credentials: "include"`. The token is worth
+  exactly as long as its session, so `src/auth/` calls `discardCsrfToken()`
+  whenever the session changes — after login, logout, a password change, and an
+  expiry — and the next unsafe request fetches the new session's before it is
+  sent. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
+  design was retired.
 - **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
   stale CSRF token or an authorization refusal (a `USER` on `/api/admin/**`, a
   session confined by a required password change, an Admin acting on its own
   account). CSRF applies only to unsafe methods, so `apiFetch` returns a safe
-  request's `403` as `forbidden` at once, with no re-seed. An unsafe request's
-  `403` re-seeds the token with a safe `GET /api/auth/me` and retries once; a
-  `403` on the retry was sent with a fresh token, so it is `forbidden` too.
-  `csrf-expired` is left for a re-seed that fails — the seed request throws or
-  answers anything but `2xx` or `401` (a guest's `401` still carries a fresh
-  cookie, which is what a first login needs). Both preserve the auth state:
+  request's `403` as `forbidden` at once, with no re-fetch. An unsafe request's
+  `403` re-fetches the token and retries once; a `403` on the retry was sent
+  with a fresh token, so it is `forbidden` too. `csrf-expired` is left for a
+  token fetch that fails — it throws, answers anything but `2xx`, or carries no
+  well-formed `{ headerName, token }`. Both preserve the auth state:
   pages show `FORBIDDEN_MESSAGE` ("You don't have permission to do this.") or
   `CSRF_EXPIRED_MESSAGE`, read from `useSessionRequest`, and neither ever ends
   the session. A `401` returns

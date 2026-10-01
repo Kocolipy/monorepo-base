@@ -5,15 +5,17 @@ info:
   description: |
     API contract for authentication and Redis-backed HTTP sessions.
 
-    CSRF protection is enabled. Every unsafe request (POST, PUT, PATCH, DELETE)
-    must echo the value of the `XSRF-TOKEN` cookie in the `X-XSRF-TOKEN` header,
-    or the request is rejected with 403 before authentication is considered. The
-    cookie is readable by JavaScript and is issued on any response from the API,
-    including anonymous ones. Login and logout both replace it, so the value has
-    to be read at request time rather than cached.
+    CSRF protection is enabled, using the Synchronizer Token Pattern bound to the
+    HTTP session. Every unsafe request (POST, PUT, PATCH, DELETE) must carry the
+    session's token in the header `GET /api/auth/csrf` names (`X-CSRF-TOKEN`), or
+    the request is rejected with 403 before authentication is considered. The
+    token is returned only in that endpoint's body — no response sets a CSRF
+    cookie. It lives and dies with the session: login discards the token the
+    pre-login session held, and logout or a password change ends the session it
+    belonged to, so a client fetches a fresh token after each of them.
 
     The service serves two separate security chains. The session-authenticated
-    application API under `/api` uses the cookie and CSRF rules above. The SCIM v2
+    application API under `/api` uses the session and CSRF rules above. The SCIM v2
     interface under `/scim/v2` is stateless and authenticated per request by an
     opaque connector bearer token, with no session, no CSRF and no cookie: a
     connector token buys nothing under `/api`, and a session buys nothing under
@@ -93,6 +95,37 @@ tags:
   - name: SCIM
   - name: Health
 paths:
+  /api/auth/csrf:
+    get:
+      tags: [Authentication]
+      summary: Get the session's CSRF token
+      description: |
+        Returns the CSRF token bound to the caller's HTTP session, and the header
+        an unsafe request carries it in. Public: a caller with no session gets one
+        created, so a login form can obtain the token its submission needs. The
+        value is XOR-masked afresh on every call, so it differs between calls while
+        every value returned for one session is accepted for it. Never cached.
+      operationId: getCsrfToken
+      security: []
+      responses:
+        "200":
+          description: The session's token.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              schema:
+                type: string
+                enum: [no-store]
+            Set-Cookie:
+              description: |
+                The session cookie, when the call created the session the token is
+                bound to. Never a CSRF cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CsrfTokenResponse"
   /api/auth/login:
     post:
       tags: [Authentication]
@@ -122,10 +155,9 @@ paths:
           headers:
             Set-Cookie:
               description: |
-                The session cookie, and a replacement `XSRF-TOKEN` cookie. The
-                session cookie can be omitted when an existing session is reused;
-                the CSRF token is always replaced, because a token obtained before
-                authentication does not remain valid after it.
+                The session cookie, under the rotated session id. The CSRF token the
+                session held before authentication is discarded rather than carried
+                over, so the client fetches a fresh one from `GET /api/auth/csrf`.
               schema:
                 type: string
           content:
@@ -166,7 +198,12 @@ paths:
     delete:
       tags: [Authentication]
       summary: Log out
-      description: Invalidates the current HTTP session and clears the security context.
+      description: |
+        Invalidates the current HTTP session and clears the security context. The
+        session's CSRF token ends with it. Logout is not exempt from CSRF: on a
+        session that has already expired its token is gone too, so the request is
+        refused `403`, and a retry with a freshly fetched token — bound to a new,
+        anonymous session — is refused `401`.
       operationId: logout
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
@@ -185,8 +222,7 @@ paths:
             Set-Cookie:
               description: |
                 An expired session cookie, so the browser stops sending an id that
-                names nothing, and a replacement `XSRF-TOKEN` cookie usable for the
-                next login.
+                names nothing.
               schema:
                 type: string
         "401":
@@ -236,8 +272,8 @@ paths:
           headers:
             Set-Cookie:
               description: |
-                An expired session cookie, and a replacement `XSRF-TOKEN` cookie
-                usable for the next login.
+                An expired session cookie. The session's CSRF token ended with it;
+                the next login fetches a fresh one.
               schema:
                 type: string
         "400":
@@ -2133,10 +2169,12 @@ components:
         type: string
         format: uuid
     CsrfToken:
-      name: X-XSRF-TOKEN
+      name: X-CSRF-TOKEN
       in: header
       required: true
-      description: The current value of the XSRF-TOKEN cookie, echoed back unchanged.
+      description: |
+        The session's CSRF token as `GET /api/auth/csrf` returned it, in the header
+        that response names.
       schema:
         type: string
     ConnectorId:
@@ -2162,9 +2200,10 @@ components:
       description: A valid authenticated session is required.
     CsrfTokenRejected:
       description: |
-        The CSRF token is missing or does not match the XSRF-TOKEN cookie. This is
-        decided before authentication, so it is returned even on the public login
-        operation.
+        The CSRF token is missing, or is not the token of the caller's own HTTP
+        session — including one fetched before the session was rotated by login,
+        or one whose session has since ended. This is decided before
+        authentication, so it is returned even on the public login operation.
     AdminAccount:
       description: The account as it stands after the change.
       content:
@@ -2423,6 +2462,20 @@ components:
             session may call `GET /api/auth/me`, `POST /api/auth/change-password`
             and `DELETE /api/auth/logout`; every other endpoint, `/api/admin/**`
             included, answers 403.
+    CsrfTokenResponse:
+      type: object
+      additionalProperties: false
+      required: [headerName, token]
+      properties:
+        headerName:
+          type: string
+          description: The request header an unsafe request carries the token in.
+          example: X-CSRF-TOKEN
+        token:
+          type: string
+          description: |
+            The session's token, XOR-masked for this response. Send it unchanged;
+            a value from another session, or from before login, is refused.
     SelfRecord:
       type: object
       additionalProperties: false

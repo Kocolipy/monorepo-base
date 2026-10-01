@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { expireSession } from "./auth.helpers";
 
-const CSRF_HEADER = "x-xsrf-token";
+const CSRF_HEADER = "x-csrf-token";
 
 // What the SPA does when a request it expected to succeed comes back refused.
 // `src/lib/http.ts` classifies 401 and a 403 that survives the CSRF re-seed into
@@ -42,9 +42,9 @@ test.describe("sessions, signed in", () => {
     const increment = page.getByRole("button", { name: "Increment" });
     await expect(increment).toBeEnabled();
 
-    // Corrupt the echoed token rather than deleting the cookie: `apiFetch`
-    // answers a 403 by re-seeding the cookie and retrying once, so a deleted
-    // cookie would simply be replaced and the request would succeed. Rewriting
+    // Corrupt the echoed token rather than letting it go stale: `apiFetch`
+    // answers a 403 by re-fetching the token and retrying once, so a stale
+    // token would simply be replaced and the request would succeed. Rewriting
     // the header on every attempt makes the backend reject both; a 403 sent
     // with a just-issued token is an authorization refusal to `apiFetch`, so it
     // reaches the page as `forbidden`.

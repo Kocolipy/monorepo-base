@@ -13,13 +13,16 @@ import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.CookieSerializer;
@@ -118,9 +121,29 @@ public class AuthController {
                     outcome.userId().toString());
         }
 
-        issueCsrfToken(request, response);
+        // The session id has just rotated, but its attributes moved with it — the
+        // pre-login CSRF token among them. Dropping it here means a token fetched
+        // before authentication is refused after it; the SPA fetches a new one.
+        csrfTokenRepository.saveToken(null, request, response);
 
         return userResponse(authentication);
+    }
+
+    /**
+     * The CSRF token bound to the caller's session, in the body and never in a
+     * cookie: the SPA keeps it in memory and echoes it in the header named here.
+     *
+     * <p>Public, so a guest can obtain the token its login submission needs; the
+     * call creates the session the token belongs to when there is none yet. The
+     * value is XOR-masked afresh on every call, so two responses never repeat each
+     * other, and {@code no-store} keeps it out of every cache between here and the
+     * page that asked.
+     */
+    @GetMapping("/csrf")
+    public ResponseEntity<CsrfTokenResponse> csrfToken(CsrfToken token) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(new CsrfTokenResponse(token.getHeaderName(), token.getToken()));
     }
 
     @GetMapping("/me")
@@ -154,7 +177,8 @@ public class AuthController {
         // caller whose session already expired is cleaned up the same way.
         response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
 
-        issueCsrfToken(request, response);
+        // No CSRF work: the token lived in the session just invalidated, so it is
+        // already gone, and the next login fetches one for the session it creates.
     }
 
     /**
@@ -169,18 +193,6 @@ public class AuthController {
                 instanceof String userId) {
             audit.recordLogout(UUID.fromString(userId));
         }
-    }
-
-    /**
-     * Replaces the CSRF cookie with a freshly minted token. On login this stops a
-     * token minted before authentication from remaining valid after it; on logout
-     * it both discards the token that belonged to the closed session and leaves
-     * the caller with a usable token, so the next login can be submitted without
-     * a round trip to fetch one.
-     */
-    private void issueCsrfToken(HttpServletRequest request, HttpServletResponse response) {
-        csrfTokenRepository.saveToken(
-                csrfTokenRepository.generateToken(request), request, response);
     }
 
     /**
@@ -246,7 +258,6 @@ public class AuthController {
         session.invalidate();
         SecurityContextHolder.clearContext();
         cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
-        issueCsrfToken(request, response);
     }
 
     /** Wrong current password, lockout, inactive: the same bare {@code 401} Login gives. */
@@ -292,6 +303,13 @@ public class AuthController {
         public String toString() {
             return "ChangePasswordRequest[redacted]";
         }
+    }
+
+    /**
+     * @param headerName the request header an unsafe request carries the token in
+     * @param token      the masked token value to send in it
+     */
+    public record CsrfTokenResponse(String headerName, String token) {
     }
 
     /** A {@code 400} for a new password breaking a policy rule. */

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch } from "@/lib/http";
+import { apiFetch, discardCsrfToken } from "@/lib/http";
 
 import { changePassword, getCurrentUser, login, logout } from "./api";
 
@@ -98,12 +98,77 @@ describe("auth API", () => {
 
   const PERMISSION_DENIED = /^You don't have permission to do this\.$/;
 
-  it("reports an authorization refusal on each auth call as permission denied", async () => {
+  it("reports an authorization refusal on the session check and login as permission denied", async () => {
     resolveWith({ kind: "forbidden" });
 
     await expect(getCurrentUser()).rejects.toThrow(PERMISSION_DENIED);
     await expect(login("ada", "secret")).rejects.toThrow(PERMISSION_DENIED);
-    await expect(logout()).rejects.toThrow(PERMISSION_DENIED);
+  });
+
+  // A 403 that survived the transport's re-fetch-and-retry: the session the
+  // logout names is already gone (or the retry's fresh anonymous one is refused),
+  // so the User is signed out — which is what they asked for.
+  it("treats a logout refused 403 after the retry as logged out", async () => {
+    resolveWith({ kind: "forbidden" });
+    await expect(logout()).resolves.toBeUndefined();
+  });
+});
+
+describe("the CSRF token across session changes", () => {
+  const discardMock = vi.mocked(discardCsrfToken);
+
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+    discardMock.mockReset();
+  });
+
+  it("forgets the token once a login has rotated the session", async () => {
+    resolveWith({ kind: "ok", data: { role: "USER", username: "ada" } });
+    await login("ada", "secret");
+    expect(discardMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([{ kind: "ok", data: undefined }, { kind: "unauthenticated" }, { kind: "forbidden" }])(
+    "forgets the token once a logout ends the session ($kind)",
+    async (result) => {
+      resolveWith(result);
+      await logout();
+      expect(discardMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("forgets the token once a password change has ended every session", async () => {
+    resolveWith({ kind: "ok", data: undefined });
+    await expect(changePassword("old", "new")).resolves.toEqual({ kind: "changed" });
+    expect(discardMock).toHaveBeenCalledOnce();
+  });
+
+  it("forgets the token when a rejected change turns out to have locked the account", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never);
+    await expect(changePassword("wrong", "new")).resolves.toEqual({ kind: "locked" });
+    expect(discardMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the token while the session stands", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "ok", data: undefined } as never);
+    await expect(changePassword("wrong", "new")).resolves.toEqual({
+      kind: "current-password-rejected",
+    });
+
+    resolveWith({ kind: "unauthenticated" });
+    await expect(login("ada", "wrong")).rejects.toThrow();
+    resolveWith({ kind: "failed", status: 500 });
+    await expect(logout()).rejects.toThrow();
+    resolveWith({ kind: "csrf-expired" });
+    await expect(logout()).rejects.toThrow();
+    await expect(changePassword("old", "new")).resolves.toEqual({ kind: "csrf-expired" });
+    await getCurrentUser().catch(() => undefined);
+
+    expect(discardMock).not.toHaveBeenCalled();
   });
 });
 

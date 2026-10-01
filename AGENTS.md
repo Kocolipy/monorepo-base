@@ -135,9 +135,10 @@ sanctioned parent-relative path in the tree: it is inert unless the profile is
 active, so `backend/` stays independently buildable, and `make package`
 overrides it explicitly rather than relying on it.
 
-The **runtime** contract — CSRF, CSP, sessions — is a separate agreement, and
-`frontend/AGENTS.md`'s "Backend contract" section is its authority. Read it
-before changing request handling on either side.
+The **runtime** contract — CSRF (a session-bound synchronizer token the SPA
+fetches from `GET /api/auth/csrf`; never a cookie), CSP, sessions — is a
+separate agreement, and `frontend/AGENTS.md`'s "Backend contract" section is its
+authority. Read it before changing request handling on either side.
 
 ## Line endings
 

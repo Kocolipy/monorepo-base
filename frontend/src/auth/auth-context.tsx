@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { discardCsrfToken } from "@/lib/http";
+
 import * as authApi from "./api";
 import type { AuthUser } from "./api";
 import { AuthContext, type AuthContextState, type AuthStatus } from "./auth-context-value";
@@ -34,6 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * expired session and a cold visit is set here and read by the route guards.
    */
   const expireSession = useCallback(() => {
+    // The session's CSRF token ended with it; the next login fetches its own.
+    discardCsrfToken();
     setUser(null);
     setSessionExpired(true);
     setPasswordChanged(false);
