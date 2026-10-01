@@ -514,6 +514,42 @@ final class ScimFixtures {
             assertThat(resource.body().get(kind.identifying).asText()).isEqualTo(longest);
         });
 
+        // -- 400 invalidValue: a character the column or the name refuses, never a 500 --
+        // U+0000 is refused in every stored string, since PostgreSQL cannot store it; a name also
+        // refuses every other C0 control and DEL. The values are JSON escapes, so the body is
+        // what a connector actually sends, and the refusal never echoes them.
+        String nul = name() + "\\" + "u0000x";
+        String newline = name() + "\\" + "nforged";
+        String controlDetail = kind.identifying
+                + " must not contain control characters (U+0000 to U+001F, U+007F).";
+        add(all, k + " 400 invalidValue: create with a NUL in " + kind.identifying, t -> {
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, kind.collection()),
+                    kind.create(nul)), 400, "invalidValue");
+            // A name refuses every control, so it is named for the wider rule.
+            assertThat(error.get("detail").asText()).isEqualTo(controlDetail);
+        });
+        add(all, k + " 400 invalidValue: patch a newline into " + kind.identifying, t -> {
+            Resource resource = t.create(kind);
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), Kind.patch("""
+                    {"op":"replace","path":"%s","value":"%s"}""".formatted(kind.identifying,
+                    newline))), 400, "invalidValue");
+            assertThat(error.get("detail").asText()).isEqualTo(controlDetail);
+            assertThat(error.toString()).doesNotContain("forged");
+            t.assertUnchanged(kind, resource);
+        });
+        add(all, k + " 400 invalidValue: replace with a NUL in externalId", t -> {
+            Resource resource = t.create(kind);
+            String body = kind.replace(name());
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()),
+                    body.substring(0, body.length() - 1) + ",\"externalId\":\"" + nul + "\"}"),
+                    400, "invalidValue");
+            assertThat(error.get("detail").asText())
+                    .isEqualTo("externalId must not contain the NUL character (U+0000).");
+            t.assertUnchanged(kind, resource);
+        });
+
         // -- 400 invalidSyntax: not JSON, not a resource, the wrong schema, a missing required --
         Map<String, String> unreadable = ScimConformanceFixtureTests.map(
                 "malformed JSON", "{\"schemas\":",
