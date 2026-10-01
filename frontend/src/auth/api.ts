@@ -1,4 +1,4 @@
-import { apiFetch, CSRF_EXPIRED_MESSAGE, type ApiResult } from "@/lib/http";
+import { apiFetch, CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE, type ApiResult } from "@/lib/http";
 
 export type AuthRole = "USER" | "ADMIN";
 
@@ -42,6 +42,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       return result.data;
     case "unauthenticated":
       return null;
+    case "forbidden":
+      throw new Error(FORBIDDEN_MESSAGE);
     case "csrf-expired":
     case "failed":
       throw new Error("Unable to check the current session.");
@@ -64,6 +66,8 @@ export async function login(username: string, password: string): Promise<AuthUse
       return result.data;
     case "unauthenticated":
       throw new Error("The username or password is incorrect.");
+    case "forbidden":
+      throw new Error(FORBIDDEN_MESSAGE);
     case "csrf-expired":
       throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
@@ -77,6 +81,8 @@ export async function logout(): Promise<void> {
     case "ok":
     case "unauthenticated":
       return;
+    case "forbidden":
+      throw new Error(FORBIDDEN_MESSAGE);
     case "csrf-expired":
       throw new Error(CSRF_EXPIRED_MESSAGE);
     case "failed":
@@ -100,6 +106,7 @@ export type PasswordChangeOutcome =
   | { kind: "policy-violation"; message: string }
   | { kind: "current-password-rejected" }
   | { kind: "locked" }
+  | { kind: "forbidden" }
   | { kind: "csrf-expired" }
   | { kind: "failed" };
 
@@ -152,6 +159,8 @@ export async function changePassword(
       return { kind: "changed" };
     case "unauthenticated":
       return classifyRejection();
+    case "forbidden":
+      return { kind: "forbidden" };
     case "csrf-expired":
       return { kind: "csrf-expired" };
     case "failed":

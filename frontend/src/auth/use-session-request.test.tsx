@@ -75,12 +75,15 @@ describe("useSessionRequest", () => {
     expect(result).not.toMatchObject({ kind: "unauthenticated" });
   });
 
-  it("leaves a csrf-expired result for the caller to report", async () => {
-    apiFetchMock.mockResolvedValue({ kind: "csrf-expired" } as never);
+  it.each([{ kind: "csrf-expired" }, { kind: "forbidden" }])(
+    "leaves a $kind result for the caller to report",
+    async (refusal) => {
+      apiFetchMock.mockResolvedValue(refusal as never);
 
-    await expect(request()("/api/count", {}, decode)).resolves.toEqual({ kind: "csrf-expired" });
-    expect(state.expireSession).not.toHaveBeenCalled();
-  });
+      await expect(request()("/api/count", {}, decode)).resolves.toEqual(refusal);
+      expect(state.expireSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("leaves a failed result for the caller to report", async () => {
     apiFetchMock.mockResolvedValue({ kind: "failed", status: 503 } as never);

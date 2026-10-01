@@ -98,6 +98,10 @@ describe("apiFetch", () => {
       headers: {},
       method: "POST",
     });
+    // The matcher above ignores keys whose value is `undefined`, and a real
+    // `fetch` would send such a header as the string "undefined".
+    const init = vi.mocked(fetch).mock.calls[0]?.[1];
+    expect(Object.keys(init?.headers ?? { missing: true })).toEqual([]);
   });
 
   it("reads the cookie per request, so a rotated token is picked up", async () => {
@@ -120,47 +124,88 @@ describe("apiFetch", () => {
     });
   });
 
-  it("re-seeds the cookie and retries once after a 403", async () => {
+  // 200 is a signed-in session's seed; 401 is a guest's, which still carries a
+  // fresh cookie — the case a guest's first login after a lost cookie depends on.
+  it.each([200, 401])(
+    "re-seeds the cookie and retries once after a 403 (seed %i)",
+    async (seedStatus) => {
+      setCookie("stale");
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 403 }))
+        .mockImplementationOnce(() => {
+          setCookie("fresh");
+          return Promise.resolve(new Response(null, { status: seedStatus }));
+        })
+        .mockResolvedValueOnce(Response.json({ count: 1 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
+      ).resolves.toEqual({ kind: "ok", data: 1 });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
+      expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/increment", {
+        credentials: "include",
+        headers: { "X-XSRF-TOKEN": "fresh" },
+        method: "POST",
+      });
+    },
+  );
+
+  it("returns forbidden after a second 403, with exactly one retry", async () => {
     setCookie("stale");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 403 }))
-      .mockImplementationOnce(() => {
-        setCookie("fresh");
-        return Promise.resolve(new Response(null, { status: 401 }));
-      })
-      .mockResolvedValueOnce(Response.json({ count: 1 }));
+      .mockResolvedValueOnce(new Response(null))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(
-      apiFetch("/api/count/increment", { method: "POST" }, decodeCount),
-    ).resolves.toEqual({ kind: "ok", data: 1 });
+    await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
+      kind: "forbidden",
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/count/increment", {
       credentials: "include",
-      headers: { "X-XSRF-TOKEN": "fresh" },
+      headers: { "X-XSRF-TOKEN": "stale" },
       method: "POST",
     });
   });
 
-  it("returns csrf-expired after a second 403 rather than looping", async () => {
+  it.each(["GET", "HEAD", "OPTIONS", "get", undefined])(
+    "returns forbidden for a 403 on safe method %s without touching the CSRF seed",
+    async (method) => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        apiFetch("/api/admin/accounts", method === undefined ? {} : { method }),
+      ).resolves.toEqual({ kind: "forbidden" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/auth/me", expect.anything());
+    },
+  );
+
+  it.each([
+    ["answers 500", () => Promise.resolve(new Response(null, { status: 500 }))],
+    ["answers 403", () => Promise.resolve(new Response(null, { status: 403 }))],
+    ["throws", () => Promise.reject(new TypeError("offline"))],
+  ])("returns csrf-expired without retrying when the re-seed %s", async (_, seed) => {
     setCookie("stale");
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 403 }))
+      .mockImplementationOnce(seed)
+      .mockResolvedValue(new Response(null));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(apiFetch("/api/count/increment", { method: "POST" })).resolves.toEqual({
       kind: "csrf-expired",
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  it("classifies a forbidden safe request without retrying", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(apiFetch("/api/count")).resolves.toEqual({ kind: "csrf-expired" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/me", { credentials: "include" });
   });
 
   it("classifies 401 as unauthenticated without retrying", async () => {

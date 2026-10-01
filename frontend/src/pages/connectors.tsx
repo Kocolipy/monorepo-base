@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 
-import {
-  CSRF_EXPIRED_MESSAGE,
-  useSessionRequest,
-  type SessionResult,
-} from "@/auth/use-session-request";
+import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -240,9 +236,12 @@ function useConnectors() {
   // A failed read is reported as a failure, never as an empty list.
   const [unread, setUnread] = useState(false);
 
-  const applyFailure = useCallback((result: SessionResult<unknown>, message: string) => {
-    setError(result.kind === "csrf-expired" ? CSRF_EXPIRED_MESSAGE : message);
-  }, []);
+  const applyFailure = useCallback(
+    (result: Exclude<SessionResult<unknown>, { kind: "ok" }>, message: string) => {
+      setError(refusalMessage(result, message));
+    },
+    [],
+  );
 
   const fetchConnectors = useCallback(
     () => request(CONNECTORS_PATH, {}, decodeJson<Connector[]>),

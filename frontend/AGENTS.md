@@ -112,9 +112,19 @@ backend side moves. What the SPA has to honour:
   `apiFetch()` reads the `XSRF-TOKEN` cookie **per request** (login and logout
   both rotate it, so a cached value goes stale), adds the header on unsafe
   methods only, and always sends `credentials: "include"`.
-- **`403` is not `401`.** A `403` means the token was missing or stale;
-  `apiFetch` re-seeds it with a safe `GET /api/auth/me`, retries once, then
-  returns `csrf-expired` while preserving the auth state. A `401` returns
+- **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
+  stale CSRF token or an authorization refusal (a `USER` on `/api/admin/**`, a
+  session confined by a required password change, an Admin acting on its own
+  account). CSRF applies only to unsafe methods, so `apiFetch` returns a safe
+  request's `403` as `forbidden` at once, with no re-seed. An unsafe request's
+  `403` re-seeds the token with a safe `GET /api/auth/me` and retries once; a
+  `403` on the retry was sent with a fresh token, so it is `forbidden` too.
+  `csrf-expired` is left for a re-seed that fails — the seed request throws or
+  answers anything but `2xx` or `401` (a guest's `401` still carries a fresh
+  cookie, which is what a first login needs). Both preserve the auth state:
+  pages show `FORBIDDEN_MESSAGE` ("You don't have permission to do this.") or
+  `CSRF_EXPIRED_MESSAGE`, read from `useSessionRequest`, and neither ever ends
+  the session. A `401` returns
   `unauthenticated`, which `useSessionRequest` acts on centrally: it ends the
   session and `ProtectedRoute` sends the user to login, marking the redirect as
   an expiry so the login page says the session ended. Treating `403` as `401`

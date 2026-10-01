@@ -145,7 +145,9 @@ The SPA is served by the Spring Boot backend and shares its session cookie.
 `AGENTS.md`'s "Backend contract" section is authoritative. `apiFetch()` owns
 CSRF recovery and returns typed semantic results instead of raw responses:
 `unauthenticated` expires auth state and returns the user to login, while
-`csrf-expired` preserves the session and lets the feature show retry copy.
+`forbidden` (an authorization refusal) and `csrf-expired` (a CSRF token that
+could not be re-seeded) preserve the session and let the feature show
+permission-denied or retry copy.
 
 In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 `npm run dev` needs the backend up for anything past the login form.

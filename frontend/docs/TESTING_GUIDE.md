@@ -255,7 +255,8 @@ response:
 - **`403`, persistently** — rewrite the `X-XSRF-TOKEN` header with
   `page.route`. Deleting the cookie does not work: `apiFetch` answers a `403` by
   re-seeding the cookie and retrying once, so the retry would succeed. Rewriting
-  on every attempt makes the backend reject both.
+  on every attempt makes the backend reject both, and a `403` that survives the
+  re-seed is reported as `forbidden`.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
 (rename the cookie, drop the header rewrite), confirm the test fails, then put it
@@ -272,7 +273,8 @@ makes requests the backend refuses, which leaves the count untouched.
 Everything under `src/` reaches the backend through `apiFetch` in
 `src/lib/http.ts`. That module alone stubs `fetch` and proves credentials, CSRF
 recovery, status classification, and decoding. Feature tests mock `apiFetch`
-with an `ApiResult` (`ok`, `unauthenticated`, `csrf-expired`, or `failed`) and
+with an `ApiResult` (`ok`, `unauthenticated`, `forbidden`, `csrf-expired`, or
+`failed`) and
 assert only their own response to that meaning. This keeps raw `Response`
 construction and cookie setup out of feature suites; `src/auth/api.test.ts`,
 `src/pages/showcase.test.tsx` and `src/pages/accounts.test.tsx` are the patterns.

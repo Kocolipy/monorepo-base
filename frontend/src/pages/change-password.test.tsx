@@ -95,6 +95,15 @@ describe("ChangePassword", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("renders safely while authenticated user details are unavailable", () => {
+    renderPage({ ...unflaggedAuth(), user: null });
+
+    // No flag to read means no confinement: the unflagged copy and a way back.
+    expect(screen.getByText(/^Choose a new password for your account\. /)).toBeInTheDocument();
+    expect(screen.getByText(/^Signed in as\s*$/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back" })).toBeInTheDocument();
+  });
+
   it("offers an unflagged User a way back", () => {
     renderPage(unflaggedAuth());
 
@@ -159,6 +168,11 @@ describe("ChangePassword", () => {
       "a persistent CSRF rejection as a token problem",
       { kind: "csrf-expired" },
       /^Your security token expired\. Please try again\.$/,
+    ],
+    [
+      "an authorization refusal as permission denied",
+      { kind: "forbidden" },
+      /^You don't have permission to do this\.$/,
     ],
     [
       "any other failure as a retryable one",

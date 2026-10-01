@@ -95,6 +95,16 @@ describe("auth API", () => {
     resolveWith({ kind: "failed", status: 500 });
     await expect(logout()).rejects.toThrow("Unable to sign out. Please try again.");
   });
+
+  const PERMISSION_DENIED = /^You don't have permission to do this\.$/;
+
+  it("reports an authorization refusal on each auth call as permission denied", async () => {
+    resolveWith({ kind: "forbidden" });
+
+    await expect(getCurrentUser()).rejects.toThrow(PERMISSION_DENIED);
+    await expect(login("ada", "secret")).rejects.toThrow(PERMISSION_DENIED);
+    await expect(logout()).rejects.toThrow(PERMISSION_DENIED);
+  });
 });
 
 /** The decoder `apiFetch` was handed on its `n`th call, applied to a real response body. */
@@ -192,6 +202,12 @@ describe("changePassword", () => {
   it("reports a persistent CSRF rejection as a token problem", async () => {
     resolveWith({ kind: "csrf-expired" });
     await expect(changePassword(current, next)).resolves.toEqual({ kind: "csrf-expired" });
+  });
+
+  it("reports an authorization refusal as forbidden, without probing the session", async () => {
+    resolveWith({ kind: "forbidden" });
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "forbidden" });
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("reads a 401 that leaves the session standing as a wrong current password", async () => {
