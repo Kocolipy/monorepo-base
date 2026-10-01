@@ -232,6 +232,22 @@ It is `test.describe.serial` because its steps depend on each other.
 seeded accounts — an Unlock of a User serving no lockout requires no change — and
 the statuses and response shapes are covered in `AdminAccountEndpointTests`.
 
+The fixtures for that pattern live in `test/e2e/scim.helpers.ts`: a connector
+and token (`createConnector`, or `workerConnector` for one shared by every test a
+worker runs from a file), `provisionUser` / `settlePassword` / `deprovisionUser`,
+and `scimPatch`, which sends the resource's current ETag as `If-Match`. Every
+User and connector a spec creates is named with the `e2e-` prefix plus a
+`runId()` suffix, and a spec deletes only what carries **its own** suffix. A
+spec must never sweep by prefix during a run: specs run in parallel, so a prefix
+sweep deletes a fixture another spec is still using. Leftovers from a run that
+died before its `finally` are swept once, by `sweepLeftovers()` in
+`auth.setup.ts`, before any other project starts.
+
+A spec that needs a known **backend defect** to be visible marks the test
+`test.fail(true, "#<issue>: …")`: the suite stays green while the issue is open
+and turns red the moment the fix lands, so the marker cannot outlive the bug.
+Remove the marker in the fix's PR.
+
 A forced change **revokes the sessions it holds**. The `admin` project keeps
 `dependencies: ["setup", "user"]` so it still runs after the `user` project,
 although nothing in it now touches the seeded `user`'s sessions. Proving
@@ -270,6 +286,11 @@ response:
   re-fetching the token and retrying once, so the retry would succeed. Rewriting
   on every attempt makes the backend reject both, and a `403` that survives the
   re-fetch is reported as `forbidden`.
+- **`401` from a session the backend really ended** — sign the same User in
+  again elsewhere, or make the SCIM write that revokes its sessions
+  (`session-revocation.spec.ts`). Use a provisioned User, and make the page's
+  next request a read: an increment would move the counter `showcase.spec.ts`
+  asserts exact values of.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
 (keep the session cookie, drop the header rewrite), confirm the test fails, then put it
@@ -277,7 +298,7 @@ back.
 
 ### Sharing backend state under `fullyParallel`
 
-The counter is one value on the backend and `authentication.spec.ts` resets it,
+The counter is one value on the backend and `showcase.spec.ts` resets it,
 so a spec running beside it must not assert a count. `session.spec.ts` only
 makes requests the backend refuses, which leaves the count untouched.
 

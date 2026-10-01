@@ -88,9 +88,14 @@ test/
   .dependency-cruiser.cjs
   arch/                   architecture rules the module graph can't express
   e2e/smoke.spec.ts       guest-facing Playwright smoke suite
-  e2e/authentication.spec.ts  authenticated session + counter
+  e2e/showcase.spec.ts    authenticated session + counter
   e2e/accounts-admin.spec.ts  the ADMIN accounts page, driven as a browser
-  e2e/auth.setup.ts       signs in once, saves the storage state
+  e2e/session-revocation.spec.ts  sessions ended by a second sign-in or a SCIM write
+  e2e/login-lockout.spec.ts       lockout reached at the login page
+  e2e/console-errors.spec.ts      every authenticated route loads without errors
+  e2e/auth.helpers.ts     sign-in, CSRF and admin-request fixtures
+  e2e/scim.helpers.ts     connector, SCIM User and clean-up fixtures
+  e2e/auth.setup.ts       signs in once, saves the storage state, sweeps leftovers
 semgrep/rules/          local Semgrep ruleset
 docs/                   ARCHITECTURE.md, TESTING_GUIDE.md
 graphify-out/           knowledge graph (tracked; refreshed with the code)

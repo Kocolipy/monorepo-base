@@ -8,6 +8,7 @@ import {
   submitLogin,
   submitLoginViaApi,
 } from "./auth.helpers";
+import { sweepLeftovers } from "./scim.helpers";
 
 setup("authenticate USER", async ({ page }) => {
   await loginAs(page, "user", SEED_PASSWORD);
@@ -18,6 +19,10 @@ setup("authenticate ADMIN", async ({ page }) => {
   await settleAdminPassword(page);
   await loginAs(page, ADMIN_USERNAME, ADMIN_PASSWORD);
   await page.context().storageState({ path: "test/e2e/.auth/admin.json" });
+  // Here because this is the one point where an Admin session exists and no
+  // spec is running yet: every other project depends on `setup`. A sweep run
+  // mid-suite would delete a fixture a parallel spec is still using.
+  await sweepLeftovers(page);
 });
 
 /**

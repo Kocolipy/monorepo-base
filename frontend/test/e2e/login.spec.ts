@@ -28,6 +28,26 @@ test.describe("sessions, signed out", () => {
     await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
+  // The backend bounds both fields (256 code points each) and answers a longer
+  // one 400 before the login service sees it. The SPA must survive that: a
+  // generic refusal, no crash, and a form that still signs in afterwards.
+  for (const [field, username, password] of [
+    ["username", "u".repeat(257), "not-the-password"],
+    ["password", "admin", "p".repeat(257)],
+  ] as const) {
+    test(`refuses an oversized ${field} cleanly and keeps the form usable`, async ({ page }) => {
+      const answered = page.waitForResponse((response) =>
+        response.url().endsWith("/api/auth/login"),
+      );
+      await submitLogin(page, username, password);
+
+      expect((await answered).status()).toBe(400);
+      await expect(page.getByRole("alert")).toHaveText("Unable to sign in. Please try again.");
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    });
+  }
+
   test("sends a guest asking for the protected page to the login page", async ({ page }) => {
     await page.goto("/showcase");
 
@@ -52,7 +72,18 @@ test.describe("sessions, signed out", () => {
   test("ends the session on sign out", async ({ page }) => {
     await login(page);
 
+    const signedOut = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/auth/logout") && response.request().method() === "DELETE",
+    );
     await page.getByRole("button", { name: "Sign out" }).click();
+
+    // The backend tells the browser to drop everything it held for the origin,
+    // not only the session cookie: a shared machine keeps no cached page and
+    // no storage of the signed-out User.
+    const response = await signedOut;
+    expect(response.status()).toBe(204);
+    expect((await response.allHeaders())["clear-site-data"]).toBe('"cache","cookies","storage"');
 
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
