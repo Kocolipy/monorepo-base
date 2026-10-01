@@ -1,6 +1,6 @@
 # AGENTS.md — frontend
 
-React + Vite + Tailwind baseline, and the full tooling gate around it. Three
+React + Vite + Tailwind baseline, and the full tooling gate around it. Four
 pages behind a session-backed login: `react-router-dom` routes them, `src/auth/`
 owns the session, and requests receive typed semantic results from
 `src/lib/http.ts`. There is no global state library and no service worker — this
@@ -45,15 +45,20 @@ them:
   behind one semantic result interface (see "Backend contract"). Shared hooks
   belong here too — `components.json` points the shadcn CLI at `@/lib/hooks`.
 - **`src/auth/`** — the session and role authorization. `api.ts` maps semantic HTTP results for the
-  three `/api/auth/*` endpoints, `auth-context.tsx` holds the
-  `checking | authenticated | guest` status and the expiry transition,
+  four `/api/auth/*` endpoints, `auth-context.tsx` holds the
+  `checking | authenticated | guest` status, the expiry transition and the
+  password-change transition,
   `auth-context-value.ts` is the context plus the `useAuth` hook,
   `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
   into `ProtectedRoute` / `GuestRoute`, and `use-session-request.ts` is the seam
   features request through.
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
-  `accounts.tsx`). A page requests through `useSessionRequest`, never `apiFetch`
-  directly — the `mb-transport-is-behind-the-session-seam` rule enforces it. Free
+  `accounts.tsx`, `change-password.tsx`). A page requests through
+  `useSessionRequest`, never `apiFetch` directly — the
+  `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
+  in kind is `change-password.tsx`, which submits through the auth context's
+  `changePassword`, because its `401` is about the current password and must
+  not end the session through the seam. Free
   to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN Accounts
   page: it reads the read-only Users (`GET /api/admin/accounts`) and Groups
   (`GET /api/admin/groups`) projections, posts Unlock and the forced password
@@ -66,8 +71,10 @@ them:
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with
-  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`), and an `ADMIN`-restricted
-  `ProtectedRoute` (`/accounts`).
+  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and an
+  `ADMIN`-restricted `ProtectedRoute` (`/accounts`). A session with the
+  change-required flag is confined to `/change-password` by the guards' shared
+  transition table, whatever path it asks for.
 
 `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
 `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
@@ -136,7 +143,7 @@ backend side moves. What the SPA has to honour:
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the three pages to render, and deliberately no more. They
+family — enough for the four pages to render, and deliberately no more. They
 follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
 override) so that swapping them out is a delete plus an import rewrite. Keep
 them cheap to delete: no `asChild` / Radix `Slot` (the real library owns that),

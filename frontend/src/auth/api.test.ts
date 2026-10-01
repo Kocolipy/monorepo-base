@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch } from "@/lib/http";
 
-import { getCurrentUser, login, logout } from "./api";
+import { changePassword, getCurrentUser, login, logout } from "./api";
 
 vi.mock("@/lib/http");
 
 const apiFetchMock = vi.mocked(apiFetch);
 const TEST_LOGIN = ["ada", "secret"] as const;
+/** A truthy non-boolean, as a malformed response might carry the flag. */
+const NOT_A_BOOLEAN: unknown = 1;
 
 function resolveWith(result: object) {
   apiFetchMock.mockResolvedValue(result as never);
@@ -92,5 +94,147 @@ describe("auth API", () => {
   it("reports other logout failures", async () => {
     resolveWith({ kind: "failed", status: 500 });
     await expect(logout()).rejects.toThrow("Unable to sign out. Please try again.");
+  });
+});
+
+/** The decoder `apiFetch` was handed on its `n`th call, applied to a real response body. */
+async function decodeWithCall(n: number, argument: 2 | 3, body: unknown) {
+  const decoder = apiFetchMock.mock.calls[n]?.[argument] as
+    ((response: Response) => Promise<unknown>) | undefined;
+  expect(decoder).toBeTypeOf("function");
+  return decoder!(Response.json(body));
+}
+
+describe("the user decoder", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+    resolveWith({ kind: "ok", data: null });
+  });
+
+  const confined = { passwordChangeRequired: true, role: null, username: "ada" };
+
+  it("reads the change-required flag from the session check", async () => {
+    await getCurrentUser();
+    await expect(decodeWithCall(0, 2, confined)).resolves.toStrictEqual(confined);
+  });
+
+  it("reads the change-required flag from the login response", async () => {
+    const [username, password] = TEST_LOGIN;
+    await login(username, password);
+    await expect(decodeWithCall(0, 2, confined)).resolves.toStrictEqual(confined);
+  });
+
+  it("reads an unflagged session's role", async () => {
+    await getCurrentUser();
+    await expect(
+      decodeWithCall(0, 2, { passwordChangeRequired: false, role: "ADMIN", username: "grace" }),
+    ).resolves.toStrictEqual({ passwordChangeRequired: false, role: "ADMIN", username: "grace" });
+  });
+
+  it("confines only on a literal true, and reads a missing role as none", async () => {
+    await getCurrentUser();
+    await expect(decodeWithCall(0, 2, { username: "ada" })).resolves.toStrictEqual({
+      passwordChangeRequired: false,
+      role: null,
+      username: "ada",
+    });
+    await expect(
+      decodeWithCall(0, 2, {
+        passwordChangeRequired: NOT_A_BOOLEAN,
+        role: "USER",
+        username: "ada",
+      }),
+    ).resolves.toStrictEqual({ passwordChangeRequired: false, role: "USER", username: "ada" });
+  });
+});
+
+describe("changePassword", () => {
+  const [current, next] = ["current-value-1", "next-value-22"] as const;
+
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  it("posts current and new password, decoding only a failure body", async () => {
+    resolveWith({ kind: "ok", data: undefined });
+
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "changed" });
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/auth/change-password",
+      {
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      undefined,
+      expect.any(Function),
+    );
+  });
+
+  it("names the unmet rule from a policy refusal", async () => {
+    resolveWith({ kind: "failed", status: 400, detail: "The new password is too short" });
+    await expect(changePassword(current, next)).resolves.toEqual({
+      kind: "policy-violation",
+      message: "The new password is too short",
+    });
+  });
+
+  it.each([
+    ["a 400 with no rule", { kind: "failed", status: 400 }],
+    ["another status carrying a message", { kind: "failed", status: 500, detail: "boom" }],
+    ["a transport failure", { kind: "failed" }],
+  ])("reports %s as a plain failure", async (_name, result) => {
+    resolveWith(result);
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "failed" });
+  });
+
+  it("reports a persistent CSRF rejection as a token problem", async () => {
+    resolveWith({ kind: "csrf-expired" });
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "csrf-expired" });
+  });
+
+  it("reads a 401 that leaves the session standing as a wrong current password", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "ok", data: undefined } as never);
+
+    await expect(changePassword(current, next)).resolves.toEqual({
+      kind: "current-password-rejected",
+    });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/auth/me");
+  });
+
+  it("reads a 401 that ended the session as a lockout", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never);
+
+    await expect(changePassword(current, next)).resolves.toEqual({ kind: "locked" });
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/auth/me");
+  });
+
+  it("does not claim a lockout when the session check itself fails", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ kind: "unauthenticated" } as never)
+      .mockResolvedValueOnce({ kind: "failed" } as never);
+
+    await expect(changePassword(current, next)).resolves.toEqual({
+      kind: "current-password-rejected",
+    });
+  });
+
+  it("reads the rule's statement out of a PasswordRuleViolation body, and nothing else", async () => {
+    resolveWith({ kind: "ok", data: undefined });
+    await changePassword(current, next);
+
+    await expect(
+      decodeWithCall(0, 3, {
+        message: "The new password must not contain the user name",
+        rule: "CONTAINS_USER_NAME",
+      }),
+    ).resolves.toBe("The new password must not contain the user name");
+    await expect(decodeWithCall(0, 3, { status: 400 })).resolves.toBeUndefined();
+    await expect(decodeWithCall(0, 3, { message: 7 })).resolves.toBeUndefined();
   });
 });

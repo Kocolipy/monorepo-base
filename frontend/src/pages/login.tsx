@@ -9,6 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 /** Shown when the visitor arrives here because their session expired. */
 const EXPIRED_MESSAGE = "Your session ended. Please sign in again.";
 
+/** Shown when the visitor arrives here because their own password change ended the session. */
+const CHANGED_CREDENTIAL_MESSAGE = "Your password was changed. Sign in with your new password.";
+
 export function Login() {
   const { login } = useAuth();
   const location = useLocation();
@@ -17,7 +20,13 @@ export function Login() {
 
   // Where to go afterwards is the guest route's decision, not this page's: it
   // reads the same return destination and redirects once the status changes.
-  const expired = (location.state as SessionRouteState | null)?.expired === true;
+  const carried = location.state as SessionRouteState | null;
+  const notice =
+    carried?.passwordChanged === true
+      ? CHANGED_CREDENTIAL_MESSAGE
+      : carried?.expired === true
+        ? EXPIRED_MESSAGE
+        : null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,9 +50,9 @@ export function Login() {
           <CardDescription>Sign in to continue.</CardDescription>
         </CardHeader>
         <CardContent>
-          {expired && !error ? (
+          {notice && !error ? (
             <p className="mb-4 text-sm text-muted-foreground" role="status">
-              {EXPIRED_MESSAGE}
+              {notice}
             </p>
           ) : null}
           <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>

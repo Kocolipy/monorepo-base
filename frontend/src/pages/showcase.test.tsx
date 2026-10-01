@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
@@ -18,12 +19,14 @@ const increment = () => screen.getByRole("button", { name: "Increment" });
 const reset = () => screen.getByRole("button", { name: "Reset" });
 
 const auth: AuthContextState = {
+  changePassword: vi.fn(),
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
+  passwordChanged: false,
   sessionExpired: false,
   status: "authenticated",
-  user: { role: "USER", username: "ada" },
+  user: { passwordChangeRequired: false, role: "USER", username: "ada" },
 };
 
 function resolveWith(result: object) {
@@ -37,7 +40,9 @@ function resolveOnceWith(result: object) {
 function renderShowcase(value: AuthContextState = auth) {
   return render(
     <AuthContext.Provider value={value}>
-      <Showcase />
+      <MemoryRouter>
+        <Showcase />
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
@@ -48,6 +53,29 @@ describe("Showcase", () => {
     resolveWith({ kind: "ok", data: 0 });
     vi.mocked(auth.expireSession).mockReset();
     vi.mocked(auth.logout).mockReset();
+  });
+
+  it("offers every User the password change, and only an ADMIN the accounts page", async () => {
+    const { unmount } = renderShowcase();
+    expect(await screen.findByRole("link", { name: "Change password" })).toHaveAttribute(
+      "href",
+      "/change-password",
+    );
+    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
+    unmount();
+
+    renderShowcase({
+      ...auth,
+      user: { passwordChangeRequired: false, role: "ADMIN", username: "grace" },
+    });
+    expect(await screen.findByRole("link", { name: "Manage accounts" })).toHaveAttribute(
+      "href",
+      "/accounts",
+    );
+    expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
+      "href",
+      "/change-password",
+    );
   });
 
   it("renders the original home page and signed-in user", async () => {

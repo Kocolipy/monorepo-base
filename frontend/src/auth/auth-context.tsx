@@ -8,6 +8,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -35,29 +36,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const expireSession = useCallback(() => {
     setUser(null);
     setSessionExpired(true);
+    setPasswordChanged(false);
     setStatus("guest");
   }, []);
 
   const value = useMemo<AuthContextState>(
     () => ({
+      changePassword: async (currentPassword, newPassword) => {
+        const outcome = await authApi.changePassword(currentPassword, newPassword);
+        if (outcome.kind === "changed") {
+          // The backend has already ended this session along with every other
+          // one the User held; mirror that, recording why for the login page.
+          setUser(null);
+          setSessionExpired(false);
+          setPasswordChanged(true);
+          setStatus("guest");
+        }
+        return outcome;
+      },
       expireSession,
       login: async (username, password) => {
         const currentUser = await authApi.login(username, password);
         setUser(currentUser);
         setSessionExpired(false);
+        setPasswordChanged(false);
         setStatus("authenticated");
       },
       logout: async () => {
         await authApi.logout();
         setUser(null);
         setSessionExpired(false);
+        setPasswordChanged(false);
         setStatus("guest");
       },
+      passwordChanged,
       sessionExpired,
       status,
       user,
     }),
-    [expireSession, sessionExpired, status, user],
+    [expireSession, passwordChanged, sessionExpired, status, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

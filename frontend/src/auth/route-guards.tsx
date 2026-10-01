@@ -25,11 +25,13 @@ function SessionRoute({
   children: ReactNode;
   requires: SessionRequirement;
 }) {
-  const { sessionExpired, status, user } = useAuth();
+  const { passwordChanged, sessionExpired, status, user } = useAuth();
   const location = useLocation();
   const carried = location.state as SessionRouteState | null;
 
   const route = resolveSessionRoute({
+    passwordChangeRequired: user?.passwordChangeRequired === true,
+    passwordChanged,
     pathname: location.pathname,
     requires,
     returnTo: carried?.from,
