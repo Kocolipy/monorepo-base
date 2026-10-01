@@ -2754,15 +2754,15 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/change-password.tsx": {
-    "mtime": 1790842857.424617,
-    "seen": 1790842887.3575072,
+    "mtime": 1790843277.646168,
+    "seen": 1790843453.2114823,
     "ast_hash": "facfa88531608940eda10ab6f61b3413",
     "semantic_hash": ""
   },
   "frontend/test/e2e/change-password.spec.ts": {
-    "mtime": 1790842603.4995384,
-    "seen": 1790842887.3575168,
-    "ast_hash": "fb4cbcce5c2c9bf23fca5302aec5a0e9",
+    "mtime": 1790843366.71541,
+    "seen": 1790843453.2118385,
+    "ast_hash": "3ac0153daa199ac173452f39230ffa34",
     "semantic_hash": ""
   },
   ".claude/settings.json": {

@@ -1,7 +1,7 @@
 # Graph Report - monorepo-base-password-policy-hint  (2026-10-01)
 
 ## Corpus Check
-- 512 files · ~354,189 words
+- 512 files · ~354,431 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d4dd1696`
+- Built from commit: `8d32387e`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -310,8 +310,8 @@ Cohesion: 0.12
 Nodes (4): NewScimGroup, AddMembers, ScimGroupReplacement, ScimGroupServiceTests
 
 ### Community 7 - ".toDomain"
-Cohesion: 0.08
-Nodes (6): ScimGroupEntity, ScimLoginStateValue, ScimResourceEntity, ScimUserEmailValue, ScimUserEntity, org.hibernate.annotations.DynamicUpdate
+Cohesion: 0.07
+Nodes (7): ScimGroupEntity, ScimLoginStateValue, ScimResourceEntity, ScimUserEmailValue, ScimUserEntity, jakarta.persistence.Embeddable, org.hibernate.annotations.DynamicUpdate
 
 ### Community 8 - ".changePassword"
 Cohesion: 0.16
@@ -414,8 +414,8 @@ Cohesion: 0.11
 Nodes (7): ConnectorTokenDigest, Override, Minted, Presented, ConnectorTokenSecretTests, java.security.MessageDigest, nosuchalgorithmexception
 
 ### Community 38 - "jakarta.persistence.Entity"
-Cohesion: 0.08
-Nodes (25): AuditEventEntity, ScimExternalIdEntity, ScimGroupMemberEntity, Override, ScimGroupMemberId, cascadetype, collectiontable, column (+17 more)
+Cohesion: 0.09
+Nodes (24): AuditEventEntity, ScimExternalIdEntity, ScimGroupMemberEntity, Override, ScimGroupMemberId, cascadetype, collectiontable, column (+16 more)
 
 ### Community 39 - "PasswordChangeLifecycleIntegrationTests"
 Cohesion: 0.25
