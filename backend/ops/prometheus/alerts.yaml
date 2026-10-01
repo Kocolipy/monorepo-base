@@ -93,9 +93,9 @@ groups:
             the connector's job (find by filter, then PUT); deleting the existing
             identities to let the creates succeed destroys their history and ids.
 
-      # 4. The inactivity job failing to run. The job arrives with its own ticket;
-      #    until it is scheduled these series do not exist and neither rule can fire.
-      #    It must register itself with ScheduledJobMetrics under job="inactivity".
+      # 4. The inactivity job failing to run. DormancyScheduleConfig registers it
+      #    with ScheduledJobMetrics under job="inactivity", so both series exist —
+      #    at zero, and at the scheduling time — from startup.
       - alert: InactivityJobFailed
         expr: >
           increase(app_job_runs_total{job="inactivity", outcome="failure"}[1h]) > 0

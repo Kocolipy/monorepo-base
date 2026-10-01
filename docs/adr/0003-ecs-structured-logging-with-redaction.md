@@ -152,3 +152,54 @@ search on those values, so they carry `app.event.action` alone. The job records
 are `job-end` only: a run emits one record, at its end, carrying
 `event.duration_ms` where it measures one; `job-start` records arrive with #70,
 which emits the scheduled jobs' start/end pair using this vocabulary.
+
+## Addendum (2026-10-01): the record envelope — trace ids, service fields, UTC+8, log file
+
+Issue #66. The logging standard (`Structured_Logging_Application_Standard.md` §3.1,
+§3.5, §4, §6) requires fields on every record that the Decision above does not
+produce, and a durable local file for a forwarding agent.
+
+**Trace and span ids.** `micrometer-tracing-bridge-otel`, wired by Boot's
+`spring-boot-micrometer-tracing-opentelemetry` module, gives each observation a
+span: every HTTP request (Boot's `ServerHttpObservationFilter`) and, through an
+observation opened in `ScheduledJobMetrics.instrument`, every scheduled-job run.
+All three jobs now run through `instrument`, so every job record is correlated.
+`TraceLogCorrelationConfig` replaces Boot's `Slf4JEventListener` with one writing
+the ECS keys `trace.id` and `span.id` — the defaults (`traceId`, `spanId`) would
+land as top-level fields no ECS query selects on. These are the first context keys
+`LogContext` does not write. That is acceptable for the reason the class exists:
+the values are tracer-minted hex ids, not values anything else supplies.
+
+The tracing is for correlation only. No exporter is on the classpath, and
+`management.tracing.export.enabled: false` (`telemetry.yaml`) keeps it that way if
+one arrives transitively. The same switch makes Boot install a no-op propagator, so
+an inbound `traceparent` is ignored and every trace id is minted here — the same
+rule the Decision applies to `X-Request-Id`, for the same reason. Sampling does not
+gate the ids: an unsampled span still has them. `TraceExportTests` holds all of it.
+
+**Service fields.** `logging.structured.ecs.service.*` in `logging.yaml`: `name`
+stated as `backend` (not inherited from `spring.application.name`), `version`
+from the build — `logging.yaml` is the one resource-filtered document, so
+`@project.version@` becomes the artefact's version — and `environment` from
+`APP_ENVIRONMENT`, default `local`. The test configuration now imports
+`logging.yaml` as well, so tests record what a deployment records.
+
+**`@timestamp` in UTC+8, the JVM zone untouched.** Boot's ECS formatter writes the
+event's `Instant` as UTC and takes no zone. Rather than a formatter of our own — a
+copy of Boot's that would drift from it — `EcsTimestampCustomizer`, a
+`StructuredLoggingJsonMembersCustomizer` registered through
+`logging.structured.json.customizer`, rewrites the top-level `@timestamp` member
+alone as `yyyy-MM-dd'T'HH:mm:ss.SSS+08:00` in `Asia/Singapore`
+(`ServiceTimeZone`). It is the same instant, so ordering and parsing downstream
+are unaffected. The JVM's default zone is deliberately not set: that would move
+SCIM `meta` times, audit times, cron evaluation and the injected `Clock`, and the
+SCIM wire stays UTC. The cron triggers instead name `ServiceTimeZone.ZONE`
+explicitly, so a job's schedule is evaluated in the zone its records are read in.
+
+**Log file.** `logging.file.name: ${LOG_FILE:}` with `logging.structured.format.file:
+ecs` and Boot's size-and-time rolling policy (daily or 50 MB, 14 days, 1 GB total).
+Unset means no file, which is what local development and the tests run with. The
+EC2 deployment sets `LOG_FILE=/var/log/backend/backend.json` and its CloudWatch
+agent ships that file into a log group the stack creates with explicit retention;
+the service itself never sends a log over the network. `LogFileTests` starts the
+configuration in a child JVM, because logging is JVM-global.

@@ -34,6 +34,11 @@ import org.slf4j.MDC;
  *       what must not be logged.
  * </ul>
  *
+ * <p>Two more keys exist beside these, {@link #TRACE_ID} and {@link #SPAN_ID}, and this
+ * class does not write them: the tracer does, for each span's scope. They are tracer-minted
+ * hex ids rather than values anything else supplies, which is why they can come from a
+ * library without weakening the rule above.
+ *
  * <p>Every value is passed through {@link #sanitize} first. A value that reaches
  * here can still be client-influenced further out — a connector id read from a
  * token, a resource id parsed from a path — and a newline or a carriage return
@@ -54,6 +59,18 @@ public final class LogContext {
 
     /** Stable id of the resource being read or written. Never its userName. */
     public static final String RESOURCE_ID = "scim.resource.id";
+
+    /**
+     * The current trace's id. ECS {@code trace.id}. Not one of this class's keys: the
+     * tracer writes it, through the listener {@code TraceLogCorrelationConfig} registers,
+     * for the lifetime of each span's scope. Its value is a hex id the tracer minted —
+     * never a caller's, because no propagator is installed (see {@code telemetry.yaml})
+     * — so it carries nothing a caller chose and needs no sanitizing.
+     */
+    public static final String TRACE_ID = "trace.id";
+
+    /** The current span's id. ECS {@code span.id}. Written by the tracer, as {@link #TRACE_ID}. */
+    public static final String SPAN_ID = "span.id";
 
     /**
      * Every key this class will write, so {@link #clear()} can remove exactly

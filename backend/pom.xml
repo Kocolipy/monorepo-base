@@ -95,6 +95,27 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
         <!--
+          Log correlation: the OpenTelemetry bridge gives every observation — each
+          HTTP request, each scheduled-job run — a span, and its trace and span ids
+          reach the logging context as `trace.id` / `span.id`. The Boot module is
+          what wires the bridge in Boot 4; the bridge is declared as well so the
+          dependency the logging standard names is visible here.
+
+          Correlation only. No exporter is on the classpath and export is switched
+          off in `telemetry.yaml`, so a span never leaves the host; the ids exist
+          whether or not anything exports them. Do not add
+          `spring-boot-starter-opentelemetry`: it brings the OTLP exporters.
+          Versions come from Boot's dependency management.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <!--
           Spring Security's Argon2PasswordEncoder delegates to BouncyCastle for
           the actual Argon2 primitive; it is not transitively pulled in by
           spring-security-crypto, so it has to be declared explicitly.
@@ -145,8 +166,25 @@
 
     <build>
         <resources>
+            <!--
+              `logging.yaml` alone is filtered, so `@project.version@` in it becomes
+              the built version and every log record's `service.version` names the
+              artefact that wrote it. Nothing else is: filtering rewrites any
+              `@...@` it meets, and no other resource has asked for that.
+            -->
             <resource>
                 <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>logging.yaml</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>logging.yaml</exclude>
+                </excludes>
             </resource>
         </resources>
         <plugins>

@@ -338,8 +338,8 @@ own runbook text:
 | `InactivityJobFailed` / `InactivityJobNotRunning` | the inactivity job throws, or has not succeeded for 26 h | inactive accounts are not being deactivated |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
-The inactivity rules stay silent until that job exists: its series appear when
-it is scheduled under `job="inactivity"`. `InactivityJobNotRunning` measures from
+The inactivity job publishes its series under `job="inactivity"` from startup.
+`InactivityJobNotRunning` measures from
 the last success **or the last restart**, so an instance that restarts more often
 than daily masks a stuck job. Alert on restarts separately if that happens.
 
@@ -367,6 +367,8 @@ of silently disarming an alert.
 | AppPassword          | Seeded USER password  | Yes      | -                  |
 | AppSecondaryUsername | Seeded ADMIN username | No       | admin              |
 | AppSecondaryPassword | Seeded ADMIN password | Yes      | -                  |
+| AppEnvironment       | `service.environment` on every log record | No | production |
+| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No | 90 |
 
 ---
 
@@ -374,9 +376,25 @@ of silently disarming an alert.
 
 ### View Logs
 
+The service writes ECS JSON to stdout (journald) **and** to a rolling file,
+`/var/log/backend/backend.json` (`LOG_FILE` in `/opt/backend/.env`; directory
+owned by `springboot`, mode `0750`). The file rolls daily or at 50 MB, keeps 14
+days and never exceeds 1 GB on disk. The CloudWatch agent on the instance ships
+that file into the log group `/<stack name>/backend`, one stream per instance,
+kept for `LogRetentionDays`. The agent's configuration is
+`/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json`. The service
+itself never sends logs over the network.
+
+Every record carries `service.name` (`backend`), `service.version` (the built
+version), `service.environment` (`AppEnvironment`), a `trace.id` / `span.id` for
+the request or scheduled-job run that emitted it, and an `@timestamp` in
+Singapore time (`+08:00`). Search CloudWatch Logs Insights by `trace.id` to read
+one request end to end.
+
 ```bash
 ssh -i spring-backend-key.pem ec2-user@$EC2_IP
-sudo journalctl -u backend -f
+sudo journalctl -u backend -f              # stdout
+sudo tail -f /var/log/backend/backend.json # the file the agent ships
 ```
 
 ### Restart Application

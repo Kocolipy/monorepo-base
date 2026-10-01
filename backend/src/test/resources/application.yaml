@@ -9,8 +9,11 @@ spring:
     # bucketed exactly as the deployed one is. `log-levels.yaml` likewise: a
     # refused write must be logged at the deployed levels, or a test asserting
     # that no submitted value reaches the log would be testing a different
-    # logger configuration from the one that ships.
-    import: classpath:session.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml
+    # logger configuration from the one that ships. `logging.yaml` likewise: the
+    # service fields, the timestamp zone and the log-file settings a record is
+    # written with are the deployed ones, and with LOG_FILE unset — as it is
+    # here — there is no file.
+    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml
   # No spring.datasource.* here: ContainerTestConfiguration's @ServiceConnection
   # Postgres container registers the URL, username and password onto the context
   # directly, and Flyway migrations are PostgreSQL syntax that only a real
