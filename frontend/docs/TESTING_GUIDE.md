@@ -165,6 +165,17 @@ The `user` and `admin` projects reuse those sessions; `guest` starts with
 explicitly empty browser storage. Role-guard specs are split by identity so a
 spec can never accidentally run with a more privileged session than it names.
 
+The backend keeps **one session per User**: an accepted login ends every other
+session that User holds. A spec that signs in as a seeded identity therefore
+revokes the session the matching project replays from `.auth/`. That is why
+`guest` declares `dependencies: ["admin"]` and runs last — `login.spec.ts` signs
+in as the seeded Admin, and beside the `admin` project it turned that project's
+specs into 401s — and why `login.spec.ts` opts out of `fullyParallel` with
+`test.describe.configure({ mode: "default" })`, since its two sign-ins would
+otherwise revoke each other. A new spec that must sign in for real should do it
+as a User it provisions (see `change-password.spec.ts`), not as a seeded one.
+Running `--project=guest` alone still runs `setup`, `user` and `admin` first.
+
 ### Routing a new spec
 
 Each project in `playwright.config.ts` names its specs explicitly with a

@@ -8,7 +8,15 @@ import { SESSION_COOKIE, captureSessionCookie, login, submitLogin } from "./auth
 // because sign-in is its subject rather than its setup, so the per-test `login()`
 // the E2E guide warns about is deliberate here.
 //
+// Two of these sign in as the seeded Admin, and the backend keeps one session
+// per User: an accepted login ends every other session that User holds. That
+// is why the `guest` project runs after `admin` (playwright.config.ts), and why
+// this file runs in order in one worker — under `fullyParallel` the two sign-ins
+// would each revoke the other's session mid-test.
+//
 // Flakiness rules for anything added here live in docs/TESTING_GUIDE.md.
+test.describe.configure({ mode: "default" });
+
 test.describe("sessions, signed out", () => {
   test("keeps a rejected sign-in on the login page", async ({ page }) => {
     await submitLogin(page, "admin", "not-the-password");
