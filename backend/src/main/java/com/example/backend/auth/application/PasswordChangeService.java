@@ -100,11 +100,9 @@ public class PasswordChangeService {
             refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
             throw new CurrentPasswordRejectedException();
         }
-        PasswordPolicy.violation(newPassword, user.profile().userName())
+        PasswordPolicy.violation(newPassword, user.profile().userName(),
+                        candidate -> isReused(user, candidate))
                 .ifPresent(rule -> refusePolicy(user, rule));
-        if (isReused(user, newPassword)) {
-            refusePolicy(user, PasswordPolicy.Rule.REUSED);
-        }
 
         Instant now = clock.instant();
         String passwordHash = passwordEncoder.encode(newPassword);

@@ -7,6 +7,7 @@ import com.example.backend.scim.domain.InvalidPreconditionException;
 import com.example.backend.scim.domain.InvalidScimFilterException;
 import com.example.backend.scim.domain.InvalidScimQueryException;
 import com.example.backend.scim.domain.PasswordHistoryPolicy;
+import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.PreconditionRequiredException;
@@ -134,6 +135,14 @@ class ScimExceptionHandler {
     ResponseEntity<Map<String, Object>> handle(PreconditionFailedException stale) {
         return render(ScimErrorException.preconditionFailed(
                 "The resource has changed since that ETag was issued; GET it and retry."));
+    }
+
+    /** A password breaking an intrinsic policy rule. Names the rule, never the value. */
+    @ExceptionHandler(PasswordPolicyRefusedException.class)
+    ResponseEntity<Map<String, Object>> handle(PasswordPolicyRefusedException refused) {
+        return render(ScimErrorException.invalidValue(
+                "The password does not satisfy the password policy (" + refused.rule().name()
+                        + "). " + refused.rule().message() + "."));
     }
 
     /** A password the User has used recently. Names the rule, never the value. */

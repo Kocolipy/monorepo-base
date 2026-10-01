@@ -249,6 +249,17 @@ class PasswordChangeServiceTests {
                 "CONTAINS_USER_NAME");
     }
 
+    /**
+     * The intrinsic rules come before reuse — the order SCIM writes apply too. A retained value
+     * that is also too short is refused for its length.
+     */
+    @Test
+    void aValueBothSubPolicyAndReusedIsRefusedByThePolicyFirst() {
+        history.record(ada.id(), encoder.encode("old-short"), ScimIdentities.NOW);
+
+        assertPolicyRefusal("old-short", PasswordPolicy.Rule.TOO_SHORT, "TOO_SHORT");
+    }
+
     @Test
     void theCurrentPasswordIsRefusedAsReused() {
         assertPolicyRefusal(CURRENT, PasswordPolicy.Rule.REUSED, "REUSED");

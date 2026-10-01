@@ -306,20 +306,20 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records a create refused as a duplicate. Fail-open, for the reason a rejected
-     * login is: the caller is already receiving a refusal, the create's transaction is
-     * already doomed by the constraint violation, and an append that joined it would
-     * be rolled back with it. The isolated transaction is what lets the refusal be
+     * Records a User create refused. Fail-open, for the reason a rejected login is: the
+     * caller is already receiving a refusal, and a create refused as a duplicate has a
+     * transaction already doomed by the constraint violation, so an append that joined it
+     * would be rolled back with it. The isolated transaction is what lets the refusal be
      * recorded at all.
      */
     @Override
-    public void recordScimUserCreateRejectedAsDuplicate(UUID connectorId) {
+    public void recordScimUserCreateRejected(UUID connectorId, AuditScimRefusal reason) {
         appendRaisingAlertOnFailure(userEvent(
                 AuditOutcome.FAILURE,
                 connectorId,
                 null,
                 AuditEvent.STATUS_CLIENT_ERROR,
-                AuditScimRefusal.UNIQUENESS.name()));
+                reason.name()));
     }
 
     /**

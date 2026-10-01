@@ -5,6 +5,8 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.PasswordPolicy;
+import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -65,8 +67,9 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>check the {@code If-Match} precondition against the locked version, so two writers
  *       racing with the same one produce one success and one {@code 412};
  *   <li>refuse the Bootstrap Admin, which no SCIM write may change;
- *   <li>compute the desired state in memory, refuse a reused password, and write only if
- *       something differs — a write that changed nothing advances no version;
+ *   <li>compute the desired state in memory, refuse a password the {@link PasswordPolicy} does
+ *       not accept — its intrinsic rules, then reuse — and write only if something differs — a
+ *       write that changed nothing advances no version;
  *   <li>audit what moved, and end the User's sessions after the commit when the change is one
  *       a live session must not outlast.
  * </ol>
@@ -122,6 +125,9 @@ public class ScimUserService {
      * not the row, not the projection returned. Its hash starts the User's password
      * history, so a later change back to it is refused like any other reuse.
      *
+     * <p>A submitted password must satisfy {@link PasswordPolicy} before anything else happens; a
+     * refusal names the rule, is audited fail-open as {@code invalidValue}, and writes nothing.
+     *
      * <p>A {@code userName} already taken arrives as
      * {@link DuplicateUserNameException} from the failed INSERT rather than from a
      * prior read. The refusal is audited in a transaction of its own — this one is
@@ -130,6 +136,17 @@ public class ScimUserService {
      */
     @Transactional
     public ScimUserResource create(AuthenticatedConnector connector, NewScimUser command) {
+        if (command.password() != null) {
+            // A User being created has no credential and no history, so nothing can be reused;
+            // the policy's own order still decides which rule a refusal names.
+            Optional<PasswordPolicy.Rule> violation = PasswordPolicy.violation(
+                    command.password(), command.profile().userName(), candidate -> false);
+            if (violation.isPresent()) {
+                audit.recordScimUserCreateRejected(
+                        connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
+                throw refusal(violation.get());
+            }
+        }
         Instant now = clock.instant();
         String passwordHash = hashed(command.password());
         ScimUser user = ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now);
@@ -143,7 +160,7 @@ public class ScimUserService {
         try {
             created = users.create(user);
         } catch (DuplicateUserNameException duplicate) {
-            audit.recordScimUserCreateRejectedAsDuplicate(connector.connectorId());
+            audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.UNIQUENESS);
             throw duplicate;
         }
         if (passwordHash != null) {
@@ -317,7 +334,7 @@ public class ScimUserService {
             case UNCHANGED -> current.login().passwordHash();
             case CLEAR -> null;
             case SET -> {
-                refuseReuse(connectorId, current, password.plaintext());
+                refusePassword(connectorId, current, password.plaintext(), after.profile().userName());
                 yield passwordEncoder.encode(password.plaintext());
             }
         };
@@ -369,7 +386,24 @@ public class ScimUserService {
     }
 
     /**
-     * Refuses a password matching the current credential or any remembered one.
+     * Refuses a password the policy does not accept, in the policy's own order — the intrinsic
+     * rules, then reuse — which is the order the self-service change applies too.
+     *
+     * @param userName the {@code userName} the User holds once this write is applied, so a write
+     *                 renaming the User and setting its password is checked against the new name
+     */
+    private void refusePassword(
+            UUID connectorId, ScimUser user, String candidate, String userName) {
+        Optional<PasswordPolicy.Rule> violation =
+                PasswordPolicy.violation(candidate, userName, reused -> isReused(user, reused));
+        if (violation.isPresent()) {
+            audit.recordScimUserWriteRejected(connectorId, user.id(), AuditScimRefusal.INVALID_VALUE);
+            throw refusal(violation.get());
+        }
+    }
+
+    /**
+     * Whether a password matches the current credential or any remembered one.
      *
      * <p>Matched through the encoder, one stored hash at a time, because a salted hash can only be
      * compared that way; the encoder normalizes the candidate first, so a differently-composed
@@ -377,18 +411,19 @@ public class ScimUserService {
      * well as through the history: a User whose credential predates the history — the seeded
      * Bootstrap Admin — would otherwise be able to "change" to the password it already has.
      */
-    private void refuseReuse(UUID connectorId, ScimUser user, String candidate) {
+    private boolean isReused(ScimUser user, String candidate) {
         List<String> remembered = new ArrayList<>(passwordHistory.findRecentHashes(user.id()));
         if (user.login().hasPassword()) {
             remembered.add(user.login().passwordHash());
         }
-        for (String hash : remembered) {
-            if (passwordEncoder.matches(candidate, hash)) {
-                audit.recordScimUserWriteRejected(
-                        connectorId, user.id(), AuditScimRefusal.INVALID_VALUE);
-                throw new PasswordReusedException();
-            }
-        }
+        return remembered.stream().anyMatch(hash -> passwordEncoder.matches(candidate, hash));
+    }
+
+    /** The refusal a connector receives for an unmet password rule; it carries no value. */
+    private static RuntimeException refusal(PasswordPolicy.Rule rule) {
+        return rule == PasswordPolicy.Rule.REUSED
+                ? new PasswordReusedException()
+                : new PasswordPolicyRefusedException(rule);
     }
 
     /**

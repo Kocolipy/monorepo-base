@@ -2,7 +2,9 @@ package com.example.backend.scim;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
@@ -19,11 +21,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -47,6 +52,7 @@ import tools.jackson.databind.json.JsonMapper;
  * landed, and a mapping's opinion of them is not the same evidence.
  */
 @SpringBootTest
+@ExtendWith(OutputCaptureExtension.class)
 @Import({ContainerTestConfiguration.class, InMemorySessionRegistryConfiguration.class})
 @TestPropertySource(properties = "app.scim.enabled=true")
 class ScimUserProvisioningIntegrationTests {
@@ -571,6 +577,58 @@ class ScimUserProvisioningIntegrationTests {
         // An empty result is the same act as a full one, so it is recorded the same way.
         mvc.perform(asConnector(get(USERS).param("count", "0"))).andReturn();
         assertThat(eventsOf(AuditOperation.SCIM_USER_LIST)).hasSize(2);
+    }
+
+    /**
+     * One password policy on every SCIM path that sets a password: a sub-policy value is refused on
+     * POST, PUT and PATCH as {@code 400 invalidValue} naming the rule, the refusal is audited, and
+     * the value reaches no response, no audit row and no log line.
+     */
+    @ParameterizedTest
+    @CsvSource({"short-pw-1,TOO_SHORT", "i-am-POLICY-USER-truly,CONTAINS_USER_NAME"})
+    void a_sub_policy_password_is_refused_on_every_setting_path(
+            String candidate, String rule, CapturedOutput output) throws Exception {
+        MvcResult refusedCreate = create("""
+                {"schemas":["%s"],"userName":"policy-user","password":"%s"}"""
+                .formatted(USER_SCHEMA, candidate));
+        assertPolicyRefusal(refusedCreate, candidate, rule);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM scim_users WHERE user_name = 'policy-user'", Long.class))
+                .isZero();
+        assertThat(eventsOf(AuditOperation.SCIM_USER_CREATE)).singleElement()
+                .satisfies(event -> assertThat(event.get("error_code")).isEqualTo("INVALID_VALUE"));
+
+        MvcResult created = create("""
+                {"schemas":["%s"],"userName":"policy-user","password":"%s"}"""
+                .formatted(USER_SCHEMA, PASSWORD));
+        UUID id = UUID.fromString(body(created).get("id").asText());
+        String etag = created.getResponse().getHeader(HttpHeaders.ETAG);
+        String hash = storedHash(id);
+
+        assertPolicyRefusal(mvc.perform(asConnector(put(USERS + "/" + id))
+                .header(HttpHeaders.IF_MATCH, etag).contentType(SCIM_JSON).content("""
+                        {"schemas":["%s"],"userName":"policy-user","password":"%s"}"""
+                        .formatted(USER_SCHEMA, candidate))).andReturn(), candidate, rule);
+        assertPolicyRefusal(mvc.perform(asConnector(patch(USERS + "/" + id))
+                .header(HttpHeaders.IF_MATCH, etag).contentType(SCIM_JSON).content("""
+                        {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                         "Operations":[{"op":"replace","path":"password","value":"%s"}]}"""
+                        .formatted(candidate))).andReturn(), candidate, rule);
+
+        assertThat(storedHash(id)).as("nothing was written").isEqualTo(hash);
+        assertThat(eventsOf(AuditOperation.SCIM_USER_REPLACE))
+                .extracting(event -> event.get("error_code"))
+                .containsExactly("INVALID_VALUE", "INVALID_VALUE");
+        assertThat(jdbc.queryForList("SELECT * FROM audit_events").toString())
+                .doesNotContain(candidate);
+        assertThat(output.getAll()).doesNotContain(candidate);
+    }
+
+    private void assertPolicyRefusal(MvcResult result, String candidate, String rule)
+            throws Exception {
+        assertRefusal(result, 400, "invalidValue");
+        assertThat(body(result).get("detail").asText()).contains(rule);
+        assertThat(result.getResponse().getContentAsString()).doesNotContain(candidate);
     }
 
     /** No audit event anywhere carries the password or a hash. */
