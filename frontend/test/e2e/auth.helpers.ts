@@ -30,7 +30,7 @@ const ADMIN_CREDENTIALS = [ADMIN_USERNAME, ADMIN_PASSWORD] as const;
 export const LOCKOUT_MAX_ATTEMPTS = lockoutMaxAttempts(process.env.APP_LOCKOUT_MAX_ATTEMPTS);
 
 function lockoutMaxAttempts(configured: string | undefined): number {
-  if (configured === undefined || configured.trim() === "") return 5;
+  if (configured === undefined || configured.trim() === "") return 3;
   const parsed = Number(configured);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`APP_LOCKOUT_MAX_ATTEMPTS must be a positive integer, got "${configured}"`);
