@@ -3,11 +3,12 @@ spring:
     name: backend
   config:
     # The session repository type and configure-action live in `session.yaml`,
-    # the structured log format in `logging.yaml`, and the actuator exposure and
-    # metrics settings in `telemetry.yaml`, so the test resources'
+    # the structured log format in `logging.yaml`, the logger levels the
+    # redaction rule depends on in `log-levels.yaml`, and the actuator exposure
+    # and metrics settings in `telemetry.yaml`, so the test resources'
     # `application.yaml` — which shadows this file entirely — can import the same
     # documents instead of restating them.
-    import: classpath:session.yaml,classpath:logging.yaml,classpath:telemetry.yaml
+    import: classpath:session.yaml,classpath:logging.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/backend}
     username: ${DATABASE_USERNAME:backend}
