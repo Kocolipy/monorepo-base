@@ -46,6 +46,12 @@ public class AuthController {
     /** The authority the Admin group's membership confers, as Spring Security spells it. */
     private static final String ADMIN_AUTHORITY = ROLE_PREFIX + ADMIN_ROLE;
 
+    /** The response header a logout asks the browser to clear the origin's data with. */
+    static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
+
+    /** Every data type a signed-out session may have left in the browser. */
+    static final String CLEAR_SITE_DATA_ON_LOGOUT = "\"cache\",\"cookies\",\"storage\"";
+
     private final LoginService login;
     private final PasswordChangeService passwordChanges;
     private final AuditTrail audit;
@@ -82,7 +88,11 @@ public class AuthController {
             @Valid @RequestBody LoginRequest body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        LoginOutcome outcome = login.logIn(body.username(), body.password());
+        // The caller's session as it is stored now, before rotation renames it: it is the one the
+        // login continues in, so it is the one session of the User's that the login keeps.
+        HttpSession existing = request.getSession(false);
+        LoginOutcome outcome = login.logIn(
+                body.username(), body.password(), existing == null ? null : existing.getId());
         Authentication authentication = outcome.authentication();
 
         // Rotate before the context is saved, so the authentication lands in the
@@ -138,6 +148,11 @@ public class AuthController {
         // cookie that now names nothing. Expire it so a later request arrives
         // without a session id at all.
         cookieSerializer.writeCookieValue(new CookieValue(request, response, ""));
+
+        // Tells the browser to drop what the signed-out session left behind — cached responses,
+        // cookies and storage — whether or not a live session arrived with the request, so a
+        // caller whose session already expired is cleaned up the same way.
+        response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
 
         issueCsrfToken(request, response);
     }
@@ -253,16 +268,25 @@ public class AuthController {
         // Deliberately omit details so callers cannot distinguish unknown users.
     }
 
-    public record LoginRequest(@NotBlank String username, @NotBlank String password) {
+    /**
+     * Both fields are bounded before anything reads them — the name by the {@code userName}
+     * column's limit, the password by the password policy's — so an over-length body is the same
+     * bare {@code 400} as a blank one and never reaches a failure run, the audit trail or the
+     * password hash.
+     */
+    public record LoginRequest(
+            @NotBlank @MaxUserNameLength String username,
+            @NotBlank @MaxPasswordLength String password) {
     }
 
     /**
-     * Current and new password. {@link #toString()} is overridden because a record's generated one
-     * would print both, and a request body is exactly what reaches a log through a debugger or a
-     * validation message.
+     * Current and new password, each bounded like Login's. {@link #toString()} is overridden
+     * because a record's generated one would print both, and a request body is exactly what reaches
+     * a log through a debugger or a validation message.
      */
     public record ChangePasswordRequest(
-            @NotBlank String currentPassword, @NotBlank String newPassword) {
+            @NotBlank @MaxPasswordLength String currentPassword,
+            @NotBlank @MaxPasswordLength String newPassword) {
 
         @Override
         public String toString() {

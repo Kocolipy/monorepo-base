@@ -31,4 +31,16 @@ public interface AccountSessions {
      *     in anywhere, which is not a failure
      */
     int revokeAll(UUID accountId);
+
+    /**
+     * Ends every session held by this account except one — the session a login
+     * is being completed in, so that a User holds at most one session at a time:
+     * a successful login keeps its own and ends every other.
+     *
+     * @param retainedSessionId the id the caller's session is stored under, or
+     *     {@code null} when the caller holds no session yet, in which case every
+     *     session of the account ends
+     * @return how many sessions were ended, the retained one never among them
+     */
+    int revokeAllExcept(UUID accountId, String retainedSessionId);
 }

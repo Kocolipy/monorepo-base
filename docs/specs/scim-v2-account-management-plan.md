@@ -285,9 +285,11 @@ The application therefore contains no request-rate limiter. It still enforces pe
 - parsed filter depth: 20;
 - filter expression nodes: 100;
 - PATCH operations: 100;
-- response page: 200 resources.
+- response page: 200 resources;
+- Login `username`: 256 characters, the stored `userName` bound, counted in code points;
+- Login `password` and change-password `currentPassword` / `newPassword`: 256 characters of the normalized form each, the password policy's own maximum, so no password the policy accepted is ever refused for its length.
 
-Limit failures use the closest standard SCIM/HTTP error (`413`, `400 invalidFilter`, or `400 invalidValue`) and never partially mutate a resource.
+Limit failures use the closest standard SCIM/HTTP error (`413`, `400 invalidFilter`, or `400 invalidValue`) and never partially mutate a resource. An over-length Login or change-password field is a bodiless `400` raised by request validation, before authentication runs: it is not counted toward the failure run, not audited, and indistinguishable from any other malformed body, so it adds no enumeration signal.
 
 ## Credential and cryptographic policy
 
@@ -325,7 +327,7 @@ Password history is stored as Argon2id hashes in `scim_user_password_history`, v
 
 The existing 15-minute idle timeout is retained and an **8-hour absolute maximum**, measured from authentication, is added. On reaching either bound the session is terminated and re-authentication is required regardless of activity. Both bounds apply to every authenticated session, Admin sessions included.
 
-**One concurrent session per User.** A successful Login invalidates any session that User already holds, so a credential cannot be in use from two places at once and a stolen session cannot outlive the owner's next sign-in.
+**One concurrent session per User.** A successful Login invalidates any session that User already holds, so a credential cannot be in use from two places at once and a stolen session cannot outlive the owner's next sign-in. The rule applies equally to a Login confined by a required password change. The other sessions are revoked by stable id after the Login's state commits, on the same after-commit path as deactivation and lockout; the session the Login request arrived with is the one kept, rotated to a new id. Logout answers `Clear-Site-Data: "cache","cookies","storage"`, with or without a live session (a logout arriving with none is refused `401` and still carries it).
 
 ### Lockout policy
 

@@ -61,6 +61,46 @@ class AccountSessionsAdapterTests {
         assertThat(sessions.principals()).containsExactly(ZOE.toString());
     }
 
+    /** A login keeps the session it is completed in and ends every other one of the account's. */
+    @Test
+    void endsEveryOtherSessionTheAccountHoldsButKeepsTheRetainedOne() {
+        String earlier = sessions.open(BOB);
+        String another = sessions.open(BOB);
+        String retained = sessions.open(BOB);
+        String zoes = sessions.open(ZOE);
+
+        assertThat(adapter.revokeAllExcept(BOB, retained)).isEqualTo(2);
+
+        assertThat(sessions.findById(retained)).isNotNull();
+        assertThat(sessions.findById(earlier)).isNull();
+        assertThat(sessions.findById(another)).isNull();
+        assertThat(sessions.findById(zoes)).as("nobody else's session ends").isNotNull();
+    }
+
+    /** A caller that held no session yet retains nothing, so every session of the account ends. */
+    @Test
+    void endsEverySessionWhenNoneIsRetained() {
+        sessions.open(BOB);
+        sessions.open(BOB);
+        String zoes = sessions.open(ZOE);
+
+        assertThat(adapter.revokeAllExcept(BOB, null)).isEqualTo(2);
+
+        assertThat(sessions.principals()).containsExactly(ZOE.toString());
+        assertThat(sessions.findById(zoes)).isNotNull();
+    }
+
+    /** Retaining a session the account does not hold neither fails nor spares one it does. */
+    @Test
+    void retainingASessionOfAnotherAccountSparesNoneOfThisOnes() {
+        sessions.open(BOB);
+        String zoes = sessions.open(ZOE);
+
+        assertThat(adapter.revokeAllExcept(BOB, zoes)).isEqualTo(1);
+
+        assertThat(sessions.principals()).containsExactly(ZOE.toString());
+    }
+
     /** A session store that can be searched by principal, and nothing more. */
     private static final class IndexedSessions
             implements FindByIndexNameSessionRepository<MapSession> {

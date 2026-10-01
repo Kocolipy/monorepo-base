@@ -119,9 +119,19 @@ public class LoginAttemptService {
      * <p>The success event is fail-closed, unlike everything on the failure path: a session this
      * service could not account for is one it does not issue. The append joins this transaction, so
      * it takes the cleared failure run down with it if it cannot be written.
+     *
+     * <p>A successful login also ends every other session the identity holds — one concurrent
+     * session per User, so a credential cannot be in use from two places at once and a stolen
+     * session does not outlive its owner's next sign-in. The rule holds for a login confined by a
+     * required change as for any other. It runs after the commit, on the path a lockout's revocation
+     * takes and for the same reason ({@code /docs/adr/0002-revoke-sessions-after-commit.md}): a
+     * rolled-back login must not have signed its owner out everywhere else.
+     *
+     * @param retainedSessionId the id the caller's own session is stored under, which the login
+     *     continues in and so is the one session kept; {@code null} when the caller holds none
      */
     @Transactional
-    public void recordSuccess(String username) {
+    public void recordSuccess(String username, String retainedSessionId) {
         find(username).ifPresent(user -> {
             ScimLoginState cleared = user.login().withFailureRunCleared();
             if (cleared != user.login()) {
@@ -138,7 +148,17 @@ public class LoginAttemptService {
                 users.recordAuthentication(user.id(), clock.instant());
             }
             audit.recordLoginSuccess(user.id());
+            afterCommit.run(() -> sessions.revokeAllExcept(user.id(), retainedSessionId));
         });
+    }
+
+    /**
+     * {@link #recordSuccess(String, String)} for a caller holding no session, every session of the
+     * identity ending.
+     */
+    @Transactional
+    public void recordSuccess(String username) {
+        recordSuccess(username, null);
     }
 
     /**

@@ -23,6 +23,8 @@ public final class InMemoryAccountSessions implements AccountSessions {
 
     private final List<UUID> revocations = new ArrayList<>();
 
+    private final List<UUID> loginRevocations = new ArrayList<>();
+
     /** Record a session this account holds, as a successful login would. */
     public void open(UUID accountId, String sessionId) {
         live.computeIfAbsent(accountId, key -> new ArrayList<>()).add(sessionId);
@@ -43,5 +45,28 @@ public final class InMemoryAccountSessions implements AccountSessions {
         revocations.add(accountId);
         List<String> ended = live.remove(accountId);
         return ended == null ? 0 : ended.size();
+    }
+
+    /**
+     * Every account a login ended the other sessions of, in order. Kept apart from
+     * {@link #revocations()} because a login does it on every success, and a test
+     * counting the revocations an administrative action caused must not see them.
+     */
+    public List<UUID> loginRevocations() {
+        return List.copyOf(loginRevocations);
+    }
+
+    @Override
+    public int revokeAllExcept(UUID accountId, String retainedSessionId) {
+        loginRevocations.add(accountId);
+        List<String> held = live.getOrDefault(accountId, List.of());
+        List<String> kept = held.stream().filter(id -> id.equals(retainedSessionId)).toList();
+        int ended = held.size() - kept.size();
+        if (kept.isEmpty()) {
+            live.remove(accountId);
+        } else {
+            live.put(accountId, new ArrayList<>(kept));
+        }
+        return ended;
     }
 }

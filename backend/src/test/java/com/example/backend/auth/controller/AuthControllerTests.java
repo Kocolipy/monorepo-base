@@ -3,8 +3,10 @@ package com.example.backend.auth.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -62,6 +64,12 @@ class AuthControllerTests {
 
     private CsrfTokenRepository csrfTokenRepository;
 
+    /** The session registry the login path ends a User's other sessions through. */
+    private com.example.backend.auth.InMemoryAccountSessions accountSessions;
+
+    /** The transaction the login path's after-commit work waits on. */
+    private com.example.backend.auth.PendingCommit transaction;
+
     /**
      * The one identity store. It backs the attempt counter AND the credentials the
      * authentication manager checks, which the account aggregate's version of this
@@ -97,9 +105,9 @@ class AuthControllerTests {
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
         cookieSerializer.setCookieName(SESSION_COOKIE);
         Clock clock = Clock.fixed(Instant.parse("2026-09-24T07:00:00Z"), ZoneOffset.UTC);
-        com.example.backend.auth.InMemoryAccountSessions accountSessions =
+        accountSessions =
                 new com.example.backend.auth.InMemoryAccountSessions();
-        com.example.backend.auth.PendingCommit transaction =
+        transaction =
                 new com.example.backend.auth.PendingCommit();
         LoginAttemptService attempts = new LoginAttemptService(
                 users, accountSessions, transaction, new LockoutPolicy(3), audit, clock);
@@ -547,5 +555,271 @@ class AuthControllerTests {
     void theChangeRequestNeverPrintsEitherPassword() {
         assertThat(new AuthController.ChangePasswordRequest("current-secret", "next-secret"))
                 .hasToString("ChangePasswordRequest[redacted]");
+    }
+
+    // ---- one concurrent session per User -----------------------------------------------------
+
+    /**
+     * The session the caller logs in from is the one the login keeps — identified by the id it is
+     * stored under BEFORE rotation renames it, since that is the only id the store knows it by —
+     * and every other session of the User ends once the login commits.
+     */
+    @Test
+    void loginKeepsTheCallersOwnSessionAndEndsTheUsersOthersAfterTheCommit() {
+        UUID ada = users.require("ada").id();
+        UUID grace = users.require("grace").id();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        String preLoginSessionId = request.getSession(true).getId();
+        accountSessions.open(ada, "ada-elsewhere");
+        accountSessions.open(ada, preLoginSessionId);
+        accountSessions.open(grace, "grace-elsewhere");
+
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+        assertThat(accountSessions.sessionsOf(ada))
+                .as("nothing ends before the commit")
+                .containsExactly("ada-elsewhere", preLoginSessionId);
+
+        transaction.commit();
+
+        assertThat(accountSessions.sessionsOf(ada)).containsExactly(preLoginSessionId);
+        assertThat(accountSessions.sessionsOf(grace)).containsExactly("grace-elsewhere");
+    }
+
+    @Test
+    void loginWithoutASessionEndsEverySessionTheUserAlreadyHeld() {
+        UUID ada = users.require("ada").id();
+        accountSessions.open(ada, "ada-elsewhere");
+
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse());
+        transaction.commit();
+
+        assertThat(accountSessions.sessionsOf(ada)).isEmpty();
+    }
+
+    @Test
+    void aRefusedLoginEndsNoSession() {
+        UUID ada = users.require("ada").id();
+        accountSessions.open(ada, "ada-elsewhere");
+
+        assertThatThrownBy(() -> controller.login(
+                new AuthController.LoginRequest("ada", "wrong-password"),
+                new MockHttpServletRequest(),
+                new MockHttpServletResponse()))
+                .isInstanceOf(BadCredentialsException.class);
+        transaction.commit();
+
+        assertThat(accountSessions.sessionsOf(ada)).containsExactly("ada-elsewhere");
+    }
+
+    // ---- Clear-Site-Data on logout -----------------------------------------------------------
+
+    private static final String CLEAR_SITE_DATA = "\"cache\",\"cookies\",\"storage\"";
+
+    @Test
+    void logoutAsksTheBrowserToClearTheSitesData() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.logout(request, response);
+
+        assertThat(response.getHeaders("Clear-Site-Data")).containsExactly(CLEAR_SITE_DATA);
+    }
+
+    @Test
+    void logoutWithoutASessionStillAsksTheBrowserToClearTheSitesData() {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.logout(new MockHttpServletRequest(), response);
+
+        assertThat(response.getHeaders("Clear-Site-Data")).containsExactly(CLEAR_SITE_DATA);
+    }
+
+    /** Over MockMvc, so the header is observed on the response as the handler mapping sends it. */
+    @Test
+    void theLogoutResponseCarriesTheExactClearSiteDataValue() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        mvc.perform(delete("/api/auth/logout"))
+                .andExpect(status().isNoContent())
+                .andExpect(header().stringValues("Clear-Site-Data", CLEAR_SITE_DATA));
+    }
+
+    // ---- input length limits -----------------------------------------------------------------
+
+    /** The logout is audited against the stable id the session's principal index holds. */
+    @Test
+    void logoutRecordsTheEventAgainstTheSessionsUser() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+
+        controller.logout(request, new MockHttpServletResponse());
+
+        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT))
+                .extracting(com.example.backend.audit.RecordingAuditTrail.Recorded::subjectId)
+                .containsExactly(users.require("ada").id());
+    }
+
+    /** A session never signed in to names no account, so its logout records nothing. */
+    @Test
+    void logoutOfASessionWithNoPrincipalIndexRecordsNothing() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute("unrelated", "value");
+
+        controller.logout(request, new MockHttpServletResponse());
+
+        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT)).isEmpty();
+    }
+
+    /** Neither length validator judges a missing value: that is {@code @NotBlank}'s refusal. */
+    @Test
+    void theLengthValidatorsLeaveAMissingValueToNotBlank() {
+        assertThat(new MaxUserNameLength.Validator().isValid(null, null)).isTrue();
+        assertThat(new MaxPasswordLength.Validator().isValid(null, null)).isTrue();
+    }
+
+    /** A missing field is the length validators' {@code null}: left to {@code @NotBlank}, a 400. */
+    @Test
+    void aLoginBodyMissingAFieldIsABare400() throws Exception {
+        for (String body : java.util.List.of(
+                "{\"password\":\"correct-password\"}", "{\"username\":\"ada\"}")) {
+            validatingMvc().perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().string(""));
+        }
+        assertThat(audit.recorded()).isEmpty();
+    }
+
+    /** A supplementary-plane character: one code point, two UTF-16 units. */
+    private static final String ASTRAL = "\uD83D\uDD11";
+
+    private static String repeat(String unit, int times) {
+        return unit.repeat(times);
+    }
+
+    private MockMvc validatingMvc() {
+        return MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private String loginBody(String username, String password) {
+        return "{\"username\":\"%s\",\"password\":\"%s\"}".formatted(username, password);
+    }
+
+    /**
+     * Over-length Login fields are refused with the same bare {@code 400} a blank one gets, before
+     * the login service runs — no failure counted, nothing audited, no session ended — so an
+     * over-length name is indistinguishable from any other malformed body.
+     */
+    @Test
+    void anOverLengthLoginFieldIsTheSameBare400AsABlankOneAndCountsNothing() throws Exception {
+        accountSessions.open(users.require("ada").id(), "ada-elsewhere");
+        String blank = validatingMvc().perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("", "correct-password")))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        for (String body : java.util.List.of(
+                loginBody(repeat("a", 257), "correct-password"),
+                loginBody(repeat(ASTRAL, 257), "correct-password"),
+                loginBody("ada", repeat("p", 257)),
+                loginBody("ada", repeat(ASTRAL, 257)))) {
+            validatingMvc().perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().string(blank));
+        }
+
+        assertThat(blank).isEmpty();
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
+        assertThat(audit.recorded()).isEmpty();
+        transaction.commit();
+        assertThat(accountSessions.sessionsOf(users.require("ada").id()))
+                .containsExactly("ada-elsewhere");
+    }
+
+    /**
+     * The bounds are the stored ones, counted the way the store counts them: 256 code points is
+     * accepted however many UTF-16 units it takes, so a value at the bound reaches the login
+     * service and is refused there, as a wrong password, with a {@code 401}.
+     */
+    @Test
+    void loginFieldsAtTheBoundReachTheLoginService() throws Exception {
+        validatingMvc().perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(repeat(ASTRAL, 256), repeat(ASTRAL, 256))))
+                .andExpect(status().isUnauthorized());
+        validatingMvc().perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", repeat("p", 256))))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
+    }
+
+    /**
+     * A password is measured in its normalized form, as the policy measures it: 257 code points
+     * that compose to 256 are within the bound, so no password the policy accepted is ever refused
+     * here for its length.
+     */
+    @Test
+    void aPasswordIsMeasuredInItsNormalizedForm() throws Exception {
+        // "e" + COMBINING ACUTE ACCENT composes to a single "é" under NFC.
+        String decomposed = repeat("p", 255) + "e\u0301";
+
+        validatingMvc().perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", decomposed)))
+                .andExpect(status().isUnauthorized());
+        validatingMvc().perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("ada", repeat("p", 256) + "e\u0301")))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Over-length change fields are refused before the current password is checked: a {@code 400}
+     * with no body, no failure counted toward the lockout, no refusal audited, and the credential
+     * unchanged.
+     */
+    @Test
+    void anOverLengthPasswordChangeFieldIs400AndCountsNothing() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
+                users.require("ada").id().toString());
+        String hashBefore = users.require("ada").login().passwordHash();
+
+        for (String body : java.util.List.of(
+                "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
+                        .formatted(repeat("p", 257), NEW_PASSWORD),
+                "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
+                        .formatted("wrong-password", repeat(ASTRAL, 257)))) {
+            validatingMvc().perform(post("/api/auth/change-password")
+                            .session(session)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().string(""));
+        }
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
+        assertThat(users.require("ada").login().passwordHash()).isEqualTo(hashBefore);
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(session.isInvalid()).isFalse();
     }
 }

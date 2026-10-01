@@ -77,6 +77,19 @@ public class LoginService {
      * @throws AuthenticationException when the credentials are refused
      */
     public LoginOutcome logIn(String username, String password) {
+        return logIn(username, password, null);
+    }
+
+    /**
+     * {@link #logIn(String, String)} from a caller that may already hold a session: an accepted
+     * login ends every other session of the identity once the cleared failure run commits, and
+     * keeps this one, which the caller goes on to rotate and sign in.
+     *
+     * @param retainedSessionId the id the caller's session is stored under, or {@code null} when
+     *     it holds none
+     * @throws AuthenticationException when the credentials are refused
+     */
+    public LoginOutcome logIn(String username, String password, String retainedSessionId) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
@@ -95,7 +108,7 @@ public class LoginService {
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
-        attempts.recordSuccess(authentication.getName());
+        attempts.recordSuccess(authentication.getName(), retainedSessionId);
         log.atInfo()
                 .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)

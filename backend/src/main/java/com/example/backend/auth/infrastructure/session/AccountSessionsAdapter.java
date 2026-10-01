@@ -3,6 +3,7 @@ package com.example.backend.auth.infrastructure.session;
 import com.example.backend.auth.domain.AccountSessions;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
 import org.springframework.stereotype.Component;
@@ -40,10 +41,17 @@ public class AccountSessionsAdapter implements AccountSessions {
 
     @Override
     public int revokeAll(UUID accountId) {
+        return revokeAllExcept(accountId, null);
+    }
+
+    @Override
+    public int revokeAllExcept(UUID accountId, String retainedSessionId) {
         // Copied out of the returned map before deleting: the lookup's result is
         // the repository's own view, and deleting through it while iterating is
         // not something the interface promises to tolerate.
-        Set<String> ids = Set.copyOf(sessions.findByPrincipalName(accountId.toString()).keySet());
+        Set<String> ids = sessions.findByPrincipalName(accountId.toString()).keySet().stream()
+                .filter(id -> !id.equals(retainedSessionId))
+                .collect(Collectors.toUnmodifiableSet());
         ids.forEach(sessions::deleteById);
         return ids.size();
     }
