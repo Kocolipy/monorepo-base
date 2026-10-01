@@ -206,20 +206,49 @@ describe("the user decoder", () => {
     ).resolves.toStrictEqual({ passwordChangeRequired: false, role: "ADMIN", username: "grace" });
   });
 
-  it("confines only on a literal true, and reads a missing role as none", async () => {
+  it("reads a body that is not JSON at all, such as a proxy's error page, as a decode failure", async () => {
     await getCurrentUser();
-    await expect(decodeWithCall(0, 2, { username: "ada" })).resolves.toStrictEqual({
-      passwordChangeRequired: false,
-      role: null,
-      username: "ada",
-    });
-    await expect(
-      decodeWithCall(0, 2, {
-        passwordChangeRequired: NOT_A_BOOLEAN,
-        role: "USER",
-        username: "ada",
-      }),
-    ).resolves.toStrictEqual({ passwordChangeRequired: false, role: "USER", username: "ada" });
+    const decoder = apiFetchMock.mock.calls[0]?.[2] as (response: Response) => Promise<unknown>;
+    await expect(decoder(new Response("<html>Bad Gateway</html>"))).rejects.toThrow(SyntaxError);
+  });
+
+  // Each refusal names the field it failed on, so a test cannot pass on a
+  // different field's failure than the one it set up.
+  it.each([
+    [
+      "a missing username",
+      { passwordChangeRequired: false, role: "USER" },
+      "UserResponse.username",
+    ],
+    ["a missing flag", { role: "USER", username: "ada" }, "UserResponse.passwordChangeRequired"],
+    ["a missing role", { passwordChangeRequired: false, username: "ada" }, "UserResponse.role"],
+    [
+      "a non-boolean flag",
+      { passwordChangeRequired: NOT_A_BOOLEAN, role: "USER", username: "ada" },
+      "UserResponse.passwordChangeRequired",
+    ],
+    [
+      "a non-string username",
+      { passwordChangeRequired: false, role: "USER", username: 7 },
+      "UserResponse.username",
+    ],
+    [
+      "an unknown role, which the route guards would otherwise read",
+      { passwordChangeRequired: false, role: "SUPERUSER", username: "ada" },
+      "UserResponse.role is not USER | ADMIN",
+    ],
+    [
+      "a role in the wrong case",
+      { passwordChangeRequired: false, role: "admin", username: "ada" },
+      "UserResponse.role",
+    ],
+    ["a non-object body", ["ada"], "UserResponse is not an object"],
+    ["a null body", null, "UserResponse is not an object"],
+  ])("refuses %s", async (_, body, message) => {
+    await getCurrentUser();
+    await expect(decodeWithCall(0, 2, body)).rejects.toThrow(
+      expect.objectContaining({ name: "DecodeError", message: expect.stringContaining(message) }),
+    );
   });
 });
 
@@ -315,7 +344,15 @@ describe("changePassword", () => {
         rule: "CONTAINS_USER_NAME",
       }),
     ).resolves.toBe("The new password must not contain the user name");
-    await expect(decodeWithCall(0, 3, { status: 400 })).resolves.toBeUndefined();
-    await expect(decodeWithCall(0, 3, { message: 7 })).resolves.toBeUndefined();
+    // Anything else throws, which `apiFetch` turns into a `failed` with no `detail`.
+    await expect(decodeWithCall(0, 3, { status: 400 })).rejects.toThrow(
+      "PasswordRuleViolation.message is not a string",
+    );
+    await expect(decodeWithCall(0, 3, { message: 7 })).rejects.toThrow(
+      "PasswordRuleViolation.message is not a string",
+    );
+    await expect(decodeWithCall(0, 3, "too short")).rejects.toThrow(
+      "PasswordRuleViolation is not an object",
+    );
   });
 });

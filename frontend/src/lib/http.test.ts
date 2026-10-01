@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/App";
 
+import { DecodeError, jsonDecoder, readObject } from "./decode";
 import { apiFetch, discardCsrfToken } from "./http";
 
 const CSRF_PATH = "/api/auth/csrf";
@@ -357,6 +358,24 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({ kind: "failed" });
   });
 
+  it("reads a successful response whose decoder throws as failed, with no status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: "three" })));
+    const refuse = vi.fn(() => {
+      throw new DecodeError("CountResponse.count is not an integer");
+    });
+
+    // Strict: a `status` key would let a page read the `200` as meaningful.
+    await expect(apiFetch("/api/count", {}, refuse)).resolves.toStrictEqual({ kind: "failed" });
+    expect(refuse).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads a successful response whose async decoder rejects as failed, with no status", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json([])));
+    const decode = jsonDecoder((body) => readObject(body, "CountResponse").integer("count"));
+
+    await expect(apiFetch("/api/count", {}, decode)).resolves.toStrictEqual({ kind: "failed" });
+  });
+
   const decodeRule = async (response: Response): Promise<string> => {
     const body = (await response.json()) as { rule: string };
     return body.rule;
@@ -437,7 +456,9 @@ describe("logout on an expired session", () => {
           return Promise.resolve(new Response(null, { status: logouts === 1 ? 403 : retryStatus }));
         }
         if (input === "/api/auth/me")
-          return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+          return Promise.resolve(
+            Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          );
         return Promise.resolve(Response.json({ count: 0 }));
       });
       vi.stubGlobal("fetch", fetchMock);
@@ -476,9 +497,13 @@ describe("logout on an expired session", () => {
         return Promise.resolve(new Response(null, { status: logouts === 1 ? 403 : 401 }));
       }
       if (input === "/api/auth/login")
-        return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+        return Promise.resolve(
+          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        );
       if (input === "/api/auth/me")
-        return Promise.resolve(Response.json({ role: "USER", username: "ada" }));
+        return Promise.resolve(
+          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        );
       return Promise.resolve(Response.json({ count: 0 }));
     });
     vi.stubGlobal("fetch", fetchMock);

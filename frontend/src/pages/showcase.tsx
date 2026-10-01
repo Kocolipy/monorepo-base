@@ -13,15 +13,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { jsonDecoder, readObject } from "@/lib/decode";
 
-interface CountResponse {
-  count: number;
-}
-
-const decodeCount = async (response: Response): Promise<number> => {
-  const result = (await response.json()) as CountResponse;
-  return result.count;
-};
+/** The counter endpoints' `CountResponse`, read down to its one field. */
+const decodeCount = jsonDecoder((body: unknown): number =>
+  readObject(body, "CountResponse").integer("count"),
+);
 
 /** The original home page, now available to authenticated users at /showcase. */
 export function Showcase() {

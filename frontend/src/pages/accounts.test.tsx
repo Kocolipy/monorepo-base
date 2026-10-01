@@ -555,6 +555,66 @@ describe("Accounts", () => {
     expect(screen.queryByText("No groups are provisioned.")).not.toBeInTheDocument();
   });
 
+  // Through the real transport and decoders, against a backend whose Users body
+  // has drifted from the contract. The Groups listing answers a valid body, so
+  // the same pipeline is shown rendering what does decode.
+  it.each([
+    ["a renamed field", [{ ...userRow(), userName: undefined, login: "grace" }]],
+    ["null where a string was promised", [userRow({ createdAt: null as unknown as string })]],
+    ["a string where a boolean was promised", [{ ...userRow(), locked: "false" }]],
+    ["an object where the list was promised", { users: [userRow()] }],
+  ])("reports a Users body with %s and renders none of it", async (_, usersBody) => {
+    const actual = await vi.importActual<typeof import("@/lib/http")>("@/lib/http");
+    apiFetchMock.mockImplementation(actual.apiFetch as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === "/api/admin/accounts" ? Response.json(usersBody) : Response.json([groupRow()]),
+        ),
+      ),
+    );
+    try {
+      renderAccounts();
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /^Unable to load the users\. Please try again\.$/,
+      );
+      expect(await screen.findByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
+      expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
+      expect(screen.queryByText("grace")).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports a Users body that is not JSON at all, as a proxy's error page", async () => {
+    const actual = await vi.importActual<typeof import("@/lib/http")>("@/lib/http");
+    apiFetchMock.mockImplementation(actual.apiFetch as never);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input === "/api/admin/accounts"
+            ? new Response("<html><body>502 Bad Gateway</body></html>", {
+                headers: { "Content-Type": "text/html" },
+              })
+            : Response.json([groupRow()]),
+        ),
+      ),
+    );
+    try {
+      renderAccounts();
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        /^Unable to load the users\. Please try again\.$/,
+      );
+      expect(screen.queryByText(/Bad Gateway/)).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("says so when no User or Group is provisioned", async () => {
     routeApi({ users: { kind: "ok", data: [] } });
     renderAccounts();

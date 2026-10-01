@@ -9,6 +9,8 @@
  * operation lives.
  */
 
+import { decodeArray, readObject } from "@/lib/decode";
+
 /** A Group a User belongs to directly, as its row reports it. */
 export interface DirectGroup {
   id: string;
@@ -52,7 +54,9 @@ export interface GroupRow {
   adminGroup: boolean;
 }
 
-export type TokenScope = "READ_ONLY" | "READ_WRITE";
+const TOKEN_SCOPES = ["READ_ONLY", "READ_WRITE"] as const;
+
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 /**
  * A token's metadata. There is no field for its value: a listing cannot return
@@ -121,7 +125,88 @@ export const jsonBody = (
   method,
 });
 
-export const decodeJson = <T>(response: Response): Promise<T> => response.json() as Promise<T>;
+// ---- decoders ----------------------------------------------------------------------
+//
+// One per wire type, each taking the parsed body and returning the typed value or
+// throwing `DecodeError` (see `@/lib/decode`). A page passes the `jsonDecoder`
+// lift of one to `useSessionRequest`, so a body that drifted from these types
+// is a `failed` result and the page's failure copy, never a half-rendered row.
+
+const decodeDirectGroup = (value: unknown): DirectGroup => {
+  const group = readObject(value, "DirectGroup");
+  return { id: group.string("id"), displayName: group.string("displayName") };
+};
+
+export const decodeUserRow = (value: unknown): UserRow => {
+  const row = readObject(value, "UserRow");
+  return {
+    id: row.string("id"),
+    userName: row.string("userName"),
+    displayName: row.nullableString("displayName"),
+    admin: row.boolean("admin"),
+    bootstrapAdmin: row.boolean("bootstrapAdmin"),
+    active: row.boolean("active"),
+    locked: row.boolean("locked"),
+    hasPassword: row.boolean("hasPassword"),
+    passwordChangeRequired: row.boolean("passwordChangeRequired"),
+    lastAuthenticatedAt: row.nullableString("lastAuthenticatedAt"),
+    createdAt: row.string("createdAt"),
+    groups: row.array("groups", decodeDirectGroup),
+  };
+};
+
+export const decodeGroupRow = (value: unknown): GroupRow => {
+  const row = readObject(value, "GroupRow");
+  return {
+    id: row.string("id"),
+    displayName: row.string("displayName"),
+    memberCount: row.integer("memberCount"),
+    adminGroup: row.boolean("adminGroup"),
+  };
+};
+
+const decodeConnectorToken = (value: unknown): ConnectorToken => {
+  const token = readObject(value, "ConnectorToken");
+  return {
+    id: token.string("id"),
+    scope: token.oneOf("scope", TOKEN_SCOPES),
+    issuedAt: token.string("issuedAt"),
+    expiresAt: token.string("expiresAt"),
+    originalExpiresAt: token.string("originalExpiresAt"),
+    revokedAt: token.nullableString("revokedAt"),
+    active: token.boolean("active"),
+  };
+};
+
+export const decodeConnector = (value: unknown): Connector => {
+  const connector = readObject(value, "Connector");
+  return {
+    id: connector.string("id"),
+    displayName: connector.string("displayName"),
+    createdAt: connector.string("createdAt"),
+    tokens: connector.array("tokens", decodeConnectorToken),
+  };
+};
+
+export const decodeIssuedToken = (value: unknown): IssuedToken => {
+  const issued = readObject(value, "IssuedToken");
+  return {
+    connectorId: issued.string("connectorId"),
+    tokenId: issued.string("tokenId"),
+    scope: issued.oneOf("scope", TOKEN_SCOPES),
+    issuedAt: issued.string("issuedAt"),
+    expiresAt: issued.string("expiresAt"),
+    presentedValue: issued.string("presentedValue"),
+  };
+};
+
+/** The three listings, each an array of its row type. */
+export const decodeUserRows = (value: unknown): UserRow[] =>
+  decodeArray(value, decodeUserRow, "UserRow[]");
+export const decodeGroupRows = (value: unknown): GroupRow[] =>
+  decodeArray(value, decodeGroupRow, "GroupRow[]");
+export const decodeConnectors = (value: unknown): Connector[] =>
+  decodeArray(value, decodeConnector, "Connector[]");
 
 /**
  * Timestamps are rendered from the ISO instant rather than through

@@ -1,3 +1,4 @@
+import { jsonDecoder, readObject } from "@/lib/decode";
 import {
   apiFetch,
   CSRF_EXPIRED_MESSAGE,
@@ -6,7 +7,10 @@ import {
   type ApiResult,
 } from "@/lib/http";
 
-export type AuthRole = "USER" | "ADMIN";
+/** Every role the backend grants. A role outside this list is refused, never passed through. */
+const AUTH_ROLES = ["USER", "ADMIN"] as const;
+
+export type AuthRole = (typeof AUTH_ROLES)[number];
 
 export interface AuthUser {
   /**
@@ -19,27 +23,21 @@ export interface AuthUser {
   username: string;
 }
 
-interface UserResponse {
-  passwordChangeRequired?: boolean;
-  role?: AuthRole | null;
-  username: string;
-}
-
 /**
- * The `/me` and login response, read the same way for both.
+ * The `/me` and login `UserResponse`, read the same way for both.
  *
- * The flag is read strictly — only a literal `true` confines — because the SPA's
- * confinement is a convenience for the User, not the boundary: the backend
- * refuses every other endpoint to a flagged session whatever is rendered.
+ * The role is checked against `AUTH_ROLES` rather than trusted, because the
+ * route guards read it: an unknown string would otherwise reach a guard as if
+ * it were a role. A body that does not decode fails the request outright.
  */
-const decodeUser = async (response: Response): Promise<AuthUser> => {
-  const body = (await response.json()) as UserResponse;
+const decodeUser = jsonDecoder((body: unknown): AuthUser => {
+  const user = readObject(body, "UserResponse");
   return {
-    passwordChangeRequired: body.passwordChangeRequired === true,
-    role: body.role ?? null,
-    username: body.username,
+    passwordChangeRequired: user.boolean("passwordChangeRequired"),
+    role: user.nullableOneOf("role", AUTH_ROLES),
+    username: user.string("username"),
   };
-};
+});
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const result = await apiFetch("/api/auth/me", {}, decodeUser);
@@ -129,11 +127,13 @@ export type PasswordChangeOutcome =
   | { kind: "csrf-expired" }
   | { kind: "failed" };
 
-/** The `PasswordRuleViolation` body's statement of the rule, or nothing for any other body. */
-const decodeRuleMessage = async (response: Response): Promise<string | undefined> => {
-  const body = (await response.json()) as { message?: unknown };
-  return typeof body.message === "string" ? body.message : undefined;
-};
+/**
+ * The `PasswordRuleViolation` body's statement of the rule. Any other body
+ * throws, which `apiFetch` reads as no `detail` at all.
+ */
+const decodeRuleMessage = jsonDecoder((body: unknown): string =>
+  readObject(body, "PasswordRuleViolation").string("message"),
+);
 
 /**
  * Tells a lockout from a wrong current password.

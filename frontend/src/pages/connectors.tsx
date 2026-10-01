@@ -3,11 +3,14 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { jsonDecoder } from "@/lib/decode";
 
 import {
   connectorPath,
   CONNECTORS_PATH,
-  decodeJson,
+  decodeConnector,
+  decodeConnectors,
+  decodeIssuedToken,
   formatDate,
   jsonBody,
   tokenActionPath,
@@ -17,6 +20,11 @@ import {
   type IssuedToken,
   type TokenScope,
 } from "./accounts-api";
+
+/** Module-level, so each is one stable function across renders and hook dependencies. */
+const readConnectors = jsonDecoder(decodeConnectors);
+const readConnector = jsonDecoder(decodeConnector);
+const readIssuedToken = jsonDecoder(decodeIssuedToken);
 
 const INPUT_CLASS =
   "flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -244,7 +252,7 @@ function useConnectors() {
   );
 
   const fetchConnectors = useCallback(
-    () => request(CONNECTORS_PATH, {}, decodeJson<Connector[]>),
+    () => request(CONNECTORS_PATH, {}, readConnectors),
     [request],
   );
 
@@ -290,7 +298,7 @@ function useConnectors() {
   const create = (displayName: string, onCreated: () => void) =>
     void mutate(
       `Creating ${displayName}`,
-      () => request(CONNECTORS_PATH, jsonBody("POST", { displayName }), decodeJson<Connector>),
+      () => request(CONNECTORS_PATH, jsonBody("POST", { displayName }), readConnector),
       onCreated,
     );
 
@@ -309,7 +317,7 @@ function useConnectors() {
             request(
               tokensPath(connector.id),
               jsonBody("POST", { scope, lifetimeDays }),
-              decodeJson<IssuedToken>,
+              readIssuedToken,
             ),
           disclose,
         ),
@@ -324,7 +332,7 @@ function useConnectors() {
             request(
               tokenActionPath(connector.id, token.id, "rotate"),
               jsonBody("POST", {}),
-              decodeJson<IssuedToken>,
+              readIssuedToken,
             ),
           disclose,
         ),
