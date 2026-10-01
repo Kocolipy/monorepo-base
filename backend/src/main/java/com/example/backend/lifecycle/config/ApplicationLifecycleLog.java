@@ -1,7 +1,6 @@
 package com.example.backend.lifecycle.config;
 
 import com.example.backend.audit.domain.AuditRetentionPolicy;
-import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -9,15 +8,12 @@ import com.example.backend.observability.LogEvent.Severity;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.config.ScimReleaseGate;
 import com.example.backend.scim.domain.DormancyPolicy;
-import com.example.backend.scim.domain.LockoutPolicy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.ContextClosedEvent;
@@ -37,6 +33,9 @@ import org.springframework.stereotype.Component;
  * whose defaults belong to a domain policy are read from that policy, so an unset setting is
  * logged as the default it resolved to rather than as absent. {@code service.*} is not added
  * here; the ECS formatter writes it on every record.
+ *
+ * <p>The session timeouts and the lockout threshold are deliberately left out: the logging
+ * standard forbids logging timeout or retry values for authentication flows (ADR 0003).
  *
  * <p>Nothing that is a credential, a connection string or an identity is read at all — no
  * datasource or Redis setting, no password, no username — so none can reach the record. The
@@ -60,12 +59,6 @@ public class ApplicationLifecycleLog {
 
     static final String SCIM_ENABLED = "app.scim.enabled";
 
-    static final String SESSION_IDLE_TIMEOUT = "app.session.idle_timeout";
-
-    static final String SESSION_ABSOLUTE_LIFETIME = "app.session.absolute_lifetime";
-
-    static final String LOCKOUT_MAX_ATTEMPTS = "app.auth.lockout.max_attempts";
-
     static final String DORMANCY_DEACTIVATION_WINDOW = "app.dormancy.deactivation.window";
 
     static final String DORMANCY_AUTHORITY_REVOCATION_WINDOW =
@@ -78,33 +71,18 @@ public class ApplicationLifecycleLog {
     private final ApplicationContext context;
     private final Environment environment;
     private final ScimReleaseGate scimGate;
-    private final Duration sessionIdleTimeout;
-    private final AbsoluteSessionLifetimePolicy sessionLifetime;
-    private final LockoutPolicy lockout;
     private final DormancyPolicy dormancy;
     private final AuditRetentionPolicy retention;
 
-    /**
-     * @param sessionIdleTimeout the idle timeout Boot gives Spring Session: its own
-     *                           {@code spring.session.timeout} when set, else the servlet
-     *                           container's, else the container default of 30 minutes
-     */
     public ApplicationLifecycleLog(
             ApplicationContext context,
             Environment environment,
             ScimReleaseGate scimGate,
-            @Value("${spring.session.timeout:${server.servlet.session.timeout:30m}}")
-                    Duration sessionIdleTimeout,
-            AbsoluteSessionLifetimePolicy sessionLifetime,
-            LockoutPolicy lockout,
             DormancyPolicy dormancy,
             AuditRetentionPolicy retention) {
         this.context = context;
         this.environment = environment;
         this.scimGate = scimGate;
-        this.sessionIdleTimeout = sessionIdleTimeout;
-        this.sessionLifetime = sessionLifetime;
-        this.lockout = lockout;
         this.dormancy = dormancy;
         this.retention = retention;
     }
@@ -121,9 +99,6 @@ public class ApplicationLifecycleLog {
         record = withHost(record)
                 .addKeyValue(PROFILES, List.of(environment.getActiveProfiles()))
                 .addKeyValue(SCIM_ENABLED, scimGate.open())
-                .addKeyValue(SESSION_IDLE_TIMEOUT, sessionIdleTimeout.toString())
-                .addKeyValue(SESSION_ABSOLUTE_LIFETIME, sessionLifetime.maxLifetime().toString())
-                .addKeyValue(LOCKOUT_MAX_ATTEMPTS, lockout.maxAttempts())
                 .addKeyValue(DORMANCY_DEACTIVATION_WINDOW,
                         dormancy.deactivationWindow().toString())
                 .addKeyValue(DORMANCY_AUTHORITY_REVOCATION_WINDOW,

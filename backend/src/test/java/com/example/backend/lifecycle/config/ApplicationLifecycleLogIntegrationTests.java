@@ -90,9 +90,12 @@ class ApplicationLifecycleLogIntegrationTests {
         assertThat(record.at("/spring/profiles/active").valueStream().map(JsonNode::asText).toList())
                 .containsExactly("lifecycle-probe");
         assertThat(record.at("/app/scim/enabled").asBoolean(false)).isTrue();
-        assertThat(record.at("/app/session/idle_timeout").asText()).isEqualTo("PT17M");
-        assertThat(record.at("/app/session/absolute_lifetime").asText()).isEqualTo("PT8H");
-        assertThat(record.at("/app/auth/lockout/max_attempts").asInt()).isEqualTo(4);
+        assertThat(record.at("/app/session").isMissingNode())
+                .as("session timeouts are authentication-flow values the standard keeps out")
+                .isTrue();
+        assertThat(record.at("/app/auth").isMissingNode())
+                .as("the lockout threshold is an authentication-flow value the standard keeps out")
+                .isTrue();
         assertThat(record.at("/app/dormancy/deactivation/window").asText()).isEqualTo("PT1464H");
         assertThat(record.at("/app/dormancy/authority_revocation/window").asText())
                 .as("unset, so the policy's 180-day default")

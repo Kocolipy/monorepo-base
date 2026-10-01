@@ -6,11 +6,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
-import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.config.ScimReleaseGate;
 import com.example.backend.scim.domain.DormancyPolicy;
-import com.example.backend.scim.domain.LockoutPolicy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
@@ -73,14 +71,21 @@ class ApplicationLifecycleLogTests {
                 .containsEntry(LogEvent.HOST_IP, host.getHostAddress())
                 .containsEntry(ApplicationLifecycleLog.PROFILES, List.of("prod", "feature-x"))
                 .containsEntry(ApplicationLifecycleLog.SCIM_ENABLED, true)
-                .containsEntry(ApplicationLifecycleLog.SESSION_IDLE_TIMEOUT, "PT17M")
-                .containsEntry(ApplicationLifecycleLog.SESSION_ABSOLUTE_LIFETIME, "PT9H")
-                .containsEntry(ApplicationLifecycleLog.LOCKOUT_MAX_ATTEMPTS, 4)
                 .containsEntry(ApplicationLifecycleLog.DORMANCY_DEACTIVATION_WINDOW, "PT1464H")
                 .containsEntry(ApplicationLifecycleLog.DORMANCY_AUTHORITY_REVOCATION_WINDOW,
                         "PT2928H")
-                .containsEntry(ApplicationLifecycleLog.AUDIT_RETENTION_PERIOD, "PT9600H");
+                .containsEntry(ApplicationLifecycleLog.AUDIT_RETENTION_PERIOD, "PT9600H")
+                .doesNotContainKeys(AUTH_FLOW_KEYS.toArray(String[]::new));
     }
+
+    /**
+     * The logging standard forbids timeout or retry values for authentication flows, so the
+     * session timeouts and the lockout threshold stay off the record (ADR 0003).
+     */
+    static final List<String> AUTH_FLOW_KEYS = List.of(
+            "app.session.idle_timeout",
+            "app.session.absolute_lifetime",
+            "app.auth.lockout.max_attempts");
 
     /** The gate's state is read, not assumed open. */
     @Test
@@ -152,9 +157,6 @@ class ApplicationLifecycleLogTests {
                 context,
                 environment,
                 new ScimReleaseGate(scimOpen),
-                Duration.ofMinutes(17),
-                new AbsoluteSessionLifetimePolicy(Duration.ofHours(9)),
-                new LockoutPolicy(4),
                 new DormancyPolicy(Duration.ofDays(61), Duration.ofDays(122)),
                 new AuditRetentionPolicy(Duration.ofDays(400), null));
     }

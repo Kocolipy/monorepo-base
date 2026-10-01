@@ -253,8 +253,7 @@ those depends on `observability`) writes:
 
 - on `ApplicationReadyEvent`, `application-startup` with `host.name`, `host.ip`,
   `spring.profiles.active`, and the effective value of each non-secret setting
-  that changes behaviour: `app.scim.enabled`, `app.session.idle_timeout`,
-  `app.session.absolute_lifetime`, `app.auth.lockout.max_attempts`,
+  that changes behaviour: `app.scim.enabled`,
   `app.dormancy.deactivation.window`, `app.dormancy.authority_revocation.window`,
   `app.audit.retention.period`. Effective rather than configured: a window whose
   default belongs to a domain policy is read from that policy, so an unset
@@ -268,12 +267,13 @@ Each answers only for its own context, so a management child context closing doe
 not log a second shutdown. A host that cannot resolve its own name gets no
 `host.*` fields rather than a placeholder.
 
-One tension with the standard, stated rather than resolved here: §2 #0 says not to
-log "timeout or retry values for authentication flows", and the session timeouts
-and the lockout threshold the ticket asks for are arguably exactly that. They are
-logged because the ticket names them and because they are what an operator checks
-first when sessions or lockouts misbehave after a deploy; if the standard's
-reading prevails, those three keys are what to remove.
+The session timeouts and the lockout threshold are deliberately absent, although
+the ticket asked for them: §2 #0 of the standard says not to log "timeout or retry
+values for authentication flows", and they are exactly that. The standard wins.
+An operator checking them after a deploy reads them from the deployment's
+configuration (`APP_SESSION_ABSOLUTE_LIFETIME`, `APP_LOCKOUT_MAX_ATTEMPTS`,
+`server.servlet.session.timeout`), not from the log. The lifecycle tests assert
+the keys stay off the record.
 
 | Operation               | `event.action`         | `app.event.action` | `event.category` | `event.type`     |
 | ----------------------- | ---------------------- | ------------------ | ---------------- | ---------------- |
