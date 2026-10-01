@@ -1,12 +1,16 @@
 package com.example.backend.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,17 +27,16 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
-import org.springframework.security.authentication.TestingAuthenticationToken;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The log stream as an operator and a collector meet it: real requests through
@@ -73,6 +76,8 @@ class EcsLogFormatTests {
             "JSESSIONID",
             "XSRF-TOKEN");
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
     @Autowired
     private WebApplicationContext context;
 
@@ -90,13 +95,7 @@ class EcsLogFormatTests {
     private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
-    private com.example.backend.scim.domain.ScimUserRepository users;
-
-    private java.util.UUID testUserId() {
-        return users.findByNormalizedUserName(
-                com.example.backend.scim.domain.NormalizedUserName.of("test-user"))
-                .orElseThrow().id();
-    }
+    private ScimUserRepository users;
 
     private MockMvc mvc;
 
@@ -148,10 +147,25 @@ class EcsLogFormatTests {
         JsonNode record = onlyRecordWithMessage("Login accepted");
 
         assertThatIsValidEcs(record);
-        assertThat(record.at("/event/action").asText()).isEqualTo("login");
+        assertThatClassifiedAs(record, "user-authentication", "process", "user", "allowed");
+        assertThat(record.has("app")).as("an exact action keeps no local name").isFalse();
         assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
+    }
+
+    /**
+     * The login-success record names the identity that logged in, by its stable id —
+     * set on the record itself, because the session's principal index that carries it
+     * on later requests is written only after the record is emitted.
+     */
+    @Test
+    void anAcceptedLoginCarriesTheIdentitysStableId() throws Exception {
+        logIn("test-user", "test-password").andExpect(status().isOk());
+
+        JsonNode record = onlyRecordWithMessage("Login accepted");
+
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
     }
 
     /**
@@ -167,26 +181,119 @@ class EcsLogFormatTests {
         JsonNode record = onlyRecordWithMessage("Login refused");
 
         assertThatIsValidEcs(record);
-        assertThat(record.at("/event/action").asText()).isEqualTo("login");
+        assertThatClassifiedAs(record, "user-authentication", "process", "user", "denied");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
         assertThat(record.at("/event/reason").asText()).isEqualTo("BadCredentialsException");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(record.has("user")).as("an unresolved identity carries no user field").isFalse();
     }
 
+    /**
+     * A refused attempt made from a session that is already authenticated still names
+     * nobody: the session's User is not whom the attempt was for, so the record must not
+     * inherit the request's {@code user.id}. The session's id really is in the context —
+     * the later administrative record in the same session carries it — so the absence is
+     * the refusal's doing, not the context's.
+     */
     @Test
-    void anAdministrativeChangeIsOneEcsRecordCarryingTheRequestsCorrelationId()
+    void aRefusedLoginFromAnAuthenticatedSessionStillCarriesNoUserField() throws Exception {
+        MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
+        logs.reset();
+
+        mvc.perform(withCsrf(post("/api/auth/login"))
+                        .session(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"not-a-real-account\",\"password\":\"wrong-password\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+                        .session(admin))
+                .andExpect(status().isOk());
+
+        assertThat(onlyRecordWithMessage("Login refused").has("user")).isFalse();
+        assertThat(onlyRecordWithMessage("Administrative identity change applied")
+                        .at("/user/id").asText())
+                .isEqualTo(userId("test-admin").toString());
+    }
+
+    /**
+     * An authenticated request's records name the caller by the stable id its session's
+     * principal index holds, and an administrative change names the identity acted on
+     * separately, as {@code user.target.id}.
+     */
+    @Test
+    void anAdministrativeChangeIsOneEcsRecordNamingTheActorAndTheSubjectByStableId()
             throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", testUserId()))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+        MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
+        logs.reset();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+                        .session(admin))
                 .andExpect(status().isOk());
 
         JsonNode record = onlyRecordWithMessage("Administrative identity change applied");
 
         assertThatIsValidEcs(record);
-        assertThat(record.at("/event/action").asText()).isEqualTo("identity.unlock");
+        assertThatClassifiedAs(record, "access-control", "process", "admin", "user", "change");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.unlock");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-admin").toString());
+        assertThat(record.at("/user/target/id").asText())
+                .isEqualTo(userId("test-user").toString());
+    }
+
+    /**
+     * Each connector token lifecycle write names the administrator who made it. No
+     * {@code user.target.id}: the subject is a connector, which is not a User.
+     */
+    @Test
+    void everyConnectorLifecycleRecordCarriesTheActorsStableId() throws Exception {
+        MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
+        logs.reset();
+
+        String connectorId = json(mvc.perform(withCsrf(post("/api/admin/connectors"))
+                        .session(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"displayName\":\"ecs-log-connector\"}"))
+                .andExpect(status().isCreated())).at("/id").asText();
+        String issuedId = json(mvc.perform(withCsrf(
+                                post("/api/admin/connectors/{c}/tokens", connectorId))
+                        .session(admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scope\":\"READ_WRITE\"}"))
+                .andExpect(status().isCreated())).at("/tokenId").asText();
+        String rotatedId = json(mvc.perform(withCsrf(
+                                post("/api/admin/connectors/{c}/tokens/{t}/rotate",
+                                        connectorId, issuedId))
+                        .session(admin))
+                .andExpect(status().isCreated())).at("/tokenId").asText();
+        mvc.perform(withCsrf(post("/api/admin/connectors/{c}/tokens/{t}/revoke",
+                                connectorId, rotatedId))
+                        .session(admin))
+                .andExpect(status().isNoContent());
+        mvc.perform(withCsrf(delete("/api/admin/connectors/{c}", connectorId)).session(admin))
+                .andExpect(status().isNoContent());
+
+        List<JsonNode> lifecycle = recordsWithMessage("SCIM connector lifecycle change applied");
+        assertThat(lifecycle)
+                .extracting(record -> record.at("/app/event/action").asText())
+                .containsExactly(
+                        "scim.connector.create",
+                        "scim.connector.token.issue",
+                        "scim.connector.token.rotate",
+                        "scim.connector.token.revoke",
+                        "scim.connector.delete");
+        assertThat(lifecycle).allSatisfy(record -> {
+            assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-admin").toString());
+            assertThat(record.at("/user").has("target")).isFalse();
+        });
+        assertThatClassifiedAs(lifecycle.get(1),
+                "access-control", "configuration", "admin", "creation");
+        assertThatClassifiedAs(lifecycle.get(2),
+                "access-control", "configuration", "admin", "change");
+        assertThatClassifiedAs(lifecycle.get(3),
+                "access-control", "configuration", "admin", "deletion");
     }
 
     /**
@@ -200,14 +307,18 @@ class EcsLogFormatTests {
     void noRecordFromAnyFlowContainsAForbiddenValue() throws Exception {
         logs.reset();
 
+        MockHttpSession admin = loggedInSession("test-admin", "test-admin-password");
         logIn("test-user", "test-password").andExpect(status().isOk());
         logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", testUserId()))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", userId("test-user")))
+                        .session(admin))
                 .andExpect(status().isOk());
 
-        // The flows really did log, so the assertion below is not vacuously true.
-        assertThat(logs.records()).hasSizeGreaterThanOrEqualTo(3);
+        // The flows really did log, and did name their identities by id, so the
+        // assertion below is not vacuously true.
+        assertThat(logs.records()).hasSizeGreaterThanOrEqualTo(4);
+        assertThat(logs.records()).anySatisfy(record ->
+                assertThat(record.at("/user/target/id").asText()).isNotBlank());
         logs.records().forEach(EcsLogFormatTests::assertThatIsValidEcs);
         assertThat(logs.lines()).doesNotContain(FORBIDDEN.toArray(String[]::new));
     }
@@ -221,17 +332,56 @@ class EcsLogFormatTests {
         assertThat(record.at("/message").asText()).isNotBlank();
     }
 
+    /**
+     * The record's classification in the standard's vocabulary: {@code event.kind}
+     * {@code event}, a one-element {@code event.category} array, and the
+     * {@code event.type} array exactly — both encoded as JSON arrays, as ECS has them.
+     */
+    private static void assertThatClassifiedAs(
+            JsonNode record, String action, String category, String... types) {
+        assertThat(record.at("/event/action").asText()).isEqualTo(action);
+        assertThat(record.at("/event/kind").asText()).isEqualTo("event");
+        assertThat(record.at("/event/category").isArray()).isTrue();
+        assertThat(record.at("/event/category").valueStream().map(JsonNode::asText).toList())
+                .containsExactly(category);
+        assertThat(record.at("/event/type").isArray()).isTrue();
+        assertThat(record.at("/event/type").valueStream().map(JsonNode::asText).toList())
+                .containsExactly(types);
+    }
+
     private JsonNode onlyRecordWithMessage(String message) {
-        List<JsonNode> matching = logs.records().stream()
-                .filter(record -> message.equals(record.at("/message").asText()))
-                .toList();
+        List<JsonNode> matching = recordsWithMessage(message);
         assertThat(matching)
                 .as("records with message '%s'", message)
                 .hasSize(1);
         return matching.getFirst();
     }
 
-    private org.springframework.test.web.servlet.ResultActions logIn(
+    private List<JsonNode> recordsWithMessage(String message) {
+        return logs.records().stream()
+                .filter(record -> message.equals(record.at("/message").asText()))
+                .toList();
+    }
+
+    private UUID userId(String userName) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName))
+                .orElseThrow().id();
+    }
+
+    /**
+     * A session as a real login leaves it — its principal index holding the identity's
+     * stable id, written by the login itself — rather than a fixture placed by hand.
+     */
+    private MockHttpSession loggedInSession(String username, String password) throws Exception {
+        MvcResult login = logIn(username, password).andExpect(status().isOk()).andReturn();
+        return (MockHttpSession) login.getRequest().getSession(false);
+    }
+
+    private static JsonNode json(ResultActions result) throws Exception {
+        return JSON.readTree(result.andReturn().getResponse().getContentAsString());
+    }
+
+    private ResultActions logIn(
             String username, String password) throws Exception {
         return mvc.perform(withCsrf(post("/api/auth/login"))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -243,16 +393,5 @@ class EcsLogFormatTests {
         return request
                 .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
                 .header("X-XSRF-TOKEN", token.getToken());
-    }
-
-    private MockHttpSession authenticatedSession(String authority) {
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(
-                new TestingAuthenticationToken("an-administrator", null, authority));
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(
-                HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                securityContext);
-        return session;
     }
 }

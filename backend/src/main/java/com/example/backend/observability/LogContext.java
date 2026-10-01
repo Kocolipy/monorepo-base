@@ -1,6 +1,7 @@
 package com.example.backend.observability;
 
 import java.util.Set;
+import java.util.UUID;
 import org.slf4j.MDC;
 
 /**
@@ -12,16 +13,20 @@ import org.slf4j.MDC;
  * read by more people, retained longer, and shipped further than the database the
  * value came from. That rule cannot be enforced by review of {@code MDC.put}
  * call sites scattered across the service, so there are none: this class exposes
- * three named setters and no general-purpose one, and
+ * four named setters and no general-purpose one, and
  * {@code ArchitectureTest.mdc_is_only_touched_by_the_log_context} holds it to
  * being the single class in production code that touches {@link MDC}.
  *
- * <p>The three keys are the ones the identity surface needs to correlate by, and
- * all three are ids rather than values:
+ * <p>The four keys are the ones the identity surface needs to correlate by, and
+ * all four are ids rather than values:
  *
  * <ul>
  *   <li>{@link #REQUEST_ID} — minted per inbound request by
  *       {@link RequestIdFilter}, never taken from the caller.
+ *   <li>{@link #USER_ID} — the stable SCIM id of the authenticated User the
+ *       record concerns, never its userName or email. Typed as a {@link UUID} so
+ *       a readable identifier cannot be passed by mistake. Absent wherever the
+ *       identity is not resolved — a refused login above all.
  *   <li>{@link #CONNECTOR_ID} — which provisioning connector's token
  *       authenticated the request, once connectors exist.
  *   <li>{@link #RESOURCE_ID} — the stable id of the resource being acted on,
@@ -41,6 +46,9 @@ public final class LogContext {
     /** Correlation id for one inbound HTTP request. ECS {@code http.request.id}. */
     public static final String REQUEST_ID = "http.request.id";
 
+    /** Stable SCIM id of the User the record concerns. ECS {@code user.id}. */
+    public static final String USER_ID = "user.id";
+
     /** The provisioning connector whose token authenticated the request. */
     public static final String CONNECTOR_ID = "scim.connector.id";
 
@@ -51,7 +59,8 @@ public final class LogContext {
      * Every key this class will write, so {@link #clear()} can remove exactly
      * what was added and nothing a library put there.
      */
-    private static final Set<String> KEYS = Set.of(REQUEST_ID, CONNECTOR_ID, RESOURCE_ID);
+    private static final Set<String> KEYS =
+            Set.of(REQUEST_ID, USER_ID, CONNECTOR_ID, RESOURCE_ID);
 
     /**
      * Longest value written. An id is far shorter than this; the cap exists so a
@@ -65,6 +74,15 @@ public final class LogContext {
     /** Puts the request correlation id in scope for the current thread. */
     public static Scope requestId(String requestId) {
         return put(REQUEST_ID, requestId);
+    }
+
+    /**
+     * Puts the User's stable id in scope for the current thread. {@code null}
+     * removes the key for the scope's lifetime — how a record about an unresolved
+     * identity is kept from inheriting the request's — and restores it on close.
+     */
+    public static Scope userId(UUID userId) {
+        return put(USER_ID, userId == null ? null : userId.toString());
     }
 
     /** Puts the authenticated connector's id in scope for the current thread. */

@@ -4,6 +4,9 @@ import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AccountSessions;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -51,9 +54,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class IdentityAdministrationService {
 
     private static final Logger log = LoggerFactory.getLogger(IdentityAdministrationService.class);
-
-    private static final String UNLOCK_ACTION = "identity.unlock";
-    private static final String FORCED_CHANGE_ACTION = "identity.force_password_change";
 
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
@@ -151,11 +151,7 @@ public class IdentityAdministrationService {
         ScimUser user = require(userId);
         UUID actorId = actorId(requestedBy);
         if (isSelf(user, requestedBy)) {
-            log.atWarn()
-                    .addKeyValue(LogEvent.ACTION, UNLOCK_ACTION)
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                    .addKeyValue(LogEvent.REASON, AuditAdministrativeRefusal.SELF_TARGET.name())
-                    .log("Administrative identity change refused");
+            refused(Operation.UNLOCK, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
             audit.recordUnlockRefused(actorId, user.id(), AuditAdministrativeRefusal.SELF_TARGET);
             throw new ForbiddenIdentityChangeException("An Admin cannot unlock their own account");
         }
@@ -170,7 +166,7 @@ public class IdentityAdministrationService {
             users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
             audit.recordPasswordChangeRequired(actorId, user.id());
         }
-        succeeded(UNLOCK_ACTION);
+        succeeded(Operation.UNLOCK, user.id());
         return summarize(user, after);
     }
 
@@ -223,17 +219,13 @@ public class IdentityAdministrationService {
         users.requirePasswordChange(user.id(), flagged.passwordChangeRequiredSince());
         audit.recordPasswordChangeRequired(actorId, user.id());
         afterCommit.run(() -> sessions.revokeAll(user.id()));
-        succeeded(FORCED_CHANGE_ACTION);
+        succeeded(Operation.FORCE_PASSWORD_CHANGE, user.id());
         return summarize(user, flagged);
     }
 
     private RuntimeException refuseForcedChange(
             UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason, RuntimeException refusal) {
-        log.atWarn()
-                .addKeyValue(LogEvent.ACTION, FORCED_CHANGE_ACTION)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                .addKeyValue(LogEvent.REASON, reason.name())
-                .log("Administrative identity change refused");
+        refused(Operation.FORCE_PASSWORD_CHANGE, subjectId, reason);
         audit.recordPasswordChangeRequirementRefused(actorId, subjectId, reason);
         return refusal;
     }
@@ -305,18 +297,29 @@ public class IdentityAdministrationService {
     /**
      * Records an administrative write that went through.
      *
-     * <p>The record names the action and nothing else. It deliberately identifies neither the
-     * identity acted on nor the administrator who acted: a {@code userName} is not something this
-     * service writes to a log, and the stable ids belong in the audit trail, which records them
-     * beside the operation. A log line says an administrative change happened and when, which is
-     * what an operator watching for unexpected activity needs; the API response says which identity
-     * to the caller who is entitled to know.
+     * <p>The record names the action, and the identity acted on by its stable id as
+     * {@code user.target.id}; the administrator who acted is {@code user.id}, which the request's
+     * logging context already carries. Neither is ever a {@code userName}: that is not something
+     * this service writes to a log. The audit trail remains the authoritative record of who changed
+     * what; the log line is what an operator watching for unexpected activity reads.
      */
-    private static void succeeded(String action) {
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, action)
+    private static void succeeded(Operation operation, UUID subjectId) {
+        LogEvent.classify(log.atInfo(),
+                        operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.CHANGE)
+                .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("Administrative identity change applied");
+    }
+
+    /** Records an administrative write refused for {@code reason}, before anything was written. */
+    private static void refused(
+            Operation operation, UUID subjectId, AuditAdministrativeRefusal reason) {
+        LogEvent.classify(log.atWarn(),
+                        operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.DENIED)
+                .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .addKeyValue(LogEvent.REASON, reason.name())
+                .log("Administrative identity change refused");
     }
 
     /**

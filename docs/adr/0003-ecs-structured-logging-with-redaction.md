@@ -39,9 +39,9 @@ Three parts, each chosen so the rule is checkable rather than remembered.
 is a setting no test can assert. A record's variable parts are therefore named
 fields, and a message is a constant.
 
-**One writer for the logging context.** `LogContext` exposes three named setters
-— `http.request.id`, `scim.connector.id`, `scim.resource.id` — and no
-general-purpose one. All three are ids: the readable identifiers are precisely
+**One writer for the logging context.** `LogContext` exposes named setters
+— `http.request.id`, `scim.connector.id`, `scim.resource.id`, and since #67
+`user.id` (see the addendum) — and no general-purpose one. All of them are ids: the readable identifiers are precisely
 what must not be logged. Every value passes through a sanitizer that replaces
 control characters and truncates, so a value that reached a connector id from a
 token cannot end the current record and forge the next (CWE-117). `ArchUnit`
@@ -91,3 +91,64 @@ stream, becomes what authoritatively records who changed what.
 A structured field remains available for a client-influenced value that genuinely
 must be recorded — a PATCH attribute path, a `scimType` — provided it is emitted
 as a field rather than concatenated, and sanitized on the way in.
+
+## Addendum (2026-10-01): `user.id` and the standard event vocabulary
+
+Issue #67. The stable id the Consequences above waited for now exists — the SCIM
+User resource id — and the logging standard (`Log_Schema.md` §User, §Event) asks
+for it and for a closed event vocabulary.
+
+**`user.id`.** `LogContext` gains a fourth setter, `userId(UUID)`, typed so that a
+`userName` cannot be passed. It is set for the rest of a request by
+`SessionUserLogContextFilter`, placed after `SecurityContextHolderFilter`, from
+the session's principal index — which the login writes with the SCIM id, not the
+`Authentication`'s name. It is set explicitly on the login-success record, because
+that index is written only after the record is emitted. A refused login carries
+no `user.*` field at all, even when the request arrived on an authenticated
+session: the identity the attempt named is unresolved, and the session's User is
+not whom it was for (User standard §3.4).
+
+**Actor and subject.** `user.id` is always the actor. Where a record concerns a
+different User — admin unlock and force-change, applied or refused — the User acted
+on is `user.target.id`, following ECS's `user.target.*`. Connector lifecycle
+records carry the actor only: their subject is a connector, not a User, and the
+connector and token ids stay with the audit trail as before. The scheduled jobs
+run with no actor and carry no user field.
+
+**The vocabulary.** `LogEvent` declares the `event.kind`, `event.category`,
+`event.type`, `event.action` and `event.severity` members this service uses, plus
+`event.duration_ms` (which replaces `audit.retention.duration_ms`). A record is
+classified by `LogEvent.classify(record, Operation, Category, Type...)`, and
+`LogEvent.Operation` is the single mapping from what this service does onto the
+standard's action. Where no action fits, or one action covers several operations,
+the operation's own name is kept under `app.event.action` — namespaced under the
+service's own `app.` key — rather than a member being invented for the standard's
+enum. Semgrep `be-log-event-action-outside-the-vocabulary` holds `classify` to
+being the only writer of either key.
+
+| Operation (old `event.action`)            | `event.action`                | `app.event.action`                     | `event.category` | `event.type`                     |
+| ----------------------------------------- | ----------------------------- | -------------------------------------- | ---------------- | -------------------------------- |
+| `login`, accepted                         | `user-authentication`         | —                                      | `process`        | `user`, `allowed`                |
+| `login`, refused                          | `user-authentication`         | —                                      | `process`        | `user`, `denied`                 |
+| `identity.unlock`, applied / refused      | `access-control`              | `identity.unlock`                      | `process`        | `admin`, `user`, `change`/`denied` |
+| `identity.force_password_change`, applied / refused | `password-change-enforcement` | —                            | `process`        | `admin`, `user`, `change`/`denied` |
+| `identity.password_change` (self-service), applied / refused | `user-administration` | `identity.password_change`  | `process`        | `user`, `change`/`denied`        |
+| `scim.connector.create`                   | `access-control`              | `scim.connector.create`                | `configuration`  | `admin`, `creation`              |
+| `scim.connector.delete`                   | `access-control`              | `scim.connector.delete`                | `configuration`  | `admin`, `deletion`              |
+| `scim.connector.token.issue`              | `access-control`              | `scim.connector.token.issue`           | `configuration`  | `admin`, `creation`              |
+| `scim.connector.token.rotate`             | `access-control`              | `scim.connector.token.rotate`          | `configuration`  | `admin`, `change`                |
+| `scim.connector.token.revoke`             | `access-control`              | `scim.connector.token.revoke`          | `configuration`  | `admin`, `deletion`              |
+| `scim.write` (integrity violation)        | `user-provisioning`           | `scim.write`                           | `database`       | `error`                          |
+| `identity.inactivity_deactivation`, run   | `user-administration`         | `identity.inactivity_deactivation`     | `batch`          | `job-end`                        |
+| `identity.dormant_authority_revocation`, run | `access-control`           | `identity.dormant_authority_revocation` | `batch`         | `job-end`                        |
+| `audit.retention`, run                    | — (no action fits)            | `audit.retention`                      | `batch`          | `job-end`                        |
+| any job's schedule at startup             | as the job's row              | as the job's row                       | `configuration`  | `info`                           |
+| `audit.append` (append failed)            | — (no action fits)            | `audit.append`                         | `database`       | `error`, plus `event.severity` `high` |
+
+`event.kind` is `event` on every record. Two operations have no standard action:
+the enum offers nothing for deleting aged-out audit rows or for an audit write
+failing, and `access-control` or `user-administration` would mislabel them for a
+search on those values, so they carry `app.event.action` alone. The job records
+are `job-end` only: a run emits one record, at its end, carrying
+`event.duration_ms` where it measures one; `job-start` records arrive with #70,
+which emits the scheduled jobs' start/end pair using this vocabulary.

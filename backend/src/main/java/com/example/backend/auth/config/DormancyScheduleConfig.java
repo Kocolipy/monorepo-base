@@ -3,6 +3,9 @@ package com.example.backend.auth.config;
 import com.example.backend.auth.application.DormantAuthorityRevocationService;
 import com.example.backend.auth.application.InactivityDeactivationService;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.DormancyPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,15 +61,14 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
         registrar.addCronTask(new CronTask(
                 authorityRevocation::revokeDormantAuthority,
                 new CronTrigger(AUTHORITY_REVOCATION_SCHEDULE)));
-        scheduled(InactivityDeactivationService.ACTION, DEACTIVATION_SCHEDULE,
+        scheduled(InactivityDeactivationService.OPERATION, DEACTIVATION_SCHEDULE,
                 policy.deactivationWindow().toString());
-        scheduled(DormantAuthorityRevocationService.ACTION, AUTHORITY_REVOCATION_SCHEDULE,
+        scheduled(DormantAuthorityRevocationService.OPERATION, AUTHORITY_REVOCATION_SCHEDULE,
                 policy.authorityRevocationWindow().toString());
     }
 
-    private static void scheduled(String action, String schedule, String window) {
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, action)
+    private static void scheduled(Operation operation, String schedule, String window) {
+        LogEvent.classify(log.atInfo(), operation, Category.CONFIGURATION, Type.INFO)
                 .addKeyValue(LogEvent.DORMANCY_SCHEDULE, schedule)
                 .addKeyValue(LogEvent.DORMANCY_WINDOW, window)
                 .log("Dormancy job scheduled");

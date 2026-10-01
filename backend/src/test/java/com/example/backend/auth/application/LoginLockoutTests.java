@@ -3,6 +3,9 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
@@ -10,6 +13,8 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.auth.controller.AuthController;
+import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -24,6 +29,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.core.Authentication;
@@ -118,6 +124,60 @@ class LoginLockoutTests {
     void anAcceptedLoginReportsTheScimResourceId() {
         assertThat(login.logIn("ada", CORRECT_PASSWORD).userId())
                 .isEqualTo(users.require("ada").id());
+    }
+
+    /**
+     * The accepted record names the identity by its stable id, as {@code user.id} in the
+     * record's context — set on the record itself and gone once it is written, since the
+     * session that carries it on later requests does not exist yet.
+     */
+    @Test
+    void theAcceptedLoginRecordCarriesTheStableIdAndClassification() {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            login.logIn("ada", CORRECT_PASSWORD);
+
+            ILoggingEvent record = onlyLoginRecord(captured, Level.INFO);
+            assertThat(record.getMDCPropertyMap())
+                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .containsEntry(LogEvent.KIND, "event")
+                    .containsEntry(LogEvent.CATEGORY, List.of("process"))
+                    .containsEntry(LogEvent.TYPE, List.of("user", "allowed"));
+        }
+        assertThat(MDC.get(LogContext.USER_ID)).isNull();
+    }
+
+    /**
+     * A refused attempt names nobody, even inside a request already carrying a User's
+     * id: the identity the attempt was for is unresolved. The outer id is back for the
+     * rest of the request once the record is written.
+     */
+    @Test
+    void theRefusedLoginRecordCarriesNoUserIdEvenInsideAnAuthenticatedRequest() {
+        UUID sessionUser = users.require(BOOTSTRAP_ADMIN).id();
+        try (CapturedLog captured = CapturedLog.attach();
+                LogContext.Scope request = LogContext.userId(sessionUser)) {
+            submit("wrong");
+
+            ILoggingEvent record = onlyLoginRecord(captured, Level.WARN);
+            assertThat(record.getMDCPropertyMap()).doesNotContainKey(LogContext.USER_ID);
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                    .containsEntry(LogEvent.REASON, "BadCredentialsException")
+                    .containsEntry(LogEvent.TYPE, List.of("user", "denied"));
+            assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(sessionUser.toString());
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    private static ILoggingEvent onlyLoginRecord(CapturedLog captured, Level level) {
+        List<ILoggingEvent> records =
+                captured.withAction(level, LogEvent.ACTION, "user-authentication");
+        assertThat(records).hasSize(1);
+        assertThat(records.getFirst().getLevel()).isEqualTo(level);
+        return records.getFirst();
     }
 
     @Test

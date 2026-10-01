@@ -2,6 +2,9 @@ package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
@@ -44,11 +47,6 @@ public class ConnectorAdministrationService {
     private static final Logger log =
             LoggerFactory.getLogger(ConnectorAdministrationService.class);
 
-    private static final String CREATE_ACTION = "scim.connector.create";
-    private static final String DELETE_ACTION = "scim.connector.delete";
-    private static final String ISSUE_ACTION = "scim.connector.token.issue";
-    private static final String ROTATE_ACTION = "scim.connector.token.rotate";
-    private static final String REVOKE_ACTION = "scim.connector.token.revoke";
 
     private final ScimConnectorRepository connectors;
     private final ScimConnectorTokenRepository tokens;
@@ -90,7 +88,7 @@ public class ConnectorAdministrationService {
                 ScimConnector.create(UUID.randomUUID(), displayName, clock.instant());
         connectors.save(connector);
         audit.recordConnectorCreated(actorId(requestedBy), connector.id());
-        succeeded(CREATE_ACTION);
+        succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
         return summarize(connector, clock.instant());
     }
 
@@ -128,7 +126,7 @@ public class ConnectorAdministrationService {
             audit.recordConnectorTokenRevoked(null, connectorId);
         }
         audit.recordConnectorDeleted(actorId(requestedBy), connectorId);
-        succeeded(DELETE_ACTION);
+        succeeded(Operation.CONNECTOR_DELETE, Type.DELETION);
     }
 
     /**
@@ -154,7 +152,7 @@ public class ConnectorAdministrationService {
                 now.plus(ConnectorTokenPolicy.lifetime(lifetime)));
         tokens.save(issued);
         audit.recordConnectorTokenIssued(actorId(requestedBy), connectorId);
-        succeeded(ISSUE_ACTION);
+        succeeded(Operation.CONNECTOR_TOKEN_ISSUE, Type.CREATION);
         return disclose(issued, minted.presentedValue());
     }
 
@@ -196,7 +194,7 @@ public class ConnectorAdministrationService {
                 replacement.id()));
 
         audit.recordConnectorTokenRotated(actorId(requestedBy), connector.id());
-        succeeded(ROTATE_ACTION);
+        succeeded(Operation.CONNECTOR_TOKEN_ROTATE, Type.CHANGE);
         return disclose(replacement, minted.presentedValue());
     }
 
@@ -215,7 +213,7 @@ public class ConnectorAdministrationService {
             tokens.save(revoked);
         }
         audit.recordConnectorTokenRevoked(actorId(requestedBy), existing.connectorId());
-        succeeded(REVOKE_ACTION);
+        succeeded(Operation.CONNECTOR_TOKEN_REVOKE, Type.DELETION);
     }
 
     /**
@@ -283,15 +281,16 @@ public class ConnectorAdministrationService {
     /**
      * Records that a connector or token lifecycle write went through.
      *
-     * <p>The action and the outcome, and nothing else. No connector id, no token id,
-     * and above all no token value: the log stream is read by more people and
-     * retained longer than the database, so naming who changed which credential is
-     * the audit trail's job — which does it by stable id, and is the thing an
-     * administrator investigating a connector actually reads.
+     * <p>The action and the outcome; the administrator who acted is {@code user.id},
+     * which the request's logging context already carries. No connector id, no token
+     * id, and above all no token value: the log stream is read by more people and
+     * retained longer than the database, so naming which credential changed is the
+     * audit trail's job — which does it by stable id, and is the thing an
+     * administrator investigating a connector actually reads. There is no
+     * {@code user.target.id} either: the subject is a connector, not a User.
      */
-    private static void succeeded(String action) {
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, action)
+    private static void succeeded(Operation operation, Type lifecycle) {
+        LogEvent.classify(log.atInfo(), operation, Category.CONFIGURATION, Type.ADMIN, lifecycle)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("SCIM connector lifecycle change applied");
     }

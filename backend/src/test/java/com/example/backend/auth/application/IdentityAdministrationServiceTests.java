@@ -26,6 +26,7 @@ import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -452,18 +453,29 @@ class IdentityAdministrationServiceTests {
             service.unlock(id("bob"), BOOTSTRAP);
             service.forcePasswordChange(carol.id(), BOOTSTRAP);
 
-            assertThat(List.of("identity.unlock", "identity.force_password_change"))
-                    .allSatisfy(action -> assertThat(
-                                    captured.withAction(Level.INFO, LogEvent.ACTION, action))
+            assertThat(Map.of(
+                            LogEvent.LOCAL_ACTION, "identity.unlock",
+                            LogEvent.ACTION, "password-change-enforcement"))
+                    .allSatisfy((key, action) -> assertThat(
+                                    captured.withAction(Level.INFO, key, action))
                             .singleElement()
                             .satisfies(record -> assertThat(CapturedLog.fields(record))
                                     .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)));
+            assertThat(captured.withAction(Level.INFO, LogEvent.LOCAL_ACTION, "identity.unlock"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.USER_TARGET_ID, id("bob").toString()));
+            assertThat(captured.withAction(
+                            Level.INFO, LogEvent.ACTION, "password-change-enforcement"))
+                    .singleElement()
+                    .satisfies(record -> assertThat(CapturedLog.fields(record))
+                            .containsEntry(LogEvent.USER_TARGET_ID, carol.id().toString()));
         }
     }
 
     /**
-     * A refusal reports the action, a failure outcome and the closed-set reason — and
-     * nothing that names either party, which is what the audit trail carries instead.
+     * A refusal reports the action, a failure outcome and the closed-set reason, and names the
+     * identity it was aimed at by stable id only — never by userName.
      */
     @Test
     void aRefusedWriteReportsItsActionReasonAndFailureToTheLogStream() {
@@ -475,12 +487,15 @@ class IdentityAdministrationServiceTests {
             assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), "ada"))
                     .isInstanceOf(ForbiddenIdentityChangeException.class);
 
-            assertThat(List.of("identity.unlock", "identity.force_password_change"))
-                    .allSatisfy(action -> assertThat(
-                                    captured.withAction(Level.WARN, LogEvent.ACTION, action))
+            assertThat(Map.of(
+                            LogEvent.LOCAL_ACTION, "identity.unlock",
+                            LogEvent.ACTION, "password-change-enforcement"))
+                    .allSatisfy((key, action) -> assertThat(
+                                    captured.withAction(Level.WARN, key, action))
                             .singleElement()
                             .satisfies(record -> assertThat(CapturedLog.fields(record))
                                     .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                                    .containsEntry(LogEvent.USER_TARGET_ID, ada.id().toString())
                                     .containsEntry(
                                             LogEvent.REASON,
                                             AuditAdministrativeRefusal.SELF_TARGET.name())));

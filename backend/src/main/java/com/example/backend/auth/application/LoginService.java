@@ -1,7 +1,11 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditRefusalReason;
+import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,12 +38,6 @@ public class LoginService {
 
     private static final Logger log = LoggerFactory.getLogger(LoginService.class);
 
-    /**
-     * Value of {@code event.action} on both records this class emits, so a log
-     * search finds the accepted and the refused attempt together.
-     */
-    private static final String LOGIN_ACTION = "login";
-
     private final AuthenticationManager authenticationManager;
     private final LoginAttemptService attempts;
     private final LoginIdentityService identities;
@@ -65,14 +63,15 @@ public class LoginService {
      * returns, so a caller holding an authentication is by definition one whose
      * account was not refused, whatever it does with the authentication next.
      *
-     * <p>Both outcomes are logged, and neither record names the account. The
-     * submitted {@code username} is the single most sensitive value passing
-     * through here — it is half a credential, and on a failed attempt it is very
-     * often a mistyped password — so it stays out of the log, in the message and
-     * in the context alike. What the records do carry is the outcome and, for a
-     * refusal, the type of refusal, which is what tells a run of wrong passwords
-     * from a run against names that do not exist. Correlating a record to an
-     * identity is the audit trail's job, by the SCIM resource's stable id.
+     * <p>Both outcomes are logged, and neither record carries the submitted
+     * {@code username}. It is the single most sensitive value passing through
+     * here — it is half a credential, and on a failed attempt it is very often a
+     * mistyped password — so it stays out of the log, in the message and in the
+     * context alike. The accepted attempt carries the identity's stable id as
+     * {@code user.id}; the refused one carries no user field at all, because the
+     * identity it named is unresolved. What the refusal carries instead is the
+     * type of refusal, which is what tells a run of wrong passwords from a run
+     * against names that do not exist.
      *
      * @throws AuthenticationException when the credentials are refused
      */
@@ -98,22 +97,31 @@ public class LoginService {
             attempts.recordFailure(username, refusalReason(refused));
             // The exception's own type, not its message: a message can carry the
             // submitted value, and a type name is this service's own vocabulary.
-            log.atWarn()
-                    .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                    .addKeyValue(LogEvent.REASON, refused.getClass().getSimpleName())
-                    .log("Login refused");
+            // No user field: the attempt's identity is unresolved, and a session the
+            // request happened to carry is not whom the attempt was for.
+            try (LogContext.Scope unresolved = LogContext.userId(null)) {
+                LogEvent.classify(log.atWarn(),
+                                Operation.LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
+                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                        .addKeyValue(LogEvent.REASON, refused.getClass().getSimpleName())
+                        .log("Login refused");
+            }
             throw refused;
         }
 
         // Outside the catch above on purpose: a failure recording the success is
         // not a refusal, and must not be reported to the caller as one.
         attempts.recordSuccess(authentication.getName(), retainedSessionId);
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, LOGIN_ACTION)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .log("Login accepted");
-        return new LoginOutcome(authentication, identities.resolveUserId(authentication.getName()));
+        UUID userId = identities.resolveUserId(authentication.getName());
+        // Set explicitly: the session's principal index that carries user.id for later
+        // requests is written only after this returns.
+        try (LogContext.Scope resolved = LogContext.userId(userId)) {
+            LogEvent.classify(log.atInfo(),
+                            Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .log("Login accepted");
+        }
+        return new LoginOutcome(authentication, userId);
     }
 
     /**

@@ -4,6 +4,9 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.ScheduledJob;
 import com.example.backend.auth.domain.ScheduledJobLock;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -50,8 +53,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class DormantAuthorityRevocationService {
 
-    /** {@code event.action} on every record this job emits, its schedule included. */
-    public static final String ACTION = "identity.dormant_authority_revocation";
+    /** The operation every record this job emits is classified as, its schedule included. */
+    public static final Operation OPERATION = Operation.DORMANT_AUTHORITY_REVOCATION;
 
     private static final Logger log =
             LoggerFactory.getLogger(DormantAuthorityRevocationService.class);
@@ -133,8 +136,7 @@ public class DormantAuthorityRevocationService {
 
     /** Reports the run, a skipped or empty one included; names no identity. */
     private void logRun(boolean skipped, int processed) {
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, ACTION)
+        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.JOB_END)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .addKeyValue(LogEvent.DORMANCY_WINDOW, policy.authorityRevocationWindow().toString())
                 .addKeyValue(LogEvent.DORMANCY_SKIPPED, skipped)

@@ -3,6 +3,8 @@ package com.example.backend.audit.config;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.ScheduledJobMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +56,8 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
         registrar.addCronTask(new CronTask(
                 jobs.instrument(RETENTION_JOB, retention::deleteAgedOutEvents),
                 new CronTrigger(policy.schedule())));
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, AuditRetentionService.RETENTION_ACTION)
+        LogEvent.classify(log.atInfo(),
+                        AuditRetentionService.OPERATION, Category.CONFIGURATION, Type.INFO)
                 .addKeyValue(LogEvent.RETENTION_SCHEDULE, policy.schedule())
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .log("Audit retention job scheduled");

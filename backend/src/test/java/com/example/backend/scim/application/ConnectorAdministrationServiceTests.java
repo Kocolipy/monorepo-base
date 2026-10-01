@@ -493,7 +493,7 @@ class ConnectorAdministrationServiceTests {
                     "scim.connector.token.revoke",
                     "scim.connector.delete");
             for (String action : actions) {
-                assertThat(log.withAction(Level.INFO, LogEvent.ACTION, action))
+                assertThat(log.withAction(Level.INFO, LogEvent.LOCAL_ACTION, action))
                         .as("%s", action)
                         .singleElement()
                         .satisfies(record -> {

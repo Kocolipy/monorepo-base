@@ -172,7 +172,11 @@ class ScimExceptionHandlerBodyTests {
             assertThat(event.getKeyValuePairs())
                     .extracting(pair -> pair.key, pair -> String.valueOf(pair.value))
                     .containsExactly(
-                            tuple("event.action", "scim.write"),
+                            tuple("event.kind", "event"),
+                            tuple("event.category", "[database]"),
+                            tuple("event.type", "[error]"),
+                            tuple("event.action", "user-provisioning"),
+                            tuple("app.event.action", "scim.write"),
                             tuple("event.outcome", "failure"),
                             tuple("event.reason", "SQLException"));
             assertThat(event.getThrowableProxy()).as("no stack trace, which quotes the message")

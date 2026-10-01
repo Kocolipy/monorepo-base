@@ -4,12 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -18,6 +22,7 @@ import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -230,6 +235,42 @@ class PasswordChangeServiceTests {
                 .containsExactly(
                         tuple(bob.id(), "ACCOUNT_DISABLED"),
                         tuple(dan.id(), "ACCOUNT_LOCKED"));
+    }
+
+    /**
+     * Every refusal, and the accepted change, is one record in the standard's vocabulary,
+     * the refusals by their closed-set reason.
+     */
+    @Test
+    void eachOutcomeIsOneClassifiedRecordNamingTheRefusalReason() {
+        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
+        ScimUser dan = users.given(ScimIdentities.userWithLoginState("dan", new ScimLoginState(
+                encoder.encode(CURRENT), MAX_ATTEMPTS, ScimIdentities.NOW, null, null)));
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            assertThatThrownBy(() -> service.changePassword(bob.id(), CURRENT, NEXT))
+                    .isInstanceOf(CurrentPasswordRejectedException.class);
+            assertThatThrownBy(() -> service.changePassword(dan.id(), CURRENT, NEXT))
+                    .isInstanceOf(CurrentPasswordRejectedException.class);
+            assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", NEXT))
+                    .isInstanceOf(CurrentPasswordRejectedException.class);
+            service.changePassword(ada.id(), CURRENT, NEXT);
+
+            List<ILoggingEvent> records = captured.withAction(
+                    Level.INFO, LogEvent.LOCAL_ACTION, "identity.password_change");
+            assertThat(records)
+                    .extracting(ILoggingEvent::getLevel,
+                            record -> CapturedLog.fields(record).get(LogEvent.REASON),
+                            record -> CapturedLog.fields(record).get(LogEvent.TYPE))
+                    .containsExactly(
+                            tuple(Level.WARN, "ACCOUNT_DISABLED", List.of("user", "denied")),
+                            tuple(Level.WARN, "ACCOUNT_LOCKED", List.of("user", "denied")),
+                            tuple(Level.WARN, "BAD_CURRENT_PASSWORD", List.of("user", "denied")),
+                            tuple(Level.INFO, null, List.of("user", "change")));
+            assertThat(records).allSatisfy(record -> assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.ACTION, "user-administration")
+                    .containsEntry(LogEvent.CATEGORY, List.of("process")));
+        }
     }
 
     @Test
