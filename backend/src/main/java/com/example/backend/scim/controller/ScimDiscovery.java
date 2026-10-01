@@ -75,8 +75,13 @@ public final class ScimDiscovery {
     private ScimDiscovery() {
     }
 
-    /** The capability document. */
-    public static Map<String, Object> serviceProviderConfig() {
+    /**
+     * The capability document.
+     *
+     * @param baseUri absolute URI of this service's SCIM base, with no trailing slash, so
+     *                {@code meta.location} is absolute as RFC 7643 §3.1 requires
+     */
+    public static Map<String, Object> serviceProviderConfig(String baseUri) {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("schemas", List.of(ScimSchemas.SERVICE_PROVIDER_CONFIG));
         document.put("patch", Map.of("supported", PATCH_SUPPORTED));
@@ -95,7 +100,7 @@ public final class ScimDiscovery {
         document.put("authenticationSchemes", List.of(bearerScheme()));
         document.put("meta", Map.of(
                 "resourceType", "ServiceProviderConfig",
-                "location", ScimSchemas.BASE_PATH + "/ServiceProviderConfig"));
+                "location", baseUri + "/ServiceProviderConfig"));
         return document;
     }
 
@@ -128,25 +133,29 @@ public final class ScimDiscovery {
      * endpoint answers, and {@code /Groups} now does — Users and Groups were one release
      * capability precisely so that this list would never advertise half a directory.
      */
-    static List<Map<String, Object>> resourceTypes() {
-        return List.of(userResourceType(), groupResourceType());
+    static List<Map<String, Object>> resourceTypes(String baseUri) {
+        return List.of(userResourceType(baseUri), groupResourceType(baseUri));
     }
 
     /** The schema documents this service serves: the core User and Group schemas. */
-    static List<Map<String, Object>> schemas() {
-        return List.of(ScimUserAttributes.schemaDocument(), ScimGroupAttributes.schemaDocument());
+    static List<Map<String, Object>> schemas(String baseUri) {
+        return List.of(
+                ScimUserAttributes.schemaDocument(baseUri),
+                ScimGroupAttributes.schemaDocument(baseUri));
     }
 
-    static Map<String, Object> userResourceType() {
+    static Map<String, Object> userResourceType(String baseUri) {
         return resourceType(
+                baseUri,
                 ScimResourceType.USER.resourceTypeName(),
                 "/Users",
                 "SCIM core User.",
                 ScimSchemas.USER);
     }
 
-    static Map<String, Object> groupResourceType() {
+    static Map<String, Object> groupResourceType(String baseUri) {
         return resourceType(
+                baseUri,
                 ScimResourceType.GROUP.resourceTypeName(),
                 "/Groups",
                 "SCIM core Group. Membership confers application authority.",
@@ -154,7 +163,7 @@ public final class ScimDiscovery {
     }
 
     private static Map<String, Object> resourceType(
-            String name, String endpoint, String description, String schema) {
+            String baseUri, String name, String endpoint, String description, String schema) {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("schemas", List.of(ScimSchemas.RESOURCE_TYPE));
         document.put("id", name);
@@ -166,7 +175,7 @@ public final class ScimDiscovery {
         // would still be a claim that extensions are a thing here.
         document.put("meta", Map.of(
                 "resourceType", "ResourceType",
-                "location", ScimSchemas.BASE_PATH + "/ResourceTypes/" + name));
+                "location", baseUri + "/ResourceTypes/" + name));
         return document;
     }
 

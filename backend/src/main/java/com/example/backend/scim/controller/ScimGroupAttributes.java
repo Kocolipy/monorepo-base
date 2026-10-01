@@ -89,8 +89,8 @@ final class ScimGroupAttributes {
         return Set.copyOf(union(declared, ScimUserAttributes.COMMON_ATTRIBUTES));
     }
 
-    /** The core Group schema, as {@code /Schemas} renders it. */
-    static Map<String, Object> schemaDocument() {
+    /** The core Group schema, as {@code /Schemas} renders it, located under {@code baseUri}. */
+    static Map<String, Object> schemaDocument(String baseUri) {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("schemas", List.of(ScimSchemas.SCHEMA));
         document.put("id", ScimSchemas.GROUP);
@@ -103,7 +103,7 @@ final class ScimGroupAttributes {
                         .toList());
         document.put("meta", Map.of(
                 "resourceType", "Schema",
-                "location", ScimSchemas.BASE_PATH + "/Schemas/" + ScimSchemas.GROUP));
+                "location", baseUri + "/Schemas/" + ScimSchemas.GROUP));
         return document;
     }
 

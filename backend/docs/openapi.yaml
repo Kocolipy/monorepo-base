@@ -884,10 +884,10 @@ paths:
           content:
             application/scim+json:
               schema:
-                type: object
+                $ref: "#/components/schemas/ScimAnyResource"
             application/json:
               schema:
-                type: object
+                $ref: "#/components/schemas/ScimAnyResource"
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "404":
@@ -940,10 +940,10 @@ paths:
           content:
             application/scim+json:
               schema:
-                type: object
+                $ref: "#/components/schemas/ScimAnyResource"
             application/json:
               schema:
-                type: object
+                $ref: "#/components/schemas/ScimAnyResource"
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "404":
@@ -2938,6 +2938,15 @@ components:
           format: date-time
         location:
           type: string
+          format: uri
+          pattern: "^https?://"
+          description: |
+            The absolute URI the resource is served at (RFC 7643 §3.1), built from the
+            scheme, host and port the request arrived on. Absolute on every SCIM resource —
+            Users, Groups and the discovery documents (`ServiceProviderConfig`, each
+            `ResourceType`, each `Schema`) alike, in list and by-id responses. The
+            pattern makes the contract check refuse a relative value.
+          example: https://idp.example.com/scim/v2/Users/2819c223-7f76-453a-919d-413861904646
         version:
           type: string
           description: |
@@ -3204,7 +3213,17 @@ components:
         Resources:
           type: array
           items:
-            type: object
+            $ref: "#/components/schemas/ScimAnyResource"
+    ScimAnyResource:
+      type: object
+      description: |
+        A SCIM resource whose own schema varies by endpoint — a listed User, Group,
+        ResourceType or Schema, or a discovery document read by id. Typed only by its
+        server-owned `meta`, which is enough for the contract check to hold every
+        `meta.location` to the same absolute form, in list and by-id responses alike.
+      properties:
+        meta:
+          $ref: "#/components/schemas/ScimMeta"
     ScimSearchRequest:
       type: object
       required: [schemas]
@@ -3290,7 +3309,7 @@ components:
           items:
             type: object
         meta:
-          type: object
+          $ref: "#/components/schemas/ScimMeta"
     ScimSupportedFlag:
       type: object
       properties:

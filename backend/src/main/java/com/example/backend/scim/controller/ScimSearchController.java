@@ -12,7 +12,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -46,10 +45,7 @@ class ScimSearchController {
         ScimQueryRequest request = ScimQueryRequest.fromSearchRequest(TYPES, body);
         ScimAttributeProjection.Search projection = ScimAttributeProjection.forSearch(
                 request.attributes(), request.excludedAttributes());
-        String baseUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path(ScimSchemas.BASE_PATH)
-                .build()
-                .toUriString();
+        String baseUri = ScimBaseUri.current();
         ScimSearchListing listing = search.search(connector, request.query(), baseUri);
         return ResponseEntity.ok(ScimSearchRenderer.renderList(listing, baseUri, projection));
     }
