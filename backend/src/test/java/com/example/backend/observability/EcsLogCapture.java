@@ -26,7 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
  * production encoder into a buffer this class owns makes "no forbidden value
  * appears in a log line" a statement about the bytes the service produces.
  */
-final class EcsLogCapture implements AutoCloseable {
+public final class EcsLogCapture implements AutoCloseable {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -53,7 +53,7 @@ final class EcsLogCapture implements AutoCloseable {
      * initialization puts it in the same place; doing it here as well makes the
      * capture independent of whether that has already run.
      */
-    static EcsLogCapture attach(Environment environment) {
+    public static EcsLogCapture attach(Environment environment) {
         LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
         loggerContext.putObject(Environment.class.getName(), environment);
 
@@ -76,7 +76,7 @@ final class EcsLogCapture implements AutoCloseable {
     }
 
     /** Everything captured so far, one line per record, exactly as encoded. */
-    String lines() {
+    public String lines() {
         return encoded.toString(StandardCharsets.UTF_8);
     }
 
@@ -85,7 +85,7 @@ final class EcsLogCapture implements AutoCloseable {
      * here rather than being skipped: "the output is structured" is one of the
      * things being asserted.
      */
-    List<JsonNode> records() {
+    public List<JsonNode> records() {
         return lines().lines()
                 .filter(line -> !line.isBlank())
                 .map(EcsLogCapture::parse)
@@ -93,7 +93,7 @@ final class EcsLogCapture implements AutoCloseable {
     }
 
     /** Discards what was captured, so one test's records cannot bleed into the next. */
-    void reset() {
+    public void reset() {
         encoded.reset();
     }
 
