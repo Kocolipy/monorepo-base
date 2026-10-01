@@ -28,8 +28,9 @@ class OpenApiContractTests {
             {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"id":"%s",
              "userName":"ada","active":true,
              "meta":{"resourceType":"User","created":"2026-01-01T00:00:00Z",
-                     "lastModified":"2026-01-01T00:00:00Z","location":"x","version":"\\"1\\""}}"""
-            .formatted(USER_ID);
+                     "lastModified":"2026-01-01T00:00:00Z",
+                     "location":"http://localhost/scim/v2/Users/%s","version":"\\"1\\""}}"""
+            .formatted(USER_ID, USER_ID);
 
     private static final String ERROR_BODY = """
             {"schemas":["urn:ietf:params:scim:api:messages:2.0:Error"],"status":"404",
@@ -63,6 +64,32 @@ class OpenApiContractTests {
         assertThat(CONTRACT.check("POST", "/scim/v2/Users",
                 response(201, "application/scim+json", USER_BODY, "ETag")).violations())
                 .singleElement().asString().contains("documented header Location is absent");
+    }
+
+    /**
+     * RFC 7643 §3.1: a relative {@code meta.location} is not the URI of the resource. Asserted on
+     * the path the violation names rather than the checker's wording, so rephrasing the message
+     * does not break the test.
+     */
+    @Test
+    void a_relative_meta_location_is_reported() {
+        String relative = USER_BODY.replace("http://localhost/scim/v2/Users/", "/scim/v2/Users/");
+        assertThat(CONTRACT.check("GET", "/scim/v2/Users/" + USER_ID,
+                response(200, "application/scim+json", relative, "Location", "ETag")).violations())
+                .singleElement().asString().contains("$.meta.location: ");
+    }
+
+    /** The same holds inside a list: a listed resource's location is checked, not just a by-id one. */
+    @Test
+    void a_relative_meta_location_in_a_list_is_reported() {
+        String list = """
+                {"schemas":["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+                 "totalResults":1,"startIndex":1,"itemsPerPage":1,
+                 "Resources":[{"id":"User",
+                   "meta":{"resourceType":"ResourceType","location":"/scim/v2/ResourceTypes/User"}}]}""";
+        assertThat(CONTRACT.check("GET", "/scim/v2/ResourceTypes",
+                response(200, "application/scim+json", list)).violations())
+                .singleElement().asString().contains("$.Resources[0].meta.location: ");
     }
 
     @Test

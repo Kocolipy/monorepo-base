@@ -169,6 +169,34 @@ final class ScimFixtures {
 
         add(all, "discovery: needs no credential", t ->
                 t.expect(t.as(null, HttpMethod.GET, BASE + "/ServiceProviderConfig"), 200));
+
+        // RFC 7643 §3.1: meta.location is the URI of the resource — absolute, and the URL it is
+        // served at, on the list responses as well as the by-id ones.
+        for (String path : List.of(
+                BASE + "/ServiceProviderConfig",
+                BASE + "/ResourceTypes/User",
+                BASE + "/ResourceTypes/Group",
+                BASE + "/Schemas/" + USER_SCHEMA,
+                BASE + "/Schemas/" + GROUP_SCHEMA)) {
+            add(all, "discovery: " + path.substring(BASE.length())
+                    + " is located at its absolute URL", t -> {
+                        MvcResult result = t.expect(t.as(null, HttpMethod.GET, path), 200);
+                        assertThat(json(result).at("/meta/location").asText())
+                                .startsWith("http")
+                                .isEqualTo(result.getRequest().getRequestURL().toString());
+                    });
+        }
+        for (String path : List.of(BASE + "/ResourceTypes", BASE + "/Schemas")) {
+            add(all, "discovery: every resource listed by " + path.substring(BASE.length())
+                    + " is located at its absolute by-id URL", t -> {
+                        MvcResult result = t.expect(t.as(null, HttpMethod.GET, path), 200);
+                        String collection = result.getRequest().getRequestURL().toString();
+                        for (JsonNode resource : json(result).get("Resources")) {
+                            assertThat(resource.at("/meta/location").asText())
+                                    .isEqualTo(collection + "/" + resource.get("id").asText());
+                        }
+                    });
+        }
     }
 
     private static Map<String, JsonNode> byName(JsonNode attributes) {

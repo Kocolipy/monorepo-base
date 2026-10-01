@@ -49,7 +49,7 @@ class ScimDiscoveryController {
     ResponseEntity<Map<String, Object>> serviceProviderConfig(
             @RequestParam(required = false) String filter) {
         rejectFilter(filter);
-        return ResponseEntity.ok(ScimDiscovery.serviceProviderConfig());
+        return ResponseEntity.ok(ScimDiscovery.serviceProviderConfig(ScimBaseUri.current()));
     }
 
     @GetMapping(
@@ -58,7 +58,8 @@ class ScimDiscoveryController {
     ResponseEntity<Map<String, Object>> resourceTypes(
             @RequestParam(required = false) String filter) {
         rejectFilter(filter);
-        return ResponseEntity.ok(ScimDiscovery.listResponse(ScimDiscovery.resourceTypes()));
+        return ResponseEntity.ok(
+                ScimDiscovery.listResponse(ScimDiscovery.resourceTypes(ScimBaseUri.current())));
     }
 
     @GetMapping(
@@ -67,7 +68,7 @@ class ScimDiscoveryController {
     ResponseEntity<Map<String, Object>> resourceType(
             @PathVariable String id, @RequestParam(required = false) String filter) {
         rejectFilter(filter);
-        return ScimDiscovery.resourceTypes().stream()
+        return ScimDiscovery.resourceTypes(ScimBaseUri.current()).stream()
                 .filter(resourceType -> id.equals(resourceType.get("id")))
                 .findFirst()
                 .map(ResponseEntity::ok)
@@ -81,7 +82,8 @@ class ScimDiscoveryController {
     ResponseEntity<Map<String, Object>> schemas(
             @RequestParam(required = false) String filter) {
         rejectFilter(filter);
-        return ResponseEntity.ok(ScimDiscovery.listResponse(ScimDiscovery.schemas()));
+        return ResponseEntity.ok(
+                ScimDiscovery.listResponse(ScimDiscovery.schemas(ScimBaseUri.current())));
     }
 
     /**
@@ -97,7 +99,7 @@ class ScimDiscoveryController {
     ResponseEntity<Map<String, Object>> schema(
             @PathVariable String schemaUri, @RequestParam(required = false) String filter) {
         rejectFilter(filter);
-        return ScimDiscovery.schemas().stream()
+        return ScimDiscovery.schemas(ScimBaseUri.current()).stream()
                 .filter(schema -> schemaUri.equals(schema.get("id")))
                 .findFirst()
                 .map(ResponseEntity::ok)

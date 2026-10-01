@@ -18,9 +18,11 @@ import org.junit.jupiter.api.Test;
  */
 class ScimDiscoveryTests {
 
+    private static final String BASE_URI = ScimTestUris.BASE_URI;
+
     @Test
     void the_user_resource_type_is_exactly_this_document() {
-        assertThat(ScimDiscovery.userResourceType())
+        assertThat(ScimDiscovery.userResourceType(BASE_URI))
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
                         "schemas", List.of(ScimSchemas.RESOURCE_TYPE),
                         "id", "User",
@@ -30,12 +32,12 @@ class ScimDiscoveryTests {
                         "schema", ScimSchemas.USER,
                         "meta", Map.of(
                                 "resourceType", "ResourceType",
-                                "location", ScimSchemas.BASE_PATH + "/ResourceTypes/User")));
+                                "location", BASE_URI + "/ResourceTypes/User")));
     }
 
     @Test
     void the_user_resource_type_declares_no_schema_extensions() {
-        assertThat(ScimDiscovery.userResourceType()).doesNotContainKey("schemaExtensions");
+        assertThat(ScimDiscovery.userResourceType(BASE_URI)).doesNotContainKey("schemaExtensions");
     }
 
     @Test
@@ -72,7 +74,7 @@ class ScimDiscoveryTests {
 
     @Test
     void the_group_resource_type_is_exactly_this_document() {
-        assertThat(ScimDiscovery.groupResourceType())
+        assertThat(ScimDiscovery.groupResourceType(BASE_URI))
                 .containsExactlyInAnyOrderEntriesOf(Map.of(
                         "schemas", List.of(ScimSchemas.RESOURCE_TYPE),
                         "id", "Group",
@@ -82,12 +84,12 @@ class ScimDiscoveryTests {
                         "schema", ScimSchemas.GROUP,
                         "meta", Map.of(
                                 "resourceType", "ResourceType",
-                                "location", ScimSchemas.BASE_PATH + "/ResourceTypes/Group")));
+                                "location", BASE_URI + "/ResourceTypes/Group")));
     }
 
     @Test
     void the_group_resource_type_declares_no_schema_extensions() {
-        assertThat(ScimDiscovery.groupResourceType()).doesNotContainKey("schemaExtensions");
+        assertThat(ScimDiscovery.groupResourceType(BASE_URI)).doesNotContainKey("schemaExtensions");
     }
 
     /**
@@ -98,14 +100,29 @@ class ScimDiscoveryTests {
      */
     @Test
     void the_resource_types_collection_is_the_user_and_group_types() {
-        assertThat(ScimDiscovery.resourceTypes())
-                .containsExactly(ScimDiscovery.userResourceType(), ScimDiscovery.groupResourceType());
+        assertThat(ScimDiscovery.resourceTypes(BASE_URI))
+                .containsExactly(
+                        ScimDiscovery.userResourceType(BASE_URI),
+                        ScimDiscovery.groupResourceType(BASE_URI));
     }
 
     @Test
     void the_schemas_collection_is_the_core_user_and_group_schemas() {
-        assertThat(ScimDiscovery.schemas())
+        assertThat(ScimDiscovery.schemas(BASE_URI))
                 .containsExactly(
-                        ScimUserAttributes.schemaDocument(), ScimGroupAttributes.schemaDocument());
+                        ScimUserAttributes.schemaDocument(BASE_URI),
+                        ScimGroupAttributes.schemaDocument(BASE_URI));
+    }
+
+    /**
+     * RFC 7643 §3.1: {@code location} is the URI of the resource, so it is absolute and built
+     * from the base the caller passes — the request's — rather than from the bare path.
+     */
+    @Test
+    void the_capability_document_is_located_absolutely_under_the_given_base() {
+        assertThat(ScimDiscovery.serviceProviderConfig(BASE_URI).get("meta"))
+                .isEqualTo(Map.of(
+                        "resourceType", "ServiceProviderConfig",
+                        "location", BASE_URI + "/ServiceProviderConfig"));
     }
 }

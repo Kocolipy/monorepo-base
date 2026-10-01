@@ -27,6 +27,8 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class ScimUserAttributesTests {
 
+    private static final String BASE_URI = ScimTestUris.BASE_URI;
+
     @Test
     void the_schema_document_advertises_exactly_the_declared_attributes() {
         assertThat(advertisedNames()).containsExactlyInAnyOrderElementsOf(
@@ -53,7 +55,7 @@ class ScimUserAttributesTests {
 
         assertThat(accepted).containsAll(Set.of("schemas", "externalId"));
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
-                withCommonWritables(advertisedWritableNames(ScimUserAttributes.schemaDocument())));
+                withCommonWritables(advertisedWritableNames(ScimUserAttributes.schemaDocument(BASE_URI))));
     }
 
     /**
@@ -145,13 +147,13 @@ class ScimUserAttributesTests {
 
     @Test
     void the_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimUserAttributes.schemaDocument();
+        Map<String, Object> document = ScimUserAttributes.schemaDocument(BASE_URI);
 
         assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
         assertThat(document).containsEntry("id", ScimSchemas.USER);
         assertThat(document.get("meta")).isEqualTo(Map.of(
                 "resourceType", "Schema",
-                "location", "/scim/v2/Schemas/" + ScimSchemas.USER));
+                "location", BASE_URI + "/Schemas/" + ScimSchemas.USER));
     }
 
     /**
@@ -204,16 +206,16 @@ class ScimUserAttributesTests {
                         readOnly("type", "string")))));
         expected.put("meta", Map.of(
                 "resourceType", "Schema",
-                "location", "/scim/v2/Schemas/" + ScimSchemas.USER));
+                "location", BASE_URI + "/Schemas/" + ScimSchemas.USER));
 
-        assertThat(ScimUserAttributes.schemaDocument()).isEqualTo(expected);
+        assertThat(ScimUserAttributes.schemaDocument(BASE_URI)).isEqualTo(expected);
     }
 
     // --- the Group vocabulary, held to the same standard ---------------------------------
 
     @Test
     void the_group_schema_document_advertises_exactly_the_declared_attributes() {
-        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument()))
+        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)))
                 .containsExactlyInAnyOrderElementsOf(ScimGroupAttributes.SCHEMA_ATTRIBUTES.stream()
                         .map(ScimUserAttributes.Attribute::name)
                         .collect(Collectors.toSet()));
@@ -225,12 +227,12 @@ class ScimUserAttributesTests {
 
         assertThat(accepted).containsAll(Set.of("schemas", "externalId"));
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
-                withCommonWritables(advertisedWritableNames(ScimGroupAttributes.schemaDocument())));
+                withCommonWritables(advertisedWritableNames(ScimGroupAttributes.schemaDocument(BASE_URI))));
     }
 
     @Test
     void a_common_group_attribute_is_not_declared_by_the_group_schema() {
-        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument()))
+        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)))
                 .doesNotContainAnyElementsOf(Set.of("id", "externalId", "meta", "schemas"));
         assertThat(ScimGroupAttributes.projectableNames())
                 .containsAll(ScimUserAttributes.COMMON_ATTRIBUTES);
@@ -240,7 +242,7 @@ class ScimUserAttributesTests {
     void every_declared_and_common_group_attribute_is_projectable() {
         assertThat(ScimGroupAttributes.projectableNames())
                 .containsExactlyInAnyOrderElementsOf(union(
-                        advertisedNames(ScimGroupAttributes.schemaDocument()),
+                        advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)),
                         ScimUserAttributes.COMMON_ATTRIBUTES));
     }
 
@@ -251,7 +253,7 @@ class ScimUserAttributesTests {
     @Test
     void a_group_display_name_is_required_case_insensitive_and_server_unique() {
         Map<String, Object> displayName =
-                advertised(ScimGroupAttributes.schemaDocument(), "displayName");
+                advertised(ScimGroupAttributes.schemaDocument(BASE_URI), "displayName");
 
         assertThat(displayName).containsEntry("required", true);
         assertThat(displayName).containsEntry("caseExact", false);
@@ -266,7 +268,7 @@ class ScimUserAttributesTests {
      */
     @Test
     void group_membership_is_written_by_value_alone() {
-        Map<String, Object> members = advertised(ScimGroupAttributes.schemaDocument(), "members");
+        Map<String, Object> members = advertised(ScimGroupAttributes.schemaDocument(BASE_URI), "members");
 
         assertThat(members).containsEntry("mutability", "readWrite");
         assertThat(members).containsEntry("multiValued", true);
@@ -295,20 +297,20 @@ class ScimUserAttributesTests {
                         readOnly("type", "string")))));
         expected.put("meta", Map.of(
                 "resourceType", "Schema",
-                "location", "/scim/v2/Schemas/" + ScimSchemas.GROUP));
+                "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
 
-        assertThat(ScimGroupAttributes.schemaDocument()).isEqualTo(expected);
+        assertThat(ScimGroupAttributes.schemaDocument(BASE_URI)).isEqualTo(expected);
     }
 
     @Test
     void the_group_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimGroupAttributes.schemaDocument();
+        Map<String, Object> document = ScimGroupAttributes.schemaDocument(BASE_URI);
 
         assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
         assertThat(document).containsEntry("id", ScimSchemas.GROUP);
         assertThat(document.get("meta")).isEqualTo(Map.of(
                 "resourceType", "Schema",
-                "location", "/scim/v2/Schemas/" + ScimSchemas.GROUP));
+                "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
     }
 
     private static final String READ_WRITE = "readWrite";
@@ -353,7 +355,7 @@ class ScimUserAttributesTests {
     }
 
     private static Set<String> advertisedNames() {
-        return advertisedNames(ScimUserAttributes.schemaDocument());
+        return advertisedNames(ScimUserAttributes.schemaDocument(BASE_URI));
     }
 
     private static Set<String> advertisedNames(Map<String, Object> document) {
@@ -380,7 +382,7 @@ class ScimUserAttributesTests {
     }
 
     private static Map<String, Object> advertised(String name) {
-        return advertised(ScimUserAttributes.schemaDocument(), name);
+        return advertised(ScimUserAttributes.schemaDocument(BASE_URI), name);
     }
 
     private static Map<String, Object> advertised(Map<String, Object> document, String name) {
