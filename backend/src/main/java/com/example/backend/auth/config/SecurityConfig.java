@@ -68,6 +68,18 @@ public class SecurityConfig {
             "payment=()",
             "usb=()");
 
+    /** The logout route, as the chain matches it for the sessionless refusal below. */
+    private static final String LOGOUT_PATH = "/api/auth/logout";
+
+    /**
+     * What a logout asks the browser to clear. {@code AuthController} sends the same value on the
+     * logout it handles; this chain sends it on the logout it refuses for want of a session, and
+     * each side's tests pin the exact value, so the two cannot drift apart unnoticed.
+     */
+    private static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
+
+    private static final String CLEAR_SITE_DATA_ON_LOGOUT = "\"cache\",\"cookies\",\"storage\"";
+
     /**
      * Argon2id as the only encoder, at the parameters this ticket specifies
      * ({@code m=19456} KiB, {@code t=2}, {@code p=1}) — none of Spring
@@ -178,8 +190,16 @@ public class SecurityConfig {
             SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository,
             AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter) throws Exception {
-        AuthenticationEntryPoint unauthorized = (request, response, exception) ->
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
+            // A logout that arrives with no live session — expired, revoked, or never there — is
+            // answered here rather than by AuthController, and is still a browser being signed
+            // out: it gets the same Clear-Site-Data the handler sends, so what a dead session left
+            // behind is cleared either way.
+            if (isLogout(request)) {
+                response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
+            }
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
+        };
         return http
                 // spa() installs the request handler that reads the raw token
                 // value back from the X-XSRF-TOKEN header while still masking
@@ -239,6 +259,12 @@ public class SecurityConfig {
                         // it too. Every active User without the flag holds ROLE_USER.
                         .anyRequest().hasRole("USER"))
                 .build();
+    }
+
+    /** The logout operation, which the chain refuses with 401 when no session is live. */
+    private static boolean isLogout(HttpServletRequest request) {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        return HttpMethod.DELETE.matches(request.getMethod()) && LOGOUT_PATH.equals(path);
     }
 
     /**

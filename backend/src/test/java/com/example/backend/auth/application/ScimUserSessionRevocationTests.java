@@ -83,8 +83,16 @@ class ScimUserSessionRevocationTests {
     @Test
     void a_failed_revocation_is_recorded_as_a_failure_and_propagates() {
         IllegalStateException storeDown = new IllegalStateException("session store unavailable");
-        AccountSessions broken = accountId -> {
-            throw storeDown;
+        AccountSessions broken = new AccountSessions() {
+            @Override
+            public int revokeAll(java.util.UUID accountId) {
+                throw storeDown;
+            }
+
+            @Override
+            public int revokeAllExcept(java.util.UUID accountId, String retainedSessionId) {
+                throw storeDown;
+            }
         };
         ScimUserSessionRevocation failing = new ScimUserSessionRevocation(broken, commit, audit);
 

@@ -155,9 +155,15 @@ class LoginLockoutTests {
     @Test
     void aLockedIdentityIsRefusedEvenWithTheCorrectPassword() {
         lockTheIdentity();
+        audit.reset();
 
         assertThatThrownBy(() -> login.logIn("ada", CORRECT_PASSWORD))
                 .isInstanceOf(LockedException.class);
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .as("the refusal is audited as the lockout, not as a generic failure")
+                .containsExactly(com.example.backend.audit.domain.AuditRefusalReason
+                        .ACCOUNT_LOCKED.name());
     }
 
     @Test

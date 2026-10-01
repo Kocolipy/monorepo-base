@@ -96,6 +96,93 @@ class LoginAttemptServiceTests {
         attempts.recordSuccess("nobody");
 
         assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
+        assertThat(transaction.pending()).as("nothing to revoke for nobody").isZero();
+    }
+
+    // ---- one concurrent session per User ----------------------------------------------------
+
+    /**
+     * A blank name reaches here only if the web adapter's validation was bypassed; it is nobody,
+     * exactly as an unknown name is — a subject-less failure, and a success that touches no one.
+     */
+    @Test
+    void aBlankUsernameIsTreatedAsNobody() {
+        attempts.recordFailure("   ", AuditRefusalReason.BAD_CREDENTIALS);
+        attempts.recordSuccess("   ");
+        attempts.recordFailure(null, AuditRefusalReason.BAD_CREDENTIALS);
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE))
+                .extracting(Recorded::subjectId)
+                .containsExactly(null, null);
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS)).isEmpty();
+        assertThat(transaction.pending()).isZero();
+    }
+
+    /**
+     * An accepted login ends every other session the User holds and keeps the one it is completed
+     * in, and nobody else's session moves.
+     */
+    @Test
+    void anAcceptedLoginEndsTheUsersOtherSessionsAndKeepsTheRetainedOne() {
+        users.given(ScimIdentities.user("bob"));
+        java.util.UUID ada = users.require("ada").id();
+        java.util.UUID bob = users.require("bob").id();
+        sessions.open(ada, "ada-earlier");
+        sessions.open(ada, "ada-current");
+        sessions.open(bob, "bob-only");
+
+        attempts.recordSuccess("ada", "ada-current");
+        transaction.commit();
+
+        assertThat(sessions.sessionsOf(ada)).containsExactly("ada-current");
+        assertThat(sessions.sessionsOf(bob)).containsExactly("bob-only");
+        assertThat(sessions.loginRevocations()).containsExactly(ada);
+    }
+
+    /** A caller holding no session keeps none, so every earlier session of the User ends. */
+    @Test
+    void anAcceptedLoginWithoutASessionEndsEverySessionOfTheUser() {
+        java.util.UUID ada = users.require("ada").id();
+        sessions.open(ada, "ada-earlier");
+
+        attempts.recordSuccess("ada");
+        transaction.commit();
+
+        assertThat(sessions.sessionsOf(ada)).isEmpty();
+    }
+
+    /**
+     * The revocation waits for the commit: before it nothing has ended, and a login whose
+     * transaction rolls back has signed its owner out nowhere.
+     */
+    @Test
+    void theOtherSessionsEndOnlyOnceTheLoginCommits() {
+        java.util.UUID ada = users.require("ada").id();
+        sessions.open(ada, "ada-earlier");
+
+        attempts.recordSuccess("ada", "ada-current");
+        assertThat(sessions.sessionsOf(ada)).as("before the commit").containsExactly("ada-earlier");
+
+        transaction.rollback();
+        assertThat(sessions.sessionsOf(ada)).as("after a rollback").containsExactly("ada-earlier");
+        assertThat(sessions.loginRevocations()).isEmpty();
+    }
+
+    /** A login confined by a required change follows the same rule as any other. */
+    @Test
+    void aConfinedLoginAlsoEndsTheUsersOtherSessions() {
+        Instant earlier = NOW.minus(Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 0, null, earlier, earlier)));
+        java.util.UUID bob = users.require("bob").id();
+        sessions.open(bob, "bob-earlier");
+        sessions.open(bob, "bob-current");
+
+        attempts.recordSuccess("bob", "bob-current");
+        transaction.commit();
+
+        assertThat(sessions.sessionsOf(bob)).containsExactly("bob-current");
     }
 
     /**
@@ -408,6 +495,79 @@ class LoginAttemptServiceTests {
         attempts.recordSuccess("nobody");
 
         assertThat(audit.recorded()).isEmpty();
+    }
+
+    // ---- a wrong current password on the self-service change -------------------------------
+
+    /**
+     * A wrong current password counts toward the same run as a refused login, is audited as a
+     * refused change rather than a login failure, and locks — revoking every session after the
+     * commit — once the threshold is reached.
+     */
+    @Test
+    void aWrongCurrentPasswordCountsTowardTheRunAndLocksAtTheThreshold() {
+        java.util.UUID ada = users.require("ada").id();
+        sessions.open(ada, "ada-session");
+
+        attempts.recordPasswordChangeFailure(ada);
+        attempts.recordPasswordChangeFailure(ada);
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
+        assertThat(users.require("ada").login().isLocked()).isFalse();
+        assertThat(transaction.pending()).as("no lock, so nothing to revoke").isZero();
+
+        attempts.recordPasswordChangeFailure(ada);
+
+        assertThat(users.require("ada").login().isLocked()).isTrue();
+        assertThat(users.require("ada").login().lockedAt()).isEqualTo(NOW);
+        assertThat(audit.of(AuditOperation.LOCKOUT_SET))
+                .extracting(Recorded::subjectId)
+                .containsExactly(ada);
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).isEmpty();
+        assertThat(audit.recorded())
+                .filteredOn(recorded -> recorded.operation() != AuditOperation.LOCKOUT_SET)
+                .hasSize(3)
+                .allSatisfy(recorded -> assertThat(recorded.subjectId()).isEqualTo(ada));
+        assertThat(sessions.sessionsOf(ada)).as("before the commit").containsExactly("ada-session");
+        transaction.commit();
+        assertThat(sessions.sessionsOf(ada)).isEmpty();
+        assertThat(sessions.revocations()).containsExactly(ada);
+    }
+
+    /** Past the threshold the lock is not re-imposed, so nothing is revoked or audited twice. */
+    @Test
+    void aWrongCurrentPasswordOnAnAlreadyLockedIdentityDoesNotReimposeTheLock() {
+        java.util.UUID ada = users.require("ada").id();
+        failTimes(3);
+        transaction.commit();
+        audit.reset();
+
+        attempts.recordPasswordChangeFailure(ada);
+
+        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).isEmpty();
+        assertThat(transaction.pending()).isZero();
+    }
+
+    /** The Bootstrap Admin's run is counted on this path too, and never locks. */
+    @Test
+    void theBootstrapAdminsWrongCurrentPasswordsAreCountedButNeverLock() {
+        ScimUser admin = givenBootstrapAdmin("recovery");
+
+        for (int attempt = 0; attempt < 5; attempt++) {
+            attempts.recordPasswordChangeFailure(admin.id());
+        }
+
+        assertThat(users.require("recovery").login().failedLoginAttempts()).isEqualTo(5);
+        assertThat(users.require("recovery").login().isLocked()).isFalse();
+        assertThat(transaction.pending()).isZero();
+    }
+
+    /** An id naming nobody is ignored: nothing counted, nothing audited. */
+    @Test
+    void aWrongCurrentPasswordForAnUnknownIdRecordsNothing() {
+        attempts.recordPasswordChangeFailure(java.util.UUID.randomUUID());
+
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(users.require("ada").login().failedLoginAttempts()).isZero();
     }
 
     /**

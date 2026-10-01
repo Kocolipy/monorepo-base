@@ -158,6 +158,37 @@ class SecurityConfigTests {
     }
 
     /**
+     * Whether a path is reserved for the server is decided inside the context path: deployed
+     * under {@code /app}, {@code /app/api/count} is still an API path and stays behind
+     * authentication, while {@code /app/} is still the frontend and stays public. Judged on the
+     * raw URI instead, the first would read as a frontend route and be let through. An API path
+     * that no earlier rule names is used on purpose, so the frontend allowance is what decides
+     * it rather than a matcher ahead of it.
+     */
+    @Test
+    void theFrontendAllowanceIsJudgedInsideTheContextPath() throws Exception {
+        mvc.perform(get("/app/api/count").contextPath("/app"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/app/").contextPath("/app"))
+                .andExpect(status().isOk());
+    }
+
+    /**
+     * Only a GET of a frontend path skips authentication. An unsafe request to the same path —
+     * past CSRF, so the chain's authorization decision is what answers — is refused with a 401
+     * rather than reaching a handler.
+     */
+    @Test
+    void aFrontendPathIsPublicForGetOnly() throws Exception {
+        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
+
+        mvc.perform(post("/")
+                        .cookie(new Cookie(CSRF_COOKIE, token.getToken()))
+                        .header(CSRF_HEADER, token.getToken()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
      * Account administration is one namespace, {@code /api/admin/**}, and these
      * three cover the whole rule: refused for a non-admin, allowed for an admin,
      * and — because the chain answers before any handler — unauthorized rather

@@ -101,6 +101,11 @@ paths:
         Authenticates database-backed credentials, stores the authenticated user
         in the HTTP session, and returns the account role. A successful login also
         ends the account's run of failed attempts, resetting its counter to zero.
+
+        One concurrent session per User: a successful login — a login confined
+        by a required password change included — ends every other session the
+        User holds, once the login commits. The session the request arrived
+        with, if any, is the one kept (under a rotated id).
       operationId: login
       security: []
       parameters:
@@ -169,6 +174,14 @@ paths:
         "204":
           description: Logout completed.
           headers:
+            Clear-Site-Data:
+              description: |
+                Always `"cache","cookies","storage"`, with or without a live
+                session, so the browser drops what the signed-out session left
+                behind.
+              schema:
+                type: string
+                const: '"cache","cookies","storage"'
             Set-Cookie:
               description: |
                 An expired session cookie, so the browser stops sending an id that
@@ -177,7 +190,15 @@ paths:
               schema:
                 type: string
         "401":
-          $ref: "#/components/responses/Unauthorized"
+          description: |
+            No live session — it expired, was revoked, or never existed. Still a
+            browser being signed out, so it carries the same `Clear-Site-Data`.
+          headers:
+            Clear-Site-Data:
+              description: Always `"cache","cookies","storage"`.
+              schema:
+                type: string
+                const: '"cache","cookies","storage"'
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/auth/change-password:
@@ -2361,16 +2382,27 @@ components:
     LoginRequest:
       type: object
       required: [username, password]
+      description: |
+        Both fields are bounded before any credential is checked. A value over
+        its `maxLength` is the same bodiless `400` as a blank or missing one: it
+        is not counted toward the failure run, not audited, and cannot be told
+        apart from any other malformed body.
       properties:
         username:
           type: string
           minLength: 1
+          maxLength: 256
           pattern: ".*\\S.*"
+          description: At most 256 characters, the stored `userName` bound.
         password:
           type: string
           minLength: 1
+          maxLength: 256
           pattern: ".*\\S.*"
           format: password
+          description: |
+            At most 256 characters of the normalized form, the password policy's
+            own maximum, so no password the policy accepted is refused here.
     UserResponse:
       type: object
       required: [username, role, passwordChangeRequired]
@@ -2443,15 +2475,22 @@ components:
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]
+      description: |
+        Both fields are bounded like Login's password: a value over 256
+        characters of its normalized form is a bodiless `400` before the
+        current password is checked, so it is not counted toward the lockout
+        and not audited.
       properties:
         currentPassword:
           type: string
           minLength: 1
+          maxLength: 256
           pattern: ".*\\S.*"
           format: password
         newPassword:
           type: string
           minLength: 1
+          maxLength: 256
           pattern: ".*\\S.*"
           format: password
     PasswordRuleViolation:

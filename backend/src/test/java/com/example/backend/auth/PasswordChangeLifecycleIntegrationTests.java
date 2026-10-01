@@ -158,9 +158,14 @@ class PasswordChangeLifecycleIntegrationTests {
         addToAdminGroup(userId);
         long versionBefore = scimVersion(userId);
 
-        // Two sessions, so "every session of that User" is more than the one that submits.
-        Cookie other = logIn("lifecycle-connector-admin", CONNECTOR_PASSWORD, null, true);
+        // A second login ends the first: one concurrent session per User.
+        Cookie earlier = logIn("lifecycle-connector-admin", CONNECTOR_PASSWORD, null, true);
         Cookie confined = logIn("lifecycle-connector-admin", CONNECTOR_PASSWORD, null, true);
+        assertThat(status(get("/api/auth/me"), earlier)).isEqualTo(401);
+
+        // A second live session planted straight in the store, so "every session of that User"
+        // is more than the one that submits the change.
+        String other = openSessionFor(userId);
 
         assertConfined(confined);
 
@@ -188,7 +193,7 @@ class PasswordChangeLifecycleIntegrationTests {
 
         // Every session is gone, the submitter's included.
         assertThat(status(get("/api/auth/me"), confined)).isEqualTo(401);
-        assertThat(status(get("/api/auth/me"), other)).isEqualTo(401);
+        assertThat(sessionRepository.findById(other)).isNull();
         assertThat(sessionRepository.findByPrincipalName(userId)).isEmpty();
 
         // The stored state: flag cleared, version advanced, a redacted event.
@@ -289,10 +294,9 @@ class PasswordChangeLifecycleIntegrationTests {
     void wrongCurrentPasswordsLockTheUserOutOfBothLoginAndTheChangeFlow() throws Exception {
         String userId = provision("lifecycle-guessed", CONNECTOR_PASSWORD);
         Cookie confined = logIn("lifecycle-guessed", CONNECTOR_PASSWORD, null, true);
-        Cookie spare = logIn("lifecycle-guessed", CONNECTOR_PASSWORD, null, true);
 
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
-            assertThat(changePassword(spare, "wrong-guess-" + attempt, NEW_PASSWORD)
+            assertThat(changePassword(confined, "wrong-guess-" + attempt, NEW_PASSWORD)
                     .getResponse().getStatus()).isEqualTo(401);
         }
 
@@ -474,6 +478,20 @@ class PasswordChangeLifecycleIntegrationTests {
         Cookie session = login.getResponse().getCookie(sessionCookieName);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());
+    }
+
+    /**
+     * A live session indexed by the User's stable id, saved straight to the store as a login would
+     * leave it — the one way left to hold a second session, since a second login ends the first.
+     */
+    private String openSessionFor(String userId) {
+        @SuppressWarnings("unchecked")
+        FindByIndexNameSessionRepository<Session> repository =
+                (FindByIndexNameSessionRepository<Session>) sessionRepository;
+        Session session = repository.createSession();
+        session.setAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME, userId);
+        repository.save(session);
+        return session.getId();
     }
 
     private int logInStatus(String userName, String password) throws Exception {
