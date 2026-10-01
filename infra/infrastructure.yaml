@@ -136,6 +136,22 @@ Parameters:
     NoEcho: true
     MinLength: 8
 
+  # Logging
+  AppEnvironment:
+    Description: >-
+      The deployment's name as every log record states it (service.environment)
+    Type: String
+    Default: production
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{0,31}$"
+    ConstraintDescription: lowercase letters, digits and hyphens, at most 32 characters
+
+  LogRetentionDays:
+    Description: >-
+      Days CloudWatch Logs keeps the application log group before deleting it
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+
 Mappings:
   # Amazon Linux 2023 AMI ID for ap-southeast-1 (Singapore)
   AWSRegionAMI:
@@ -396,6 +412,18 @@ Resources:
         - Key: Name
           Value: !Sub ${AWS::StackName}-EC2Role
 
+  # The application log, as the CloudWatch agent on the instance ships it from
+  # /var/log/backend/backend.json. Created here rather than by the agent so its
+  # retention is explicit and owned by the stack; CloudWatchAgentServerPolicy
+  # above already grants the agent CreateLogStream / PutLogEvents on it.
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /${AWS::StackName}/backend
+      RetentionInDays: !Ref LogRetentionDays
+
   EC2InstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
@@ -452,6 +480,13 @@ Resources:
           mkdir -p /opt/backend
           chown springboot:springboot /opt/backend
 
+          # Create the log directory. The service writes its rolling ECS JSON log
+          # here (LOG_FILE below); only springboot writes it, and the CloudWatch
+          # agent, which runs as root, reads it.
+          mkdir -p /var/log/backend
+          chown springboot:springboot /var/log/backend
+          chmod 0750 /var/log/backend
+
           # Create environment file
           cat > /opt/backend/.env << 'EOF'
           DATABASE_URL=jdbc:postgresql://${DBInstance.Endpoint.Address}:${DBInstance.Endpoint.Port}/${DBName}
@@ -467,10 +502,35 @@ Resources:
           APP_PASSWORD=${AppPassword}
           APP_SECONDARY_USERNAME=${AppSecondaryUsername}
           APP_SECONDARY_PASSWORD=${AppSecondaryPassword}
+          APP_ENVIRONMENT=${AppEnvironment}
+          LOG_FILE=/var/log/backend/backend.json
           EOF
 
           chown springboot:springboot /opt/backend/.env
           chmod 600 /opt/backend/.env
+
+          # CloudWatch agent: ship the log file into the stack's log group. The
+          # records are ECS JSON already, so the agent forwards each line as is;
+          # the service itself never sends a log over the network.
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'EOF'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/var/log/backend/backend.json",
+                      "log_group_name": "${BackendLogGroup}",
+                      "log_stream_name": "{instance_id}"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+          EOF
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 
           # Create systemd service
           cat > /etc/systemd/system/backend.service << 'EOF'

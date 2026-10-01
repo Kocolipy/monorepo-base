@@ -178,6 +178,32 @@ environments.
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
 
+### Logging
+
+| Variable                | Default  | Meaning                                                      |
+| ----------------------- | -------- | ------------------------------------------------------------ |
+| `LOG_FILE`              | (unset)  | Also write ECS JSON to this file, rolling; unset means no file |
+| `APP_ENVIRONMENT`       | `local`  | `service.environment` on every record                        |
+| `LOG_STRUCTURED_FORMAT` | `ecs`    | Console format; set empty for Boot's human-readable pattern  |
+
+Records are ECS JSON on stdout. Each one carries `service.name` (`backend`),
+`service.version` (the built project version), `service.environment`, and an
+`@timestamp` in Singapore time (`2026-10-01T16:52:11.726+08:00`). Only the log is
+in that zone: the JVM's default zone is not changed, so SCIM `meta` times and
+audit times stay UTC (`...Z`). The scheduled jobs' cron expressions are evaluated
+in the same `Asia/Singapore` zone, so a job's schedule and its records agree.
+
+Every record emitted inside a request, or inside a scheduled-job run, carries
+`trace.id` and `span.id`. The ids are minted here: tracing is on for correlation
+only, nothing is exported and an inbound `traceparent` is ignored
+(`src/main/resources/telemetry.yaml`).
+
+With `LOG_FILE` set (deployed: `/var/log/backend/backend.json`, see
+`/infra/README.md` under "View Logs") the same records are also written to that
+file, one JSON object per line, rolled daily or at 50 MB, kept 14 days, capped at
+1 GB in total. Stdout keeps working. Local development and the tests leave it
+unset and write no file. The settings live in `src/main/resources/logging.yaml`.
+
 ### SCIM release gate
 
 | Variable           | Default | Meaning                                    |
@@ -236,8 +262,10 @@ alert table are in `/infra/README.md` under "Operational telemetry".
 
 A scheduled job reports its runs through `ScheduledJobMetrics`
 (`app_job_runs_total{job,outcome}`, `app_job_last_success_seconds{job}`). The audit
-retention job is `job="audit-retention"`. The alert rules already expect the
-inactivity job as `job="inactivity"`.
+retention job is `job="audit-retention"`, the inactivity job `job="inactivity"` (which
+the alert rules select on), and the dormant-authority job
+`job="dormant-authority-revocation"`. Each run is also its own trace, so every record
+a run emits carries one `trace.id`, and is timed as `app_job_run_seconds{job}`.
 
 ### Inactivity governance
 

@@ -3,6 +3,8 @@ package com.example.backend.observability;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.TimeGauge;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -36,18 +38,34 @@ public class ScheduledJobMetrics {
 
     static final String LAST_SUCCESS = "app.job.last.success";
 
+    /**
+     * The observation around one run. Besides the trace, Boot's meter handler records it
+     * as a timer, {@code app_job_run_seconds{job,error}}: how long runs take, which the
+     * run counter alone cannot say.
+     */
+    static final String RUN = "app.job.run";
+
     private final MeterRegistry registry;
+
+    private final ObservationRegistry observations;
 
     private final Clock clock;
 
-    public ScheduledJobMetrics(MeterRegistry registry, Clock clock) {
+    public ScheduledJobMetrics(MeterRegistry registry, ObservationRegistry observations, Clock clock) {
         this.registry = registry;
+        this.observations = observations;
         this.clock = clock;
     }
 
     /**
-     * Wraps a job so each run is counted. A failure is counted and then rethrown, so the
-     * scheduler's own error handling — logging it, keeping the schedule — is unchanged.
+     * Wraps a job so each run is counted, and so each run is its own trace. A failure is
+     * counted and then rethrown, so the scheduler's own error handling — logging it,
+     * keeping the schedule — is unchanged.
+     *
+     * <p>A run happens off any request, so without an observation of its own it would
+     * have no trace, and its records no {@code trace.id} to correlate them by. Each run
+     * opens one ({@value #RUN}, tagged with {@code job}), and every record the job emits
+     * while it runs carries that run's trace id; the next run gets a different one.
      */
     public Runnable instrument(String job, Runnable task) {
         Counter succeeded = runs(job, "success");
@@ -58,16 +76,18 @@ public class ScheduledJobMetrics {
                 .description("When the job last succeeded; the scheduling time until it has")
                 .tag("job", job)
                 .register(registry);
-        return () -> {
-            try {
-                task.run();
-            } catch (RuntimeException failure) {
-                failed.increment();
-                throw failure;
-            }
-            lastSuccessMillis.set(clock.millis());
-            succeeded.increment();
-        };
+        return () -> Observation.createNotStarted(RUN, observations)
+                .lowCardinalityKeyValue("job", job)
+                .observe(() -> {
+                    try {
+                        task.run();
+                    } catch (RuntimeException failure) {
+                        failed.increment();
+                        throw failure;
+                    }
+                    lastSuccessMillis.set(clock.millis());
+                    succeeded.increment();
+                });
     }
 
     private Counter runs(String job, String outcome) {

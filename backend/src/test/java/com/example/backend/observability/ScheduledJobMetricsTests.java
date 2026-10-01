@@ -4,9 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationHandler;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -24,7 +29,26 @@ class ScheduledJobMetricsTests {
 
     private final AtomicReference<Instant> now = new AtomicReference<>(SCHEDULED);
 
-    private final ScheduledJobMetrics jobs = new ScheduledJobMetrics(registry, new Clock() {
+    /** Every observation a run opened, in the order they stopped. */
+    private final List<Observation.Context> stopped = new ArrayList<>();
+
+    private final ObservationRegistry observations = ObservationRegistry.create();
+
+    {
+        observations.observationConfig().observationHandler(new ObservationHandler<>() {
+            @Override
+            public boolean supportsContext(Observation.Context context) {
+                return true;
+            }
+
+            @Override
+            public void onStop(Observation.Context context) {
+                stopped.add(context);
+            }
+        });
+    }
+
+    private final ScheduledJobMetrics jobs = new ScheduledJobMetrics(registry, observations, new Clock() {
         @Override
         public ZoneOffset getZone() {
             return ZoneOffset.UTC;
@@ -98,6 +122,70 @@ class ScheduledJobMetricsTests {
         assertThat(registry.get("app.job.runs").tag("job", "other-job")
                 .tag("outcome", "success").counter().count()).isZero();
         assertThat(runs("success")).isEqualTo(1);
+    }
+
+    /**
+     * Both series carry a description, which is the {@code # HELP} line an operator reads in
+     * the scrape beside the alert that fired on it.
+     */
+    @Test
+    void both_series_are_described_for_the_scrape() {
+        jobs.instrument("probe", () -> { });
+
+        assertThat(registry.get("app.job.runs").tag("job", "probe").tag("outcome", "success")
+                .counter().getId().getDescription()).isNotBlank();
+        assertThat(registry.get("app.job.runs").tag("job", "probe").tag("outcome", "failure")
+                .counter().getId().getDescription()).isNotBlank();
+        assertThat(registry.get("app.job.last.success").tag("job", "probe")
+                .timeGauge().getId().getDescription()).isNotBlank();
+    }
+
+    /**
+     * A run executes inside an observation of its own — the one Boot's tracing handler
+     * turns into the run's trace — named for runs and tagged with the job, and the
+     * observation ends when the run does.
+     */
+    @Test
+    void each_run_executes_inside_its_own_observation_tagged_with_the_job() {
+        List<Observation> current = new ArrayList<>();
+        Runnable job = jobs.instrument("probe", () -> current.add(observations.getCurrentObservation()));
+
+        job.run();
+        job.run();
+
+        assertThat(current).hasSize(2).doesNotContainNull();
+        assertThat(current.get(0)).isNotSameAs(current.get(1));
+        assertThat(stopped).hasSize(2);
+        assertThat(stopped).allSatisfy(context -> {
+            assertThat(context.getName()).isEqualTo("app.job.run");
+            assertThat(context.getLowCardinalityKeyValue("job").getValue()).isEqualTo("probe");
+            assertThat(context.getError()).isNull();
+        });
+        assertThat(current).extracting(Observation::getContextView)
+                .containsExactlyElementsOf(stopped);
+        assertThat(observations.getCurrentObservation()).as("closed after the run").isNull();
+    }
+
+    /** No observation is opened by scheduling a job, only by running it. */
+    @Test
+    void scheduling_a_job_opens_no_observation() {
+        jobs.instrument("probe", () -> { });
+
+        assertThat(stopped).isEmpty();
+    }
+
+    /** A failed run's observation ends too, carrying the failure, and the failure still escapes. */
+    @Test
+    void a_failed_run_ends_its_observation_with_the_failure() {
+        IllegalStateException failure = new IllegalStateException("job failed");
+        Runnable job = jobs.instrument("probe", () -> {
+            throw failure;
+        });
+
+        assertThatThrownBy(job::run).isSameAs(failure);
+
+        assertThat(stopped).singleElement()
+                .satisfies(context -> assertThat(context.getError()).isSameAs(failure));
     }
 
     private double runs(String outcome) {

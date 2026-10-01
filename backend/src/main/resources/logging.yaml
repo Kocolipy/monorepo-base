@@ -22,3 +22,37 @@ logging:
       # on the format either way — nothing anywhere is allowed to log the values
       # above, whichever layout is in force.
       console: ${LOG_STRUCTURED_FORMAT:ecs}
+      # The log file, when there is one, is always ECS: it exists to be read by a
+      # forwarding agent, never by a person, so it has no human-readable mode.
+      file: ecs
+    ecs:
+      # The service fields every record carries (`service.*`). `name` is stated
+      # rather than inherited from `spring.application.name`, so renaming the
+      # application cannot silently rename the service a log search selects on.
+      # `version` is the build's: this one document is resource-filtered
+      # (`pom.xml`), so `@project.version@` is replaced with the version of the
+      # artefact being built. `environment` is the deployment's to say.
+      service:
+        name: backend
+        version: "@project.version@"
+        environment: ${APP_ENVIRONMENT:local}
+    json:
+      # Renders `@timestamp` in Singapore time (+08:00), as the logging standard
+      # requires, without moving the JVM's default zone. See the class, and the
+      # 2026-10-01 (#66) addendum to ADR 0003.
+      customizer: com.example.backend.observability.EcsTimestampCustomizer
+  file:
+    # A durable local copy for a forwarding agent (the deployment's CloudWatch
+    # agent), alongside stdout rather than instead of it. Unset — the default,
+    # and what local development and the tests run with — means no file at all.
+    # The service never ships a log over the network itself.
+    name: ${LOG_FILE:}
+  logback:
+    rollingpolicy:
+      # Size AND time: Boot's default file-name pattern
+      # (`${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz`) rolls the file daily or at 50 MB,
+      # whichever comes first; rolled files are kept 14 days, and the whole set
+      # never exceeds 1 GB, so a burst cannot fill the disk the service runs on.
+      max-file-size: 50MB
+      max-history: 14
+      total-size-cap: 1GB

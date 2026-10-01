@@ -65,12 +65,19 @@ class LogEventTests {
         assertThat(Action.PASSWORD_CHANGE_ENFORCEMENT.value())
                 .isEqualTo("password-change-enforcement");
         assertThat(Action.ACCESS_CONTROL.value()).isEqualTo("access-control");
+        assertThat(Action.APPLICATION_STARTUP.value()).isEqualTo("application-startup");
+        assertThat(Action.APPLICATION_SHUTDOWN.value()).isEqualTo("application-shutdown");
         assertThat(Kind.EVENT.value()).isEqualTo("event");
         assertThat(Category.CONFIGURATION.value()).isEqualTo("configuration");
         assertThat(Category.DATABASE.value()).isEqualTo("database");
         assertThat(Category.BATCH.value()).isEqualTo("batch");
+        assertThat(Category.NETWORK.value()).isEqualTo("network");
         assertThat(Category.PROCESS.value()).isEqualTo("process");
+        assertThat(Type.ACCESS.value()).isEqualTo("access");
+        assertThat(Type.START.value()).isEqualTo("start");
+        assertThat(Type.END.value()).isEqualTo("end");
         assertThat(Type.JOB_END.value()).isEqualTo("job-end");
+        assertThat(Severity.LOW.value()).isEqualTo("low");
         assertThat(Severity.HIGH.value()).isEqualTo("high");
     }
 

@@ -17,6 +17,7 @@ import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
+import com.example.backend.scim.domain.ScimValueControlCharacterException;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.LinkedHashMap;
@@ -156,6 +157,15 @@ class ScimExceptionHandler {
         return render(ScimErrorException.invalidValue(
                 tooLong.attribute() + " must be at most " + tooLong.limit()
                         + " characters long."));
+    }
+
+    /**
+     * A value carrying a character its attribute refuses — U+0000 anywhere, or a control in a
+     * name. Names the attribute and the characters, never the value nor where in it they were.
+     */
+    @ExceptionHandler(ScimValueControlCharacterException.class)
+    ResponseEntity<Map<String, Object>> handle(ScimValueControlCharacterException refused) {
+        return render(ScimErrorException.invalidValue(refused.getMessage()));
     }
 
     /**

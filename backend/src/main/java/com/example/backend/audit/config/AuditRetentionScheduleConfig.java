@@ -6,6 +6,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.ScheduledJobMetrics;
+import com.example.backend.observability.ServiceTimeZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,10 @@ import org.springframework.scheduling.support.CronTrigger;
 
 /**
  * Puts the retention job on its cron, and records the schedule it was put on.
+ *
+ * <p>The cron is evaluated in {@link ServiceTimeZone#ZONE}, the zone the service's log
+ * timestamps are written in, so "03:30" is the 03:30 an operator reads in the job's own
+ * records rather than 03:30 in whatever zone the host defaults to.
  *
  * <p>Registered through {@link SchedulingConfigurer} rather than with
  * {@code @Scheduled(cron = "...")} because that annotation's value must be a
@@ -55,7 +60,7 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
                 jobs.instrument(RETENTION_JOB, retention::deleteAgedOutEvents),
-                new CronTrigger(policy.schedule())));
+                new CronTrigger(policy.schedule(), ServiceTimeZone.ZONE)));
         LogEvent.classify(log.atInfo(),
                         AuditRetentionService.OPERATION, Category.CONFIGURATION, Type.INFO)
                 .addKeyValue(LogEvent.RETENTION_SCHEDULE, policy.schedule())

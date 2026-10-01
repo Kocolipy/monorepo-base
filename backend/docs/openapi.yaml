@@ -61,6 +61,18 @@ info:
     attribute and the limit, never the value — and the refusal is audited as
     `INVALID_VALUE`. Only a taken live name is `409 uniqueness`.
 
+    **Forbidden characters.** No stored User or Group string may contain U+0000
+    (NUL): JSON can carry it as `\u0000`, but PostgreSQL cannot store it. `userName`
+    and `displayName`, of a User and of a Group, additionally refuse every other C0
+    control (U+0001 to U+001F, newline and tab included) and DEL (U+007F), because they
+    are the names an administrator reads and the logs carry, where a control forges a
+    line or rewrites a terminal; every other attribute stores those as sent. Either is
+    refused like a length — on POST, PUT and PATCH, before anything is written, with
+    `400 invalidValue`, audited as `INVALID_VALUE` — and the `detail` names the
+    attribute and the rule, never the value: `externalId must not contain the NUL
+    character (U+0000).` or `userName must not contain control characters (U+0000 to
+    U+001F, U+007F).` A password is not stored as text and is not subject to this.
+
     A write the database refuses for any other reason is a fault on this side, not a
     refusal of the request: `500` with a `ScimError` body, no `scimType` and a
     `detail` that names no cause. It is not listed on each operation, because no
@@ -2248,7 +2260,8 @@ components:
         The request was not acceptable SCIM: an unparseable or non-object body, a
         schema other than this service's one User schema, a missing required
         attribute, an attribute or sub-attribute this service does not implement, a
-        value of the wrong JSON type, a value longer than its stored `maxLength`, or a
+        value of the wrong JSON type, a value longer than its stored `maxLength` or
+        holding a character it refuses (see "Forbidden characters"), or a
         projection naming something that is not an attribute. `scimType` is
         `invalidSyntax` or `invalidValue`; for a query also
         `invalidFilter`, and for a PATCH also `invalidPath`, `noTarget` or

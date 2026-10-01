@@ -1,16 +1,28 @@
 package com.example.backend.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.audit.domain.AuditRetentionPolicy;
+import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPathFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,20 +30,30 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.web.servlet.DelegatingFilterProxyRegistrationBean;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.annotation.OrderUtils;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.PropertySourcesPropertyResolver;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.scheduling.config.CronTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
+import org.springframework.scheduling.config.Task;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.filter.ServerHttpObservationFilter;
+import org.w3c.dom.Document;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -75,6 +97,16 @@ class EcsLogFormatTests {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
+    /** A W3C trace id: 32 lowercase hex digits, and not the all-zero invalid id. */
+    private static final String TRACE_ID = "(?!0{32})[0-9a-f]{32}";
+
+    /** A W3C span id: 16 lowercase hex digits, and not the all-zero invalid id. */
+    private static final String SPAN_ID = "(?!0{16})[0-9a-f]{16}";
+
+    /** Local Singapore time to the millisecond, with its offset. */
+    private static final String PLUS_EIGHT_TIMESTAMP =
+            "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+08:00";
+
     @Autowired
     private WebApplicationContext context;
 
@@ -91,17 +123,36 @@ class EcsLogFormatTests {
     @Autowired
     private ScimUserRepository users;
 
+    @Autowired
+    private FilterRegistrationBean<ServerHttpObservationFilter> observationFilter;
+
+    @Autowired
+    @Qualifier("securityFilterChainRegistration")
+    private DelegatingFilterProxyRegistrationBean securityRegistration;
+
+    @Autowired
+    private ScheduledTaskHolder scheduledTasks;
+
+    @Autowired
+    private AuditRetentionPolicy retentionPolicy;
+
+    @Autowired
+    private ConnectorAdministrationService connectors;
+
     private MockMvc mvc;
 
     private EcsLogCapture logs;
 
     @BeforeEach
     void setUp() {
-        // The request-id filter ahead of the security chain, as the deployed
-        // ordering has it: a request refused by the chain must still be logged
-        // under an id.
+        // The filters in their deployed order. The observation filter first
+        // (HIGHEST_PRECEDENCE + 1): it opens the request's span, so every record of
+        // the request — the request record the next filter writes on its way out
+        // among them — carries its trace and span ids. Then the request-id filter,
+        // ahead of the security chain: a request refused by the chain must still be
+        // logged under an id, and still get its request record.
         mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSecurityFilterChain)
+                .addFilters(observationFilter.getFilter(), requestIdFilter, springSecurityFilterChain)
                 .build();
         logs = EcsLogCapture.attach(environment);
     }
@@ -132,6 +183,34 @@ class EcsLogFormatTests {
         assertThat(new PropertySourcesPropertyResolver(sources)
                 .getProperty("logging.structured.format.console"))
                 .isEqualTo("ecs");
+    }
+
+    /**
+     * The rest of the record envelope, as committed — the service fields, the timestamp
+     * customizer, and a log file that exists only when {@code LOG_FILE} says so. The
+     * version placeholder must have been filtered by the build; an unfiltered
+     * {@code @project.version@} would be logged literally.
+     */
+    @Test
+    void theDeployedConfigurationStatesTheEnvelope() throws Exception {
+        MutablePropertySources sources = new MutablePropertySources();
+        for (PropertySource<?> source
+                : new YamlPropertySourceLoader().load("logging", new ClassPathResource("logging.yaml"))) {
+            sources.addLast(source);
+        }
+        PropertySourcesPropertyResolver deployed = new PropertySourcesPropertyResolver(sources);
+
+        assertThat(deployed.getProperty("logging.structured.format.file")).isEqualTo("ecs");
+        assertThat(deployed.getProperty("logging.structured.ecs.service.name")).isEqualTo("backend");
+        assertThat(deployed.getProperty("logging.structured.ecs.service.version"))
+                .isEqualTo(builtProjectVersion());
+        assertThat(deployed.getProperty("logging.structured.json.customizer"))
+                .isEqualTo(EcsTimestampCustomizer.class.getName());
+        // Resolved against this document alone, so neither LOG_FILE nor APP_ENVIRONMENT
+        // on the machine running the test is seen: these are the committed defaults.
+        assertThat(deployed.getProperty("logging.structured.ecs.service.environment"))
+                .isEqualTo("local");
+        assertThat(deployed.getProperty("logging.file.name")).isEmpty();
     }
 
     @Test
@@ -291,6 +370,136 @@ class EcsLogFormatTests {
     }
 
     /**
+     * Every record emitted inside a request carries that request's trace and span ids,
+     * as ECS {@code trace.id} and {@code span.id}: one trace per request, and a different
+     * one for the next request.
+     */
+    @Test
+    void everyRecordInsideARequestCarriesItsTraceAndSpanIds() throws Exception {
+        logIn("test-user", "test-password").andExpect(status().isOk());
+        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+
+        List<JsonNode> inRequest = logs.records().stream()
+                .filter(record -> !record.at("/http/request/id").asText().isEmpty())
+                .toList();
+        assertThat(inRequest).as("records emitted inside a request").hasSizeGreaterThanOrEqualTo(2);
+        assertThat(inRequest).allSatisfy(record -> {
+            assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
+            assertThat(record.at("/span/id").asText()).matches(SPAN_ID);
+        });
+
+        String accepted = onlyRecordWithMessage("Login accepted").at("/trace/id").asText();
+        String refused = onlyRecordWithMessage("Login refused").at("/trace/id").asText();
+        assertThat(accepted).isNotEqualTo(refused);
+        Map<String, Set<String>> tracesByRequest = inRequest.stream().collect(Collectors.groupingBy(
+                record -> record.at("/http/request/id").asText(),
+                Collectors.mapping(record -> record.at("/trace/id").asText(), Collectors.toSet())));
+        assertThat(tracesByRequest.values()).allSatisfy(traces -> assertThat(traces).hasSize(1));
+    }
+
+    /**
+     * The trace id is minted here. A caller's {@code traceparent} is not adopted, for the
+     * reason {@link RequestIdFilter} ignores {@code X-Request-Id}: a client able to choose
+     * the id could merge unrelated requests in a log search.
+     */
+    @Test
+    void aCallersTraceparentIsNotAdopted() throws Exception {
+        String callersTrace = "4bf92f3577b34da6a3ce929d0e0e4736";
+
+        mvc.perform(withCsrf(post("/api/auth/login"))
+                        .header("traceparent", "00-" + callersTrace + "-00f067aa0ba902b7-01")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"test-user\",\"password\":\"test-password\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(onlyRecordWithMessage("Login accepted").at("/trace/id").asText())
+                .matches(TRACE_ID)
+                .isNotEqualTo(callersTrace);
+    }
+
+    /**
+     * A scheduled job runs off any request, so it gets a trace of its own from
+     * {@link ScheduledJobMetrics#instrument}: every record of one run shares a trace id,
+     * and the next run's differs. Run through the task the scheduler actually holds, not
+     * a re-wrapped copy of the job.
+     */
+    @Test
+    void eachScheduledJobRunIsItsOwnTrace() {
+        List<Runnable> retentionTasks = scheduledTasks.getScheduledTasks().stream()
+                .map(ScheduledTask::getTask)
+                .filter(CronTask.class::isInstance)
+                .map(CronTask.class::cast)
+                .filter(task -> task.getExpression().equals(retentionPolicy.schedule()))
+                .map(Task::getRunnable)
+                .toList();
+        assertThat(retentionTasks).as("the scheduled retention task").hasSize(1);
+        Runnable retention = retentionTasks.getFirst();
+        String thread = Thread.currentThread().getName();
+
+        List<String> runTraces = new ArrayList<>();
+        for (int run = 0; run < 2; run++) {
+            logs.reset();
+            retention.run();
+
+            List<JsonNode> runRecords = logs.records().stream()
+                    .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                    .toList();
+            String trace = onlyRecordWithMessage("Audit retention run complete").at("/trace/id").asText();
+            assertThat(trace).matches(TRACE_ID);
+            assertThat(runRecords).allSatisfy(record -> {
+                assertThat(record.at("/trace/id").asText()).isEqualTo(trace);
+                assertThat(record.at("/span/id").asText()).matches(SPAN_ID);
+                assertThat(record.has("http")).as("off-request").isFalse();
+            });
+            runTraces.add(trace);
+        }
+        assertThat(runTraces.get(0)).isNotEqualTo(runTraces.get(1));
+    }
+
+    /**
+     * The service fields on every record, whatever emitted it: the name stated in
+     * {@code logging.yaml}, the version of the build — read here from the POM itself, so
+     * the oracle is not the filtered resource it is checking — and the environment
+     * ({@code APP_ENVIRONMENT}, {@code local} when unset).
+     */
+    @Test
+    void everyRecordCarriesTheServiceNameVersionAndEnvironment() throws Exception {
+        logIn("test-user", "test-password").andExpect(status().isOk());
+        logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
+
+        String version = builtProjectVersion();
+        assertThat(version).isNotBlank().doesNotContain("@");
+        assertThat(logs.records()).hasSizeGreaterThanOrEqualTo(2).allSatisfy(record -> {
+            assertThat(record.at("/service/name").asText()).isEqualTo("backend");
+            assertThat(record.at("/service/version").asText()).isEqualTo(version);
+            assertThat(record.at("/service/environment").asText())
+                    .isEqualTo(System.getenv().getOrDefault("APP_ENVIRONMENT", "local"));
+        });
+    }
+
+    /**
+     * Log timestamps are Singapore time; the SCIM wire is not. A record's
+     * {@code @timestamp} ends in {@code +08:00} while a {@code meta.lastModified} read in
+     * the same test still ends in {@code Z} — the zone was changed for the log, not for
+     * the JVM.
+     */
+    @Test
+    void recordTimestampsArePlusEightWhileScimWireTimesStayUtc() throws Exception {
+        UUID connectorId = connectors.create("ecs-timestamp-connector", "test-admin").id();
+        String token = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        logIn("test-user", "test-password").andExpect(status().isOk());
+
+        JsonNode user = json(mvc.perform(get("/scim/v2/Users/{id}", userId("test-user"))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk()));
+
+        assertThat(user.at("/meta/lastModified").asText()).isNotBlank().endsWith("Z");
+        assertThat(logs.records()).hasSizeGreaterThanOrEqualTo(2).allSatisfy(record ->
+                assertThat(record.at("/@timestamp").asText()).matches(PLUS_EIGHT_TIMESTAMP));
+    }
+
+    /**
      * The ticket's oracle. All three flows in one exchange sequence, then the whole
      * captured stream read as JSON and searched for every value that must not be in
      * it — in a message, in a field name, in a field value, in the logging context.
@@ -315,6 +524,162 @@ class EcsLogFormatTests {
                 assertThat(record.at("/user/target/id").asText()).isNotBlank());
         logs.records().forEach(EcsLogFormatTests::assertThatIsValidEcs);
         assertThat(logs.lines()).doesNotContain(FORBIDDEN.toArray(String[]::new));
+    }
+
+    // ---- the request record (#68) -------------------------------------------------------------
+
+    /**
+     * The deployed order, which the request record's correlation depends on: the observation
+     * filter opens the span, the request-id filter runs inside it, and both run ahead of the
+     * security chain so a refusal is recorded too. The MockMvc chain above mirrors this; here
+     * it is read off the registrations the running server uses.
+     */
+    @Test
+    void theRequestIdFilterRunsInsideTheSpanAndAheadOfTheSecurityChain() {
+        Integer requestIdOrder = OrderUtils.getOrder(RequestIdFilter.class);
+
+        assertThat(requestIdOrder).isEqualTo(RequestIdFilter.ORDER);
+        assertThat(observationFilter.getOrder()).isLessThan(requestIdOrder);
+        assertThat(requestIdOrder).isLessThan(securityRegistration.getOrder());
+    }
+
+    /**
+     * The ticket's oracle: one request record for an authenticated {@code GET /api/self},
+     * naming the template, the status, a duration and the outcome, under the request's own
+     * correlation ids.
+     */
+    @Test
+    void aSelfReadEndsInExactlyOneRequestRecord() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        logs.reset();
+
+        mvc.perform(get("/api/self").session(user)).andExpect(status().isOk());
+
+        JsonNode record = onlyRequestRecord();
+        assertThatIsValidEcs(record);
+        assertThat(record.at("/message").asText()).isEqualTo("HTTP request completed");
+        assertThat(record.at("/event/kind").asText()).isEqualTo("event");
+        assertThat(record.at("/event/category").valueStream().map(JsonNode::asText).toList())
+                .containsExactly("network");
+        assertThat(record.at("/event/type").valueStream().map(JsonNode::asText).toList())
+                .containsExactly("access", "end");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("http.request");
+        assertThat(record.at("/http/request/method").asText()).isEqualTo("GET");
+        assertThat(record.at("/http/route").asText()).isEqualTo("/api/self");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(200);
+        assertThat(record.at("/event/duration_ms").isIntegralNumber()).isTrue();
+        assertThat(record.at("/event/duration_ms").asLong()).isNotNegative();
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
+        assertThat(record.at("/http/request/id").asText()).isNotBlank();
+        assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
+    }
+
+    /**
+     * The request record files under the same {@code http.request.id} and {@code trace.id} as
+     * the request's other records — read off a login, whose handler writes a record of its
+     * own to compare with.
+     */
+    @Test
+    void theRequestRecordSharesItsRequestsCorrelationIds() throws Exception {
+        logIn("test-user", "test-password").andExpect(status().isOk());
+
+        JsonNode accepted = onlyRecordWithMessage("Login accepted");
+        // The login's own record, not the CSRF fetch the helper makes before it.
+        List<JsonNode> logins = requestRecords().stream()
+                .filter(record -> "/api/auth/login".equals(record.at("/http/route").asText()))
+                .toList();
+        assertThat(logins).hasSize(1);
+        JsonNode request = logins.getFirst();
+        assertThat(request.at("/http/request/method").asText()).isEqualTo("POST");
+        assertThat(request.at("/http/request/id").asText())
+                .isNotBlank()
+                .isEqualTo(accepted.at("/http/request/id").asText());
+        assertThat(request.at("/trace/id").asText())
+                .matches(TRACE_ID)
+                .isEqualTo(accepted.at("/trace/id").asText());
+    }
+
+    /**
+     * A SCIM read by id with a filter in its query: the record names the template, and
+     * neither the id nor the filter text appears anywhere in its encoded bytes.
+     */
+    @Test
+    void aScimReadIsRecordedByTemplateWithoutItsIdOrFilterText() throws Exception {
+        UUID connectorId = connectors.create("ecs-route-connector", "test-admin").id();
+        String token = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        String id = userId("test-user").toString();
+        String filterText = "ecs-route-filter-probe";
+        logs.reset();
+
+        mvc.perform(get("/scim/v2/Users/{id}", id)
+                        .queryParam("filter", "userName eq \"" + filterText + "\"")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/http/route").asText()).isEqualTo("/scim/v2/Users/{id}");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(200);
+        String encoded = requestRecordLines().getFirst();
+        assertThat(encoded).doesNotContain(id, filterText, "userName eq", token);
+    }
+
+    /**
+     * A {@code 401} the security chain answers before any handler is one record at
+     * {@code WARN}, filed under the unmatched bucket because no route was ever matched.
+     */
+    @Test
+    void aRefusalByTheSecurityChainIsOneWarnRecord() throws Exception {
+        mvc.perform(get("/api/self")).andExpect(status().isUnauthorized());
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(401);
+        assertThat(record.at("/http/route").asText()).isEqualTo("unmatched");
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
+    }
+
+    /**
+     * An exception escaping the chain is one record at {@code ERROR}, as the {@code 500} the
+     * container answers it with. The exception is raised behind the security chain of an
+     * authenticated request, where a failing handler would raise it.
+     */
+    @Test
+    void anExceptionEscapingTheChainIsOneErrorRecord() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        IllegalStateException failure = new IllegalStateException("downstream failure");
+        MockMvc failing = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(observationFilter.getFilter(), requestIdFilter, springSecurityFilterChain,
+                        (request, response, chain) -> {
+                            throw failure;
+                        })
+                .build();
+        logs.reset();
+
+        assertThatThrownBy(() -> failing.perform(get("/api/self").session(user)))
+                .isSameAs(failure);
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/log/level").asText()).isEqualTo("ERROR");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(500);
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+    }
+
+    /**
+     * The health probe and the Prometheus scrape get no record; an actuator request beside
+     * them does, so the absence is the exclusion's doing and not the capture's.
+     */
+    @Test
+    void theHealthProbeAndThePrometheusScrapeAreNotRecorded() throws Exception {
+        mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+        mvc.perform(get("/actuator/health/liveness"));
+        mvc.perform(get("/actuator/prometheus"));
+        assertThat(requestRecords()).isEmpty();
+
+        mvc.perform(get("/actuator/info"));
+        assertThat(requestRecords()).hasSize(1);
     }
 
     /** The fields a collector indexes on. Absent any one of them, the record is not ECS. */
@@ -357,9 +722,39 @@ class EcsLogFormatTests {
                 .toList();
     }
 
+    private List<JsonNode> requestRecords() {
+        return recordsWithMessage("HTTP request completed");
+    }
+
+    private JsonNode onlyRequestRecord() {
+        List<JsonNode> records = requestRecords();
+        assertThat(records).as("request records").hasSize(1);
+        return records.getFirst();
+    }
+
+    /** The request records exactly as encoded, for a search of their raw bytes. */
+    private List<String> requestRecordLines() {
+        return logs.lines().lines()
+                .filter(line -> "HTTP request completed".equals(JSON.readTree(line).at("/message").asText()))
+                .toList();
+    }
+
     private UUID userId(String userName) {
         return users.findByNormalizedUserName(NormalizedUserName.of(userName))
                 .orElseThrow().id();
+    }
+
+    /**
+     * {@code /project/version} of the POM this module is built from. The test runs from
+     * the module's directory, as Maven runs it.
+     */
+    private static String builtProjectVersion() throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        Document pom = factory.newDocumentBuilder().parse(Path.of("pom.xml").toFile());
+        return XPathFactory.newInstance().newXPath().evaluate("/project/version", pom).strip();
     }
 
     /**

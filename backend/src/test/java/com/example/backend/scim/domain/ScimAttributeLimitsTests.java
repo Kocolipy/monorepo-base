@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.scim.domain.ScimValueControlCharacterException.Forbidden;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -92,6 +94,104 @@ class ScimAttributeLimitsTests {
         assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(
                 withValue.apply(SUPPLEMENTARY.repeat(limit + 1))))
                 .isInstanceOf(ScimValueTooLongException.class);
+    }
+
+    /** The names shown to people and written to logs: they refuse every control, not only NUL. */
+    private static final Set<String> NAMES = Set.of("userName", "displayName");
+
+    /**
+     * Every stored User string refuses U+0000, wherever in the value it is, naming the attribute
+     * and never carrying the value — and a name says it refuses every control.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("userAttributes")
+    void a_user_value_holding_a_nul_is_refused_naming_it(
+            String attribute, int limit, Function<String, ScimUserProfile> withValue) {
+        Forbidden expected = NAMES.contains(attribute) ? Forbidden.CONTROL : Forbidden.NUL;
+        for (String holding : List.of("a\0b", "\0", "ab\0")) {
+            assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(withValue.apply(holding)))
+                    .isInstanceOfSatisfying(ScimValueControlCharacterException.class, refused -> {
+                        assertThat(refused.attribute()).isEqualTo(attribute);
+                        assertThat(refused.forbidden()).isEqualTo(expected);
+                        assertThat(refused.getMessage()).isEqualTo(
+                                attribute + " must not contain " + expected.description() + ".");
+                    });
+        }
+    }
+
+    /**
+     * The other C0 controls and DEL: refused in a name, at both ends of the range, and kept
+     * everywhere else, since PostgreSQL stores them and a formatted name may carry a tab.
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("userAttributes")
+    void a_control_other_than_nul_is_refused_only_in_a_name(
+            String attribute, int limit, Function<String, ScimUserProfile> withValue) {
+        for (String holding : List.of("a\u0001b", "a\tb", "a\nb", "a\u001Fb", "a\u007Fb")) {
+            if (NAMES.contains(attribute)) {
+                assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(withValue.apply(holding)))
+                        .as(holding)
+                        .isInstanceOfSatisfying(ScimValueControlCharacterException.class, refused -> {
+                            assertThat(refused.attribute()).isEqualTo(attribute);
+                            assertThat(refused.forbidden()).isEqualTo(Forbidden.CONTROL);
+                        });
+            } else {
+                assertThatCode(() -> ScimAttributeLimits.requireWithin(withValue.apply(holding)))
+                        .as(holding)
+                        .doesNotThrowAnyException();
+            }
+        }
+        // The neighbours of the refused range are ordinary characters, in a name too.
+        for (String neighbour : List.of("a b", "a~b", "a\u0080b", "a\u00A0b")) {
+            assertThatCode(() -> ScimAttributeLimits.requireWithin(withValue.apply(neighbour)))
+                    .as(neighbour)
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    /** Characters are checked before length, so a long value with a NUL is named for the NUL. */
+    @Test
+    void a_value_both_too_long_and_holding_a_nul_is_refused_for_the_nul() {
+        assertThatThrownBy(() -> ScimAttributeLimits.requireExternalIdWithin(
+                "x".repeat(300) + "\0"))
+                .isInstanceOf(ScimValueControlCharacterException.class);
+    }
+
+    @Test
+    void a_group_display_name_refuses_every_control_and_an_external_id_refuses_nul() {
+        for (String holding : List.of("g\0", "g\u0001", "g\n", "g\u001F", "g\u007F")) {
+            assertThatThrownBy(() -> ScimAttributeLimits.requireGroupDisplayNameWithin(holding))
+                    .isInstanceOfSatisfying(ScimValueControlCharacterException.class, refused -> {
+                        assertThat(refused.attribute()).isEqualTo("displayName");
+                        assertThat(refused.forbidden()).isEqualTo(Forbidden.CONTROL);
+                        assertThat(refused.getMessage()).isEqualTo("displayName must not contain"
+                                + " control characters (U+0000 to U+001F, U+007F).");
+                    });
+        }
+        assertThatCode(() -> ScimAttributeLimits.requireGroupDisplayNameWithin("g \u0080"))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> ScimAttributeLimits.requireExternalIdWithin("x\0y"))
+                .isInstanceOfSatisfying(ScimValueControlCharacterException.class, refused -> {
+                    assertThat(refused.attribute()).isEqualTo("externalId");
+                    assertThat(refused.forbidden()).isEqualTo(Forbidden.NUL);
+                    assertThat(refused.getMessage())
+                            .isEqualTo("externalId must not contain the NUL character (U+0000).");
+                });
+        assertThatCode(() -> ScimAttributeLimits.requireExternalIdWithin("x\ty\u001F"))
+                .doesNotThrowAnyException();
+    }
+
+    /** Every email is checked for a NUL, not only the first. */
+    @Test
+    void a_nul_in_a_later_email_is_refused() {
+        ScimUserProfile secondHoldsNul = profile("ada", ScimName.NONE, null, null, null, null,
+                List.of(new ScimEmail("ada@work.example", "work", true),
+                        new ScimEmail("ada@home.example", "ho\0me", false)));
+
+        assertThatThrownBy(() -> ScimAttributeLimits.requireWithin(secondHoldsNul))
+                .isInstanceOfSatisfying(ScimValueControlCharacterException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("emails.type"));
     }
 
     @Test
