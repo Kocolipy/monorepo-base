@@ -1,19 +1,18 @@
-import {
-  expect,
-  request,
-  test,
-  type APIRequestContext,
-  type Browser,
-  type Page,
-} from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
+import { LOCKOUT_MAX_ATTEMPTS, submitLogin, submitLoginViaApi } from "./auth.helpers";
 import {
-  adminRequest,
-  csrfHeaderFor,
-  LOCKOUT_MAX_ATTEMPTS,
-  submitLogin,
-  submitLoginViaApi,
-} from "./auth.helpers";
+  anonymousApi,
+  deprovisionUser,
+  E2E_PREFIX,
+  freshBrowser,
+  OWN_PASSWORD as OWN,
+  provisionUser,
+  rowOf,
+  runId,
+  settlePassword,
+  workerConnector,
+} from "./scim.helpers";
 
 /**
  * The `/change-password` route driven end to end: a forced change confined to
@@ -21,121 +20,38 @@ import {
  * the route itself.
  *
  * Runs in the `admin` project because the forced change is made from the
- * Accounts page. Every User here is PROVISIONED by the test over SCIM with a
- * connector it creates — never a seeded identity, which a forced change or a
- * lockout would leave unusable for the other specs — and is deleted, with the
- * connector, in a `finally`. Each User signs in through a browser context of
- * its own, so nothing touches the admin session this project replays.
+ * Accounts page. Every User here is PROVISIONED by the test over SCIM — never a
+ * seeded identity, which a forced change or a lockout would leave unusable for
+ * the other specs — and is deleted in a `finally`. One connector serves every
+ * test a worker runs from this file (`workerConnector`). Each User signs in
+ * through a browser context of its own, so nothing touches the admin session
+ * this project replays.
  */
-
-/** The backend itself: SCIM is not behind the Vite `/api` proxy. */
-const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
-
-const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
 /** The backend's lockout threshold; see `LOCKOUT_MAX_ATTEMPTS`. */
 const REFUSALS_BEFORE_LOCKOUT = LOCKOUT_MAX_ATTEMPTS;
 
-const RUN = Date.now().toString(36);
-/** What the connector provisions; the connector write itself flags a change. */
-const PROVISIONED = "Provisioned-Secret-9x";
-/** What each User sets for itself through the API before the test begins. */
-const OWN = "Self-Chosen-Secret-7q";
+const RUN = runId();
 /** What each User changes to through the page. */
 const REPLACEMENT = "Replacement-Secret-3k";
 
 interface Provisioned {
-  connectorId: string;
-  scim: APIRequestContext;
   userId: string;
   userName: string;
 }
 
-const scimApi = (token: string) =>
-  request.newContext({
-    baseURL: BACKEND_URL,
-    extraHTTPHeaders: {
-      Accept: "application/scim+json",
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/scim+json",
-    },
-    storageState: { cookies: [], origins: [] },
-  });
+const connector = workerConnector("cpw");
 
-const anonymousApi = () =>
-  request.newContext({
-    baseURL: test.info().project.use.baseURL,
-    storageState: { cookies: [], origins: [] },
-  });
-
-/**
- * A connector of the test's own, a User it provisions, and that User settled
- * on a password of its own choosing — so its change-required flag starts clear.
- */
-async function provision(adminPage: Page, label: string): Promise<Provisioned> {
-  const userName = `e2e-cp-${label}-${RUN}`;
-  const connector = await adminRequest(adminPage, "POST", "/api/admin/connectors", {
-    // Not `e2e-connector-…`: accounts-admin.spec.ts's clean-up deletes every
-    // connector with that prefix, and it can run beside this spec.
-    displayName: `e2e-cpw-${label}-${RUN}`,
-  });
-  expect(connector.ok(), "creating the connector").toBe(true);
-  const connectorId = ((await connector.json()) as { id: string }).id;
-  const issued = await adminRequest(
-    adminPage,
-    "POST",
-    `/api/admin/connectors/${connectorId}/tokens`,
-    {
-      scope: "READ_WRITE",
-    },
-  );
-  expect(issued.ok(), "issuing its token").toBe(true);
-  const scim = await scimApi(((await issued.json()) as { presentedValue: string }).presentedValue);
-
-  const created = await scim.post("/scim/v2/Users", {
-    data: { active: true, password: PROVISIONED, schemas: [USER_SCHEMA], userName },
-  });
-  expect(created.status(), `provisioning ${userName}`).toBe(201);
-  const userId = ((await created.json()) as { id: string }).id;
-
-  const api = await anonymousApi();
-  try {
-    expect((await submitLoginViaApi(api, userName, PROVISIONED)).status()).toBe(200);
-    // Fetched after the login: it rotated the session and discarded the pre-login token.
-    const settled = await api.post("/api/auth/change-password", {
-      data: { currentPassword: PROVISIONED, newPassword: OWN },
-      headers: await csrfHeaderFor(api),
-    });
-    expect(settled.status(), `${userName} settles on its own password`).toBe(204);
-  } finally {
-    await api.dispose();
-  }
-  return { connectorId, scim, userId, userName };
+/** A User of the test's own, settled on a password it chose, so its change flag starts clear. */
+async function provision(label: string): Promise<Provisioned> {
+  const userName = `${E2E_PREFIX}cp-${label}-${RUN}`;
+  const userId = await provisionUser(connector.scim, userName);
+  await settlePassword(userName);
+  return { userId, userName };
 }
 
-async function deprovision(adminPage: Page, provisioned: Provisioned | undefined) {
-  if (provisioned === undefined) return;
-  const { connectorId, scim, userId } = provisioned;
-  try {
-    const current = await scim.get(`/scim/v2/Users/${userId}`);
-    if (current.status() !== 404) {
-      const deleted = await scim.delete(`/scim/v2/Users/${userId}`, {
-        headers: { "If-Match": current.headers()["etag"] ?? "" },
-      });
-      expect(deleted.status()).toBe(204);
-    }
-  } finally {
-    await scim.dispose();
-    await adminRequest(adminPage, "DELETE", `/api/admin/connectors/${connectorId}`);
-  }
-}
-
-/** A browser context with no session, as a User's own browser. */
-async function freshBrowser(browser: Browser) {
-  return browser.newContext({
-    baseURL: test.info().project.use.baseURL,
-    storageState: { cookies: [], origins: [] },
-  });
+async function deprovision(provisioned: Provisioned | undefined) {
+  if (provisioned !== undefined) await deprovisionUser(connector.scim, provisioned.userId);
 }
 
 const heading = (page: Page) => page.getByRole("heading", { name: "Change your password" });
@@ -179,16 +95,11 @@ test("an Admin's forced change confines the User to /change-password until it is
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
   try {
-    user = await provision(page, "forced");
+    user = await provision("forced");
 
     // The Admin forces the change from the Accounts page.
     await page.goto("/accounts");
-    const row = page
-      .getByRole("table", { name: "Users" })
-      .getByRole("row")
-      .filter({
-        has: page.getByRole("rowheader", { name: new RegExp(`^${user.userName}(?![\\w-])`) }),
-      });
+    const row = rowOf(page, page.getByRole("table", { name: "Users" }), user.userName);
     await row.getByRole("button", { name: `Force password change for ${user.userName}` }).click();
     await expect(row.getByText("Required")).toBeVisible();
 
@@ -230,19 +141,18 @@ test("an Admin's forced change confines the User to /change-password until it is
     await expectSignedOutThenSignIn(own, user.userName, REPLACEMENT);
   } finally {
     await context.close();
-    await deprovision(page, user);
+    await deprovision(user);
   }
 });
 
 test("an unflagged User changes its password voluntarily from the showcase", async ({
   browser,
-  page,
 }) => {
   test.setTimeout(120_000);
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
   try {
-    user = await provision(page, "voluntary");
+    user = await provision("voluntary");
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
@@ -259,19 +169,18 @@ test("an unflagged User changes its password voluntarily from the showcase", asy
     await expectSignedOutThenSignIn(own, user.userName, REPLACEMENT);
   } finally {
     await context.close();
-    await deprovision(page, user);
+    await deprovision(user);
   }
 });
 
 test("the form states the policy, and the browser holds back a too-short password", async ({
   browser,
-  page,
 }) => {
   test.setTimeout(120_000);
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
   try {
-    user = await provision(page, "policy");
+    user = await provision("policy");
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
@@ -313,19 +222,18 @@ test("the form states the policy, and the browser holds back a too-short passwor
     await expectFieldsCleared(own);
   } finally {
     await context.close();
-    await deprovision(page, user);
+    await deprovision(user);
   }
 });
 
 test("wrong current passwords lock the account, and the page says an Admin must Unlock it", async ({
   browser,
-  page,
 }) => {
   test.setTimeout(120_000);
   let user: Provisioned | undefined;
   const context = await freshBrowser(browser);
   try {
-    user = await provision(page, "locked");
+    user = await provision("locked");
 
     const own = await context.newPage();
     await submitLogin(own, user.userName, OWN);
@@ -358,6 +266,6 @@ test("wrong current passwords lock the account, and the page says an Admin must 
     await expect(own.getByRole("heading", { name: "Welcome back" })).toBeVisible();
   } finally {
     await context.close();
-    await deprovision(page, user);
+    await deprovision(user);
   }
 });

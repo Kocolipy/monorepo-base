@@ -13,7 +13,7 @@ const CSRF_HEADER = "x-csrf-token";
 // `fetch`; these cover that the contract behind them is real.
 //
 // Neither test asserts a counter value: this spec shares the backend's single
-// counter with authentication.spec.ts under `fullyParallel`. Both requests here
+// counter with showcase.spec.ts under `fullyParallel`. Both requests here
 // are refused, so the count never moves.
 test.describe("sessions, signed in", () => {
   test("returns to the login page when the session has expired", async ({ context, page }) => {
@@ -32,6 +32,9 @@ test.describe("sessions, signed in", () => {
     // ProtectedRoute is what carries the user back to sign in.
     await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
+    // And tells them why: the expired-session state carried by the redirect is
+    // the SPA's whole explanation of a 401, and a cold visit shows none.
+    await expect(page.getByRole("status")).toHaveText("Your session ended. Please sign in again.");
   });
 
   test("reports a 403 that survives the re-seed as permission denied without ending the session", async ({
