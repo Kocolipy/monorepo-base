@@ -182,7 +182,7 @@ class ScimUserAttributesTests {
         expected.put("description", "SCIM core User, as implemented by this service.");
         expected.put("attributes", List.of(
                 attribute("userName", "string", false, true, false, READ_WRITE, DEFAULT, "server", List.of()),
-                attribute("name", "complex", false, false, true, READ_WRITE, DEFAULT, "none", List.of(
+                attribute("name", "complex", false, false, false, READ_WRITE, DEFAULT, "none", List.of(
                         writable("formatted", "string"),
                         writable("familyName", "string"),
                         writable("givenName", "string"),
@@ -194,16 +194,18 @@ class ScimUserAttributesTests {
                 writable("locale", "string"),
                 writable("timezone", "string"),
                 writable("active", "boolean"),
-                attribute("password", "string", false, false, true, "writeOnly", "never", "none", List.of()),
-                attribute("emails", "complex", true, false, true, READ_WRITE, DEFAULT, "none", List.of(
+                attribute("password", "string", false, false, false, "writeOnly", "never", "none", List.of()),
+                attribute("emails", "complex", true, false, false, READ_WRITE, DEFAULT, "none", List.of(
                         writable("value", "string"),
-                        writable("type", "string"),
+                        with(writable("type", "string"),
+                                "canonicalValues", List.of("work", "home", "other")),
                         writable("primary", "boolean"))),
-                attribute("groups", "complex", true, false, true, READ_ONLY, DEFAULT, "none", List.of(
-                        readOnly("value", "string"),
+                attribute("groups", "complex", true, false, false, READ_ONLY, DEFAULT, "none", List.of(
+                        with(readOnly("value", "string"), "caseExact", true),
                         readOnly("display", "string"),
-                        readOnly("$ref", "reference"),
-                        readOnly("type", "string")))));
+                        with(with(readOnly("$ref", "reference"), "caseExact", true),
+                                "referenceTypes", List.of("Group")),
+                        with(readOnly("type", "string"), "canonicalValues", List.of("direct"))))));
         expected.put("meta", Map.of(
                 "resourceType", "Schema",
                 "location", BASE_URI + "/Schemas/" + ScimSchemas.USER));
@@ -290,11 +292,12 @@ class ScimUserAttributesTests {
         expected.put("attributes", List.of(
                 attribute("displayName", "string", false, true, false, READ_WRITE, DEFAULT, "server",
                         List.of()),
-                attribute("members", "complex", true, false, true, READ_WRITE, DEFAULT, "none", List.of(
-                        writable("value", "string"),
+                attribute("members", "complex", true, false, false, READ_WRITE, DEFAULT, "none", List.of(
+                        with(writable("value", "string"), "caseExact", true),
                         readOnly("display", "string"),
-                        readOnly("$ref", "reference"),
-                        readOnly("type", "string")))));
+                        with(with(readOnly("$ref", "reference"), "caseExact", true),
+                                "referenceTypes", List.of("User")),
+                        with(readOnly("type", "string"), "canonicalValues", List.of("User"))))));
         expected.put("meta", Map.of(
                 "resourceType", "Schema",
                 "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
@@ -319,14 +322,21 @@ class ScimUserAttributesTests {
 
     private static final String DEFAULT = "default";
 
-    /** An ordinary single-valued, optional, case-exact, writable attribute. */
+    /** An ordinary single-valued, optional, case-insensitive, writable attribute. */
     private static Map<String, Object> writable(String name, String type) {
-        return attribute(name, type, false, false, true, READ_WRITE, DEFAULT, "none", List.of());
+        return attribute(name, type, false, false, false, READ_WRITE, DEFAULT, "none", List.of());
     }
 
     /** The same shape, declared read-only: a derived value a write may not set. */
     private static Map<String, Object> readOnly(String name, String type) {
-        return attribute(name, type, false, false, true, READ_ONLY, DEFAULT, "none", List.of());
+        return attribute(name, type, false, false, false, READ_ONLY, DEFAULT, "none", List.of());
+    }
+
+    /** {@code rendered} with one characteristic set — replaced in place, or appended after the rest. */
+    private static Map<String, Object> with(Map<String, Object> rendered, String key, Object value) {
+        Map<String, Object> copy = new LinkedHashMap<>(rendered);
+        copy.put(key, value);
+        return copy;
     }
 
     private static Map<String, Object> attribute(

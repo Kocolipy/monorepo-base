@@ -240,7 +240,8 @@ public class ScimUserService {
      *
      * <p>The replacement's profile is already complete, with every omitted optional attribute
      * unassigned. Its password is applied only when one was sent: an omitted password keeps the
-     * stored credential usable.
+     * stored credential usable. An omitted {@code active} keeps the stored value, so a PUT never
+     * reactivates a User it did not explicitly set {@code active=true} on.
      *
      * @return empty when no live User has that id
      */
@@ -251,7 +252,7 @@ public class ScimUserService {
             ScimVersionPrecondition precondition,
             ScimUserReplacement replacement) {
         return write(connector, id, precondition, stored -> new ScimUserEdit(
-                replacement.profile(),
+                replacement.profileOver(stored.profile()),
                 replacement.externalId(),
                 replacement.password() == null
                         ? ScimPasswordChange.UNCHANGED

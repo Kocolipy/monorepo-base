@@ -35,6 +35,34 @@ class ScimUserRequestReaderTests {
                  "userName":"bjensen","emails":%s}""".formatted(emails);
     }
 
+    /**
+     * A PUT says whether it asserted {@code active}: an omitted or null one is not an assertion,
+     * so the use case keeps the stored value instead of reactivating the User.
+     */
+    @Test
+    void a_replacement_reports_whether_active_was_asserted() {
+        String base = """
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:User"],"userName":"bjensen"%s}""";
+
+        assertThat(ScimUserRequestReader.readReplace(body(base.formatted(""))).activeAsserted())
+                .as("omitted").isFalse();
+        assertThat(ScimUserRequestReader.readReplace(body(base.formatted(",\"active\":null")))
+                .activeAsserted()).as("null").isFalse();
+        assertThat(ScimUserRequestReader.readReplace(body(base.formatted(",\"active\":false"))))
+                .satisfies(read -> {
+                    assertThat(read.activeAsserted()).as("false").isTrue();
+                    assertThat(read.profile().active()).isFalse();
+                });
+        assertThat(ScimUserRequestReader.readReplace(body(base.formatted(",\"active\":true")))
+                .activeAsserted()).as("true").isTrue();
+        assertThat(ScimUserRequestReader.readReplace(body(base.formatted(
+                        ",\"externalId\":\"ext-1\",\"password\":\"a-long-password\""))))
+                .satisfies(read -> {
+                    assertThat(read.externalId()).isEqualTo("ext-1");
+                    assertThat(read.password()).isEqualTo("a-long-password");
+                });
+    }
+
     @Test
     void a_body_with_no_emails_yields_no_emails() {
         NewScimUser command = ScimUserRequestReader.readCreate(body("""

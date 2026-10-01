@@ -13,7 +13,6 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.AddEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.EmailUpdate;
 import com.example.backend.scim.domain.ScimUserPatchOperation.MergeName;
 import com.example.backend.scim.domain.ScimUserPatchOperation.NamePart;
-import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveActive;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmailPart;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveExternalId;
@@ -118,10 +117,21 @@ class ScimUserPatchReaderTests {
         assertThat(one("replace", "timezone", "\"Europe/London\""))
                 .isEqualTo(new SetText(TextAttribute.TIMEZONE, "Europe/London"));
         assertThat(one("replace", "active", "false")).isEqualTo(new SetActive(false));
-        assertThat(one("remove", "active", null)).isEqualTo(new RemoveActive());
         assertThat(one("replace", "password", "\"a-new-password\""))
                 .isEqualTo(new SetPassword("a-new-password"));
         assertThat(one("remove", "password", null)).isEqualTo(new RemovePassword());
+    }
+
+    /**
+     * {@code active} has no unassigned state to remove it to, and reading a remove as the create
+     * default would reactivate a deactivated User, so the remove is refused, with or without the
+     * schema prefix.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"active", "ACTIVE", "urn:ietf:params:scim:schemas:core:2.0:User:active"})
+    void removing_active_is_a_mutability_refusal(String path) {
+        refused("[{\"op\":\"remove\",\"path\":" + JSON.writeValueAsString(path) + "}]",
+                400, "mutability");
     }
 
     @ParameterizedTest

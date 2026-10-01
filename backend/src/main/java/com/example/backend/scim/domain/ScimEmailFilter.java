@@ -12,9 +12,8 @@ import java.util.Locale;
  * rather than approximating it, so this type never has to represent a comparison it cannot
  * evaluate exactly.
  *
- * <p>{@code type} compares case-insensitively and {@code value} exactly, for the reason
- * {@link ScimEmail}'s own identity does: a type is a keyword, an address is data this service is
- * not the authority on.
+ * <p>{@code type} and {@code value} both compare case-insensitively, as the schema advertises
+ * them and as a query filter on the same sub-attributes compares — one value path, one meaning.
  *
  * <p>{@link #ALL} selects every value and is what an unfiltered sub-attribute path such as
  * {@code emails.type} means. It is the one filter that may match nothing without being a
@@ -43,7 +42,7 @@ public record ScimEmailFilter(List<Condition> conditions) {
         boolean matches(ScimEmail email) {
             return switch (part) {
                 case VALUE -> expected == null ? email.value() == null
-                        : expected.equals(email.value());
+                        : lower((String) expected).equals(lower(email.value()));
                 case TYPE -> expected == null ? email.type() == null
                         : email.type() != null
                                 && lower((String) expected).equals(lower(email.type()));

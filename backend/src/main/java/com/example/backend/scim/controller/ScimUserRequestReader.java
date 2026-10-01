@@ -81,9 +81,10 @@ final class ScimUserRequestReader {
      * <p>Read exactly as a create is, because a PUT body IS a complete resource: the same schema
      * rule, the same refusal of unimplemented attributes, the same required {@code userName}.
      * What that means for the omitted attributes is the replacement semantics, and they fall out
-     * of reading it this way — an omitted optional attribute is read as unassigned, and an
-     * omitted {@code active} as its default, {@code true}, which RFC 7644 §3.5.1 allows a
-     * replacement to assign. An omitted {@code password} is read as absent, and the use case
+     * of reading it this way — an omitted optional attribute is read as unassigned. {@code active}
+     * is the exception: an omitted (or null) one is reported as not asserted, and the use case keeps
+     * the stored value, so leaving it out never reactivates a deactivated User. An omitted
+     * {@code password} is read as absent, and the use case
      * keeps the stored credential for it. {@code externalId} is an ordinary read-write attribute:
      * the submitted value becomes the calling connector's alias and an omitted one removes it.
      *
@@ -91,7 +92,9 @@ final class ScimUserRequestReader {
      */
     static ScimUserReplacement readReplace(JsonNode body) {
         NewScimUser read = readCreate(body);
-        return new ScimUserReplacement(read.profile(), read.password(), read.externalId());
+        JsonNode active = body.get("active");
+        return new ScimUserReplacement(read.profile(), read.password(), read.externalId(),
+                active != null && !active.isNull());
     }
 
     /**

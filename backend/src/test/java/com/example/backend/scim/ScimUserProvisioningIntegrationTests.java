@@ -229,6 +229,44 @@ class ScimUserProvisioningIntegrationTests {
     }
 
     /**
+     * Nothing but an explicit {@code active=true} reactivates a User: a PUT that leaves
+     * {@code active} out keeps it deactivated, and a PATCH that removes it is refused rather
+     * than read as the create default. Neither request carries {@code If-Match}, which is the
+     * shape a provisioning client that does not track ETags sends.
+     */
+    @Test
+    void a_deactivated_user_is_not_reactivated_by_omitting_or_removing_active() throws Exception {
+        MvcResult created = create("""
+                {"schemas":["%s"],"userName":"stays-inactive","active":false}"""
+                .formatted(USER_SCHEMA));
+        UUID id = UUID.fromString(body(created).get("id").asText());
+
+        MvcResult replaced = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],"userName":"stays-inactive",
+                                 "displayName":"Renamed"}""".formatted(USER_SCHEMA)))
+                .andReturn();
+        assertThat(replaced.getResponse().getStatus()).isEqualTo(200);
+        assertThat(body(replaced).get("active").asBoolean(true)).as("PUT without active").isFalse();
+        assertThat(body(replaced).get("displayName").asText()).isEqualTo("Renamed");
+
+        MvcResult removed = mvc.perform(asConnector(patch(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                                 "Operations":[{"op":"remove","path":"active"}]}"""))
+                .andReturn();
+        assertRefusal(removed, 400, "mutability");
+        assertThat(readAs(writeToken, id).get("active").asBoolean(true)).isFalse();
+
+        MvcResult reactivated = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],"userName":"stays-inactive","active":true}"""
+                                .formatted(USER_SCHEMA)))
+                .andReturn();
+        assertThat(body(reactivated).get("active").asBoolean(false)).as("explicit true").isTrue();
+    }
+
+    /**
      * The reverse membership view, end to end: a User added to a Group renders that
      * membership, with the label and the {@code $ref} derived rather than submitted.
      *

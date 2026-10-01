@@ -36,15 +36,15 @@ class ScimEmailTests {
     }
 
     /**
-     * The address is not. RFC 5321 makes a local part case-sensitive, and this service is
-     * not the authority that decides two spellings reach one mailbox.
+     * So is the address: {@code emails.value} is advertised {@code caseExact=false}, as RFC 7643
+     * §8.7.1 declares it, so two spellings are one value. The first spelling is the one kept.
      */
     @Test
-    void an_address_differing_in_case_is_a_different_value() {
+    void an_address_differing_only_in_case_is_the_same_value_and_the_first_spelling_is_kept() {
         assertThat(ScimEmail.canonical(List.of(
                         new ScimEmail("BJensen@example.com", "work", false),
                         new ScimEmail("bjensen@example.com", "work", false))))
-                .hasSize(2);
+                .containsExactly(new ScimEmail("BJensen@example.com", "work", false));
     }
 
     /** A typeless address and a typed one are two values, not one. */

@@ -47,9 +47,10 @@ import java.util.Set;
  * <p>The type and case sensitivity here are the ones {@code /Schemas} advertises for the same
  * attribute, and a test holds the two equal: a connector reads {@code caseExact} from discovery
  * and builds its filters on it, so a filter that compared differently from what discovery says
- * would return a different set than the one the connector asked for. {@code displayName} is the
- * case that makes the rule matter — case-exact on a User, case-insensitive on a Group, because
- * the Group's is server-unique on its normalized form.
+ * would return a different set than the one the connector asked for. Every profile string is
+ * case-insensitive, as RFC 7643 §2.2 and §8.7.1 make it; only identifiers are case-exact — the
+ * common {@code id} and {@code externalId}, the {@code meta} values, and the {@code value} and
+ * {@code $ref} of a membership, which are a resource id and its URI.
  *
  * <p>The common attributes ({@code id}, {@code externalId}, {@code meta}) are declared for both
  * types, because RFC 7643 §3.1 gives every resource them. {@code meta} is complex and its
@@ -120,37 +121,37 @@ public final class ScimQueryVocabulary {
     private static ScimQueryVocabulary user() {
         Map<ScimFilterPath, Attribute> user = common();
         text(user, USER_NAME, false);
-        user.put(NAME, new Attribute(NAME, Kind.COMPLEX, true, false));
+        user.put(NAME, new Attribute(NAME, Kind.COMPLEX, false, false));
         for (ScimFilterPath sub : new ScimFilterPath[] {
                 NAME_FORMATTED, NAME_FAMILY_NAME, NAME_GIVEN_NAME, NAME_MIDDLE_NAME,
                 NAME_HONORIFIC_PREFIX, NAME_HONORIFIC_SUFFIX}) {
-            text(user, sub, true);
+            text(user, sub, false);
         }
-        text(user, DISPLAY_NAME, true);
-        text(user, PREFERRED_LANGUAGE, true);
-        text(user, LOCALE, true);
-        text(user, TIMEZONE, true);
-        user.put(ACTIVE, new Attribute(ACTIVE, Kind.BOOLEAN, true, false));
-        multi(user, EMAILS, Kind.COMPLEX);
-        multi(user, EMAILS_VALUE, Kind.STRING);
-        multi(user, EMAILS_TYPE, Kind.STRING);
-        multi(user, EMAILS_PRIMARY, Kind.BOOLEAN);
-        multi(user, GROUPS, Kind.COMPLEX);
-        multi(user, GROUPS_VALUE, Kind.STRING);
-        multi(user, GROUPS_DISPLAY, Kind.STRING);
-        multi(user, GROUPS_REF, Kind.REFERENCE);
-        multi(user, GROUPS_TYPE, Kind.STRING);
+        text(user, DISPLAY_NAME, false);
+        text(user, PREFERRED_LANGUAGE, false);
+        text(user, LOCALE, false);
+        text(user, TIMEZONE, false);
+        user.put(ACTIVE, new Attribute(ACTIVE, Kind.BOOLEAN, false, false));
+        multi(user, EMAILS, Kind.COMPLEX, false);
+        multi(user, EMAILS_VALUE, Kind.STRING, false);
+        multi(user, EMAILS_TYPE, Kind.STRING, false);
+        multi(user, EMAILS_PRIMARY, Kind.BOOLEAN, false);
+        multi(user, GROUPS, Kind.COMPLEX, false);
+        multi(user, GROUPS_VALUE, Kind.STRING, true);
+        multi(user, GROUPS_DISPLAY, Kind.STRING, false);
+        multi(user, GROUPS_REF, Kind.REFERENCE, true);
+        multi(user, GROUPS_TYPE, Kind.STRING, false);
         return new ScimQueryVocabulary(user);
     }
 
     private static ScimQueryVocabulary group() {
         Map<ScimFilterPath, Attribute> group = common();
         text(group, DISPLAY_NAME, false);
-        multi(group, MEMBERS, Kind.COMPLEX);
-        multi(group, MEMBERS_VALUE, Kind.STRING);
-        multi(group, MEMBERS_DISPLAY, Kind.STRING);
-        multi(group, MEMBERS_REF, Kind.REFERENCE);
-        multi(group, MEMBERS_TYPE, Kind.STRING);
+        multi(group, MEMBERS, Kind.COMPLEX, false);
+        multi(group, MEMBERS_VALUE, Kind.STRING, true);
+        multi(group, MEMBERS_DISPLAY, Kind.STRING, false);
+        multi(group, MEMBERS_REF, Kind.REFERENCE, true);
+        multi(group, MEMBERS_TYPE, Kind.STRING, false);
         return new ScimQueryVocabulary(group);
     }
 
@@ -173,8 +174,9 @@ public final class ScimQueryVocabulary {
         into.put(path, new Attribute(path, Kind.STRING, exact, false));
     }
 
-    /** A multi-valued attribute or one of its sub-attributes; every one of them is case-exact. */
-    private static void multi(Map<ScimFilterPath, Attribute> into, ScimFilterPath path, Kind kind) {
-        into.put(path, new Attribute(path, kind, true, true));
+    /** A multi-valued attribute or one of its sub-attributes. */
+    private static void multi(
+            Map<ScimFilterPath, Attribute> into, ScimFilterPath path, Kind kind, boolean exact) {
+        into.put(path, new Attribute(path, kind, exact, true));
     }
 }

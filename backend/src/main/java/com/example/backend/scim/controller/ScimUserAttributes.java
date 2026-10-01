@@ -81,9 +81,11 @@ final class ScimUserAttributes {
      * it yields a resource without it rather than an error.
      */
     static final List<Attribute> SCHEMA_ATTRIBUTES = List.of(
+            // Case-insensitive like every attribute below that does not say otherwise: RFC 7643
+            // §2.2 makes `caseExact=false` the default, and §8.7.1 keeps it for every core User
+            // string this service implements. The flag is what filters and sort apply too.
             Attribute.singular("userName", "string", READ_WRITE, DEFAULT_RETURNED)
                     .asRequired()
-                    .caseInsensitive()
                     .unique("server"),
             Attribute.complex("name", READ_WRITE, DEFAULT_RETURNED, List.of(
                     Attribute.singular("formatted", "string", READ_WRITE, DEFAULT_RETURNED),
@@ -102,19 +104,28 @@ final class ScimUserAttributes {
             Attribute.singular("password", "string", WRITE_ONLY, NEVER_RETURNED),
             Attribute.multiValued("emails", READ_WRITE, DEFAULT_RETURNED, List.of(
                     Attribute.singular("value", "string", READ_WRITE, DEFAULT_RETURNED),
-                    Attribute.singular("type", "string", READ_WRITE, DEFAULT_RETURNED),
+                    // Suggested, not enforced: RFC 7643 §2.3.1 lets a service restrict a type to
+                    // its canonical values, and this one stores any label up to its length limit.
+                    Attribute.singular("type", "string", READ_WRITE, DEFAULT_RETURNED)
+                            .canonical("work", "home", "other"),
                     Attribute.singular("primary", "boolean", READ_WRITE, DEFAULT_RETURNED))),
             // The reverse membership view. Wholly readOnly — including its top level, which is
             // what distinguishes it from `members` on a Group: a Group's membership is written
             // there and only there, and this is the same relation seen from the other end. So
             // every sub-attribute is derived, and a submitted `groups` is ignored rather than
             // stored. `type` is `direct` for every entry, because this directory has no nested
-            // Groups and so no indirect membership to report.
+            // Groups and so no indirect membership to report — which is why `direct` is the only
+            // canonical value advertised. `value` and `$ref` are a resource id and its URI, and
+            // stay case-exact: RFC 7643 §2.3.7 makes a reference case-exact.
             Attribute.multiValued("groups", READ_ONLY, DEFAULT_RETURNED, List.of(
-                    Attribute.singular("value", "string", READ_ONLY, DEFAULT_RETURNED),
+                    Attribute.singular("value", "string", READ_ONLY, DEFAULT_RETURNED)
+                            .asCaseExact(),
                     Attribute.singular("display", "string", READ_ONLY, DEFAULT_RETURNED),
-                    Attribute.singular("$ref", "reference", READ_ONLY, DEFAULT_RETURNED),
-                    Attribute.singular("type", "string", READ_ONLY, DEFAULT_RETURNED))));
+                    Attribute.singular("$ref", "reference", READ_ONLY, DEFAULT_RETURNED)
+                            .asCaseExact()
+                            .references("Group"),
+                    Attribute.singular("type", "string", READ_ONLY, DEFAULT_RETURNED)
+                            .canonical("direct"))));
 
     private ScimUserAttributes() {
     }
@@ -171,6 +182,14 @@ final class ScimUserAttributes {
      * that occur are few and each factory names one of them: a singular value, a complex
      * value, a multi-valued complex value. A builder would also permit
      * {@code multiValued} with no sub-attributes, which nothing here needs.
+     *
+     * <p>Every factory starts from RFC 7643 §2.2's defaults — not required, case-insensitive,
+     * no uniqueness, no canonical values — and the modifiers state each departure, so the list
+     * above reads as the places this service differs from "an ordinary attribute".
+     *
+     * @param canonicalValues suggested values, rendered only when there are any
+     * @param referenceTypes  the resource types a {@code reference} may name, rendered only when
+     *                        there are any
      */
     record Attribute(
             String name,
@@ -181,42 +200,58 @@ final class ScimUserAttributes {
             String mutability,
             String returned,
             String uniqueness,
-            List<Attribute> subAttributes) {
+            List<Attribute> subAttributes,
+            List<String> canonicalValues,
+            List<String> referenceTypes) {
+
+        Attribute {
+            subAttributes = List.copyOf(subAttributes);
+            canonicalValues = List.copyOf(canonicalValues);
+            referenceTypes = List.copyOf(referenceTypes);
+        }
 
         static Attribute singular(
                 String name, String type, String mutability, String returned) {
-            return new Attribute(
-                    name, type, false, false, true, mutability, returned, "none", List.of());
+            return new Attribute(name, type, false, false, false, mutability, returned, "none",
+                    List.of(), List.of(), List.of());
         }
 
         static Attribute complex(
                 String name, String mutability, String returned, List<Attribute> sub) {
-            return new Attribute(
-                    name, "complex", false, false, true, mutability, returned, "none", sub);
+            return new Attribute(name, "complex", false, false, false, mutability, returned,
+                    "none", sub, List.of(), List.of());
         }
 
         static Attribute multiValued(
                 String name, String mutability, String returned, List<Attribute> sub) {
-            return new Attribute(
-                    name, "complex", true, false, true, mutability, returned, "none", sub);
+            return new Attribute(name, "complex", true, false, false, mutability, returned,
+                    "none", sub, List.of(), List.of());
         }
 
         Attribute asRequired() {
-            return new Attribute(
-                    name, type, multiValued, true, caseExact, mutability, returned,
-                    uniqueness, subAttributes);
+            return new Attribute(name, type, multiValued, true, caseExact, mutability, returned,
+                    uniqueness, subAttributes, canonicalValues, referenceTypes);
         }
 
-        Attribute caseInsensitive() {
-            return new Attribute(
-                    name, type, multiValued, required, false, mutability, returned,
-                    uniqueness, subAttributes);
+        /** A departure from the RFC 7643 §2.2 default: values compare case-sensitively. */
+        Attribute asCaseExact() {
+            return new Attribute(name, type, multiValued, required, true, mutability, returned,
+                    uniqueness, subAttributes, canonicalValues, referenceTypes);
         }
 
         Attribute unique(String scope) {
-            return new Attribute(
-                    name, type, multiValued, required, caseExact, mutability, returned,
-                    scope, subAttributes);
+            return new Attribute(name, type, multiValued, required, caseExact, mutability,
+                    returned, scope, subAttributes, canonicalValues, referenceTypes);
+        }
+
+        Attribute canonical(String... values) {
+            return new Attribute(name, type, multiValued, required, caseExact, mutability,
+                    returned, uniqueness, subAttributes, List.of(values), referenceTypes);
+        }
+
+        Attribute references(String... resourceTypes) {
+            return new Attribute(name, type, multiValued, required, caseExact, mutability,
+                    returned, uniqueness, subAttributes, canonicalValues, List.of(resourceTypes));
         }
 
         /** The attribute as a schema document renders it. */
@@ -234,6 +269,12 @@ final class ScimUserAttributes {
             rendered.put("mutability", mutability);
             rendered.put("returned", returned);
             rendered.put("uniqueness", uniqueness);
+            if (!canonicalValues.isEmpty()) {
+                rendered.put("canonicalValues", canonicalValues);
+            }
+            if (!referenceTypes.isEmpty()) {
+                rendered.put("referenceTypes", referenceTypes);
+            }
             return rendered;
         }
     }

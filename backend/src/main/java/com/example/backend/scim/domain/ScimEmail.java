@@ -64,17 +64,17 @@ public record ScimEmail(String value, String type, boolean primary) {
     }
 
     /**
-     * What makes two values the same value: the type, case-insensitively because a
-     * type is a keyword rather than data, and the address exactly as sent.
+     * What makes two values the same value: the type and the address, both case-insensitively.
      *
-     * <p>The address is compared case-sensitively on purpose. The local part of an
-     * email address is case-sensitive per RFC 5321, and this service is not the
-     * authority that decides two differently-cased addresses reach the same
-     * mailbox; treating them as one value would silently discard data the
-     * connector sent.
+     * <p>That is what the schema advertises for them — {@code emails.type} and
+     * {@code emails.value} are {@code caseExact=false}, as RFC 7643 §8.7.1 declares them — and a
+     * filter compares them the same way, so two values differing only in case are one value to
+     * every reader. Keeping both would render a {@code (type, value)} combination twice, which
+     * RFC 7643 §2.4 says a service SHOULD NOT do. The first occurrence's spelling is the one
+     * kept; nothing is lower-cased in storage.
      */
     private static String identity(ScimEmail email) {
         String type = email.type() == null ? "" : email.type().toLowerCase(Locale.ROOT);
-        return type + '\u0000' + email.value();
+        return type + '\u0000' + email.value().toLowerCase(Locale.ROOT);
     }
 }

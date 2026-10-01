@@ -455,7 +455,8 @@ class ScimFilterParserTests {
 
     /**
      * A schema-qualified path resolves to THAT type's attribute even when the other queried type
-     * has one of the same name: a Group's displayName sorts case-insensitively, a User's does not.
+     * has one of the same name. Both displayNames are case-insensitive now, so the resolved
+     * resource type is what tells them apart.
      */
     @Test
     void a_qualified_single_path_resolves_against_its_own_schemas_vocabulary() {
@@ -464,8 +465,10 @@ class ScimFilterParserTests {
         ScimFilterParser.ResolvedPath user = ScimFilterParser.parsePath(
                 "urn:ietf:params:scim:schemas:core:2.0:User:displayName", BOTH);
 
-        assertThat(group.attribute().caseExact()).isFalse();
-        assertThat(user.attribute().caseExact()).isTrue();
+        assertThat(group.reference().appliesTo(ScimResourceType.GROUP)).isTrue();
+        assertThat(group.reference().appliesTo(ScimResourceType.USER)).isFalse();
+        assertThat(user.reference().appliesTo(ScimResourceType.USER)).isTrue();
+        assertThat(user.reference().appliesTo(ScimResourceType.GROUP)).isFalse();
     }
 
     @Test
