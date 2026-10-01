@@ -333,7 +333,7 @@ own runbook text:
 | ----- | -------- | ------------- |
 | `ScimAuthenticationFailuresSustained` | sustained SCIM `401` | a connector's token expired or was revoked, or probing |
 | `LoginAuthenticationFailuresSustained` | sustained Login `401` | a guessing campaign spread across accounts |
-| `ScimPreconditionFailuresSustained` | sustained SCIM `412` / `428` | writers colliding, or a connector sending no `If-Match` |
+| `ScimPreconditionFailuresSustained` | sustained SCIM `412` | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
 | `ScimUniquenessConflictsSustained` | sustained SCIM `409` | a connector re-creating identities it believes are missing |
 | `InactivityJobFailed` / `InactivityJobNotRunning` | the inactivity job throws, or has not succeeded for 26 h | inactive accounts are not being deactivated |
 
