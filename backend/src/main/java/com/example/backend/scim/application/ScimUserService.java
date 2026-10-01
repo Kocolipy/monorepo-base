@@ -65,9 +65,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ol>
  *   <li>read the User under its resource lock — absent is a {@code 404}, decided before the
- *       precondition so a missing header cannot disclose which ids exist;
- *   <li>check the {@code If-Match} precondition against the locked version, so two writers
- *       racing with the same one produce one success and one {@code 412};
+ *       precondition so a malformed or stale header cannot disclose which ids exist;
+ *   <li>check the {@code If-Match} precondition, when one was sent, against the locked version,
+ *       so two writers racing with the same one produce one success and one {@code 412}. A write
+ *       without one is applied unconditionally, still under the lock and in one transaction with
+ *       its version advance, so unconditional writers serialize rather than interleave;
  *   <li>refuse the Bootstrap Admin, which no SCIM write may change;
  *   <li>compute the desired state in memory, refuse a value longer than its column
  *       ({@link ScimAttributeLimits}), refuse a password the {@link PasswordPolicy} does

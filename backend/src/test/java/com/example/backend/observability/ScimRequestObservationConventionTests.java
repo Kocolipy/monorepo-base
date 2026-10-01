@@ -86,12 +86,26 @@ class ScimRequestObservationConventionTests {
         assertThat(ScimRequestObservationConvention.connector(recorded)).isEqualTo("other");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"if-match", "unconditional"})
+    void a_precondition_presence_is_published_as_itself(String recorded) {
+        assertThat(ScimRequestObservationConvention.precondition(recorded)).isEqualTo(recorded);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"7\"", "If-Match", "", "other"})
+    void a_precondition_value_outside_its_set_becomes_other(String recorded) {
+        assertThat(ScimRequestObservationConvention.precondition(recorded)).isEqualTo("other");
+    }
+
     @Test
     void nothing_recorded_is_none_including_the_none_this_convention_set_at_start() {
         assertThat(ScimRequestObservationConvention.scimType(null)).isEqualTo("none");
         assertThat(ScimRequestObservationConvention.scimType("none")).isEqualTo("none");
         assertThat(ScimRequestObservationConvention.connector(null)).isEqualTo("none");
         assertThat(ScimRequestObservationConvention.connector("none")).isEqualTo("none");
+        assertThat(ScimRequestObservationConvention.precondition(null)).isEqualTo("none");
+        assertThat(ScimRequestObservationConvention.precondition("none")).isEqualTo("none");
     }
 
     /**
@@ -105,6 +119,7 @@ class ScimRequestObservationConventionTests {
         assertThat(tags).containsEntry("scim.resource.type", "none")
                 .containsEntry("scim.type", "none")
                 .containsEntry("scim.connector", "none")
+                .containsEntry("scim.precondition", "none")
                 .containsKeys("method", "status", "uri", "outcome", "exception");
     }
 
@@ -113,10 +128,12 @@ class ScimRequestObservationConventionTests {
         ServerRequestObservationContext context = context("/scim/v2/Users");
         context.addLowCardinalityKeyValue(KeyValue.of("scim.type", "uniqueness"));
         context.addLowCardinalityKeyValue(KeyValue.of("scim.connector", CONNECTOR));
+        context.addLowCardinalityKeyValue(KeyValue.of("scim.precondition", "unconditional"));
 
         assertThat(tags(context)).containsEntry("scim.resource.type", "User")
                 .containsEntry("scim.type", "uniqueness")
-                .containsEntry("scim.connector", CONNECTOR);
+                .containsEntry("scim.connector", CONNECTOR)
+                .containsEntry("scim.precondition", "unconditional");
     }
 
     @Test
@@ -124,9 +141,11 @@ class ScimRequestObservationConventionTests {
         ServerRequestObservationContext context = context("/scim/v2/Users");
         context.addLowCardinalityKeyValue(KeyValue.of("scim.type", "userName eq \"alice\""));
         context.addLowCardinalityKeyValue(KeyValue.of("scim.connector", "alice"));
+        context.addLowCardinalityKeyValue(KeyValue.of("scim.precondition", "\"7\""));
 
         assertThat(tags(context)).containsEntry("scim.type", "other")
-                .containsEntry("scim.connector", "other");
+                .containsEntry("scim.connector", "other")
+                .containsEntry("scim.precondition", "other");
     }
 
     /** The path is read without the servlet context path, as the security chains read it. */

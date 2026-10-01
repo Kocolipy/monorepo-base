@@ -1274,8 +1274,6 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
     patch:
@@ -1369,8 +1367,6 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
     delete:
@@ -1395,8 +1391,8 @@ paths:
         The Bootstrap Admin cannot be deleted; the attempt is `400 mutability`,
         deletes nothing and is audited as a refusal.
 
-        Requires `If-Match` with the User's current ETag, under the same rules as
-        PUT and PATCH; see the parameter.
+        `If-Match` is optional, under the same rules as PUT and PATCH; see the
+        parameter.
       operationId: deleteScimUser
       security:
         - connectorBearer: []
@@ -1424,8 +1420,6 @@ paths:
           $ref: "#/components/responses/ScimNotFound"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
   /scim/v2/Groups:
     get:
       tags: [SCIM]
@@ -1676,7 +1670,8 @@ paths:
         CURRENT member, because the label rendered inside their `groups` changed. A
         write that moves both touches the union of the old and the new membership.
 
-        Requires `If-Match` with the Group's current ETag; see the parameter.
+        `If-Match` is optional; when sent it must be the Group's current ETag. See
+        the parameter.
       operationId: replaceScimGroup
       security:
         - connectorBearer: []
@@ -1715,8 +1710,6 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
     patch:
@@ -1759,8 +1752,8 @@ paths:
         permits either of: a membership change advances versions, and a client given
         no body would have to re-read the resource to learn its new ETag.
 
-        The same cross-resource version increments, and the same `If-Match`
-        requirement, apply as for PUT.
+        The same cross-resource version increments, and the same optional `If-Match`
+        precondition, apply as for PUT.
       operationId: patchScimGroup
       security:
         - connectorBearer: []
@@ -1799,8 +1792,6 @@ paths:
                 $ref: "#/components/schemas/ScimError"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
         "415":
           $ref: "#/components/responses/ScimUnsupportedMediaType"
     delete:
@@ -1819,7 +1810,8 @@ paths:
         stable id, the resource type and the deletion time; it is never consulted for
         uniqueness, so the former `displayName` is accepted by the next create.
 
-        Requires `If-Match` with the Group's current ETag; see the parameter.
+        `If-Match` is optional; when sent it must be the Group's current ETag. See
+        the parameter.
       operationId: deleteScimGroup
       security:
         - connectorBearer: []
@@ -1841,8 +1833,6 @@ paths:
           $ref: "#/components/responses/ScimNotFound"
         "412":
           $ref: "#/components/responses/ScimPreconditionFailed"
-        "428":
-          $ref: "#/components/responses/ScimPreconditionRequired"
   /scim/v2/Me:
     get:
       tags: [SCIM]
@@ -2084,12 +2074,14 @@ components:
     ScimIfMatch:
       name: If-Match
       in: header
-      required: true
+      required: false
       description: |
-        Exactly one strong entity tag: the `ETag` (equivalently `meta.version`) of the
-        resource as the client last read it, e.g. `"7"`. Required on every PUT, PATCH
-        and DELETE against an existing User or Group, because several connectors may
-        write the same directory and a write carrying no validator is a lost update.
+        Optional, as RFC 7644 §3.14 makes it for clients. When sent, exactly one strong
+        entity tag: the `ETag` (equivalently `meta.version`) of the resource as the
+        client last read it, e.g. `"7"`. Accepted on every PUT, PATCH and DELETE against
+        an existing User or Group. Several connectors may write the same directory, so
+        a client that sends it gets exact lost-update protection; a client that does
+        not gets last-writer-wins.
 
         Checked AFTER authorization and existence — a read-only token is refused as
         `403` and an unknown id is `404` whatever this header says — and BEFORE
@@ -2097,14 +2089,15 @@ components:
 
         | Sent | Result |
         | --- | --- |
-        | nothing | `428`, detail says to GET the resource and retry with its ETag |
+        | nothing | the write proceeds unconditionally — last writer wins |
         | `*`, a list of tags, a repeated header, or not an entity tag | `400 invalidValue` |
         | one well-formed tag that is not the current version, or a weak `W/` tag | `412` |
         | the current version's exact tag | the write proceeds |
 
         Two writers holding the same current tag are serialized on the resource: one
         succeeds, and the other then finds the version it holds is stale and receives
-        `412`.
+        `412`. Unconditional writers are serialized the same way, so neither sees the
+        other half-applied: both succeed, each advancing the version once.
       schema:
         type: string
     UserId:
@@ -2223,14 +2216,6 @@ components:
     ScimNotFound:
       description: |
         No live resource, schema or resource type has that identifier.
-      content:
-        application/scim+json:
-          schema:
-            $ref: "#/components/schemas/ScimError"
-    ScimPreconditionRequired:
-      description: |
-        The write carried no `If-Match`. No `scimType` exists for this condition. GET
-        the resource and retry with its `ETag` in `If-Match`.
       content:
         application/scim+json:
           schema:

@@ -202,11 +202,15 @@ attribute, puts missing values last ascending and first descending, and breaks t
 by `id`. The same query may be sent as a `SearchRequest` body to `/Users/.search`,
 `/Groups/.search`, or the base `/.search`, which spans both types and treats an
 attribute one type lacks as having no value there. `PUT`, `PATCH`, and
-`DELETE` of an existing resource require exactly one strong `If-Match` ETag,
-checked after authorization and existence: a missing precondition is `428`, a
-wildcard, list or malformed one is `400 invalidValue`, and a stale version is
-`412`. Concurrent writers holding the same ETag are serialized on the resource, so
-exactly one succeeds. `externalId` is read-write on Users and Groups and writes
+`DELETE` of an existing resource accept an optional `If-Match`, as RFC 7644
+allows: without one the write is applied unconditionally, last writer wins; when
+sent it must be exactly one strong ETag, checked after authorization and
+existence: a wildcard, list or malformed one is `400 invalidValue`, and a stale
+version is `412`. Concurrent writers holding the same ETag are serialized on the
+resource, so exactly one succeeds; concurrent unconditional writers are serialized
+too, so both succeed and neither is half-applied. Unconditional writes are counted
+per connector so an operator can see which integrations run without lost-update
+protection. `externalId` is read-write on Users and Groups and writes
 only the calling connector's alias: a `PUT` sets it to the submitted value or, when
 omitted, removes it, and `PATCH` `add`/`replace`/`remove` set or clear it. Another
 connector's alias for the same resource is never read or written. A password set

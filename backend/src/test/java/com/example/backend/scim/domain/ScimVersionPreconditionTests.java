@@ -1,5 +1,6 @@
 package com.example.backend.scim.domain;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -9,22 +10,31 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * The {@code If-Match} contract: absent is {@code 428}, anything but one entity tag is
- * {@code 400}, a well-formed tag that is not the current version is {@code 412}, and only the
- * current version's exact tag lets the write through.
+ * The {@code If-Match} contract: absent is an unconditional write that any version satisfies,
+ * anything but one entity tag is {@code 400}, a well-formed tag that is not the current version is
+ * {@code 412}, and only the current version's exact tag lets a conditional write through.
  */
 class ScimVersionPreconditionTests {
 
     private static final long CURRENT = 7L;
 
-    @Test
-    void no_header_at_all_is_a_required_precondition() {
-        assertThatThrownBy(() -> ScimVersionPrecondition.ofIfMatch(List.of())
-                        .requireSatisfiedBy(CURRENT))
-                .isInstanceOf(PreconditionRequiredException.class);
-        assertThatThrownBy(() -> ScimVersionPrecondition.ofIfMatch(null)
-                        .requireSatisfiedBy(CURRENT))
-                .isInstanceOf(PreconditionRequiredException.class);
+    /** RFC 7644 §3.14 makes {@code If-Match} optional: a write without one is unconditional. */
+    @ParameterizedTest
+    @ValueSource(longs = {0L, 1L, CURRENT, Long.MAX_VALUE})
+    void no_header_at_all_is_unconditional_and_satisfied_by_any_version(long version) {
+        for (ScimVersionPrecondition absent : List.of(
+                ScimVersionPrecondition.ofIfMatch(List.of()),
+                ScimVersionPrecondition.ofIfMatch(null))) {
+            assertThat(absent.isConditional()).isFalse();
+            assertThatCode(() -> absent.requireSatisfiedBy(version)).doesNotThrowAnyException();
+        }
+    }
+
+    /** Any header value at all — even one that is then refused — makes the write conditional. */
+    @ParameterizedTest
+    @ValueSource(strings = {"\"7\"", "*", ""})
+    void any_header_value_makes_the_write_conditional(String header) {
+        assertThat(ScimVersionPrecondition.ofIfMatch(List.of(header)).isConditional()).isTrue();
     }
 
     /** A wildcard would switch the check off, so it is refused rather than honoured. */

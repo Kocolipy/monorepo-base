@@ -368,15 +368,21 @@ class ScimDeletionIntegrationTests {
 
     // ---- preconditions, authorization, existence ----------------------------------------
 
+    /**
+     * {@code If-Match} is optional: a deletion without one deletes exactly as a conditional one
+     * does — the row goes, a tombstone is written, and the id is a {@code 404} from then on.
+     */
     @Test
-    void a_deletion_without_if_match_is_428_and_deletes_nothing() throws Exception {
-        UUID user = createUser("delete-428");
+    void a_deletion_without_if_match_deletes_and_leaves_a_tombstone() throws Exception {
+        UUID user = createUser("delete-unconditional");
 
-        MvcResult refused = mvc.perform(as(tokenA, delete(USERS + "/" + user))).andReturn();
+        assertThat(status(as(tokenA, delete(USERS + "/" + user)))).isEqualTo(204);
 
-        assertThat(refused.getResponse().getStatus()).isEqualTo(428);
-        assertThat(body(refused).get("detail").asText()).contains("If-Match");
-        assertStillThere(user);
+        assertThat(count("SELECT count(*) FROM scim_users WHERE resource_id = ?", user))
+                .isZero();
+        assertThat(count("SELECT count(*) FROM scim_tombstones WHERE resource_id = ?", user))
+                .isEqualTo(1);
+        assertThat(status(as(tokenA, get(USERS + "/" + user)))).isEqualTo(404);
     }
 
     @ParameterizedTest

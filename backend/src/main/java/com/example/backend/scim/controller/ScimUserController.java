@@ -8,7 +8,6 @@ import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
-import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -165,8 +164,8 @@ class ScimUserController {
     /**
      * Replaces a User — PUT.
      *
-     * <p>Requires exactly one current {@code If-Match}; see {@link ScimVersionPrecondition}. The
-     * header is captured here and evaluated by the use case once the User is found, so an id that
+     * <p>{@code If-Match} is optional; when sent it must be exactly one current ETag (see
+     * {@link ScimIfMatch}). The header is captured here and evaluated by the use case once the User is found, so an id that
      * names nothing is a {@code 404} whatever the header says. The body is read BEFORE the User is
      * looked up, so a malformed body is refused without touching the directory.
      *
@@ -188,7 +187,7 @@ class ScimUserController {
         UUID userId = resourceId(id);
         ScimUserReplacement replacement = ScimUserRequestReader.readReplace(body);
         ScimUserResource written = users.replace(
-                        connector, userId, ScimVersionPrecondition.ofIfMatch(ifMatch), replacement)
+                        connector, userId, ScimIfMatch.capture(ifMatch), replacement)
                 .orElseThrow(ScimUserController::noSuchUser);
         return ok(written, projection);
     }
@@ -216,7 +215,7 @@ class ScimUserController {
         UUID userId = resourceId(id);
         List<ScimUserPatchOperation> operations = ScimUserPatchReader.readPatch(body);
         ScimUserResource written = users.patch(
-                        connector, userId, ScimVersionPrecondition.ofIfMatch(ifMatch), operations)
+                        connector, userId, ScimIfMatch.capture(ifMatch), operations)
                 .orElseThrow(ScimUserController::noSuchUser);
         return ok(written, projection);
     }
@@ -233,7 +232,7 @@ class ScimUserController {
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch) {
-        if (!users.delete(connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch))) {
+        if (!users.delete(connector, resourceId(id), ScimIfMatch.capture(ifMatch))) {
             throw noSuchUser();
         }
         return ResponseEntity.noContent().build();

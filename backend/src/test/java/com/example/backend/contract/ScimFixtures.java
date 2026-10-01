@@ -664,16 +664,24 @@ final class ScimFixtures {
                             200)).get("displayName")).isEqualTo(resource.body().get("displayName"));
                 });
 
-        // -- 428 / 400 / 412: the precondition --
+        // -- the precondition: optional (RFC 7644 §3.14), and exact when sent: 400 / 412 --
         for (Map.Entry<String, Probe> write : writes(kind, null).entrySet()) {
             String op = write.getKey();
-            add(all, k + " 428: " + op + " without If-Match", t -> {
+            add(all, k + " 2xx: " + op + " without If-Match is applied unconditionally", t -> {
                 Resource resource = t.create(kind);
                 MockHttpServletRequestBuilder request =
                         writes(kind, t.writeToken).get(op).apply(t, resource);
                 stripIfMatch(request);
-                t.expectError(request, 428, null);
-                t.assertUnchanged(kind, resource);
+                if (op.startsWith("DELETE")) {
+                    t.expect(request, 204);
+                    t.expect(t.scim(HttpMethod.GET, kind.one(resource.id())), 404);
+                } else {
+                    MvcResult applied = t.expect(request, 200);
+                    assertThat(applied.getResponse().getHeader(HttpHeaders.ETAG))
+                            .as("an unconditional write advances the ETag as any write does")
+                            .isNotEqualTo(resource.etag())
+                            .isEqualTo(t.etag(kind, resource.id()));
+                }
             });
             add(all, k + " 400 invalidValue: " + op + " with a wildcard If-Match", t -> {
                 Resource resource = t.create(kind);

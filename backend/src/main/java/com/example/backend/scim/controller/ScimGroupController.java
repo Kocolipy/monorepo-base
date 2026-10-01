@@ -8,7 +8,6 @@ import com.example.backend.scim.application.ScimGroupResource;
 import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimResourceType;
-import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -165,8 +164,8 @@ class ScimGroupController {
     /**
      * Replaces a Group's writable attributes.
      *
-     * <p>Requires exactly one current {@code If-Match}, as every write against an existing
-     * resource does; the use case evaluates it once the Group is found, so an unknown id is a
+     * <p>{@code If-Match} is optional; when sent it must be exactly one current ETag, as on every
+     * write against an existing resource. The use case evaluates it once the Group is found, so an unknown id is a
      * {@code 404} whatever the header says.
      */
     @PutMapping(
@@ -184,7 +183,7 @@ class ScimGroupController {
                 ScimAttributeProjection.ofGroup(attributes, excludedAttributes);
         ScimGroupReplacement replacement = ScimGroupRequestReader.readReplace(body);
         ScimGroupResource written = groups.replace(
-                        connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch),
+                        connector, resourceId(id), ScimIfMatch.capture(ifMatch),
                         replacement)
                 .orElseThrow(ScimGroupController::noSuchGroup);
         return ok(written, projection);
@@ -213,7 +212,7 @@ class ScimGroupController {
                 ScimAttributeProjection.ofGroup(attributes, excludedAttributes);
         List<ScimGroupPatchOperation> operations = ScimGroupRequestReader.readPatch(body);
         ScimGroupResource written = groups.patch(
-                        connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch),
+                        connector, resourceId(id), ScimIfMatch.capture(ifMatch),
                         operations)
                 .orElseThrow(ScimGroupController::noSuchGroup);
         return ok(written, projection);
@@ -231,7 +230,7 @@ class ScimGroupController {
             @AuthenticationPrincipal AuthenticatedConnector connector,
             @PathVariable String id,
             @RequestHeader(value = HttpHeaders.IF_MATCH, required = false) List<String> ifMatch) {
-        if (!groups.delete(connector, resourceId(id), ScimVersionPrecondition.ofIfMatch(ifMatch))) {
+        if (!groups.delete(connector, resourceId(id), ScimIfMatch.capture(ifMatch))) {
             throw noSuchGroup();
         }
         return ResponseEntity.noContent().build();

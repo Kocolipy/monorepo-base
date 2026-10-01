@@ -1,7 +1,9 @@
 # Prometheus alerting rules for the provisioning surface.
 #
 # The four conditions the SCIM plan's "Operational telemetry" section names: each
-# means an integration is broken or hostile rather than merely busy. Load this file
+# means an integration is broken or hostile rather than merely busy. A second
+# group holds recording rules: series an operator reads on a dashboard, which
+# describe how an integration behaves but are not a fault to page on. Load this file
 # with `rule_files:` in the Prometheus that scrapes /actuator/prometheus; the
 # scrape itself, and who may read it, is in infra/README.md.
 #
@@ -54,25 +56,22 @@ groups:
             targeted, and the edge (load balancer) access log for where the attempts
             come from. Locked accounts stay locked until an Admin unlocks them.
 
-      # 2. Precondition failures: writers colliding (412), or a client ignoring the
-      #    precondition contract altogether (428).
+      # 2. Precondition failures: writers colliding (412). If-Match is optional, so a
+      #    write that sends none is never refused for it — see the recording rule
+      #    scim:unconditional_writes:rate1h below for which connectors write that way.
       - alert: ScimPreconditionFailuresSustained
         expr: >
-          sum by (status) (
-            rate(http_server_requests_seconds_count{status=~"412|428", scim_resource_type!="none"}[5m])
-          ) > 0.1
+          sum(rate(http_server_requests_seconds_count{status="412", scim_resource_type!="none"}[5m])) > 0.1
         for: 15m
         labels:
           severity: warning
         annotations:
           summary: SCIM writes are failing their precondition
           description: >
-            412 means two writers are updating the same resources and one keeps losing;
-            428 means a connector is sending PUT/PATCH/DELETE without If-Match, which
-            this service requires and will never accept.
+            A sustained rate of 412s: two writers are updating the same resources with
+            If-Match, and one keeps losing to the other.
           runbook: >
-            428: the connector is misconfigured — enable its ETag / If-Match support.
-            412: find the second writer (another connector, or an Admin editing the same
+            Find the second writer (another connector, or an Admin editing the same
             Users) from the audit trail's actor on the conflicting resources.
 
       # 3. Uniqueness conflicts: a connector re-creating identities it believes are
@@ -127,3 +126,18 @@ groups:
             Check InactivityJobFailed first. If it is silent the trigger is not firing:
             confirm the instance is up and was not restarted into a configuration that
             no longer schedules the job.
+
+  - name: provisioning-surface-recordings
+    rules:
+      # Writes applied without lost-update protection, per connector. If-Match is
+      # optional (RFC 7644 §3.14), and the mainstream provisioning clients do not send
+      # it, so a PUT, PATCH or DELETE without one is applied last-writer-wins. Not an
+      # alert — an integration that never sends If-Match is legitimate — but the series
+      # that tells an operator which connectors run that way, so a lost update can be
+      # traced to the integrations that could have caused it. The connector is named by
+      # its non-secret id (GET /api/admin/connectors).
+      - record: scim:unconditional_writes:rate1h
+        expr: >
+          sum by (scim_connector, scim_resource_type, method) (
+            rate(http_server_requests_seconds_count{scim_precondition="unconditional", outcome="SUCCESS"}[1h])
+          )

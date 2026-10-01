@@ -11,7 +11,6 @@ import com.example.backend.scim.domain.PasswordHistoryPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.PreconditionFailedException;
-import com.example.backend.scim.domain.PreconditionRequiredException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
@@ -116,18 +115,6 @@ class ScimExceptionHandler {
     ResponseEntity<Map<String, Object>> handle(UnknownGroupMemberException unknownMember) {
         return render(ScimErrorException.invalidValue(
                 "Every Group member must reference a live User."));
-    }
-
-    /**
-     * A write against an existing resource with no {@code If-Match}. The detail says what to do,
-     * because a client that has never sent the header needs to learn the contract, not just that
-     * it broke it.
-     */
-    @ExceptionHandler(PreconditionRequiredException.class)
-    ResponseEntity<Map<String, Object>> handle(PreconditionRequiredException missing) {
-        return render(ScimErrorException.preconditionRequired(
-                "This write requires an If-Match precondition: GET the resource and retry with"
-                        + " its ETag in an If-Match header."));
     }
 
     /** An {@code If-Match} that is a wildcard, a list, repeated, or not an entity tag. */

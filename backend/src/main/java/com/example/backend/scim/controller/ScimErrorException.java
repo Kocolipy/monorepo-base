@@ -78,11 +78,6 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(HttpStatus.BAD_REQUEST, "invalidFilter", detail);
     }
 
-    /** A write against an existing resource sent no {@code If-Match}. No {@code scimType} exists for it. */
-    public static ScimErrorException preconditionRequired(String detail) {
-        return new ScimErrorException(HttpStatus.PRECONDITION_REQUIRED, null, detail);
-    }
-
     /** A write's {@code If-Match} named a version that is no longer current. */
     public static ScimErrorException preconditionFailed(String detail) {
         return new ScimErrorException(HttpStatus.PRECONDITION_FAILED, null, detail);
