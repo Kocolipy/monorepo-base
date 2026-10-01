@@ -227,7 +227,7 @@ Schema URI: `urn:ietf:params:scim:schemas:core:2.0:User`.
 | `locale` | no | read-write / default | Valid language tag |
 | `timezone` | no | read-write / default | Valid IANA time-zone identifier |
 | `active` | no | read-write / default | Defaults true on create; false blocks Login and revokes sessions. A PUT that omits it keeps the stored value, and PATCH `remove` of it is `400 mutability`, so only an explicit `true` reactivates |
-| `password` | no | write-only / never | PRECIS-processed, policy-validated and hashed immediately; never returned, filtered, logged or audited as a value |
+| `password` | no | write-only / never | Case-exact; PRECIS-processed, policy-validated and hashed immediately; never returned, filtered, logged or audited as a value |
 | `emails` | no | read-write / default | `value`, `type`, `primary`; at most one primary; `(type,value)` duplicates removed, compared case-insensitively; `type` advertises canonical values `work`, `home`, `other` |
 | `groups` | no | read-only / default | Computed direct memberships with `value`, `$ref`, `display`, `type=direct`; writes occur through Group |
 | `meta` | server | read-only / default | `resourceType`, `created`, `lastModified`, `location`, `version` |

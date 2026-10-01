@@ -101,7 +101,11 @@ final class ScimUserAttributes {
             Attribute.singular("locale", "string", READ_WRITE, DEFAULT_RETURNED),
             Attribute.singular("timezone", "string", READ_WRITE, DEFAULT_RETURNED),
             Attribute.singular("active", "boolean", READ_WRITE, DEFAULT_RETURNED),
-            Attribute.singular("password", "string", WRITE_ONLY, NEVER_RETURNED),
+            // Case-exact, departing from RFC 7643 §8.7.1's example: a password is a secret
+            // whose case is part of it, and no comparison here ever ignores that. Not
+            // queryable, so the flag is descriptive only — no filter reads it.
+            Attribute.singular("password", "string", WRITE_ONLY, NEVER_RETURNED)
+                    .asCaseExact(),
             Attribute.multiValued("emails", READ_WRITE, DEFAULT_RETURNED, List.of(
                     Attribute.singular("value", "string", READ_WRITE, DEFAULT_RETURNED),
                     // Suggested, not enforced: RFC 7643 §2.3.1 lets a service restrict a type to

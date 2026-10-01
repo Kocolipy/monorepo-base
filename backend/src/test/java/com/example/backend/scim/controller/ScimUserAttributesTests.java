@@ -88,6 +88,7 @@ class ScimUserAttributesTests {
 
         assertThat(password).containsEntry("mutability", "writeOnly");
         assertThat(password).containsEntry("returned", "never");
+        assertThat(password).containsEntry("caseExact", true);
         assertThat(ScimUserAttributes.isNeverReturned("password")).isTrue();
         assertThat(ScimUserAttributes.isNeverReturned("userName")).isFalse();
     }
@@ -194,7 +195,7 @@ class ScimUserAttributesTests {
                 writable("locale", "string"),
                 writable("timezone", "string"),
                 writable("active", "boolean"),
-                attribute("password", "string", false, false, false, "writeOnly", "never", "none", List.of()),
+                attribute("password", "string", false, false, true, "writeOnly", "never", "none", List.of()),
                 attribute("emails", "complex", true, false, false, READ_WRITE, DEFAULT, "none", List.of(
                         writable("value", "string"),
                         with(writable("type", "string"),
