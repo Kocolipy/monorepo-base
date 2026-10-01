@@ -84,8 +84,8 @@ final class ScimUserRequestReader {
      * of reading it this way — an omitted optional attribute is read as unassigned, and an
      * omitted {@code active} as its default, {@code true}, which RFC 7644 §3.5.1 allows a
      * replacement to assign. An omitted {@code password} is read as absent, and the use case
-     * keeps the stored credential for it. A submitted {@code externalId} is passed on for the
-     * use case to check against the stored alias, which it may restate but not change.
+     * keeps the stored credential for it. {@code externalId} is an ordinary read-write attribute:
+     * the submitted value becomes the calling connector's alias and an omitted one removes it.
      *
      * @throws ScimErrorException {@code 400} for every body {@link #readCreate} refuses
      */

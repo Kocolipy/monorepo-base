@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
+import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -340,6 +341,27 @@ class AuditTrailServiceTests {
                 Set.of(AuditGroupAttribute.MEMBERS, AuditGroupAttribute.DISPLAY_NAME));
 
         assertThat(events.only().changedPaths()).containsExactly("displayName", "members");
+    }
+
+    /**
+     * A change to the calling connector's alias is recorded as the path {@code externalId} on
+     * both resource types — the path only: no method on the trail takes the alias value.
+     */
+    @Test
+    void aGroupAliasChangeIsRecordedAsTheExternalIdPath() {
+        trail.recordScimGroupReplaced(ACTOR, GROUP,
+                Set.of(AuditGroupAttribute.EXTERNAL_ID, AuditGroupAttribute.DISPLAY_NAME));
+
+        assertThat(events.only().changedPaths()).containsExactly("displayName", "externalId");
+    }
+
+    /** The User counterpart of {@link #aGroupAliasChangeIsRecordedAsTheExternalIdPath}. */
+    @Test
+    void aUserAliasChangeIsRecordedAsTheExternalIdPath() {
+        trail.recordScimUserReplaced(ACTOR, GROUP,
+                Set.of(AuditUserAttribute.EXTERNAL_ID, AuditUserAttribute.EMAILS));
+
+        assertThat(events.only().changedPaths()).containsExactly("emails", "externalId");
     }
 
     /**

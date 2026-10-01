@@ -6,12 +6,11 @@ import java.util.UUID;
 /**
  * A request to replace a SCIM Group wholesale — a PUT.
  *
- * <p>Separate from {@link NewScimGroup} even though the two carry the same two attributes,
- * because a replacement has no {@code externalId}: the alias belongs to the connector's
- * relationship with the resource and is established when the resource is created. A PUT that
- * could change it would let one connector's replacement silently re-key the resource in its
- * own namespace, and a replacement that had to RESTATE it would delete the alias of every
- * connector that omitted the field.
+ * <p>{@code externalId} is read-write and replaced like the other attributes: the submitted value
+ * becomes the calling connector's alias, and an omitted one removes it, because RFC 7644 §3.5.1
+ * makes an omitted read-write attribute unassigned on replace. Only the calling connector's alias
+ * is touched — aliases are keyed by connector, so another connector's name for the same Group is
+ * neither read nor written.
  *
  * <p>An absent {@code members} in the submitted document arrives here as an empty list, not
  * as null — a PUT replaces the resource, so an attribute the document does not mention is
@@ -20,8 +19,9 @@ import java.util.UUID;
  *
  * @param displayName the Group's new label
  * @param memberIds   the Users the Group should now contain, possibly empty
+ * @param externalId  the calling connector's alias after the PUT, or {@code null} to remove it
  */
-public record ScimGroupReplacement(String displayName, List<UUID> memberIds) {
+public record ScimGroupReplacement(String displayName, List<UUID> memberIds, String externalId) {
 
     public ScimGroupReplacement {
         memberIds = memberIds == null ? List.of() : List.copyOf(memberIds);

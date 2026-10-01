@@ -37,6 +37,8 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     /** Groups whose next delete must report that it removed nothing. See vanishBeforeNextDelete. */
     private final java.util.Set<UUID> vanishBeforeDelete = new java.util.HashSet<>();
 
+    private final java.util.Set<UUID> vanishBeforeAdvance = new java.util.HashSet<>();
+
     private final InMemoryScimUserRepository users;
 
     private List<UUID> staleDormantMemberCandidates;
@@ -135,6 +137,22 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return Optional.of(written);
     }
 
+    @Override
+    public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
+        if (vanishBeforeAdvance.remove(id)) {
+            stored.remove(id);
+            return Optional.empty();
+        }
+        ScimGroup current = stored.get(id);
+        if (current == null) {
+            return Optional.empty();
+        }
+        ScimGroup written = new ScimGroup(current.id(), current.displayName(), current.members(),
+                current.reservedName(), current.version() + 1, current.createdAt(), now);
+        stored.put(id, written);
+        return Optional.of(written);
+    }
+
     private static java.util.Set<UUID> userIdsOf(List<ScimGroupMember> members) {
         return members.stream().map(ScimGroupMember::userId).collect(java.util.stream.Collectors.toSet());
     }
@@ -164,6 +182,14 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
      * transactions to hit; here it is one call, and the behaviour reproduced is the adapter's
      * own: {@code DELETE} matched no row, so it returns false.
      */
+    /**
+     * Removes the Group as the next {@code advanceVersion} of it runs, which then reports absence —
+     * the window in which a concurrent delete lands between an alias-only write and its bump.
+     */
+    public void vanishBeforeNextAdvance(UUID id) {
+        vanishBeforeAdvance.add(id);
+    }
+
     public void vanishBeforeNextDelete(UUID id) {
         vanishBeforeDelete.add(id);
     }

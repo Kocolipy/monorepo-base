@@ -185,6 +185,13 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         return findById(group.id());
     }
 
+    @Override
+    public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
+        // A missing row advances nothing, and findById then reports the absence itself.
+        resources.advanceVersions(List.of(id), now);
+        return findById(id);
+    }
+
     /**
      * Deletes the Group and advances the version of every User that was a member.
      *

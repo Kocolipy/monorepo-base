@@ -14,9 +14,9 @@ package com.example.backend.scim.domain;
  * write can be expressed that changes one; there is nowhere to put it.
  *
  * @param profile    the profile attributes, never null
- * @param externalId the calling connector's alias, or {@code null} when it has none — carried so
- *                   the result renders as the connector sees it; no write changes it, because an
- *                   alias is established at creation
+ * @param externalId the calling connector's alias, or {@code null} when it has none. Read-write:
+ *                   a PUT or PATCH may set, change or remove it, and only ever the CALLING
+ *                   connector's — the use case writes it under that connector's id and no other
  * @param password   what the write does to the credential, never null
  */
 public record ScimUserEdit(ScimUserProfile profile, String externalId, ScimPasswordChange password) {
@@ -39,5 +39,9 @@ public record ScimUserEdit(ScimUserProfile profile, String externalId, ScimPassw
 
     ScimUserEdit withPassword(ScimPasswordChange changed) {
         return new ScimUserEdit(profile, externalId, changed);
+    }
+
+    ScimUserEdit withExternalId(String changed) {
+        return new ScimUserEdit(profile, changed, password);
     }
 }

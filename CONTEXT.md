@@ -206,9 +206,11 @@ attribute one type lacks as having no value there. `PUT`, `PATCH`, and
 checked after authorization and existence: a missing precondition is `428`, a
 wildcard, list or malformed one is `400 invalidValue`, and a stale version is
 `412`. Concurrent writers holding the same ETag are serialized on the resource, so
-exactly one succeeds. A User's `externalId` is fixed at creation: a `PUT` may omit
-or restate it, and a `PUT` or `PATCH` that tries to change it is refused with
-`mutability`. A password set through `PUT` or `PATCH` is refused
+exactly one succeeds. `externalId` is read-write on Users and Groups and writes
+only the calling connector's alias: a `PUT` sets it to the submitted value or, when
+omitted, removes it, and `PATCH` `add`/`replace`/`remove` set or clear it. Another
+connector's alias for the same resource is never read or written. A password set
+through `PUT` or `PATCH` is refused
 when it matches, after normalization, any of the User's three most recent passwords,
 the current one included. The first release advertises Bulk as
 unsupported rather than implementing a partial `/Bulk` endpoint. Acceptance is
