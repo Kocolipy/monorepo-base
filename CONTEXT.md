@@ -121,9 +121,10 @@ metadata. The Enterprise User extension and application-specific extensions are
 not supported in the first release. SCIM may set the password as a write-only
 provisioning attribute; the application hashes it immediately and never returns
 it. SCIM may rename `userName` under its uniqueness rule while preserving the
-stable SCIM resource id. A password or username change, deactivation, deletion,
-or change to Admin-group membership revokes the User's existing sessions so a
-stale login principal or authority never survives a security change. Failure
+stable SCIM resource id. A password or username change, deactivation or deletion
+revokes the User's existing sessions so a stale login principal never survives a
+security change; a change to Admin-group membership is specified to revoke them
+too but does not yet (see **Session revocation**). Failure
 runs and lockouts remain application-owned authentication behavior on the User.
 
 The replacement is complete rather than staged. The SCIM User is now the only
@@ -156,7 +157,8 @@ membership are unsupported. Users and Groups enter the SCIM interface together;
 they are not separate future capabilities.
 
 **Admin group** — the server-seeded Group whose members receive the authorization
-formerly named the `ADMIN` role, in addition to baseline User access. Its stable
+the removed role column's `ADMIN` value used to grant, still carried in a session
+as `ROLE_ADMIN`, in addition to baseline User access. Its stable
 resource id carries that authorization meaning: SCIM may change ordinary
 membership but may neither rename nor delete the Group, nor remove the Bootstrap
 Admin's membership.
@@ -211,15 +213,18 @@ when it matches, after normalization, any of the User's three most recent passwo
 the current one included. The first release advertises Bulk as
 unsupported rather than implementing a partial `/Bulk` endpoint. Acceptance is
 defined by the RFC contracts rather than behavior specific to Microsoft Entra
-ID, Okta, or another vendor. The application adds no SCIM-specific rate limiter;
-deployment infrastructure and database capacity own overload control.
+ID, Okta, or another vendor. The application adds no rate limiter, SCIM or
+otherwise: per-request safety bounds are not rate limits, and throttling
+`/scim/v2/**`, Login and the self-service change is the deployment edge's job,
+specified in `infra/README.md` ("Edge throttling").
 
-This entry describes the profile at release. It is reached in slices, and discovery
-is what says which slice a deployment is running: `ServiceProviderConfig` advertises
-`patch`, `filter` and `sort` as unsupported until each is implemented, and refuses a
-request for an unimplemented capability rather than ignoring the parameter — an
-ignored `filter` is indistinguishable from a match, which is the one failure a
-connector cannot detect. Bulk's `supported: false` is permanent rather than staged.
+Every capability above is implemented, and `ServiceProviderConfig` advertises
+`patch`, `filter`, `sort`, `etag` and `changePassword` as supported. Bulk's
+`supported: false` is permanent. The rule the profile was reached under still
+binds anything added later: discovery advertises a capability only once it is
+implemented, and a request for one that is not is refused rather than ignored —
+an ignored `filter` is indistinguishable from a match, which is the one failure a
+connector cannot detect.
 
 **SCIM audit trail** — the append-only local history of provisioning and connector
 token activity, and of the authentication, lockout, administrative, password-change
@@ -234,28 +239,24 @@ shape (`userName eq ?`), never its values; a single-resource read is not recorde
 Admins read it through the **audit listing** (`GET /api/admin/audit-events`): newest
 first, paginated, filterable by operation, outcome, actor, resource and time window.
 The listing returns the stored events as they are — redaction lives in what an event
-can hold, not in the read — and reading the trail is not itself recorded. It is the
-read the Accounts page's audit view is built on, and deployment configuration controls
-retention with a one-year default.
-
-**Operational Accounts page** — the target Admin screen. It reports SCIM-owned
-User and Group identity, application-owned lockout and session state, connector
-health, token metadata, and the SCIM audit trail. SCIM-owned identity and
-membership are read-only there; it retains application-owned operations such as
-Unlock and connector-token lifecycle management.
+can hold, not in the read — and reading the trail is not itself recorded. The
+Accounts page has no audit view yet; this listing is the read one would be built on.
+Deployment configuration controls retention with a one-year default.
 
 ### Current account model
 
 **Visitor** — an unauthenticated person. A Visitor may use only the login page;
 asking for a protected route records the return destination and sends them there.
 
-**User** — an authenticated account whose role is `USER`. A User may use the
-counter page at `/showcase` but not account administration, in the browser or
-over the API.
+**User** — an authenticated SCIM User. Every active User receives baseline access:
+the counter page at `/showcase`, but not account administration, in the browser or
+over the API. There is no role column: baseline access is `ROLE_USER`, granted to
+every session not confined by the change-required flag.
 
-**Admin** — an authenticated account whose role is `ADMIN`. An Admin may use the
-counter page, the accounts page at `/accounts`, and the administration API under
-`/api/admin/**`.
+**Admin** — a User that is a direct member of the **Admin group**. Admin authority
+is derived from that membership at Login, not stored, and the session carries it as
+`ROLE_ADMIN` alongside `ROLE_USER`. An Admin may use the counter page, the accounts page at `/accounts`,
+and the administration API under `/api/admin/**`.
 
 **Account** — **gone.** There is no longer a separate login identity: the
 `accounts` table and its aggregate were removed when the SCIM User became the one
@@ -281,27 +282,29 @@ submitted credentials without going through it has no **lockout** at all; the
 authentication events is
 `docs/adr/0001-count-login-attempts-on-the-login-path.md`.
 
-**Failure run** — the consecutive rejected logins recorded against one account,
-counted on the account itself as `failed_login_attempts`. A login the backend
+**Failure run** — the consecutive rejected logins recorded against one User,
+counted on the User's own row as `failed_login_attempts`. A login the backend
 accepts ends the run and returns the count to zero; a login it rejects lengthens
 it, and so does a wrong current password on the self-service password change. An unknown username has no run, because nothing is recorded for a name that
-names no account.
+names no User.
 
-**Lockout** — the state an account enters once its failure run reaches the
+**Lockout** — the state a User enters once its failure run reaches the
 configured limit (`app.auth.lockout.max-attempts`, default 5), closing it to
 logins **permanently**: there is no duration, no configuration key expressing one,
 and no passage of time that lifts it. The only thing that ends it is an Admin
-performing Unlock. The account row records `locked_at`, the instant the lock was
+performing Unlock (ADR 0007). The User's row records `locked_at`, the instant the lock was
 imposed, so "is it locked" is a question about the row rather than a comparison
-against a clock. A locked account is refused **with its correct password**, and
+against a clock. A locked User is refused **with its correct password**, and
 refused the same way as a wrong one: a bare `401` with no body, so the response
-never reveals that the account exists or that it is locked — a User who cannot get
+never reveals that the User exists or that it is locked — a User who cannot get
 in learns nothing by waiting, which is intended. Attempts made while it holds
-neither count nor deepen it. Imposing it **revokes the account's live sessions**,
-after the transaction commits, so a locked account stops acting immediately rather
+neither count nor deepen it. Imposing it **revokes the User's live sessions**,
+after the transaction commits, so a locked User stops acting immediately rather
 than when the session it already held expires. Enforcement is Spring Security's,
-which checks account status before it compares passwords; the counting is the login
-path's.
+which checks the User's status before it compares passwords; the counting is the login
+path's. The lockout is the per-account half of brute-force deterrence on Login; the
+deployment edge throttles the rest, because it cannot see the `userName` in a Login
+body (`infra/README.md`, "Edge throttling").
 
 **Bootstrap Admin exemption** — the seeded Admin
 (`app.auth.secondary-username`) is the deployment's local recovery identity and is
@@ -343,12 +346,15 @@ logins right now, and is an Admin's. So:
 password was imposed by somebody else and must be replaced before the User may do
 anything else. Stored as `password_change_required_since`: its presence is the
 flag, as `locked_at`'s is the lockout, and its value is when the change was last
-required. There is no deadline for the change; see **Dormancy basis**. It is not a SCIM attribute, so setting it does not advance the version.
+required. There is no deadline for the change; see **Dormancy basis** and ADR 0008. It is not a SCIM attribute, so setting it does not advance the version.
 It is **set** by every connector password write (create, PUT or PATCH carrying a
-password), by a **forced password change** and by an **Unlock** of a User that has
+password), by a **forced password change**, by an **Unlock** of a User that has
 a password — the credential that reached the lockout threshold may be the one an
-attacker was guessing. A credentialless User is unlocked without it, having no
-password to replace. It is **cleared** only by a successful self-service change;
+attacker was guessing — by a reactivation of a User that has a password, since a
+credential that sat unused across a deactivation is not trusted on return, and by
+seeding the Bootstrap Admin, whose first password comes from deployment
+configuration. A credentialless User is unlocked or reactivated without it, having
+no password to replace. It is **cleared** only by a successful self-service change;
 a connector write never clears it.
 
 **Confined session** — a session issued while the change-required flag is set. It
@@ -484,9 +490,8 @@ The triggers in force:
 - a SCIM write that changes its `userName`;
 - a SCIM `DELETE` of the User;
 - its own successful self-service password change;
-- inactivity deactivation, dormant-authority revocation and the password-change
-  grace period, by their scheduled jobs — recorded with no actor, because the job
-  is not a principal.
+- inactivity deactivation and dormant-authority revocation, by their scheduled
+  jobs — recorded with no actor, because the job is not a principal.
 
 Every trigger defers the revocation until after its transaction commits, so a
 write that was refused, stale or rolled back revokes nothing, and one SCIM write
@@ -499,14 +504,15 @@ gone; the User signs in again). A refused forced change revokes nothing, which i
 what keeps an Admin who mis-clicks their own row from signing themselves out. A
 failure run that stops short of the limit revokes nothing either.
 
-Specified but not yet implemented, with its own ticket: a connector's addition to
-or removal from the Admin group.
+Specified in the plan but not yet implemented: a connector's addition to or removal
+from the Admin group. Until it is, a removed Admin keeps `ROLE_ADMIN` on a session
+it already holds, and the change takes effect at its next Login.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in
 `backend/src/main/resources/session.yaml`). Without that index a
 session store can be read by id alone, so the ones belonging to a username cannot
-be found; the application refuses to start rather than accept a disable it cannot
+be found; the application refuses to start rather than accept a revocation it cannot
 enforce.
 
 It is not a lock. A login already in flight when the deactivation commits can still
