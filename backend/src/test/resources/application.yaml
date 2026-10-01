@@ -6,8 +6,11 @@ spring:
     # a session repository that cannot be searched by principal and
     # AccountSessionsAdapter would have nothing to inject. `telemetry.yaml` is
     # imported for the same reason: the scrape a test reads must be exposed and
-    # bucketed exactly as the deployed one is.
-    import: classpath:session.yaml,classpath:telemetry.yaml
+    # bucketed exactly as the deployed one is. `log-levels.yaml` likewise: a
+    # refused write must be logged at the deployed levels, or a test asserting
+    # that no submitted value reaches the log would be testing a different
+    # logger configuration from the one that ships.
+    import: classpath:session.yaml,classpath:log-levels.yaml,classpath:telemetry.yaml
   # No spring.datasource.* here: ContainerTestConfiguration's @ServiceConnection
   # Postgres container registers the URL, username and password onto the context
   # directly, and Flyway migrations are PostgreSQL syntax that only a real
