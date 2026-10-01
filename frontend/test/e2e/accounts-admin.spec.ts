@@ -7,7 +7,12 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { adminRequest, csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
+import {
+  adminRequest,
+  csrfHeaderFor,
+  LOCKOUT_MAX_ATTEMPTS,
+  submitLoginViaApi,
+} from "./auth.helpers";
 
 /**
  * The Accounts page driven as an Admin uses it: both read-only projections,
@@ -30,8 +35,8 @@ const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
 
 const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
-/** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
-const REFUSALS_BEFORE_LOCKOUT = 5;
+/** The backend's lockout threshold; see `LOCKOUT_MAX_ATTEMPTS`. */
+const REFUSALS_BEFORE_LOCKOUT = LOCKOUT_MAX_ATTEMPTS;
 
 const RUN = Date.now().toString(36);
 const CONNECTOR_NAME = `e2e-connector-${RUN}`;

@@ -139,6 +139,20 @@ counter/session suites plus the `ADMIN` account administration page and its
 endpoints. The non-guest projects need the backend running — see the root
 `README.md` and `make integration-test`.
 
+The backend seeds the Bootstrap Admin with a password change required, so
+`setup` makes that change on first run: it moves `admin` from the seed password
+to `E2E_ADMIN_PASSWORD` (default `E2e-Bootstrap-Secret-4m`) and signs in with that.
+On a database where `admin` still holds the seed password with nothing pending,
+it makes the same change voluntarily. Password history refuses the seed
+password afterwards, so this is one-way for that database. The specs read these
+environment variables; the SPA reads none of them:
+
+| Variable                   | Default                   | Used for                                                                                                                |
+| -------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `E2E_ADMIN_PASSWORD`       | `E2e-Bootstrap-Secret-4m` | the seeded Admin's password in the suite                                                                                |
+| `APP_LOCKOUT_MAX_ATTEMPTS` | `5`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
+| `E2E_BACKEND_URL`          | `http://localhost:8080`   | SCIM calls that bypass the Vite proxy                                                                                   |
+
 ## Backend contract
 
 The SPA is served by the Spring Boot backend and shares its session cookie.
