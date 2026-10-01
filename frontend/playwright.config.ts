@@ -29,6 +29,11 @@ export default defineConfig({
     {
       name: "guest",
       testMatch: /(?:smoke|login)\.spec\.ts/,
+      // Last, after `admin`. The backend keeps one session per User and a
+      // successful login ends every other one (#64), so `login.spec.ts` signing
+      // in as the seeded Admin revokes the session `admin.json` replays. Run
+      // beside the `admin` project, that turned its specs into 401s.
+      dependencies: ["admin"],
       use: {
         ...devices["Desktop Chrome"],
         storageState: { cookies: [], origins: [] },
