@@ -131,6 +131,15 @@ SPA in it. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache Redis
 in `ap-southeast-1`; details, parameters, and troubleshooting are in
 `infra/README.md`.
 
+**Edge throttling is a deployment requirement.** The application has no
+request-rate limiter. The edge must throttle `/scim/v2/**` per connector token,
+`POST /api/auth/login`, and `POST /api/auth/change-password` per session.
+Per-account throttling is the deterrent that matters. Per-source (per-IP) limits
+are left to the edge's own policy, because Users behind a shared proxy or NAT
+present one address. The stack provisions no AWS WAF web ACL, so attach one before
+exposing the service. Scope, keys and rationale are in `infra/README.md`'s "Edge
+throttling" section.
+
 Deploy artefacts the scripts write locally — `parameters.json`,
 `*-outputs.txt`, and retrieved `*.pem` keys — are gitignored. Set the
 application's env vars explicitly on the instance: the backend's

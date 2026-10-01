@@ -137,7 +137,7 @@ The User carries an application-owned `mustChangePassword` flag, also absent fro
 - A successful change hashes the new password, clears the flag, revokes all of that User's sessions including the one that submitted it, increments the User's SCIM version and appends a redacted audit event. The SPA returns the User to Login.
 - A connector setting `password` through SCIM **sets** the flag rather than clearing it. A credential chosen and transported by a third party is known outside the User, so it must be replaced before it is used for anything else — this is the first-login change requirement, and it applies equally to the first password a provisioned User receives and to any later connector-set password, including one sent to displace a credential an Admin distrusted.
 - A User provisioned without a password is not flagged; the flag is set when a password first arrives.
-- The flag records `mustChangePasswordSince`. There is no grace period: no IM8 control requires deactivating a User that leaves the change unmade, and the confinement above is the control ac-6 and as-15 ask for. An imposed credential that is never replaced is bounded instead by inactivity deactivation, since confined logins do not move `lastAuthenticatedAt`.
+- The flag records `mustChangePasswordSince`. There is no grace period: no IM8 control requires deactivating a User that leaves the change unmade, and the confinement above is the control ac-6 and as-15 ask for. An imposed credential that is never replaced is bounded instead by inactivity deactivation, since confined logins do not move `lastAuthenticatedAt` (ADR 0008 records the withdrawal of the grace period #19 shipped).
 - Reactivating a credentialed User sets the flag, because a credential that sat unused across a deactivation should not be trusted on return.
 
 Both scheduled jobs — inactivity deactivation and dormant authority revocation — are serialized per job name so that no two runs of the same job overlap across instances.
@@ -172,7 +172,7 @@ On a fresh database the server seeds:
 - one Admin Group;
 - their immutable membership.
 
-The Bootstrap Admin is always active, locally credentialed and visible through SCIM. SCIM cannot PUT, PATCH or DELETE it. It is seeded with `mustChangePassword` set, so the credential that came from deployment configuration must be replaced at first login and never becomes the standing one; like any flagged User it is confined until it changes, and it is exempt from inactivity deactivation, so an unchanged recovery credential never removes the recovery path. The Admin Group cannot be renamed or deleted, and no operation may remove the Bootstrap Admin membership. These instance-level policy refusals return `403` without `scimType`; they do not change the core schema's mutability for ordinary resources.
+The Bootstrap Admin is always active, locally credentialed and visible through SCIM. SCIM cannot PUT, PATCH or DELETE it. It is seeded with `mustChangePassword` set, so the credential that came from deployment configuration must be replaced at first login and never becomes the standing one; like any flagged User it is confined until it changes, and it is exempt from inactivity deactivation, so an unchanged recovery credential never removes the recovery path. The Admin Group cannot be renamed or deleted, and no operation may remove the Bootstrap Admin membership. These instance-level policy refusals return `400` with `scimType: mutability` (ADR 0006 records why not `403`); they do not change the core schema's mutability for ordinary resources.
 
 ## SCIM base and endpoint contract
 
@@ -276,7 +276,7 @@ Implement two ordered Spring Security chains:
 
 SCIM traffic must use TLS at the deployment edge. Production deployment must not expose the service over plaintext or forward bearer tokens through an untrusted hop. Request/access logging must redact `Authorization`, `password`, cookies and request bodies carrying SCIM secrets.
 
-Rate limiting is a deployment-edge responsibility, not an application one. The edge must throttle `/scim/v2/**` per source and per credential, and must throttle the Login and change-password endpoints, so that bearer authentication has a brute-force and exhaustion deterrent even though the application performs no counting of its own. Per-account throttling is the deterrent that matters here; per-source throttling is left to the edge's own policy and is not assumed, because a deployment behind a corporate proxy or NAT gateway presents many legitimate Users as one address. A deployment that exposes the service without edge throttling is misconfigured; the requirement belongs in the deployment documentation and in `infra/`, not in the request path.
+Rate limiting is a deployment-edge responsibility, not an application one. The edge must throttle `/scim/v2/**` per credential, and must throttle the Login and change-password endpoints, so that bearer authentication has a brute-force and exhaustion deterrent even though the application performs no rate counting of its own. Per-account throttling is the deterrent that matters here; per-source throttling is left to the edge's own policy and is not assumed, because a deployment behind a corporate proxy or NAT gateway presents many legitimate Users as one address. A deployment that exposes the service without edge throttling is misconfigured; the requirement belongs in the deployment documentation and in `infra/`, not in the request path. `infra/README.md` ("Edge throttling") states the scope, the keys and the one per-account half an edge cannot see: Login's `userName` is in the request body, so the failure-run lockout counts it in the application.
 
 The application therefore contains no request-rate limiter. It still enforces per-request safety limits, which are not rate limits:
 
@@ -579,7 +579,7 @@ Every SCIM error body has schema `urn:ietf:params:scim:api:messages:2.0:Error`, 
 | --- | --- |
 | Missing/invalid/expired connector token | `401`, Bearer challenge; `invalid_token` when credentials were supplied |
 | Read-only token attempts mutation | `403`, Bearer `insufficient_scope` |
-| Protected Bootstrap/Admin operation | `403`, no `scimType` |
+| Protected Bootstrap/Admin operation | `400`, `scimType: mutability` (ADR 0006) |
 | Unknown/deleted resource | `404` |
 | Duplicate live username | `409 uniqueness` |
 | Invalid body/schema/value | `400 invalidSyntax` or `400 invalidValue` |
@@ -605,7 +605,7 @@ Users and Groups are one release capability even if developed in ordered slices.
 **Blocked by:** none.
 **Delivers:** explicit migrations, global resource ids, fresh Bootstrap/Admin seeding, username-independent principal/session/counter keys, the Argon2id encoder and password policy, the configuration-driven authorization matrix, authentication and lockout audit events, the standard lockout values, the 8-hour absolute session bound, ECS-structured logging, and unchanged end-user Login behavior.
 
-Acceptance: username can be changed directly in a test fixture without orphaning counter state; sessions are findable by User id; a stored hash carries the `{argon2id}` prefix and a sub-policy password is refused on every setting path; a session is terminated at the absolute bound as well as the idle bound; the matrix loads at startup, fails fast on an unknown authority and denies an unmatched request; a User locks on the fifth consecutive failure and unlocks automatically 20 minutes later; Login, logout and lockout transitions appear in audit by stable User id; current Login, lockout, CSRF and route authorization tests remain green.
+Acceptance: username can be changed directly in a test fixture without orphaning counter state; sessions are findable by User id; a stored hash carries the `{argon2id}` prefix and a sub-policy password is refused on every setting path; a session is terminated at the absolute bound as well as the idle bound; the matrix loads at startup, fails fast on an unknown authority and denies an unmatched request; a User locks on the fifth consecutive failure and unlocks automatically 20 minutes later (superseded by Slice 0a: the lock is permanent until an Admin Unlock, ADR 0007); Login, logout and lockout transitions appear in audit by stable User id; current Login, lockout, CSRF and route authorization tests remain green.
 
 ### Slice 0a — Permanent lockout
 
@@ -640,7 +640,7 @@ Acceptance: two-writer race yields one success and one `412`; missing preconditi
 **Blocked by:** Slice 3.
 **Delivers:** Group CRUD/PATCH, direct User membership, read-only User `groups`, Admin authority derivation, protected recovery resources, membership-triggered version/session effects and the configurable 180-day dormant authority revocation job.
 
-Acceptance: Group members cannot be Groups; Admin access follows direct stable-id membership after re-login; membership changes revoke stale Admin sessions; Bootstrap protections fail atomically with `403`; the revocation job drops Admin membership for a dormant User, leaves baseline authority and ordinary Groups intact, exempts the Bootstrap Admin, and removes a re-added membership while the User stays dormant.
+Acceptance: Group members cannot be Groups; Admin access follows direct stable-id membership after re-login; membership changes revoke stale Admin sessions; Bootstrap protections fail atomically with `400 mutability` (ADR 0006); the revocation job drops Admin membership for a dormant User, leaves baseline authority and ordinary Groups intact, exempts the Bootstrap Admin, and removes a re-added membership while the User stays dormant.
 
 ### Slice 5 — Complete query protocol
 

@@ -2,6 +2,11 @@
 
 All commands run from the repo-root `infra/` directory.
 
+> **Before taking traffic:** attach an AWS WAF web ACL to the ALB that throttles
+> `/scim/v2/**`, Login and the self-service password change. The stack does not
+> create one, and the application has no rate limiter of its own. See "Edge
+> throttling" in `README.md`.
+
 ## 1. Get VPC Info
 
 ```bash
