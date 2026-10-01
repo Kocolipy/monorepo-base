@@ -7,12 +7,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.DormancyRun;
-import com.example.backend.auth.application.PasswordChangeGraceService;
+import com.example.backend.auth.application.InactivityDeactivationService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.ConnectorTokenScope;
-import com.example.backend.scim.domain.PasswordChangeGracePolicy;
+import com.example.backend.scim.domain.DormancyPolicy;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
@@ -57,7 +57,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       route refused — an administrative one included, for a flagged Admin; a valid change; full
  *       access after a fresh login, every earlier session gone.
  *   <li>The Admin-forced equivalent, and Unlock requiring a change.
- *   <li>Grace-period deactivation under a simulated clock, with the Bootstrap Admin exempt.
+ *   <li>The dormancy basis under a simulated clock: confined logins do not move it, the completed
+ *       change does.
  * </ol>
  *
  * <p>Sessions travel as the session cookie between requests, exactly as a browser holds them: the
@@ -109,7 +110,7 @@ class PasswordChangeLifecycleIntegrationTests {
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
 
     @Autowired
-    private PasswordChangeGraceService graceJob;
+    private InactivityDeactivationService deactivation;
 
     @Autowired
     private MutableClock clock;
@@ -304,62 +305,85 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(logInStatus("lifecycle-guessed", CONNECTOR_PASSWORD)).isEqualTo(401);
     }
 
-    // ---- 3. grace-period deactivation -------------------------------------------------------
+    // ---- 3. the dormancy basis ---------------------------------------------------------------
 
+    /**
+     * A login confined by a required change is not use of the account, so it does not move the
+     * dormancy basis: a User that keeps logging in with an imposed credential and never replaces
+     * it is still deactivated once the inactivity window has passed since it was created.
+     */
     @Test
-    void theGraceJobDeactivatesAFlaggedUserUntouchedPastTheWindowAndExemptsTheBootstrapAdmin()
+    void confinedLoginsDoNotMoveTheDormancyBasisSoAnUnchangedCredentialStillDeactivates()
             throws Exception {
         String userId = provision("lifecycle-lapsed", CONNECTOR_PASSWORD);
-        logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
-        assertThat(sessionRepository.findByPrincipalName(userId)).hasSize(1);
-        UUID bootstrap = jdbc.queryForObject(
-                "SELECT id FROM scim_resources WHERE reserved_name IS NOT NULL AND resource_type = ?",
-                UUID.class, "User");
-        jdbc.update("UPDATE scim_users SET password_change_required_since = ? WHERE resource_id = ?",
-                Timestamp.from(clock.instant()), bootstrap);
-
-        Duration past = PasswordChangeGracePolicy.DEFAULT_WINDOW.plusSeconds(1);
-        clock.advanceBy(past);
+        Duration elapsed = Duration.ZERO;
         try {
-            DormancyRun run = graceJob.deactivateOverdueUsers();
+            Duration first = DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW.minusDays(30);
+            clock.advanceBy(first);
+            elapsed = elapsed.plus(first);
+            logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+            assertThat(lastAuthenticatedAt(userId))
+                    .as("a confined login leaves the dormancy basis where it was")
+                    .isNull();
 
-            assertThat(run.skipped()).isFalse();
-            assertThat(run.processed()).contains(UUID.fromString(userId)).doesNotContain(bootstrap);
+            Duration second = Duration.ofDays(31);
+            clock.advanceBy(second);
+            elapsed = elapsed.plus(second);
+            logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+            assertThat(lastAuthenticatedAt(userId)).isNull();
+
+            DormancyRun run = deactivation.deactivateDormantUsers();
+
+            assertThat(run.processed()).contains(UUID.fromString(userId));
             assertThat(jdbc.queryForObject(
                     "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
                     Boolean.class, userId)).isFalse();
-            assertThat(jdbc.queryForObject(
-                    "SELECT active FROM scim_users WHERE resource_id = ?", Boolean.class, bootstrap))
-                    .as("the Bootstrap Admin is exempt")
-                    .isTrue();
             assertThat(sessionRepository.findByPrincipalName(userId))
-                    .as("the deactivated User's session is revoked")
+                    .as("the deactivated User's confined sessions are revoked")
                     .isEmpty();
-            assertThat(jdbc.queryForObject(
-                    """
-                    SELECT count(*) FROM audit_events WHERE subject_id = ?::uuid
-                    AND operation = 'PASSWORD_CHANGE_GRACE_DEACTIVATION'
-                    AND actor_id IS NULL AND outcome = 'SUCCESS'""",
-                    Integer.class, userId)).isEqualTo(1);
         } finally {
-            clock.advanceBy(past.negated());
+            clock.advanceBy(elapsed.negated());
         }
     }
 
+    /**
+     * The completed change is the first use of the account, so it moves the dormancy basis: a User
+     * that changed its password inside the window is not deactivated by the window that runs from
+     * its creation.
+     *
+     * <p>The User's creation is backdated rather than the clock advanced before the change: the
+     * change needs a live session, and the absolute session lifetime measures the session's real
+     * creation time against the simulated clock, so a session opened after an advance is already
+     * expired.
+     */
     @Test
-    void aFlaggedUserStillWithinTheWindowIsLeftActive() throws Exception {
-        String userId = provision("lifecycle-within", CONNECTOR_PASSWORD);
+    void theCompletedChangeMovesTheDormancyBasis() throws Exception {
+        String userId = provision("lifecycle-settled", CONNECTOR_PASSWORD);
+        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?::uuid",
+                Timestamp.from(clock.instant()
+                        .minus(DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW.minusDays(30))),
+                userId);
+        Cookie confined = logIn("lifecycle-settled", CONNECTOR_PASSWORD, null, true);
+        assertThat(changePassword(confined, CONNECTOR_PASSWORD, NEW_PASSWORD)
+                .getResponse().getStatus()).isEqualTo(204);
+        assertThat(lastAuthenticatedAt(userId)).isEqualTo(Timestamp.from(clock.instant()));
 
-        Duration within = PasswordChangeGracePolicy.DEFAULT_WINDOW.minusMinutes(1);
-        clock.advanceBy(within);
+        Duration elapsed = Duration.ofDays(31);
+        clock.advanceBy(elapsed);
         try {
-            assertThat(graceJob.deactivateOverdueUsers().processed())
+            assertThat(deactivation.deactivateDormantUsers().processed())
+                    .as("91 days since creation, but 31 since the change")
                     .doesNotContain(UUID.fromString(userId));
             assertThat(jdbc.queryForObject(
                     "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
                     Boolean.class, userId)).isTrue();
+
+            logIn("lifecycle-settled", NEW_PASSWORD, "USER", false);
+            assertThat(lastAuthenticatedAt(userId))
+                    .as("an unconfined login moves the basis as before")
+                    .isEqualTo(Timestamp.from(clock.instant()));
         } finally {
-            clock.advanceBy(within.negated());
+            clock.advanceBy(elapsed.negated());
         }
     }
 
@@ -475,6 +499,12 @@ class PasswordChangeLifecycleIntegrationTests {
 
     private int status(MockHttpServletRequestBuilder request, Cookie session) throws Exception {
         return send(request, session).getResponse().getStatus();
+    }
+
+    private Timestamp lastAuthenticatedAt(String userId) {
+        return jdbc.queryForObject(
+                "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?::uuid",
+                Timestamp.class, userId);
     }
 
     private long scimVersion(String userId) {

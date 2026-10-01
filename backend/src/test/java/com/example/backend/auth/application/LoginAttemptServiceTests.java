@@ -13,6 +13,7 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Duration;
@@ -143,6 +144,28 @@ class LoginAttemptServiceTests {
         ScimUser after = users.require("ada");
         assertThat(after.version()).isEqualTo(before.version());
         assertThat(after.lastModifiedAt()).isEqualTo(before.lastModifiedAt());
+    }
+
+    /**
+     * A login by a User that still owes a required password change is confined to the change and
+     * logout, so it is not use of the account: it leaves the dormancy basis where it was, or an
+     * imposed credential nobody replaces would never age into deactivation. It is still an
+     * accepted login — the failure run clears and the success is audited.
+     */
+    @Test
+    void aConfinedLoginDoesNotMoveTheDormancyBasis() {
+        Instant earlier = NOW.minus(Duration.ofDays(10));
+        users.given(ScimIdentities.userWithLoginState(
+                "bob", new ScimLoginState("hash", 2, null, earlier, earlier)));
+
+        attempts.recordSuccess("bob");
+
+        ScimUser bob = users.require("bob");
+        assertThat(bob.login().lastAuthenticatedAt()).isEqualTo(earlier);
+        assertThat(bob.login().failedLoginAttempts()).isZero();
+        assertThat(audit.of(AuditOperation.LOGIN_SUCCESS))
+                .extracting(Recorded::subjectId)
+                .containsExactly(bob.id());
     }
 
     /** A refused attempt is not an authentication, so it leaves the dormancy basis alone. */

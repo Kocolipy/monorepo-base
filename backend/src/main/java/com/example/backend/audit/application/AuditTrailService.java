@@ -737,20 +737,6 @@ public class AuditTrailService implements AuditTrail {
                 reason.name()));
     }
 
-    /** Records the grace-period job deactivating a User. Fail-closed and actorless. */
-    @Transactional
-    @Override
-    public void recordPasswordChangeGraceDeactivation(UUID userId) {
-        append(event(
-                AuditOperation.PASSWORD_CHANGE_GRACE_DEACTIVATION,
-                AuditOutcome.SUCCESS,
-                null,
-                userId,
-                ENABLED_PATHS,
-                AuditEvent.STATUS_OK,
-                null));
-    }
-
     /**
      * A Group lifecycle event: the actor is a connector and the resource type is
      * {@code Group}, whose id is also the subject — or {@code null} when the write produced

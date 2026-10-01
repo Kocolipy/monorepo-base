@@ -47,7 +47,7 @@ public class ScimLoginStateValue {
 
     /**
      * When a password change was required of the User, or null when none is — the
-     * change-required flag, and the grace period's basis. Written only by its own narrow
+     * change-required flag. Written only by its own narrow
      * statements, never through this object's mutators.
      */
     @Column(name = "password_change_required_since")

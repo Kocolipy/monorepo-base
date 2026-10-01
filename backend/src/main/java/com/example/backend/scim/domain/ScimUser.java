@@ -123,15 +123,6 @@ public record ScimUser(
     }
 
     /**
-     * Whether the grace-period job must leave this User alone however long a required password
-     * change has gone unmade. The Bootstrap Admin, for the reason it is exempt from dormancy:
-     * deactivating the recovery identity is the outcome the flag exists to avoid.
-     */
-    public boolean isExemptFromPasswordChangeGrace() {
-        return reservedName == ReservedResourceName.BOOTSTRAP_ADMIN;
-    }
-
-    /**
      * The instant dormancy is measured from: the last successful login or explicit
      * reactivation, or — for a User that has had neither — its creation.
      *

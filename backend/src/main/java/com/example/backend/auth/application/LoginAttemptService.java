@@ -127,10 +127,16 @@ public class LoginAttemptService {
             if (cleared != user.login()) {
                 users.updateLoginState(user.id(), cleared);
             }
-            // Every accepted login moves the dormancy basis, the one thing the inactivity and
-            // dormant-authority jobs measure from. Its own narrow write, so it neither advances
-            // the version nor rewrites the failure run.
-            users.recordAuthentication(user.id(), clock.instant());
+            // A login moves the dormancy basis, the one thing the inactivity and dormant-authority
+            // jobs measure from — unless the User still owes a required password change. Such a
+            // session can do nothing but change the password or log out, so it is not use of the
+            // account, and counting it would let an imposed credential that is never replaced
+            // stay live for as long as somebody keeps logging in with it. The change itself moves
+            // the basis instead (PasswordChangeService). Its own narrow write, so it neither
+            // advances the version nor rewrites the failure run.
+            if (!user.login().isPasswordChangeRequired()) {
+                users.recordAuthentication(user.id(), clock.instant());
+            }
             audit.recordLoginSuccess(user.id());
         });
     }

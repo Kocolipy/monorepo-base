@@ -301,10 +301,4 @@ public interface AuditTrail {
      * already receiving a refusal, and that answer does not change.
      */
     void recordPasswordChangeRefused(UUID userId, AuditPasswordChangeRefusal reason);
-
-    /**
-     * Records the grace-period job deactivating a User that left a required password change
-     * unmade. Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
-     */
-    void recordPasswordChangeGraceDeactivation(UUID userId);
 }

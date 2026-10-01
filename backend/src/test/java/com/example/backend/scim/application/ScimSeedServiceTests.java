@@ -164,7 +164,7 @@ class ScimSeedServiceTests {
      * The Bootstrap Admin's password comes from deployment configuration, with working fallbacks
      * on a public remote: a default credential, which IM8 ac-6 and the spec's
      * "seeded with mustChangePassword set" both require be replaced on first use. Dated by the
-     * seeding clock, though the grace job never acts on it: the reserved User is exempt.
+     * seeding clock.
      */
     @Test
     void the_bootstrap_admin_is_seeded_with_a_password_change_required() {
@@ -174,7 +174,6 @@ class ScimSeedServiceTests {
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
         assertThat(bootstrapAdmin.login().passwordChangeRequiredSince())
                 .isEqualTo(ScimIdentities.NOW);
-        assertThat(bootstrapAdmin.isExemptFromPasswordChangeGrace()).isTrue();
     }
 
     /**

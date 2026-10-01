@@ -313,8 +313,7 @@ single account, answered by the Argon2id verification cost every attempt pays, t
 uniform refusal, and the audited failures — not by a lock.
 
 **Deactivated User** — a User whose SCIM `active` attribute is false, set by a
-connector's SCIM write or by one of the scheduled jobs (inactivity deactivation,
-the password-change grace period). The Accounts page reports it and cannot change
+connector's SCIM write or by the inactivity-deactivation job. The Accounts page reports it and cannot change
 it: `active` is directory-owned, and the former Admin Disable and Enable actions
 were removed with their endpoints. It is refused at login exactly as a locked User
 is: a bare `401`, indistinguishable from a wrong password, so the response reveals
@@ -343,8 +342,8 @@ logins right now, and is an Admin's. So:
 **Change-required flag** — application-owned state on a User saying its current
 password was imposed by somebody else and must be replaced before the User may do
 anything else. Stored as `password_change_required_since`: its presence is the
-flag, as `locked_at`'s is the lockout, and its value is when the grace period
-started. It is not a SCIM attribute, so setting it does not advance the version.
+flag, as `locked_at`'s is the lockout, and its value is when the change was last
+required. There is no deadline for the change; see **Dormancy basis**. It is not a SCIM attribute, so setting it does not advance the version.
 It is **set** by every connector password write (create, PUT or PATCH carrying a
 password), by a **forced password change** and by an **Unlock** of a User that has
 a password — the credential that reached the lockout threshold may be the one an
@@ -369,11 +368,6 @@ password policy or repeats a recent one is refused by naming the rule, never
 echoing either value. Success hashes the new password, clears the flag, advances
 the version, records a `PASSWORD_CHANGE` audit event with no password value, and
 revokes every session of the User, the submitter's included.
-
-**Password-change grace period** — how long a User may stay flagged before a daily
-job deactivates it (`APP_PASSWORD_CHANGE_GRACE_PERIOD`, default 30 days, measured
-from when the flag was set). Deactivation ends its sessions and records a
-`PASSWORD_CHANGE_GRACE_DEACTIVATION` audit event. The Bootstrap Admin is exempt.
 
 **Recovery guard** — what keeps the deployment recoverable now that Admins no
 longer deactivate anyone. Two rules. An Admin may not Unlock or force-change their
@@ -439,10 +433,12 @@ field. The page never decides authorization — it renders behind the `ADMIN` gu
 and the backend refuses `/api/admin/**` to any other role regardless.
 
 **Dormancy basis** — the instant a User's inactivity is measured from: its
-`lastAuthenticatedAt` — set by every successful Login and by an explicit
+`lastAuthenticatedAt` — set by every successful Login made while no password
+change is required, by a completed self-service change, and by an explicit
 reactivation — or, for a User that has had neither, its creation time. The
 fallback is what keeps a User provisioned without a password from being dormant
-the moment it exists. Application-owned authentication state, like the failure
+the moment it exists. A confined session's Login does not move it, so a
+credential imposed on a User that is never replaced still ages into deactivation. Application-owned authentication state, like the failure
 run: not a SCIM attribute, absent from `/Schemas`, and writing it moves no version.
 
 **Dormant User** — a User whose dormancy basis is further in the past than a

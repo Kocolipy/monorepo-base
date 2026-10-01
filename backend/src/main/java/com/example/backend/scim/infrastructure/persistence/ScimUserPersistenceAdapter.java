@@ -154,8 +154,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
             entity.getLogin().resetDormancyBasis(now);
             if (entity.getLogin().getPasswordHash() != null) {
                 // A credential that sat unused across a deactivation is not trusted on return.
-                // Re-dated, so the grace period runs from the reactivation rather than from a
-                // flag that may already be older than the grace period itself.
+                // Re-dated, so the flag records the reactivation that imposed it.
                 entity.getLogin().requirePasswordChange(now);
             }
         }
@@ -254,11 +253,6 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         }
         resources.advanceVersions(List.of(id), now);
         return findById(id);
-    }
-
-    @Override
-    public List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff) {
-        return users.findPasswordChangeOverdueActiveUserIds(cutoff);
     }
 
     /**

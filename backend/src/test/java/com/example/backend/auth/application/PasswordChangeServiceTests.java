@@ -98,6 +98,30 @@ class PasswordChangeServiceTests {
                 .isEqualTo("SUCCESS:PASSWORD");
     }
 
+    /**
+     * The completed change is use of the account — for a User that owed it, the first, since its
+     * confined logins did not move the dormancy basis — so it records the authentication as of the
+     * change. A refused change records none: see the refusal tests below.
+     */
+    @Test
+    void anAcceptedChangeMovesTheDormancyBasis() {
+        assertThat(ada.login().lastAuthenticatedAt()).isNull();
+
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        assertThat(users.require("ada").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
+    }
+
+    @Test
+    void aRefusedChangeLeavesTheDormancyBasisAlone() {
+        assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, "short"))
+                .isInstanceOf(PasswordPolicyViolationException.class);
+
+        assertThat(users.require("ada").login().lastAuthenticatedAt()).isNull();
+    }
+
     @Test
     void aWrongCurrentPasswordIsRefusedAndCountedTowardTheLoginLockout() {
         assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", NEXT))

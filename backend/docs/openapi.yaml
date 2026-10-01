@@ -417,13 +417,10 @@ paths:
       description: |
         Sets the change-required flag and ends every session the account holds,
         so from its next login it is confined to `POST /api/auth/change-password`
-        and logout. The Admin never sees, chooses or transports a password. Starts
-        the grace period (`APP_PASSWORD_CHANGE_GRACE_PERIOD`, default 30 days),
-        after which a still-flagged account is deactivated. Records a
+        and logout. The Admin never sees, chooses or transports a password. Records a
         `PASSWORD_CHANGE_REQUIRE` audit event, refusals included.
 
-        Idempotent — an account already flagged is answered 200 unchanged, and
-        the grace period it is serving is not restarted.
+        Idempotent — an account already flagged is answered 200 unchanged.
       operationId: forcePasswordChange
       parameters:
         - $ref: "#/components/parameters/UserId"
@@ -2146,8 +2143,9 @@ components:
           type: [string, "null"]
           format: date-time
           description: |
-            When the caller last logged in successfully or was last reactivated,
-            ISO-8601 in UTC; `null` when neither has happened.
+            When the caller last logged in successfully while no password change
+            was required of it, last completed a self-service change, or was last
+            reactivated, ISO-8601 in UTC; `null` when none has happened.
     SelfGroup:
       type: object
       additionalProperties: false
@@ -2264,14 +2262,14 @@ components:
             password before it may do anything but submit that change or log out.
             Set by every connector password write, by `force-password-change` and
             by `unlock` of an identity that has a password; cleared only by a
-            successful `POST /api/auth/change-password`. An identity left flagged
-            past the grace period is deactivated.
+            successful `POST /api/auth/change-password`.
         lastAuthenticatedAt:
           type: [string, "null"]
           format: date-time
           description: |
-            The last successful login or explicit reactivation, or null for an
-            identity that has had neither. Application-owned; not a SCIM attribute.
+            The last successful login made while no password change was required,
+            completed self-service change, or explicit reactivation; null for an
+            identity that has had none. Application-owned; not a SCIM attribute.
         createdAt:
           type: string
           format: date-time
@@ -2480,7 +2478,6 @@ components:
         - DORMANT_AUTHORITY_REVOCATION
         - PASSWORD_CHANGE_REQUIRE
         - PASSWORD_CHANGE
-        - PASSWORD_CHANGE_GRACE_DEACTIVATION
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift.
