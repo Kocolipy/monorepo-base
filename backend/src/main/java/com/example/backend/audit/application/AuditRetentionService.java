@@ -3,6 +3,9 @@ package com.example.backend.audit.application;
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,8 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuditRetentionService {
 
-    /** {@code event.action} on every record this job emits, its schedule included. */
-    public static final String RETENTION_ACTION = "audit.retention";
+    /** The operation every record this job emits is classified as, its schedule included. */
+    public static final Operation OPERATION = Operation.AUDIT_RETENTION;
 
     private static final Logger log = LoggerFactory.getLogger(AuditRetentionService.class);
 
@@ -56,12 +59,11 @@ public class AuditRetentionService {
         Instant cutoff = startedAt.minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
         Duration took = Duration.between(startedAt, clock.instant());
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, RETENTION_ACTION)
+        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.JOB_END)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .addKeyValue(LogEvent.RETENTION_DELETED_ROWS, deleted)
-                .addKeyValue(LogEvent.RETENTION_DURATION_MS, took.toMillis())
+                .addKeyValue(LogEvent.DURATION_MS, took.toMillis())
                 .log("Audit retention run complete");
         return deleted;
     }

@@ -269,7 +269,7 @@ class AuditAppendOnlyIntegrationTests {
                             result.getResponse().getContentAsString()).isEmpty());
 
             List<ILoggingEvent> alerts = captured.withAction(
-                    Level.ERROR, LogEvent.ACTION, "audit.append");
+                    Level.ERROR, LogEvent.LOCAL_ACTION, "audit.append");
             assertThat(alerts).hasSize(1);
             Map<String, Object> fields = CapturedLog.fields(alerts.get(0));
             assertThat(fields).containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE);

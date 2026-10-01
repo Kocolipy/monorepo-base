@@ -3,6 +3,10 @@ package com.example.backend.audit.infrastructure.alert;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.OperationalAlerts;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Severity;
+import com.example.backend.observability.LogEvent.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -26,13 +30,12 @@ class LoggingOperationalAlerts implements OperationalAlerts {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingOperationalAlerts.class);
 
-    /** Shared {@code event.action} so one search finds every append failure. */
-    static final String AUDIT_APPEND_ACTION = "audit.append";
-
     @Override
     public void auditAppendFailed(AuditOperation operation, Class<? extends Throwable> failure) {
-        log.atError()
-                .addKeyValue(LogEvent.ACTION, AUDIT_APPEND_ACTION)
+        // High severity: a missing audit record is a compliance gap whoever reads the alert,
+        // so it is routed as one independently of the level.
+        LogEvent.classify(log.atError(), Operation.AUDIT_APPEND, Category.DATABASE, Type.ERROR)
+                .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON, failure.getSimpleName())
                 .addKeyValue(LogEvent.AUDIT_OPERATION, operation.name())

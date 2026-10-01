@@ -1,8 +1,12 @@
 package com.example.backend.observability;
 
+import java.util.Arrays;
+import java.util.List;
+import org.slf4j.spi.LoggingEventBuilder;
+
 /**
- * The ECS field names a log record uses to say what happened, and the two
- * outcomes it can report.
+ * The ECS field names a log record uses to say what happened, and the closed
+ * vocabulary their values come from.
  *
  * <p>These are structured fields rather than sentences because that is what makes
  * the redaction rule enforceable: a record's variable part is always a key and a
@@ -11,14 +15,44 @@ package com.example.backend.observability;
  * static rule can check the property by looking for concatenation alone — see
  * {@code semgrep/rules/service-security.yml}.
  *
- * <p>Held in one place so the two call sites that emit account events cannot drift
- * into logging {@code event.action} under two spellings, which would make a log
- * search silently incomplete.
+ * <h2>The event vocabulary</h2>
+ *
+ * <p>{@code event.kind}, {@code event.category}, {@code event.type} and
+ * {@code event.action} take their values from the closed enums in the logging
+ * standard's {@code Log_Schema.md} §Event, and only the members this service uses
+ * are declared here. A record is classified in one call, {@link #classify}, which
+ * takes an {@link Operation}: the operations this service logs, each mapped onto
+ * the standard's action once, here, rather than at every call site. Nothing else
+ * writes {@link #ACTION} or {@link #LOCAL_ACTION} —
+ * {@code be-log-event-action-outside-the-vocabulary} holds that — so a free-text
+ * action cannot creep back in, and the mapping table in
+ * {@code /docs/adr/0003-ecs-structured-logging-with-redaction.md} is the whole of it.
+ *
+ * <p>Where the standard has no action that fits an operation, or one action covers
+ * several of them, the operation's own name is kept under {@link #LOCAL_ACTION}
+ * instead of a member being invented for the standard's enum.
  */
 public final class LogEvent {
 
-    /** What was attempted, e.g. {@code login} or {@code account.disable}. */
+    /** The nature of the record: always {@link Kind#EVENT} here. */
+    public static final String KIND = "event.kind";
+
+    /** High-level classification, an array of {@link Category} values. */
+    public static final String CATEGORY = "event.category";
+
+    /** Lifecycle within the category, an array of {@link Type} values. */
+    public static final String TYPE = "event.type";
+
+    /** What was attempted, as an {@link Action} value. Written by {@link #classify} only. */
     public static final String ACTION = "event.action";
+
+    /**
+     * The operation's own name where {@link #ACTION} alone does not identify it — no
+     * standard action fits, or one is shared by several operations. Namespaced under
+     * {@code app.}, the service's own configuration namespace, so it can never be
+     * mistaken for a standard field. Written by {@link #classify} only.
+     */
+    public static final String LOCAL_ACTION = "app.event.action";
 
     /** Whether it worked: {@link #SUCCESS} or {@link #FAILURE}. */
     public static final String OUTCOME = "event.outcome";
@@ -28,6 +62,20 @@ public final class LogEvent {
      * a message built from submitted input.
      */
     public static final String REASON = "event.reason";
+
+    /** Operational severity, for routing an alert independently of the level. */
+    public static final String SEVERITY = "event.severity";
+
+    /** How long the operation the record ends took, in milliseconds. */
+    public static final String DURATION_MS = "event.duration_ms";
+
+    /**
+     * The stable SCIM id of the User a record's operation was performed ON, when that
+     * is a different role from the actor. The actor is {@code user.id}, which
+     * {@link LogContext} carries for the whole request; ECS names the acted-on
+     * identity {@code user.target.*}. Never a userName.
+     */
+    public static final String USER_TARGET_ID = "user.target.id";
 
     public static final String SUCCESS = "success";
 
@@ -50,9 +98,6 @@ public final class LogEvent {
     /** How many aged-out events one retention run removed. */
     public static final String RETENTION_DELETED_ROWS = "audit.retention.deleted_rows";
 
-    /** How long one retention run took, in milliseconds. */
-    public static final String RETENTION_DURATION_MS = "audit.retention.duration_ms";
-
     /** A dormancy job's configured window, as an ISO-8601 duration. */
     public static final String DORMANCY_WINDOW = "dormancy.window";
 
@@ -69,5 +114,159 @@ public final class LogEvent {
     public static final String DORMANCY_SKIPPED = "dormancy.skipped";
 
     private LogEvent() {
+    }
+
+    /**
+     * Classifies a record: {@code event.kind}, {@code event.category},
+     * {@code event.type}, and the operation's {@code event.action} and local name
+     * where it has them.
+     *
+     * @return {@code record}, for the rest of the fluent chain
+     */
+    public static LoggingEventBuilder classify(
+            LoggingEventBuilder record, Operation operation, Category category, Type... types) {
+        LoggingEventBuilder classified = record
+                .addKeyValue(KIND, Kind.EVENT.value())
+                .addKeyValue(CATEGORY, List.of(category.value()))
+                .addKeyValue(TYPE, Arrays.stream(types).map(Type::value).toList());
+        if (operation.action() != null) {
+            classified = classified.addKeyValue(ACTION, operation.action().value());
+        }
+        if (operation.local() != null) {
+            classified = classified.addKeyValue(LOCAL_ACTION, operation.local());
+        }
+        return classified;
+    }
+
+    /**
+     * What this service logs, each mapped onto the standard's {@link Action} — or onto
+     * none, where none fits — and carrying its own name wherever that action alone
+     * would not say which operation it was.
+     */
+    public enum Operation {
+        LOGIN(Action.USER_AUTHENTICATION, null),
+        UNLOCK(Action.ACCESS_CONTROL, "identity.unlock"),
+        FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null),
+        PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change"),
+        INACTIVITY_DEACTIVATION(Action.USER_ADMINISTRATION, "identity.inactivity_deactivation"),
+        DORMANT_AUTHORITY_REVOCATION(
+                Action.ACCESS_CONTROL, "identity.dormant_authority_revocation"),
+        CONNECTOR_CREATE(Action.ACCESS_CONTROL, "scim.connector.create"),
+        CONNECTOR_DELETE(Action.ACCESS_CONTROL, "scim.connector.delete"),
+        CONNECTOR_TOKEN_ISSUE(Action.ACCESS_CONTROL, "scim.connector.token.issue"),
+        CONNECTOR_TOKEN_ROTATE(Action.ACCESS_CONTROL, "scim.connector.token.rotate"),
+        CONNECTOR_TOKEN_REVOKE(Action.ACCESS_CONTROL, "scim.connector.token.revoke"),
+        SCIM_WRITE(Action.USER_PROVISIONING, "scim.write"),
+        AUDIT_RETENTION(null, "audit.retention"),
+        AUDIT_APPEND(null, "audit.append");
+
+        private final Action action;
+        private final String local;
+
+        Operation(Action action, String local) {
+            this.action = action;
+            this.local = local;
+        }
+
+        /** The standard's action, or {@code null} where none fits. */
+        public Action action() {
+            return action;
+        }
+
+        /** The operation's own name, or {@code null} where {@link #action()} identifies it. */
+        public String local() {
+            return local;
+        }
+    }
+
+    /** {@code event.action} values from {@code Log_Schema.md} §Event that this service uses. */
+    public enum Action {
+        USER_AUTHENTICATION("user-authentication"),
+        USER_ADMINISTRATION("user-administration"),
+        USER_PROVISIONING("user-provisioning"),
+        PASSWORD_CHANGE_ENFORCEMENT("password-change-enforcement"),
+        ACCESS_CONTROL("access-control");
+
+        private final String value;
+
+        Action(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+    }
+
+    /** {@code event.kind} values from {@code Log_Schema.md} §Event that this service uses. */
+    public enum Kind {
+        EVENT("event");
+
+        private final String value;
+
+        Kind(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+    }
+
+    /** {@code event.category} values from {@code Log_Schema.md} §Event that this service uses. */
+    public enum Category {
+        CONFIGURATION("configuration"),
+        DATABASE("database"),
+        BATCH("batch"),
+        PROCESS("process");
+
+        private final String value;
+
+        Category(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+    }
+
+    /** {@code event.type} values from {@code Log_Schema.md} §Event that this service uses. */
+    public enum Type {
+        ADMIN("admin"),
+        ALLOWED("allowed"),
+        CHANGE("change"),
+        CREATION("creation"),
+        DELETION("deletion"),
+        DENIED("denied"),
+        ERROR("error"),
+        INFO("info"),
+        JOB_END("job-end"),
+        USER("user");
+
+        private final String value;
+
+        Type(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+    }
+
+    /** {@code event.severity} values from {@code Log_Schema.md} §Event that this service uses. */
+    public enum Severity {
+        HIGH("high");
+
+        private final String value;
+
+        Severity(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
     }
 }

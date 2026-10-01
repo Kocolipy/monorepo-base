@@ -224,6 +224,13 @@ public class SecurityConfig {
                 // context-loading filter itself — as if no session existed.
                 .addFilterBefore(
                         absoluteSessionLifetimeFilter, SecurityContextHolderFilter.class)
+                // After the context is loaded, so the caller's stable id is in the logging
+                // context for every record the rest of the request emits. Constructed here
+                // rather than declared as a bean: a Filter bean is also registered with the
+                // servlet container, where it would run first — ahead of any security context
+                // — and its once-per-request marker would then skip it in this chain.
+                .addFilterAfter(
+                        new SessionUserLogContextFilter(), SecurityContextHolderFilter.class)
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp
                                 .policyDirectives(CONTENT_SECURITY_POLICY))

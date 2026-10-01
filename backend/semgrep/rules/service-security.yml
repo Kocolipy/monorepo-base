@@ -189,7 +189,7 @@ rules:
       A value whose name says it is an identifier or a secret is being passed to a
       logging call. None of these belong in a log record — not as a {} parameter,
       not as a structured field, not in the logging context. Correlate by stable
-      id instead (LogContext's three keys), and let the audit trail, not the log
+      id instead (LogContext's four keys), and let the audit trail, not the log
       stream, be what names a subject.
     patterns:
       - pattern-either:
@@ -214,7 +214,7 @@ rules:
     message: >-
       The logging context is written through
       com.example.backend.observability.LogContext and nowhere else. It exposes
-      three named setters — request id, connector id, resource id — and no
+      four named setters — request id, user id, connector id, resource id — and no
       general-purpose one, which is what makes "the permitted keys are the only
       keys" true of the whole service rather than of the call sites someone
       happened to review. ArchitectureTest holds the same line.
@@ -232,6 +232,37 @@ rules:
       - pattern: org.slf4j.MDC.put(...)
       - pattern: org.slf4j.MDC.putCloseable(...)
       - pattern: org.slf4j.MDC.setContextMap(...)
+
+  # event.action takes its value from the logging standard's closed enum, and the
+  # one place that maps this service's operations onto it is LogEvent.Operation.
+  # A record that wrote the key itself could put any string there — the local names
+  # this rule replaced, say — and a log search on the standard's value would then
+  # silently miss it. So the key is written by LogEvent.classify alone, under
+  # either spelling of its name, and the same goes for the local-name key beside it.
+  # The match is on the key expression as written: a key computed into a local
+  # variable first would not match. Nothing in the service builds keys that way —
+  # every key is a LogEvent or LogContext constant — and review owns that residue.
+  - id: be-log-event-action-outside-the-vocabulary
+    languages: [java]
+    severity: ERROR
+    message: >-
+      event.action and app.event.action are written by LogEvent.classify(...) and
+      nowhere else, from a LogEvent.Operation. Classify the record with an
+      Operation — adding one, mapped onto Log_Schema.md §Event, if none fits — and
+      record the mapping in docs/adr/0003. A free-text action here is invisible to
+      a search on the standard's value.
+    paths:
+      exclude:
+        - "**/LogEvent.java"
+    pattern-either:
+      - pattern: $RECORD.addKeyValue(LogEvent.ACTION, ...)
+      - pattern: $RECORD.addKeyValue(LogEvent.LOCAL_ACTION, ...)
+      - pattern: $RECORD.addKeyValue(com.example.backend.observability.LogEvent.ACTION, ...)
+      - pattern: $RECORD.addKeyValue(com.example.backend.observability.LogEvent.LOCAL_ACTION, ...)
+      - pattern: $RECORD.addKeyValue("event.action", ...)
+      - pattern: $RECORD.addKeyValue("app.event.action", ...)
+      - pattern: $RECORD.addKeyValue(ACTION, ...)
+      - pattern: $RECORD.addKeyValue(LOCAL_ACTION, ...)
 
   # ---------------------------------------------------------------------------
   # Audit trail redaction and the append-only arrangement. The audit trail is read

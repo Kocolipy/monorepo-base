@@ -65,7 +65,7 @@ class AuditRetentionServiceTests {
 
         Map<String, Object> fields = CapturedLog.fields(onlyRunRecord());
         assertThat(fields).containsEntry(LogEvent.RETENTION_DELETED_ROWS, 7L);
-        assertThat(fields).containsEntry(LogEvent.RETENTION_DURATION_MS, 250L);
+        assertThat(fields).containsEntry(LogEvent.DURATION_MS, 250L);
         assertThat(fields).containsEntry(LogEvent.RETENTION_PERIOD, "PT2880H");
         assertThat(fields).containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS);
     }
@@ -90,7 +90,7 @@ class AuditRetentionServiceTests {
 
     private ILoggingEvent onlyRunRecord() {
         List<ILoggingEvent> records = log.withAction(
-                Level.INFO, LogEvent.ACTION, AuditRetentionService.RETENTION_ACTION);
+                Level.INFO, LogEvent.LOCAL_ACTION, AuditRetentionService.OPERATION.local());
         assertThat(records).hasSize(1);
         return records.get(0);
     }

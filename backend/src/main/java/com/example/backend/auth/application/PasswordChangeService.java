@@ -3,6 +3,9 @@ package com.example.backend.auth.application;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
@@ -52,8 +55,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PasswordChangeService {
 
     private static final Logger log = LoggerFactory.getLogger(PasswordChangeService.class);
-
-    private static final String ACTION = "identity.password_change";
 
     private final ScimUserRepository users;
     private final ScimPasswordHistoryRepository passwordHistory;
@@ -121,8 +122,8 @@ public class PasswordChangeService {
         audit.recordPasswordChanged(userId);
         sessions.revokeAfterCommit(
                 null, userId, EnumSet.of(ScimUserSessions.Cause.PASSWORD_CHANGED));
-        log.atInfo()
-                .addKeyValue(LogEvent.ACTION, ACTION)
+        LogEvent.classify(log.atInfo(),
+                        Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("Self-service change completed");
     }
@@ -165,8 +166,8 @@ public class PasswordChangeService {
 
     /** Logs a refusal by its closed-set reason; no identity and no value is written. */
     private static void refused(AuditPasswordChangeRefusal reason) {
-        log.atWarn()
-                .addKeyValue(LogEvent.ACTION, ACTION)
+        LogEvent.classify(log.atWarn(),
+                        Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.DENIED)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON, reason.name())
                 .log("Self-service change refused");

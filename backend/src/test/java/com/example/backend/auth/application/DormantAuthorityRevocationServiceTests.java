@@ -334,7 +334,7 @@ class DormantAuthorityRevocationServiceTests {
             job.revokeDormantAuthority();
 
             List<ILoggingEvent> runs = captured.withAction(
-                    Level.INFO, LogEvent.ACTION, DormantAuthorityRevocationService.ACTION);
+                    Level.INFO, LogEvent.LOCAL_ACTION, DormantAuthorityRevocationService.OPERATION.local());
             assertThat(runs).hasSize(2);
             assertThat(CapturedLog.fields(runs.get(0)))
                     .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)

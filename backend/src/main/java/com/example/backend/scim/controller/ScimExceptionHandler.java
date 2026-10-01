@@ -1,6 +1,9 @@
 package com.example.backend.scim.controller;
 
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
@@ -169,8 +172,7 @@ class ScimExceptionHandler {
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<Map<String, Object>> handle(DataIntegrityViolationException violation) {
-        log.atError()
-                .addKeyValue(LogEvent.ACTION, "scim.write")
+        LogEvent.classify(log.atError(), Operation.SCIM_WRITE, Category.DATABASE, Type.ERROR)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON,
                         violation.getMostSpecificCause().getClass().getSimpleName())

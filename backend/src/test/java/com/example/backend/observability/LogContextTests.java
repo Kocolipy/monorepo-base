@@ -34,12 +34,35 @@ class LogContextTests {
         assertThat(MDC.get(LogContext.REQUEST_ID)).isNull();
     }
 
+    /**
+     * {@code user.id} is the User's stable id as text; a {@code null} id hides an outer
+     * value for the scope's lifetime — how a refused login avoids inheriting the
+     * session's User — and restores it on close.
+     */
     @Test
-    void theThreeKeysAreIndependent() {
+    void aUserIdIsWrittenAsItsCanonicalFormAndANullOneShadowsTheOuterValue() {
+        java.util.UUID id = java.util.UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
+        try (LogContext.Scope outer = LogContext.userId(id)) {
+            assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(id.toString());
+            try (LogContext.Scope hidden = LogContext.userId(null)) {
+                assertThat(MDC.get(LogContext.USER_ID)).isNull();
+            }
+            assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(id.toString());
+        }
+
+        assertThat(MDC.get(LogContext.USER_ID)).isNull();
+        assertThat(LogContext.USER_ID).isEqualTo("user.id");
+    }
+
+    @Test
+    void theFourKeysAreIndependent() {
+        java.util.UUID user = java.util.UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
         try (LogContext.Scope request = LogContext.requestId("r-1");
+                LogContext.Scope caller = LogContext.userId(user);
                 LogContext.Scope connector = LogContext.connectorId("c-1");
                 LogContext.Scope resource = LogContext.resourceId("u-1")) {
             assertThat(MDC.get(LogContext.REQUEST_ID)).isEqualTo("r-1");
+            assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(user.toString());
             assertThat(MDC.get(LogContext.CONNECTOR_ID)).isEqualTo("c-1");
             assertThat(MDC.get(LogContext.RESOURCE_ID)).isEqualTo("u-1");
         }

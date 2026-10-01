@@ -281,7 +281,7 @@ class InactivityDeactivationServiceTests {
             job.deactivateDormantUsers();
 
             List<ILoggingEvent> runs = captured.withAction(
-                    Level.INFO, LogEvent.ACTION, InactivityDeactivationService.ACTION);
+                    Level.INFO, LogEvent.LOCAL_ACTION, InactivityDeactivationService.OPERATION.local());
             assertThat(runs).hasSize(2);
             assertThat(CapturedLog.fields(runs.get(0)))
                     .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
