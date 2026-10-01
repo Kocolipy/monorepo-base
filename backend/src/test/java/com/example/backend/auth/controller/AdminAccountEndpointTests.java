@@ -1,8 +1,11 @@
 package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -10,10 +13,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import java.util.List;
+import java.util.UUID;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +31,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
@@ -59,6 +67,11 @@ import tools.jackson.databind.json.JsonMapper;
  * Bootstrap Admin and a member of the reserved Admin group, not because a role
  * column says so — which is what makes the {@code admin} column below an assertion
  * about the derivation rather than about a stored value.
+ *
+ * <p>No test here flags or locks a seeded identity: they are shared with every other test
+ * in this context, and a change-required flag cannot be cleared without changing the
+ * password. The flagging and unlocking paths are driven end to end in
+ * {@code PasswordChangeLifecycleIntegrationTests}, on Users that test creates for itself.
  */
 @SpringBootTest
 @Import(com.example.backend.ContainerTestConfiguration.class)
@@ -67,8 +80,9 @@ class AdminAccountEndpointTests {
     /**
      * The session registry, in memory. The deployed one is Redis-backed and this
      * context has no Redis, but the reason to replace it is not only that: a fake
-     * can be asked what it ended, so the disable below proves the revocation
-     * reached the port rather than merely returning 200.
+     * can be asked what it holds, so the removed-endpoint test below proves a
+     * request to the old disable path revoked nothing rather than merely
+     * returning 404.
      *
      * <p>The real {@code AccountSessionsAdapter} bean is still built beside it —
      * {@link #theContextWiresTheIndexedSessionRepositoryTheDeployedServiceNeeds()}
@@ -94,6 +108,9 @@ class AdminAccountEndpointTests {
     private ScimUserRepository users;
 
     @Autowired
+    private ScimGroupRepository groups;
+
+    @Autowired
     @Qualifier("springSecurityFilterChain")
     private Filter springSecurityFilterChain;
 
@@ -110,7 +127,7 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * The configuration this endpoint's disable path depends on, asserted rather
+     * The configuration the forced-change path depends on, asserted rather
      * than assumed: a plain session repository cannot be searched by principal, so
      * {@code AccountSessionsAdapter} has nothing to inject and the deployed service
      * does not start. The fake registry above is {@code @Primary}, so it would hide
@@ -142,6 +159,27 @@ class AdminAccountEndpointTests {
     }
 
     /**
+     * The derived columns, over the wire: the Bootstrap Admin is flagged so the page can show it
+     * with no lockout state, and its direct Groups name the seeded Admin group — the same
+     * membership the {@code admin} column is derived from.
+     */
+    @Test
+    void theListingReportsTheBootstrapAdminAndEachUsersDirectGroups() throws Exception {
+        String adminGroup = adminGroupName();
+
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].bootstrapAdmin")
+                        .value(Matchers.contains(true)))
+                .andExpect(jsonPath("$[?(@.userName == 'test-user')].bootstrapAdmin")
+                        .value(Matchers.contains(false)))
+                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].groups[*].displayName")
+                        .value(Matchers.hasItem(adminGroup)))
+                .andExpect(jsonPath("$[?(@.userName == 'test-user')].groups[*].displayName")
+                        .value(Matchers.not(Matchers.hasItem(adminGroup))));
+    }
+
+    /**
      * The acceptance criterion that matters most: no hash on the wire, ever. Asserted as the exact
      * field set of every listed identity, so any added field — a hash under whatever name — fails
      * here; {@code hasPassword} and {@code passwordChangeRequired} are booleans about the
@@ -160,13 +198,35 @@ class AdminAccountEndpointTests {
         JsonNode listing = JsonMapper.builder().build().readTree(body);
         assertThat(listing.size()).isPositive();
         listing.valueStream().forEach(identity -> assertThat(identity.propertyNames())
-                .containsExactlyInAnyOrder("id", "userName", "admin", "active", "locked",
-                        "hasPassword", "passwordChangeRequired", "createdAt"));
+                .containsExactlyInAnyOrder("id", "userName", "displayName", "admin",
+                        "bootstrapAdmin", "active", "locked", "hasPassword",
+                        "passwordChangeRequired", "lastAuthenticatedAt", "createdAt", "groups"));
+    }
+
+    @Test
+    void anAdministratorSeesEveryGroupWithItsMemberCountAndTheAdminMarker() throws Exception {
+        String adminGroup = adminGroupName();
+
+        String body = mvc.perform(get("/api/admin/groups")
+                        .session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].adminGroup")
+                        .value(Matchers.contains(true)))
+                .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].memberCount")
+                        .value(Matchers.contains(Matchers.greaterThanOrEqualTo(1))))
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode listing = JsonMapper.builder().build().readTree(body);
+        assertThat(listing.size()).isPositive();
+        listing.valueStream().forEach(group -> assertThat(group.propertyNames())
+                .containsExactlyInAnyOrder("id", "displayName", "memberCount", "adminGroup"));
     }
 
     @Test
     void anAuthenticatedNonAdministratorIsForbidden() throws Exception {
         mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/admin/groups").session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
 
@@ -174,135 +234,222 @@ class AdminAccountEndpointTests {
     void anUnauthenticatedCallerIsUnauthorized() throws Exception {
         mvc.perform(get("/api/admin/accounts"))
                 .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/admin/groups"))
+                .andExpect(status().isUnauthorized());
     }
 
     /**
      * The control endpoints are unsafe methods, so the CSRF contract applies to
-     * them as it does to login. Without the token the chain answers 403 before
+     * them as it does to login. Without the header the chain answers 403 before
      * authorization is considered — the same status a wrong role earns, for an
      * entirely different reason, which is why the role tests below carry a valid
-     * token.
+     * one.
      */
     @Test
     void aControlRequestWithoutACsrfTokenIsRefusedBeforeAuthorization() throws Exception {
-        mvc.perform(post("/api/admin/accounts/test-user/disable")
+        mvc.perform(post("/api/admin/accounts/{id}/unlock", require("test-user").id())
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    void anAuthenticatedNonAdministratorCannotDisableAnAccount() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
+    void anAuthenticatedNonAdministratorCannotUnlockOrForceAChange() throws Exception {
+        UUID id = require("test-user").id();
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
+                        .session(authenticatedSession("ROLE_USER")))
+                .andExpect(status().isForbidden());
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", id))
                         .session(authenticatedSession("ROLE_USER")))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/nobody/unlock"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
+                        .session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isNotFound());
+        mvc.perform(withCsrf(post(
+                        "/api/admin/accounts/{id}/force-password-change", UUID.randomUUID()))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isNotFound());
     }
 
     /**
-     * Driven through the chain rather than against the service so the whole
-     * round trip is covered: token, role, path variable, the write, the sessions
-     * the identity was holding, and the updated resource coming back as JSON. The
-     * identity is reactivated afterwards, because the seeded identities are shared
-     * with every other test in this context.
+     * The operations are re-targeted to the stable id, so a {@code userName} in the id's place is
+     * not a way of naming an account any more: it is a malformed id, and nothing is written.
      */
     @Test
-    void anAdministratorDisablesAndReopensAnAccount() throws Exception {
-        java.util.UUID testUserId = require("test-user").id();
-        sessions.open(testUserId, "live-session");
+    void aUserNameIsNotAnIdAndActsOnNobody() throws Exception {
+        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
+                        .session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/force-password-change"))
+                        .session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isBadRequest());
+        assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
+    }
+
+    /**
+     * The legacy Disable and Enable endpoints are REMOVED, not hidden: an administrator holding a
+     * valid CSRF header gets {@code 404} at the old path, whether it names the account by
+     * {@code userName} as it used to or by the stable id, and the account is untouched — its
+     * {@code active} flag, its version and the sessions it holds are exactly as they were.
+     */
+    @Test
+    void theLegacyDisableAndEnableEndpointsAreGone() throws Exception {
+        ScimUser before = require("test-user");
+        sessions.open(before.id(), "live-session");
 
         try {
-            mvc.perform(withCsrf(post("/api/admin/accounts/test-user/disable"))
-                            .session(authenticatedSession("ROLE_ADMIN")))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.userName").value("test-user"))
-                    .andExpect(jsonPath("$.active").value(false))
-                    .andExpect(jsonPath("$.passwordHash").doesNotExist());
+            for (String action : List.of("disable", "enable")) {
+                for (Object target : List.of("test-user", before.id())) {
+                    mvc.perform(withCsrf(post("/api/admin/accounts/{target}/" + action, target))
+                                    .session(authenticatedSession("ROLE_ADMIN")))
+                            .andExpect(status().isNotFound());
+                }
+            }
 
-            assertThat(sessions.sessionsOf(testUserId)).isEmpty();
-
-            mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
-                    .andExpect(jsonPath("$[?(@.userName == 'test-user')].active")
-                            .value(Matchers.contains(false)));
+            ScimUser after = require("test-user");
+            assertThat(after.profile().active()).isTrue();
+            assertThat(after.version()).isEqualTo(before.version());
+            assertThat(sessions.sessionsOf(before.id())).containsExactly("live-session");
         } finally {
-            mvc.perform(withCsrf(post("/api/admin/accounts/test-user/enable"))
-                            .session(authenticatedSession("ROLE_ADMIN")))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.active").value(true));
+            sessions.revokeAll(before.id());
         }
     }
 
     /**
-     * Refusing this is the only thing standing between an administrator and a
-     * system nobody can administer. 409 rather than 403: the role is fine, the
-     * action is not. It is also the request an administrator is most likely to
-     * make by accident, so it must not cost them the session they are working in.
+     * The read-only criterion, enforced by the backend and not only by which controls the page
+     * renders: every write an Admin could aim at a User or a Group through the administration
+     * namespace is refused — {@code 405} where the path exists for reading, {@code 404} where it
+     * does not exist at all — and the directory reads back exactly as it was.
      *
-     * <p>Named for the PROTECTED-RESOURCE guard rather than the last-active-
-     * administrator one, because that is the guard this request now reaches.
-     * {@code test-admin} is the seeded Bootstrap Admin, so the protection check
-     * refuses it before the last-active-administrator branch is evaluated at all.
-     * The method was previously called
-     * {@code disablingTheLastEnabledAdministratorIsRefused}, which a future reader
-     * would have trusted over the javadoc correcting it — and HTTP-level coverage
-     * of the last-active-administrator refusal is genuinely GONE, since no
-     * unprotected second administrator is seeded here. That branch is covered at
-     * {@code IdentityAdministrationServiceTests}, which separates the two guards
-     * and reaches each on its own.
-     *
-     * <p>The three outcomes asserted are the ones that mattered before and still
-     * do: refused with 409, the working session kept, and the identity still
-     * active on re-read.
+     * <p>Each request carries a valid CSRF header and an Admin session, so the refusal is the
+     * dispatcher's and not the chain's: a missing header or a wrong role would earn {@code 403}
+     * and prove nothing about whether a write handler exists.
      */
     @Test
-    void disablingTheBootstrapAdminIsRefusedAsAProtectedResource() throws Exception {
-        java.util.UUID testAdminId = require("test-admin").id();
-        sessions.open(testAdminId, "live-session");
+    void everyWriteToADirectoryOwnedResourceIsRefused() throws Exception {
+        ScimUser user = require("test-user");
+        String adminGroupId = adminGroupId();
+        String listingBefore = listing("/api/admin/accounts");
+        String groupsBefore = listing("/api/admin/groups");
+        String body = "{\"userName\":\"renamed\",\"active\":false,\"displayName\":\"renamed\","
+                + "\"groups\":[],\"members\":[]}";
 
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-admin/disable"))
-                        .session(authenticatedSession("ROLE_ADMIN")))
-                .andExpect(status().isConflict());
+        List<MockHttpServletRequestBuilder> writes = List.of(
+                post("/api/admin/accounts"),
+                put("/api/admin/accounts"),
+                patch("/api/admin/accounts"),
+                delete("/api/admin/accounts"),
+                put("/api/admin/accounts/{id}", user.id()),
+                patch("/api/admin/accounts/{id}", user.id()),
+                delete("/api/admin/accounts/{id}", user.id()),
+                post("/api/admin/accounts/{id}", user.id()),
+                put("/api/admin/accounts/{id}/groups", user.id()),
+                post("/api/admin/accounts/{id}/groups", user.id()),
+                post("/api/admin/groups"),
+                put("/api/admin/groups"),
+                patch("/api/admin/groups"),
+                delete("/api/admin/groups"),
+                put("/api/admin/groups/{id}", adminGroupId),
+                patch("/api/admin/groups/{id}", adminGroupId),
+                delete("/api/admin/groups/{id}", adminGroupId),
+                post("/api/admin/groups/{id}/members", adminGroupId));
 
-        assertThat(sessions.sessionsOf(testAdminId)).containsExactly("live-session");
+        for (MockHttpServletRequestBuilder write : writes) {
+            int status = mvc.perform(withCsrf(write)
+                            .session(authenticatedSession("ROLE_ADMIN"))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andReturn().getResponse().getStatus();
+            assertThat(status)
+                    .as("%s", write.buildRequest(context.getServletContext()).getRequestURI())
+                    .isIn(404, 405);
+        }
 
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
-                .andExpect(jsonPath("$[?(@.userName == 'test-admin')].active")
-                        .value(Matchers.contains(true)));
+        assertThat(listing("/api/admin/accounts")).isEqualTo(listingBefore);
+        assertThat(listing("/api/admin/groups")).isEqualTo(groupsBefore);
+        assertThat(require("test-user").version()).isEqualTo(user.version());
     }
 
     @Test
     void unlockingAnAccountThatIsNotLockedSucceedsAndReportsItUnlocked() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
+        UUID id = require("test-user").id();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.locked").value(false))
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false))
                 .andExpect(jsonPath("$.lockedUntil").doesNotExist());
+    }
+
+    /**
+     * An Admin cannot Unlock their own account, addressed by id: the principal is the seeded
+     * Bootstrap Admin's own name and the target is its id. A second Admin's self-targeted forced
+     * change is covered at the service; the Bootstrap Admin is the one Admin allowed to flag itself.
+     */
+    @Test
+    void anAdministratorCannotUnlockTheirOwnAccount() throws Exception {
+        UUID self = require("test-admin").id();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", self))
+                        .session(authenticatedSession("test-admin", "ROLE_ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
+    /** Only the Bootstrap Admin may flag its own password; anyone else asking is refused. */
+    @Test
+    void anotherAdministratorCannotForceTheBootstrapAdminsPasswordChange() throws Exception {
+        UUID bootstrap = require("test-admin").id();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
+                        .session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isForbidden());
+        assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
+    }
+
+    private String listing(String path) throws Exception {
+        return mvc.perform(get(path).session(authenticatedSession("ROLE_ADMIN")))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+    }
+
+    private String adminGroupName() {
+        return groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                .orElseThrow().displayName();
+    }
+
+    private String adminGroupId() {
+        return groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                .orElseThrow().id().toString();
     }
 
     private ScimUser require(String userName) {
         return users.findByNormalizedUserName(NormalizedUserName.of(userName)).orElseThrow();
     }
 
-    /** Echoes a token the shared repository minted, exactly as the SPA does. */
+    /** Echoes a CSRF value the shared repository minted, exactly as the SPA does. */
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
+        CsrfToken csrf = csrfTokenRepository.generateToken(new MockHttpServletRequest());
         return request
-                .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                .header("X-XSRF-TOKEN", token.getToken());
+                .cookie(new Cookie("XSRF-TOKEN", csrf.getToken()))
+                .header("X-XSRF-TOKEN", csrf.getToken());
     }
 
     private MockHttpSession authenticatedSession(String authority) {
-        SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new TestingAuthenticationToken("account", null, authority));
+        return authenticatedSession("account", authority);
+    }
+
+    private MockHttpSession authenticatedSession(String name, String authority) {
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        securityContext.setAuthentication(new TestingAuthenticationToken(name, null, authority));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
-                context);
+                securityContext);
         return session;
     }
 }

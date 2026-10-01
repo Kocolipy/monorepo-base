@@ -17,22 +17,22 @@ public enum AuditAdministrativeRefusal {
 
     /**
      * An administrator tried to disable their own identity, which would take away the
-     * access needed to reverse it.
+     * access needed to reverse it. No longer recorded — the Disable action was removed — and
+     * kept so the refusals already stored still read back.
      */
     SELF_DISABLE,
 
     /**
-     * The target is the Bootstrap Admin, the deployment's recovery identity. Its exemption
-     * from lockout is what keeps every other identity's permanent lock recoverable, and a
-     * disabled Bootstrap Admin cannot log in — so disabling it while the other
-     * administrators are locked out would leave a deployment nothing but direct database
-     * access can repair.
+     * The target is the Bootstrap Admin, the deployment's recovery identity, and the operation
+     * is one only it may perform on itself — today, a forced password change. Also stored, from
+     * before the Disable action was removed, for a refused attempt to disable it.
      */
     PROTECTED_RESOURCE,
 
     /**
      * The target is the only administrator still able to act, so disabling it would leave
-     * nobody able to enable it again.
+     * nobody able to enable it again. No longer recorded, for the reason {@link #SELF_DISABLE}
+     * is not; kept for the refusals already stored.
      */
     LAST_ENABLED_ADMINISTRATOR,
 

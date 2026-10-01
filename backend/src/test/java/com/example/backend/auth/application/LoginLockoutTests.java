@@ -208,7 +208,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         clock.advanceBy(A_LONG_TIME);
 
-        administration.unlock("ada", BOOTSTRAP_ADMIN);
+        administration.unlock(users.require("ada").id(), BOOTSTRAP_ADMIN);
 
         Authentication authentication = login.logIn("ada", CORRECT_PASSWORD).authentication();
         assertThat(authentication.getName()).isEqualTo("ada");
@@ -222,7 +222,7 @@ class LoginLockoutTests {
         lockTheIdentity();
         audit.reset();
 
-        administration.unlock("ada", BOOTSTRAP_ADMIN);
+        administration.unlock(users.require("ada").id(), BOOTSTRAP_ADMIN);
 
         assertThat(audit.of(AuditOperation.LOCKOUT_LIFT))
                 .singleElement()

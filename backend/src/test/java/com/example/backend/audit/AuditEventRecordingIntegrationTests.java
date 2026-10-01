@@ -245,35 +245,9 @@ class AuditEventRecordingIntegrationTests {
     }
 
     @Test
-    void disablingAnAccountProducesExactlyOneEventNamingBothParties() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/disable", USER))
-                        .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
-
-        Map<String, Object> event = only(AuditOperation.ACCOUNT_DISABLE);
-        assertThat(event).containsEntry("actor_id", idOf(ADMIN));
-        assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("changed_paths", "active");
-        assertThat(event).containsEntry(
-                "http_path", "/api/admin/accounts/{username}/disable");
-    }
-
-    @Test
-    void enablingAnAccountProducesExactlyOneEventNamingBothParties() throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/enable", USER))
-                        .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
-
-        Map<String, Object> event = only(AuditOperation.ACCOUNT_ENABLE);
-        assertThat(event).containsEntry("actor_id", idOf(ADMIN));
-        assertThat(event).containsEntry("subject_id", idOf(USER));
-        assertThat(event).containsEntry("changed_paths", "active");
-    }
-
-    @Test
     void unlockingAnAccountProducesExactlyOneLiftEventNamingTheAdministrator()
             throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/unlock", USER))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isOk());
 
@@ -281,6 +255,8 @@ class AuditEventRecordingIntegrationTests {
         assertThat(event).containsEntry("error_code", null);
         assertThat(event).containsEntry("actor_id", idOf(ADMIN));
         assertThat(event).containsEntry("subject_id", idOf(USER));
+        // The route template, which names the stable id's slot and never the value.
+        assertThat(event).containsEntry("http_path", "/api/admin/accounts/{id}/unlock");
     }
 
     // Redaction
@@ -299,17 +275,11 @@ class AuditEventRecordingIntegrationTests {
         logIn(USER, USER_PASSWORD).andExpect(status().isOk());
         logIn(USER, "wrong-" + USER_PASSWORD).andExpect(status().isUnauthorized());
         logIn("no-such-account", "irrelevant").andExpect(status().isUnauthorized());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/disable", USER))
-                        .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/enable", USER))
-                        .session(sessionOf(ADMIN)))
-                .andExpect(status().isOk());
-        mvc.perform(withCsrf(post("/api/admin/accounts/{username}/unlock", USER))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(USER)))
                         .session(sessionOf(ADMIN)))
                 .andExpect(status().isOk());
 
-        assertThat(allEvents()).hasSizeGreaterThanOrEqualTo(6);
+        assertThat(allEvents()).hasSizeGreaterThanOrEqualTo(3);
         // The scan works: a value that is present is found.
         assertThat(rowsContaining("User")).isNotZero();
 

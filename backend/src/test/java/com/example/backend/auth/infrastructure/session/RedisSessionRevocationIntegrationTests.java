@@ -25,7 +25,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * The Redis half of "session-revocation-on-disable still works under the new
+ * The Redis half of "session revocation by an administrative action still works under the new
  * key", proved against a real, indexed Spring Session repository rather than the
  * {@link com.example.backend.auth.InMemoryAccountSessions} fake other tests use.
  *
@@ -97,18 +97,19 @@ class RedisSessionRevocationIntegrationTests {
     }
 
     /**
-     * Session-revocation-on-disable, driven through the real administration use
-     * case and the real Redis-indexed repository — not the in-memory fake other
-     * controller-level tests substitute. Deactivating must still end the identity's
-     * session when the index is keyed by its stable id rather than its userName.
+     * Session revocation by an administrative action, driven through the real
+     * administration use case and the real Redis-indexed repository — not the
+     * in-memory fake other controller-level tests substitute. A forced password
+     * change must end the identity's session when the index is keyed by its stable
+     * id rather than its userName.
      */
     @Test
-    void disablingAnAccountRevokesItsRealRedisBackedSession() {
-        ScimUser created = create("session-disable-target");
+    void forcingAPasswordChangeRevokesTheAccountsRealRedisBackedSession() {
+        ScimUser created = create("session-forced-change-target");
         UUID stableId = created.id();
         Session session = openSessionFor(stableId);
 
-        administration.deactivate(created.profile().userName(), "some-other-admin");
+        administration.forcePasswordChange(stableId, "some-other-admin");
 
         assertThat(sessionRepository.findById(session.getId())).isNull();
     }

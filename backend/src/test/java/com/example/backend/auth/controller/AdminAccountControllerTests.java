@@ -2,14 +2,22 @@ package com.example.backend.auth.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
 import java.security.Principal;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 
 class AdminAccountControllerTests {
 
@@ -17,20 +25,21 @@ class AdminAccountControllerTests {
 
     private static final UUID ADA = UUID.fromString("00000000-0000-0000-0000-00000000ada0");
     private static final UUID BOB = UUID.fromString("00000000-0000-0000-0000-0000000000b0");
+    private static final UUID ENG = UUID.fromString("00000000-0000-0000-0000-000000000e00");
 
     private final Principal principal = () -> "ada";
 
     @Test
     void listsEveryAccountTheServiceReports() {
         AdminAccountController controller = new AdminAccountController(new RecordingService(List.of(
-                summary(ADA, "ada", true, true, false),
-                summary(BOB, "bob", false, false, true))));
+                summary(ADA, "ada", true, false),
+                summary(BOB, "bob", false, true))));
 
         List<IdentitySummary> response = controller.listAccounts();
 
         assertThat(response).containsExactly(
-                new IdentitySummary(ADA, "ada", true, true, false, true, false, CREATED_AT),
-                new IdentitySummary(BOB, "bob", false, false, true, true, false, CREATED_AT));
+                summary(ADA, "ada", true, false),
+                summary(BOB, "bob", false, true));
     }
 
     @Test
@@ -41,45 +50,42 @@ class AdminAccountControllerTests {
     }
 
     /**
-     * The caller's own name reaches the service, which is what lets it refuse an
-     * administrator disabling themselves. Taken from the authenticated principal
-     * rather than from the request, so it cannot be spoofed by the body.
+     * The target reaches the service by its stable id, and the caller's own name from the
+     * authenticated principal rather than from the request — which is what lets the service refuse
+     * an administrator acting on themselves, and what the body cannot spoof.
      */
     @Test
-    void disablingNamesBothTheTargetAndTheRequester() {
+    void unlockingAndForcingAChangeReachTheirOperationsByStableId() {
         RecordingService service = new RecordingService(List.of());
         AdminAccountController controller = new AdminAccountController(service);
 
-        IdentitySummary response = controller.disable("bob", principal);
+        assertThat(controller.unlock(BOB, principal)).isEqualTo(summary(BOB, "bob", false, false));
+        assertThat(controller.forcePasswordChange(BOB, principal))
+                .isEqualTo(flagged(BOB, "bob"));
 
-        assertThat(service.calls).containsExactly("disable:bob:ada");
-        assertThat(response.userName()).isEqualTo("bob");
+        assertThat(service.calls).containsExactly(
+                "unlock:" + BOB + ":ada", "force-password-change:" + BOB + ":ada");
     }
 
     @Test
-    void enablingAndUnlockingReachTheirOwnOperations() {
-        RecordingService service = new RecordingService(List.of());
-        AdminAccountController controller = new AdminAccountController(service);
+    void theGroupsAdapterListsWhatTheServiceReports() {
+        GroupSummary engineering = new GroupSummary(ENG, "Engineering", 3, false);
+        AdminGroupController controller =
+                new AdminGroupController(new RecordingService(List.of(), List.of(engineering)));
 
-        controller.enable("bob", principal);
-        controller.unlock("bob", principal);
-
-        assertThat(service.calls).containsExactly("enable:bob:ada", "unlock:bob:ada");
+        assertThat(controller.listGroups()).containsExactly(engineering);
     }
 
-    /** Each operation answers with the summary its service call returned. */
+    /**
+     * The read-only criterion, as the adapters declare it: the only unsafe handlers are Unlock and
+     * the forced change, both of which write application-owned state, and the Groups adapter has
+     * none at all. A handler added for Disable, a rename or a membership change fails here.
+     */
     @Test
-    void enablingUnlockingAndForcingAChangeAnswerWithTheServicesSummary() {
-        RecordingService service = new RecordingService(List.of());
-        AdminAccountController controller = new AdminAccountController(service);
-
-        assertThat(controller.enable("bob", principal))
-                .isEqualTo(summary(BOB, "bob", false, true, false));
-        assertThat(controller.unlock("bob", principal))
-                .isEqualTo(summary(BOB, "bob", false, true, false));
-        assertThat(controller.forcePasswordChange("bob", principal))
-                .isEqualTo(new IdentitySummary(BOB, "bob", false, true, false, true, true, CREATED_AT));
-        assertThat(service.calls).endsWith("force-password-change:bob:ada");
+    void noHandlerWritesADirectoryOwnedAttribute() {
+        assertThat(unsafeHandlers(AdminAccountController.class))
+                .containsExactlyInAnyOrder("unlock", "forcePasswordChange");
+        assertThat(unsafeHandlers(AdminGroupController.class)).isEmpty();
     }
 
     /**
@@ -97,23 +103,58 @@ class AdminAccountControllerTests {
         assertThat(IdentitySummary.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly(
-                        "id", "userName", "admin", "active", "locked", "hasPassword",
-                        "passwordChangeRequired", "createdAt");
+                        "id", "userName", "displayName", "admin", "bootstrapAdmin", "active",
+                        "locked", "hasPassword", "passwordChangeRequired", "lastAuthenticatedAt",
+                        "createdAt", "groups");
+        assertThat(IdentitySummary.DirectGroup.class.getRecordComponents())
+                .extracting(RecordComponent::getName)
+                .containsExactly("id", "displayName");
+        assertThat(GroupSummary.class.getRecordComponents())
+                .extracting(RecordComponent::getName)
+                .containsExactly("id", "displayName", "memberCount", "adminGroup");
     }
 
-    private static IdentitySummary summary(
-            UUID id, String userName, boolean admin, boolean active, boolean locked) {
-        return new IdentitySummary(id, userName, admin, active, locked, true, false, CREATED_AT);
+    private static List<String> unsafeHandlers(Class<?> controller) {
+        return Arrays.stream(controller.getDeclaredMethods())
+                .filter(method -> Modifier.isPublic(method.getModifiers()))
+                .filter(AdminAccountControllerTests::isUnsafeHandler)
+                .map(Method::getName)
+                .toList();
+    }
+
+    private static boolean isUnsafeHandler(Method method) {
+        return method.isAnnotationPresent(PostMapping.class)
+                || method.isAnnotationPresent(PutMapping.class)
+                || method.isAnnotationPresent(PatchMapping.class)
+                || method.isAnnotationPresent(DeleteMapping.class)
+                || method.isAnnotationPresent(
+                        org.springframework.web.bind.annotation.RequestMapping.class);
+    }
+
+    private static IdentitySummary summary(UUID id, String userName, boolean admin, boolean locked) {
+        return new IdentitySummary(id, userName, null, admin, false, true, locked, true, false,
+                null, CREATED_AT, List.of());
+    }
+
+    private static IdentitySummary flagged(UUID id, String userName) {
+        return new IdentitySummary(id, userName, null, false, false, true, false, true, true,
+                null, CREATED_AT, List.of());
     }
 
     private static final class RecordingService extends IdentityAdministrationService {
 
         private final List<IdentitySummary> summaries;
+        private final List<GroupSummary> groupSummaries;
         private final List<String> calls = new java.util.ArrayList<>();
 
         RecordingService(List<IdentitySummary> summaries) {
+            this(summaries, List.of());
+        }
+
+        RecordingService(List<IdentitySummary> summaries, List<GroupSummary> groupSummaries) {
             super(null, null, null, null, null, null);
             this.summaries = summaries;
+            this.groupSummaries = groupSummaries;
         }
 
         @Override
@@ -122,27 +163,20 @@ class AdminAccountControllerTests {
         }
 
         @Override
-        public IdentitySummary deactivate(String userName, String requestedBy) {
-            calls.add("disable:" + userName + ":" + requestedBy);
-            return summary(BOB, userName, false, false, false);
+        public List<GroupSummary> listGroups() {
+            return groupSummaries;
         }
 
         @Override
-        public IdentitySummary activate(String userName, String requestedBy) {
-            calls.add("enable:" + userName + ":" + requestedBy);
-            return summary(BOB, userName, false, true, false);
+        public IdentitySummary unlock(UUID userId, String requestedBy) {
+            calls.add("unlock:" + userId + ":" + requestedBy);
+            return summary(userId, "bob", false, false);
         }
 
         @Override
-        public IdentitySummary unlock(String userName, String requestedBy) {
-            calls.add("unlock:" + userName + ":" + requestedBy);
-            return summary(BOB, userName, false, true, false);
-        }
-
-        @Override
-        public IdentitySummary forcePasswordChange(String userName, String requestedBy) {
-            calls.add("force-password-change:" + userName + ":" + requestedBy);
-            return new IdentitySummary(BOB, userName, false, true, false, true, true, CREATED_AT);
+        public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
+            calls.add("force-password-change:" + userId + ":" + requestedBy);
+            return flagged(userId, "bob");
         }
     }
 }

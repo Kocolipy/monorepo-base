@@ -53,12 +53,6 @@ public interface AuditTrail {
      */
     void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId);
 
-    /** Records an account closed to logins. */
-    void recordAccountDisabled(UUID actorId, UUID subjectId);
-
-    /** Records an account reopened to logins. */
-    void recordAccountEnabled(UUID actorId, UUID subjectId);
-
     /**
      * Records a connector created.
      *
@@ -131,22 +125,6 @@ public interface AuditTrail {
      * @param filter      the filter's shape, or {@code null} when the query had no filter
      */
     void recordScimUsersQueried(UUID connectorId, int resultCount, AuditFilterShape filter);
-
-    /**
-     * Records an administrative change refused because of what it would leave behind.
-     *
-     * <p>A refusal about the ACTION rather than about the caller, who is an authenticated
-     * administrator in every case — so it is not an authorization event and is not recorded
-     * as one. It is recorded at all because each of these is an attempt to remove the
-     * deployment's last way back in, and a run of them is a signal only the trail can carry:
-     * the log line for a refused change deliberately names no identity.
-     *
-     * @param actorId   the administrator who asked, or {@code null} when their own identity
-     *                  could not be resolved
-     * @param subjectId the identity the change was aimed at
-     */
-    void recordAdministrativeChangeRefused(
-            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason);
 
     /**
      * Records a connector creating a SCIM Group.

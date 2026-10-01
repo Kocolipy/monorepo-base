@@ -146,22 +146,31 @@ describe("App", () => {
                 {
                   active: true,
                   admin: true,
+                  bootstrapAdmin: false,
                   createdAt: "2026-01-02T03:04:05Z",
+                  displayName: null,
+                  groups: [],
                   hasPassword: true,
                   id: "00000000-0000-4000-8000-000000000001",
+                  lastAuthenticatedAt: null,
                   locked: false,
+                  passwordChangeRequired: false,
                   userName: "grace",
                 },
               ])
-            : // The /me response is UNCHANGED by the identity unification: it still
-              // reports `username` and a single `role`, derived from the authorities.
-              Response.json({ role: "ADMIN", username: "grace" }),
+            : input === "/api/admin/groups" || input === "/api/admin/connectors"
+              ? Response.json([])
+              : // The /me response is UNCHANGED by the identity unification: it still
+                // reports `username` and a single `role`, derived from the authorities.
+                Response.json({ role: "ADMIN", username: "grace" }),
         ),
       ),
     );
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Accounts" })).toBeInTheDocument();
-    expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
+    expect(await screen.findByText("No groups are provisioned.")).toBeInTheDocument();
+    expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
   });
 });

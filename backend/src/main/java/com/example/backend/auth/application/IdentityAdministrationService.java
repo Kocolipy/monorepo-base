@@ -7,12 +7,16 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -21,20 +25,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The identity use cases an administrator drives: reviewing who has access, and changing whether
- * an identity may be used.
+ * The identity use cases an administrator drives: reviewing the directory, and the two operations
+ * on application-owned state that the directory cannot perform — Unlock and the forced password
+ * change.
  *
  * <p>Separate from {@link LoginIdentityService}, which serves the login path. Keeping them apart
  * means the authentication path does not depend on a class that also mutates identities, and the
  * administrative guards below live beside nothing the login path could accidentally bypass.
  *
- * <p>Reactivating and unlocking are separate operations here as well as in the domain. Either one
- * alone leaves the other in force, so restoring a deactivated identity that also locked itself out
- * takes both calls — deliberately, since an administrator should say which of the two they mean.
+ * <p>Nothing here writes a directory-owned attribute. {@code userName}, {@code active} and Group
+ * membership are a connector's to set over SCIM; the Deactivate and Activate operations that used
+ * to live here were removed because an administrator overriding {@code active} from the browser
+ * would only be overwritten by the next synchronization. Every operation that remains addresses
+ * its User by the stable resource id, never by the mutable {@code userName}.
  *
  * <h2>Why this is here and not in the scim slice</h2>
  *
- * <p>Deactivation has to reach the sessions the identity is already holding, and the port that
+ * <p>The forced change has to reach the sessions the identity is already holding, and the port that
  * ends them ({@link AccountSessions}) is this slice's: a session is a fact about the login
  * surface, not about the directory. So the use case that needs both the directory and the
  * sessions lives on the side that owns the sessions and reaches the directory through its ports,
@@ -45,8 +52,6 @@ public class IdentityAdministrationService {
 
     private static final Logger log = LoggerFactory.getLogger(IdentityAdministrationService.class);
 
-    private static final String DEACTIVATE_ACTION = "identity.deactivate";
-    private static final String ACTIVATE_ACTION = "identity.activate";
     private static final String UNLOCK_ACTION = "identity.unlock";
     private static final String FORCED_CHANGE_ACTION = "identity.force_password_change";
 
@@ -75,108 +80,49 @@ public class IdentityAdministrationService {
     /**
      * Every identity, for administrative review. Never carries a password hash.
      *
-     * <p>The Admin group is read ONCE and membership answered from it in memory, rather than asked
-     * per identity: the per-identity question is one statement each, and a listing of a thousand
-     * identities would be a thousand of them to compute a column.
+     * <p>Every Group is read ONCE, memberships included, and both derived columns are answered
+     * from it in memory — the Admin flag from the reserved Group's members, and each User's
+     * direct Groups by inverting every Group's. The per-identity question is one statement each,
+     * and a listing of a thousand identities would be a thousand of them to compute a column.
      */
     @Transactional(readOnly = true)
     public List<IdentitySummary> listIdentities() {
-        Optional<ScimGroup> adminGroup =
-                groups.findByReservedName(ReservedResourceName.ADMIN_GROUP);
+        List<ScimGroup> directory = groups.findAllOrderedByNormalizedDisplayName();
+        Optional<ScimGroup> adminGroup = directory.stream()
+                .filter(group -> group.reservedName() == ReservedResourceName.ADMIN_GROUP)
+                .findFirst();
+        Map<UUID, List<IdentitySummary.DirectGroup>> groupsByMember = new HashMap<>();
+        for (ScimGroup group : directory) {
+            IdentitySummary.DirectGroup reference =
+                    new IdentitySummary.DirectGroup(group.id(), group.displayName());
+            for (ScimGroupMember member : group.members()) {
+                groupsByMember.computeIfAbsent(member.userId(), id -> new ArrayList<>())
+                        .add(reference);
+            }
+        }
         return users.findAllOrderedByNormalizedUserName().stream()
-                .map(user -> summarize(user, isAdmin(adminGroup, user)))
+                .map(user -> summarize(
+                        user,
+                        user.login(),
+                        isAdmin(adminGroup, user),
+                        groupsByMember.get(user.id())))
                 .toList();
     }
 
     /**
-     * Closes an identity to logins and ends the sessions it is already holding, so it stops acting
-     * now rather than when those sessions expire. The lockout is untouched: this is not a penalty
-     * and says nothing about the failure run.
-     *
-     * <p>Three refusals guard against an administrator removing the only means of reversing this.
-     * None is about authorization — the caller is an admin, and the action is what is refused. A
-     * refused deactivation revokes nothing: every check runs before anything is written or ended.
-     *
-     * <p>The third is the Bootstrap Admin, which cannot be deactivated at all. Its exemption from
-     * lockout is what keeps every other identity's permanent lock recoverable, and that exemption
-     * is from <em>locking</em> only — a deactivated Bootstrap Admin cannot log in, so deactivating
-     * it while the other administrators are locked out would leave a deployment no principal can
-     * enter and nothing but direct database access can repair. It is the recovery identity whether
-     * or not it is the last active administrator, so this check does not depend on how many others
-     * there are.
-     *
-     * <p>Every refusal is audited as well as logged, because the log line deliberately names
-     * neither party: a run of attempts to disable the recovery identity is a signal only the trail
-     * can carry.
-     *
-     * <p>The revocation happens after the transaction commits, so an identity whose row could not
-     * be written keeps its sessions — and so does one whose write was rolled back after this method
-     * returned, which is the reason it is not simply the last statement here: Redis is not in the
-     * transaction, and a revocation already performed cannot be undone by a rollback. See
-     * {@code /docs/adr/0002-revoke-sessions-after-commit.md}.
-     *
-     * <p>It is still not a lock. A login already in flight reads {@code active} as it was before
-     * this transaction committed, and a session it mints is revoked only if it commits before the
-     * revocation runs; deferring to after the commit bounds that window at the commit rather than
-     * straddling it, which is as narrow as it gets without holding a lock on the row.
+     * Every Group, for the read-only Groups projection: its name, how many direct members it has,
+     * and whether it is the protected Admin group — decided by the reservation marker, so a Group
+     * a connector names "Admins" is not reported as one.
      */
-    @Transactional
-    public IdentitySummary deactivate(String userName, String requestedBy) {
-        ScimUser user = require(userName);
-        Optional<ScimGroup> adminGroup =
-                groups.findByReservedName(ReservedResourceName.ADMIN_GROUP);
-        UUID actorId = actorId(requestedBy);
-
-        if (isSelf(user, requestedBy)) {
-            throw refuse(
-                    DEACTIVATE_ACTION,
-                    AuditAdministrativeRefusal.SELF_DISABLE,
-                    actorId,
-                    user.id(),
-                    "An identity cannot deactivate itself");
-        }
-        if (user.isProtectedFromWrites()) {
-            throw refuse(
-                    DEACTIVATE_ACTION,
-                    AuditAdministrativeRefusal.PROTECTED_RESOURCE,
-                    actorId,
-                    user.id(),
-                    "The bootstrap administrator is the deployment's recovery identity and"
-                            + " cannot be deactivated");
-        }
-        if (isLastActiveAdministrator(adminGroup, user)) {
-            throw refuse(
-                    DEACTIVATE_ACTION,
-                    AuditAdministrativeRefusal.LAST_ENABLED_ADMINISTRATOR,
-                    actorId,
-                    user.id(),
-                    "Deactivating the last active administrator would leave nobody able to"
-                            + " reactivate it");
-        }
-
-        IdentitySummary deactivated = applyActive(user, false, adminGroup);
-        audit.recordAccountDisabled(actorId, user.id());
-        afterCommit.run(() -> sessions.revokeAll(user.id()));
-        succeeded(DEACTIVATE_ACTION);
-        return deactivated;
-    }
-
-    /**
-     * Reopens an identity to logins. A lockout it is serving is left standing, and standing is
-     * where it stays until {@link #unlock} lifts it — restoring access is not a finding that the
-     * failed logins did not happen.
-     *
-     * <p>Sessions are not given back. {@link #deactivate} ended them, and a session is not a thing
-     * an administrator can hand over — the identity signs in again.
-     */
-    @Transactional
-    public IdentitySummary activate(String userName, String requestedBy) {
-        ScimUser user = require(userName);
-        IdentitySummary activated = applyActive(
-                user, true, groups.findByReservedName(ReservedResourceName.ADMIN_GROUP));
-        audit.recordAccountEnabled(actorId(requestedBy), user.id());
-        succeeded(ACTIVATE_ACTION);
-        return activated;
+    @Transactional(readOnly = true)
+    public List<GroupSummary> listGroups() {
+        return groups.findAllOrderedByNormalizedDisplayName().stream()
+                .map(group -> new GroupSummary(
+                        group.id(),
+                        group.displayName(),
+                        group.members().size(),
+                        group.reservedName() == ReservedResourceName.ADMIN_GROUP))
+                .toList();
     }
 
     /**
@@ -201,8 +147,8 @@ public class IdentityAdministrationService {
      * and no change is required — there was no lockout for the credential to have reached.
      */
     @Transactional
-    public IdentitySummary unlock(String userName, String requestedBy) {
-        ScimUser user = require(userName);
+    public IdentitySummary unlock(UUID userId, String requestedBy) {
+        ScimUser user = require(userId);
         UUID actorId = actorId(requestedBy);
         if (isSelf(user, requestedBy)) {
             log.atWarn()
@@ -225,9 +171,7 @@ public class IdentityAdministrationService {
             audit.recordPasswordChangeRequired(actorId, user.id());
         }
         succeeded(UNLOCK_ACTION);
-        return summarize(
-                withLogin(user, after),
-                isAdmin(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP), user));
+        return summarize(user, after);
     }
 
     /**
@@ -249,8 +193,8 @@ public class IdentityAdministrationService {
      * it is serving is not restarted.
      */
     @Transactional
-    public IdentitySummary forcePasswordChange(String userName, String requestedBy) {
-        ScimUser user = require(userName);
+    public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
+        ScimUser user = require(userId);
         UUID actorId = actorId(requestedBy);
         boolean self = isSelf(user, requestedBy);
         boolean bootstrap = user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN;
@@ -272,17 +216,15 @@ public class IdentityAdministrationService {
                     new UnsafeIdentityChangeException(
                             "A User with no password has no credential to replace"));
         }
-        Optional<ScimGroup> adminGroup =
-                groups.findByReservedName(ReservedResourceName.ADMIN_GROUP);
         if (user.login().isPasswordChangeRequired()) {
-            return summarize(user, isAdmin(adminGroup, user));
+            return summarize(user, user.login());
         }
         ScimLoginState flagged = user.login().withPasswordChangeRequired(clock.instant());
         users.requirePasswordChange(user.id(), flagged.passwordChangeRequiredSince());
         audit.recordPasswordChangeRequired(actorId, user.id());
         afterCommit.run(() -> sessions.revokeAll(user.id()));
         succeeded(FORCED_CHANGE_ACTION);
-        return summarize(withLogin(user, flagged), isAdmin(adminGroup, user));
+        return summarize(user, flagged);
     }
 
     private RuntimeException refuseForcedChange(
@@ -296,25 +238,13 @@ public class IdentityAdministrationService {
         return refusal;
     }
 
-    private static ScimUser withLogin(ScimUser user, ScimLoginState login) {
-        return new ScimUser(
-                user.id(),
-                user.profile(),
-                login,
-                user.reservedName(),
-                user.version(),
-                user.createdAt(),
-                user.lastModifiedAt());
-    }
-
     /**
      * Whether the caller is the identity they are acting on.
      *
-     * <p>Compared on the NORMALIZED userName, not on the raw strings. The subject was looked up by
-     * its normalized form, so a raw comparison answers a different question than the lookup did:
-     * {@code deactivate("ada", "ADA")} resolves the same identity, and a raw check would let an
-     * administrator whose session carries a differently-cased spelling of their own name deactivate
-     * themselves — with only the last-active-administrator guard left to stop them.
+     * <p>Compared on the NORMALIZED userName, not on the raw strings: the session names its
+     * principal by whatever spelling it logged in with, and a raw comparison would let an
+     * administrator whose session carries a differently-cased spelling of their own name unlock or
+     * flag themselves.
      *
      * <p>A blank or unresolvable caller is not the subject. It cannot be: a name that does not
      * normalize names nobody, so there is no identity for it to be equal to.
@@ -359,60 +289,17 @@ public class IdentityAdministrationService {
         return Optional.of(NormalizedUserName.of(userName));
     }
 
-    /**
-     * Writes {@code active} through the port, which advances the version because {@code active} is
-     * a SCIM attribute a connector reads.
-     *
-     * <p>Skips the write when the value already stands, so a repeated deactivation does not move
-     * the ETag of a resource whose representation did not change.
-     */
-    private IdentitySummary applyActive(
-            ScimUser user, boolean shouldBeActive, Optional<ScimGroup> adminGroup) {
-        if (user.profile().active() == shouldBeActive) {
-            return summarize(user, isAdmin(adminGroup, user));
-        }
-        ScimUser updated = users.updateActive(user.id(), shouldBeActive, clock.instant())
-                .orElseThrow(UnknownIdentityException::new);
-        return summarize(updated, isAdmin(adminGroup, updated));
-    }
-
-    /**
-     * Whether this identity is the only administrator that could still perform administrative work.
-     * A deactivated admin cannot log in, so it does not count.
-     *
-     * <p>A <em>locked</em> one does count, even though a lock no longer ends on its own: the
-     * deployment's recovery path does not depend on it, because the Bootstrap Admin can never be
-     * locked and can unlock anyone. Excluding a locked admin here would refuse deactivations that
-     * leave the deployment perfectly recoverable.
-     *
-     * <p>That argument holds only because the Bootstrap Admin is also undeactivatable —
-     * {@link #deactivate} refuses it outright. Were it deactivatable, every other administrator
-     * could be locked out permanently with no principal left to unlock them, and a locked admin
-     * would have to count as unavailable here instead.
-     *
-     * <p>Answered from the Admin group's own membership rather than by scanning every identity,
-     * which is what the derivation makes possible: the set of administrators is now a list this
-     * directory holds, not a predicate over every row.
-     */
-    private boolean isLastActiveAdministrator(Optional<ScimGroup> adminGroup, ScimUser user) {
-        if (!isAdmin(adminGroup, user) || !user.profile().active()) {
-            return false;
-        }
-        return adminGroup.orElseThrow().members().stream()
-                .filter(member -> !member.userId().equals(user.id()))
-                .map(member -> users.findById(member.userId()))
-                .flatMap(Optional::stream)
-                .noneMatch(other -> other.profile().active());
-    }
-
     private static boolean isAdmin(Optional<ScimGroup> adminGroup, ScimUser user) {
         return adminGroup.map(group -> group.hasMember(user.id())).orElse(false);
     }
 
-    private ScimUser require(String userName) {
-        return normalized(userName)
-                .flatMap(users::findByNormalizedUserName)
-                .orElseThrow(UnknownIdentityException::new);
+    /**
+     * The User behind a stable id. The id is what every operation addresses — a {@code userName}
+     * a connector may rename between the Admin reading the row and acting on it, and an id it
+     * cannot.
+     */
+    private ScimUser require(UUID userId) {
+        return users.findById(userId).orElseThrow(UnknownIdentityException::new);
     }
 
     /**
@@ -433,37 +320,43 @@ public class IdentityAdministrationService {
     }
 
     /**
-     * Records a refused administrative write — to the log and to the audit trail — and returns the
-     * exception to throw, so the refusal cannot be logged without being raised or raised without
-     * being logged.
-     *
-     * <p>{@code reason} is a closed-set member, never the message: a message is written for a human
-     * and is free to grow a submitted value in it later.
+     * One User's row, for an operation's response: its direct Groups read for it alone, and the
+     * Admin flag from the reserved Group's membership — the same two answers the listing computes
+     * for everyone at once. {@code login} is the state as the operation left it, which the stored
+     * {@code user} it was read from predates.
      */
-    private UnsafeIdentityChangeException refuse(
-            String action,
-            AuditAdministrativeRefusal reason,
-            UUID actorId,
-            UUID subjectId,
-            String message) {
-        log.atWarn()
-                .addKeyValue(LogEvent.ACTION, action)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                .addKeyValue(LogEvent.REASON, reason.name())
-                .log("Administrative identity change refused");
-        audit.recordAdministrativeChangeRefused(actorId, subjectId, reason);
-        return new UnsafeIdentityChangeException(message);
+    private IdentitySummary summarize(ScimUser user, ScimLoginState login) {
+        List<IdentitySummary.DirectGroup> direct = groups.findGroupsOfUser(user.id()).stream()
+                .map(group -> new IdentitySummary.DirectGroup(group.id(), group.displayName()))
+                .toList();
+        return summarize(
+                user,
+                login,
+                groups.isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP),
+                direct);
     }
 
-    private static IdentitySummary summarize(ScimUser user, boolean admin) {
+    /**
+     * {@code direct} may be {@code null} for a User in no Group; the summary's own constructor
+     * reads that as none, so the listing need not allocate an empty list per User.
+     */
+    private static IdentitySummary summarize(
+            ScimUser user,
+            ScimLoginState login,
+            boolean admin,
+            List<IdentitySummary.DirectGroup> direct) {
         return new IdentitySummary(
                 user.id(),
                 user.profile().userName(),
+                user.profile().displayName(),
                 admin,
+                user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN,
                 user.profile().active(),
-                user.login().isLocked(),
-                user.login().hasPassword(),
-                user.login().isPasswordChangeRequired(),
-                user.createdAt());
+                login.isLocked(),
+                login.hasPassword(),
+                login.isPasswordChangeRequired(),
+                login.lastAuthenticatedAt(),
+                user.createdAt(),
+                direct);
     }
 }

@@ -219,12 +219,12 @@ class PasswordChangeLifecycleIntegrationTests {
     @Test
     void anAdminForcedChangeEndsTheUsersSessionsAndConfinesItsNextLoginUntilItChanges()
             throws Exception {
-        provisionAndSettle("lifecycle-forced", CONNECTOR_PASSWORD, NEW_PASSWORD);
+        String forcedId = provisionAndSettle("lifecycle-forced", CONNECTOR_PASSWORD, NEW_PASSWORD);
         Cookie before = logIn("lifecycle-forced", NEW_PASSWORD, "USER", false);
         assertThat(status(get("/api/count"), before)).isEqualTo(200);
 
         Cookie admin = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, "ADMIN", false);
-        MvcResult forced = send(post("/api/admin/accounts/lifecycle-forced/force-password-change"),
+        MvcResult forced = send(post("/api/admin/accounts/{id}/force-password-change", forcedId),
                 admin);
         assertThat(forced.getResponse().getStatus()).isEqualTo(200);
         assertThat(json.readTree(forced.getResponse().getContentAsString())
@@ -252,10 +252,10 @@ class PasswordChangeLifecycleIntegrationTests {
         addToAdminGroup(userId);
         Cookie otherAdmin = logIn("lifecycle-other-admin", NEW_PASSWORD, "ADMIN", false);
 
-        assertThat(status(post("/api/admin/accounts/lifecycle-other-admin/force-password-change"),
+        assertThat(status(post("/api/admin/accounts/{id}/force-password-change", userId),
                 otherAdmin)).isEqualTo(403);
-        assertThat(status(post("/api/admin/accounts/" + BOOTSTRAP_ADMIN + "/force-password-change"),
-                otherAdmin)).isEqualTo(403);
+        assertThat(status(post("/api/admin/accounts/{id}/force-password-change",
+                idOf(BOOTSTRAP_ADMIN)), otherAdmin)).isEqualTo(403);
     }
 
     /**
@@ -264,7 +264,8 @@ class PasswordChangeLifecycleIntegrationTests {
      */
     @Test
     void anUnlockedUserAuthenticatesIntoTheChangeFlow() throws Exception {
-        provisionAndSettle("lifecycle-unlocked", CONNECTOR_PASSWORD, NEW_PASSWORD);
+        String unlockedId =
+                provisionAndSettle("lifecycle-unlocked", CONNECTOR_PASSWORD, NEW_PASSWORD);
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             assertThat(logInStatus("lifecycle-unlocked", "wrong-guess-" + attempt)).isEqualTo(401);
         }
@@ -273,7 +274,7 @@ class PasswordChangeLifecycleIntegrationTests {
                 .isEqualTo(401);
 
         Cookie admin = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, "ADMIN", false);
-        MvcResult unlocked = send(post("/api/admin/accounts/lifecycle-unlocked/unlock"), admin);
+        MvcResult unlocked = send(post("/api/admin/accounts/{id}/unlock", unlockedId), admin);
         assertThat(unlocked.getResponse().getStatus()).isEqualTo(200);
         assertThat(json.readTree(unlocked.getResponse().getContentAsString())
                 .get("passwordChangeRequired").booleanValue()).isTrue();
@@ -369,6 +370,12 @@ class PasswordChangeLifecycleIntegrationTests {
      * endpoints, the administrative interface, and the operational scrape — while the session
      * itself is valid and reports its confinement.
      */
+    private String idOf(String userName) {
+        return jdbc.queryForObject(
+                "SELECT resource_id::text FROM scim_users WHERE normalized_user_name = ?",
+                String.class, userName.toLowerCase(java.util.Locale.ROOT));
+    }
+
     private void assertConfined(Cookie session) throws Exception {
         MvcResult me = send(get("/api/auth/me"), session);
         assertThat(me.getResponse().getStatus()).isEqualTo(200);
@@ -377,7 +384,7 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(body.get("role").isNull()).isTrue();
 
         assertThat(status(get("/api/admin/accounts"), session)).isEqualTo(403);
-        assertThat(status(post("/api/admin/accounts/" + BOOTSTRAP_ADMIN + "/unlock"), session))
+        assertThat(status(post("/api/admin/accounts/{id}/unlock", idOf(BOOTSTRAP_ADMIN)), session))
                 .isEqualTo(403);
         assertThat(status(get("/api/admin/connectors"), session)).isEqualTo(403);
         assertThat(status(get("/api/count"), session)).isEqualTo(403);

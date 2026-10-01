@@ -23,6 +23,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -49,6 +50,8 @@ import org.springframework.stereotype.Repository;
  */
 @Repository
 class ScimGroupPersistenceAdapter implements ScimGroupRepository {
+
+    private static final Sort BY_NORMALIZED_DISPLAY_NAME = Sort.by("normalizedDisplayName");
 
     private final ScimGroupJpaRepository groups;
     private final ScimGroupMemberJpaRepository memberships;
@@ -214,6 +217,18 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
             byId.put(entity.getResource().getId(), toDomain(entity, byGroup));
         }
         return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
+    }
+
+    @Override
+    public List<ScimGroup> findAllOrderedByNormalizedDisplayName() {
+        List<ScimGroupEntity> entities = groups.findAll(BY_NORMALIZED_DISPLAY_NAME);
+        if (entities.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, List<ScimGroupMember>> byGroup = membersOf(entities.stream()
+                .map(entity -> entity.getResource().getId())
+                .toList());
+        return entities.stream().map(entity -> toDomain(entity, byGroup)).toList();
     }
 
     @Override

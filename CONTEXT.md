@@ -312,33 +312,33 @@ brick the deployment; the accepted cost is unbounded online guessing against tha
 single account, answered by the Argon2id verification cost every attempt pays, the
 uniform refusal, and the audited failures — not by a lock.
 
-**Deactivated User** — a User whose SCIM `active` attribute is false, set by an
-Admin through identity administration or by a SCIM write. It is refused at login
-exactly as a locked User is: a bare `401`, indistinguishable from a wrong
-password, so the response reveals nothing. The flag is never merely reported.
+**Deactivated User** — a User whose SCIM `active` attribute is false, set by a
+connector's SCIM write or by one of the scheduled jobs (inactivity deactivation,
+the password-change grace period). The Accounts page reports it and cannot change
+it: `active` is directory-owned, and the former Admin Disable and Enable actions
+were removed with their endpoints. It is refused at login exactly as a locked User
+is: a bare `401`, indistinguishable from a wrong password, so the response reveals
+nothing. The flag is never merely reported.
 
 There is one flag, not two. `active` was SCIM's and `enabled` was the account
 aggregate's, and they meant the same thing — "may authenticate" — so keeping both
 after the identities merged would have left one of them unreachable over the wire.
 
-**Activating** and **unlocking** are **two separate capabilities**, and neither
-performs the other. Activating settles whether a User is permitted at all;
-unlocking settles whether it is being penalised for failed logins right now. So:
+**Deactivating** and **unlocking** are **two separate capabilities**, and neither
+performs the other. Deactivation settles whether a User is permitted at all, and
+is the directory's; unlocking settles whether it is being penalised for failed
+logins right now, and is an Admin's. So:
 
 - Deactivating a User leaves its failure run and `locked_at` as they stand.
   The run is evidence, and it is most wanted at the moment a User is being
   closed.
-- Enabling an account leaves a lockout it is serving in force. Restoring access
+- Reactivating a User leaves a lockout it is serving in force. Restoring access
   is not a finding that the failed logins did not happen; the lockout still ends
-  only when someone unlocks it.
+  only when an Admin unlocks it.
 - Unlocking ends a lockout and clears the failure run with it, and says
   nothing about the `active` flag. A deactivated User can be unlocked and stays
   deactivated. Unlocking a User that has a password also sets its
   **change-required flag** (below); an Admin cannot unlock their own account.
-
-Restoring an account that was both suspended and locked out therefore takes two
-deliberate calls. That is the point: an Admin should have to say which of the two
-they mean.
 
 **Change-required flag** — application-owned state on a User saying its current
 password was imposed by somebody else and must be replaced before the User may do
@@ -375,57 +375,68 @@ job deactivates it (`APP_PASSWORD_CHANGE_GRACE_PERIOD`, default 30 days, measure
 from when the flag was set). Deactivation ends its sessions and records a
 `PASSWORD_CHANGE_GRACE_DEACTIVATION` audit event. The Bootstrap Admin is exempt.
 
-**Recovery guard** — identity administration refuses three deactivation requests
-outright, with a `409`: an identity deactivating itself, the Bootstrap Admin, and
-the last active Admin. Each would leave nobody able to reactivate anything again,
-and nothing in the system could undo it without direct database access. A _locked_
-Admin still counts as available — not because the lockout ends on its own, which
-it no longer does, but because the Bootstrap Admin can never be locked and can
-unlock anyone, so a deployment whose other Admins are locked is still recoverable.
+**Recovery guard** — what keeps the deployment recoverable now that Admins no
+longer deactivate anyone. Two rules. An Admin may not Unlock or force-change their
+own account (`403`), so recovering from a self-inflicted state takes a second
+Admin — and the Bootstrap Admin may flag only its own password. And the Bootstrap
+Admin can never be locked and is protected from every SCIM write, deactivation
+included, so a deployment whose other Admins are all locked is still recoverable:
+it signs in and unlocks them.
 
-The self-deactivation check compares NORMALIZED `userName`s, because that is what
-the identity was looked up by. A raw comparison would answer a different question
-than the lookup did, and an Admin whose session carried a differently-cased
-spelling of their own name could deactivate themselves past the guard.
+The self-target check compares NORMALIZED `userName`s: a session names its
+principal by whatever spelling it logged in with, and a raw comparison would let
+an Admin whose session carried a differently-cased spelling of their own name act
+on themselves past the guard. The Accounts page hides both controls on the
+signed-in Admin's own row, comparing the same way, so the refusal is visible before
+the click.
 
-That last clause is why the Bootstrap Admin cannot be deactivated. Its exemption is
-from _locking_ only, and a deactivated Bootstrap Admin cannot log in: were it
-deactivatable, every other Admin could then lock itself out permanently and no
-principal would be left to unlock them. The refusal does not depend on how many
-other Admins are active, because the identity's value here is being the recovery
-identity rather than being the last one standing.
-
-The refusal is recognised by the **reservation marker** on the User's own resource
+The Bootstrap Admin's protections are recognised by the **reservation marker** on the User's own resource
 row, not by comparing its name to the configured one. A name comparison could be
 moved by a rename, and a second identity could acquire the exemption by taking the
 configured name; a marker written once by seeding, in a column no UPDATE reaches,
 can do neither. The same marker protects the resource from every SCIM write.
 
-**Identity listing** — what identity administration may know about a User: its
-stable resource id, `userName`, whether the **Admin group** confers administrative
-authority on it, its `active` flag, whether a lockout is in force, whether a
-credential is set at all, and the creation timestamp. Never the password hash,
-which no listing type has a field for. There is no field for when a lockout lifts,
+**Users projection** — what identity administration may know about a User, one
+row per User on the Accounts page (`GET /api/admin/accounts`): its stable resource
+id, `userName` and display name, whether it is the Bootstrap Admin, whether the
+**Admin group** confers administrative authority on it, its `active` flag, whether
+a credential is set at all, whether a lockout is in force, whether a change is
+required, its last authentication, its creation timestamp and its direct Groups.
+The directory-owned fields — identity, `active`, Groups — are read-only there.
+Never the password hash, which no projection type has a field for. There is no field for when a lockout lifts,
 because none does: the flag is the whole lock state, and what ends it is an Admin's
 Unlock. Both refusal mechanisms appear because either alone would mislead — a User
 locked out right now looks healthy if only `active` is shown, and nothing would say
 which need unlocking.
 
 The administrative flag is DERIVED at read time from Admin-group membership rather
-than stored, so the listing reports the same fact the login path derives and there
+than stored, so the projection reports the same fact the login path derives and there
 is no column for the two to disagree about. Whether a credential exists is reported
 because "no password was ever set" is otherwise indistinguishable from "the
-password is wrong", and only the first is fixed by a SCIM write.
+password is wrong", and only the first is fixed by a SCIM write. The Bootstrap
+Admin's row shows no lockout state at all: it can never be locked, so "not locked"
+would describe a condition that could change.
 
-**Accounts page** — the SPA screen at `/accounts`, an Admin's view of the identity
-listing and the only place the two capabilities are exercised from a browser. The
-route keeps its name from the removed account aggregate; what it lists is SCIM
-Users. Each row reports both refusal mechanisms and offers the action that would
-change it: Deactivate or Activate, and Unlock only while a lockout is in force. It
-offers no Deactivate for the signed-in Admin's own identity, so the recovery guard's
-refusal is visible before the click rather than as a `409` after it. The page never
-decides authorization — it renders behind the `ADMIN` guard, and the backend refuses
-`/api/admin/**` to any other role regardless.
+**Groups projection** — what identity administration may know about a Group, one
+row per Group on the Accounts page (`GET /api/admin/groups`): its name, its direct
+member count, and whether it is the protected Admin group, decided by the
+reservation marker. Read-only in its entirety; Groups and membership are the
+directory's.
+
+**Accounts page** — the SPA screen at `/accounts`, an Admin's operational view.
+The route keeps its name from the removed account aggregate; what it shows is the
+**Users projection** and the **Groups projection**, both read-only for everything
+the directory owns, plus the application-owned operations: **Unlock** (offered only
+while a lockout is in force, and described as the only way a lockout ends — one that
+also requires the User to change its password), the **forced password change**
+(offered only on a credentialed User not already flagged), and connector and token
+management with one-time plaintext disclosure. Both User operations address the
+User by its stable id. It offers neither operation on the signed-in Admin's own
+row, and no Unlock on the Bootstrap Admin, so the backend's refusals are visible
+before the click. There is no Deactivate or Activate: `active` is the directory's,
+and the backend has no endpoint that would accept a write to any directory-owned
+field. The page never decides authorization — it renders behind the `ADMIN` guard,
+and the backend refuses `/api/admin/**` to any other role regardless.
 
 **Dormancy basis** — the instant a User's inactivity is measured from: its
 `lastAuthenticatedAt` — set by every successful Login and by an explicit
@@ -449,7 +460,7 @@ commit, and an actorless `INACTIVITY_DEACTIVATION` event. It takes priority over
 the directory. A connector re-asserting `active=true` resets nothing — a write
 that changes nothing writes nothing — so it cannot hold a dormant User open; only
 an explicit reactivation, a stored transition of `active` from false to true
-through SCIM or the Accounts page, resets the dormancy basis. A User reactivated
+through SCIM, resets the dormancy basis. A User reactivated
 while still dormant by a later run is deactivated again, by design.
 
 **Dormant-authority revocation** — the scheduled job that removes a dormant
@@ -471,13 +482,15 @@ next request arrives as a Guest and the SPA sends it back to login. Sessions are
 found by the User's stable id, never its `userName`, so a rename cannot hide one.
 The triggers in force:
 
-- an Admin deactivating it, and the login path imposing a lockout on it;
+- an Admin forcing its password change, and the login path imposing a lockout on it;
 - a SCIM write that takes `active` from true to false;
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
 - a SCIM `DELETE` of the User;
-- inactivity deactivation, and dormant-authority revocation, by their scheduled
-  jobs — recorded with no actor, because the job is not a principal.
+- its own successful self-service password change;
+- inactivity deactivation, dormant-authority revocation and the password-change
+  grace period, by their scheduled jobs — recorded with no actor, because the job
+  is not a principal.
 
 Every trigger defers the revocation until after its transaction commits, so a
 write that was refused, stale or rolled back revokes nothing, and one SCIM write
@@ -485,15 +498,13 @@ that moves several of those attributes revokes once. A SCIM-triggered revocation
 audited as its own event, with its outcome, after the commit; if the session store
 fails, the write stands and the connector receives an error. Nothing else revokes:
 an ordinary profile or email change, a reactivation, an alias, a Group rename and
-Unlock touch no session. Enabling gives nothing back (a revoked session is gone;
-the account signs in again). A refused disable — either arm of the recovery guard —
-revokes nothing, which is what keeps an Admin who mis-clicks their own row from
-signing themselves out. A failure run that stops short of the limit revokes
-nothing either.
+Unlock touch no session. Reactivation gives nothing back (a revoked session is
+gone; the User signs in again). A refused forced change revokes nothing, which is
+what keeps an Admin who mis-clicks their own row from signing themselves out. A
+failure run that stops short of the limit revokes nothing either.
 
-Specified but not yet implemented, each with its own ticket: a connector's addition
-to or removal from the Admin group, an Admin-forced password change, self-service
-password change, and the scheduled grace-period job.
+Specified but not yet implemented, with its own ticket: a connector's addition to
+or removal from the Admin group.
 
 Revocation is possible only because sessions are indexed by principal
 (`spring.session.data.redis.repository-type: indexed`, set in

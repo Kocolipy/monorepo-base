@@ -179,7 +179,8 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /** Every stored Group, in the order the persistent query's default order gives them. */
-    public List<ScimGroup> allOrderedByNormalizedDisplayName() {
+    @Override
+    public List<ScimGroup> findAllOrderedByNormalizedDisplayName() {
         return stored.values().stream()
                 .sorted(Comparator.comparing(group -> group.normalizedDisplayName().value()))
                 .toList();

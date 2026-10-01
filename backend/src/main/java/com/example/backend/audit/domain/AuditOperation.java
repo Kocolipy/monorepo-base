@@ -33,10 +33,19 @@ public enum AuditOperation {
      */
     LOCKOUT_LIFT,
 
-    /** An administrator closed an account to logins. */
+    /**
+     * An administrator closed an account to logins, or was refused doing so.
+     *
+     * <p>No longer recorded: the Accounts page's Disable action and its endpoint were removed,
+     * because {@code active} is the directory's to set over SCIM. Kept so an event written before
+     * the removal still reads back as what it was — the stored value is this name.
+     */
     ACCOUNT_DISABLE,
 
-    /** An administrator reopened an account to logins. */
+    /**
+     * An administrator reopened an account to logins. No longer recorded, for the reason
+     * {@link #ACCOUNT_DISABLE} is not; kept for the events already stored.
+     */
     ACCOUNT_ENABLE,
 
     /** An administrator created a SCIM connector. */

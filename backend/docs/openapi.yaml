@@ -333,11 +333,20 @@ paths:
   /api/admin/accounts:
     get:
       tags: [Administration]
-      summary: List every registered account
+      summary: List the Users projection
       description: |
-        Administrative review of who has access. Requires `ROLE_ADMIN`: an
-        authenticated account with any other role is refused with 403, and the
-        403 is decided by the filter chain before this operation runs.
+        The Accounts page's Users view: every SCIM User with its directory-owned
+        identity, active flag and direct Groups, and its application-owned
+        credential, lockout, change-required and last-authentication state.
+        Requires `ROLE_ADMIN`: an authenticated account with any other role is
+        refused with 403, and the 403 is decided by the filter chain before this
+        operation runs.
+
+        READ-ONLY for everything the directory owns. No operation under
+        `/api/admin/accounts` accepts a `userName`, `displayName`, `active` flag
+        or Group membership: `PUT`, `PATCH` and `DELETE` on the collection or on
+        a User are answered `405` or `404` by the dispatcher. The directory
+        changes those over SCIM.
 
         The response never contains a password hash. It is serialised from a
         projection that has no field for one, so the guarantee is structural
@@ -356,69 +365,16 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/AdminRoleRequired"
-  /api/admin/accounts/{username}/disable:
-    post:
-      tags: [Administration]
-      summary: Close an account to logins
-      description: |
-        Sets the account's `enabled` flag to false. A disabled account is refused
-        at login with the same bare `401` as a wrong password.
-
-        Leaves the lockout untouched: this is not a penalty, and it says nothing
-        about the account's failure run. Idempotent — disabling an already
-        disabled account writes nothing, still revokes its sessions, and answers
-        200.
-
-        Every session the account already holds is REVOKED. Its next request
-        arrives unauthenticated and earns a `401`, rather than working on until
-        the session expires. A refused disable (`409`) revokes nothing.
-      operationId: disableUser
-      parameters:
-        - $ref: "#/components/parameters/Username"
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/AdminAccount"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/AdminRoleRequired"
-        "404":
-          $ref: "#/components/responses/UnknownAccount"
-        "409":
-          $ref: "#/components/responses/UnsafeAccountChange"
-  /api/admin/accounts/{username}/enable:
-    post:
-      tags: [Administration]
-      summary: Reopen an account to logins
-      description: |
-        Sets `enabled` back to true. Does NOT lift a lockout the account is
-        serving — that is a separate capability, `unlock`. Idempotent.
-
-        Does not restore sessions `disable` revoked either: the account signs in
-        again.
-      operationId: enableUser
-      parameters:
-        - $ref: "#/components/parameters/Username"
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          $ref: "#/components/responses/AdminAccount"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/AdminRoleRequired"
-        "404":
-          $ref: "#/components/responses/UnknownAccount"
-  /api/admin/accounts/{username}/unlock:
+  /api/admin/accounts/{id}/unlock:
     post:
       tags: [Administration]
       summary: End a lockout
       description: |
         Clears the failure run and the recorded `locked_at`, which is the only way
         a lockout ends: a lockout has no duration and never lifts on its own. Says
-        nothing about `enabled`: a disabled account can be unlocked and stays
-        disabled.
+        nothing about `active`: an inactive User can be unlocked and stays
+        inactive. Addressed by the User's stable id; a `userName` in its place is
+        a malformed id and is answered `400`.
 
         Lifting a lockout always sets the change-required flag on an account that
         has a password, because the credential that reached the threshold may be
@@ -431,7 +387,7 @@ paths:
         written and no change required.
       operationId: unlockUser
       parameters:
-        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
       responses:
         "200":
@@ -443,9 +399,11 @@ paths:
             The caller is not an Admin (see `AdminRoleRequired`), or is an Admin
             targeting their own account: recovering from a self-inflicted lockout
             takes a second Admin or the Bootstrap Admin.
+        "400":
+          $ref: "#/components/responses/MalformedUserId"
         "404":
           $ref: "#/components/responses/UnknownAccount"
-  /api/admin/accounts/{username}/force-password-change:
+  /api/admin/accounts/{id}/force-password-change:
     post:
       tags: [Administration]
       summary: Require an account to change its password
@@ -461,7 +419,7 @@ paths:
         the grace period it is serving is not restarted.
       operationId: forcePasswordChange
       parameters:
-        - $ref: "#/components/parameters/Username"
+        - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
       responses:
         "200":
@@ -474,12 +432,41 @@ paths:
             the caller's own account; or the target is the Bootstrap Admin and the
             caller is not the Bootstrap Admin itself — only it may flag its own
             password.
+        "400":
+          $ref: "#/components/responses/MalformedUserId"
         "404":
           $ref: "#/components/responses/UnknownAccount"
         "409":
           description: |
             The account has no password, so there is no credential to replace. Not
             403: the caller holds the right role, the action itself is refused.
+  /api/admin/groups:
+    get:
+      tags: [Administration]
+      summary: List the Groups projection
+      description: |
+        The Accounts page's Groups view: every SCIM Group with its direct member
+        count and whether it is the protected, server-seeded Admin group.
+        Requires `ROLE_ADMIN`, decided by the filter chain.
+
+        READ-ONLY in its entirety. Groups and their membership are written by a
+        connector over SCIM; this namespace declares no write operation on them,
+        so `POST`, `PUT`, `PATCH` and `DELETE` here or on `/api/admin/groups/{id}`
+        are answered `405` or `404`.
+      operationId: listGroups
+      responses:
+        "200":
+          description: Every Group, ordered by normalized display name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
   /api/admin/connectors:
     get:
       tags: [Connectors]
@@ -1891,13 +1878,17 @@ components:
         `412`.
       schema:
         type: string
-    Username:
-      name: username
+    UserId:
+      name: id
       in: path
       required: true
-      description: The identity to act on, by its `userName`.
+      description: |
+        The User to act on, by its stable SCIM resource id — never its `userName`,
+        which a connector may change between the Admin reading the row and acting
+        on it.
       schema:
         type: string
+        format: uuid
     CsrfToken:
       name: X-XSRF-TOKEN
       in: header
@@ -1939,13 +1930,12 @@ components:
             $ref: "#/components/schemas/AccountSummary"
     UnknownAccount:
       description: |
-        No account has that username. The body is empty; the caller is already an
+        No User has that id. The body is empty; the caller is already an
         administrator, so this reveals nothing the listing would not.
-    UnsafeAccountChange:
+    MalformedUserId:
       description: |
-        The action would leave nobody able to reverse it — an account disabling
-        itself, or the last enabled administrator. Not 403: the caller holds the
-        right role, the action itself is refused.
+        The path segment is not a UUID — for instance a `userName` where the id
+        belongs. Nothing is written.
     UnknownConnector:
       description: |
         No live connector or token has that id. The body is empty, and "never
@@ -2196,22 +2186,27 @@ components:
           description: A human-readable statement of the rule.
     AccountSummary:
       type: object
-      required: [id, userName, admin, active, locked, hasPassword, passwordChangeRequired, createdAt]
+      description: |
+        One row of the Users projection. Directory-owned fields (`userName`,
+        `displayName`, `active`, `groups`) are read-only here; the rest is
+        application-owned state. Returned by the listing and, for the User acted
+        on, by `unlock` and `force-password-change`.
+      required: [id, userName, displayName, admin, bootstrapAdmin, active, locked,
+        hasPassword, passwordChangeRequired, lastAuthenticatedAt, createdAt, groups]
       properties:
         id:
           type: string
           format: uuid
           description: |
             The identity's stable SCIM resource id, non-reassignable. The same id
-            the SCIM interface serves this identity under, and the id the audit
-            trail records — `userName` is a mutable attribute and never an
-            identifier.
+            the SCIM interface serves this identity under, the id the audit trail
+            records, and the id every operation on this row addresses.
         userName:
           type: string
-          description: |
-            The login and display attribute. Mutable, and addressed by the
-            operations below because it is what an administrator reads; anything
-            that must keep pointing at the same identity uses `id`.
+          description: The login attribute. Directory-owned, mutable, read-only here.
+        displayName:
+          type: [string, "null"]
+          description: The directory's display name, or null when it sets none.
         admin:
           type: boolean
           description: |
@@ -2222,17 +2217,19 @@ components:
 
             Membership changes take effect at the identity's next login. A session
             already issued carries the authority it was issued with.
+        bootstrapAdmin:
+          type: boolean
+          description: |
+            Whether this is the deployment's reserved recovery identity. It can
+            never be locked, so it has no lockout state to show and nothing to
+            Unlock; only it may force its own password change.
         active:
           type: boolean
           description: |
-            Administrative standing, and SCIM's own `active` attribute — the two
-            were separate flags until the login identity and the SCIM User became
-            one resource, and keeping both would have left one unreachable over
-            the wire.
-
-            Not decorative: an inactive identity is refused at login with the same
-            bare `401` as a wrong password. Changed only through the disable and
-            enable operations.
+            SCIM's `active` attribute, owned by the directory and read-only here —
+            the former disable and enable operations were removed. An inactive
+            identity is refused at login with the same bare `401` as a wrong
+            password.
         locked:
           type: boolean
           description: |
@@ -2240,6 +2237,7 @@ components:
             imposed automatically by a run of failed logins. It has no expiry and
             there is no field for one: the lockout stands until an administrator
             calls the unlock operation, so this flag is the whole lock state.
+            Always false for the Bootstrap Admin.
         hasPassword:
           type: boolean
           description: |
@@ -2261,12 +2259,52 @@ components:
             by `unlock` of an identity that has a password; cleared only by a
             successful `POST /api/auth/change-password`. An identity left flagged
             past the grace period is deactivated.
+        lastAuthenticatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: |
+            The last successful login or explicit reactivation, or null for an
+            identity that has had neither. Application-owned; not a SCIM attribute.
         createdAt:
           type: string
           format: date-time
+          description: When the SCIM resource was created.
+        groups:
+          type: array
           description: |
-            When the SCIM resource was created. No longer nullable: the timestamp
-            lives on the resource row, which cannot exist without one.
+            The Groups this identity is a DIRECT member of, ordered by normalized
+            display name. Directory-owned and read-only here, as over SCIM.
+          items:
+            $ref: "#/components/schemas/DirectGroup"
+    DirectGroup:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+    GroupSummary:
+      type: object
+      description: One row of the read-only Groups projection.
+      required: [id, displayName, memberCount, adminGroup]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        memberCount:
+          type: integer
+          minimum: 0
+          description: How many Users are direct members.
+        adminGroup:
+          type: boolean
+          description: |
+            Whether this is the protected, server-seeded Admin group whose direct
+            members hold administrative authority. Decided by the reservation
+            marker, never by the name.
     UpdateSessionRequest:
       type: object
       required: [displayName]

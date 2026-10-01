@@ -48,7 +48,7 @@ public final class InMemoryScimQueryRepository implements ScimQueryRepository {
                     .forEach(user -> all.add(new ScimQuery.Hit(ScimResourceType.USER, user.id())));
         }
         if (query.types().contains(ScimResourceType.GROUP)) {
-            groups.allOrderedByNormalizedDisplayName()
+            groups.findAllOrderedByNormalizedDisplayName()
                     .forEach(group -> all.add(new ScimQuery.Hit(ScimResourceType.GROUP, group.id())));
         }
         List<ScimQuery.Hit> page = all.stream()

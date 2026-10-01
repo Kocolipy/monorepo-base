@@ -14,7 +14,7 @@ import org.springframework.web.servlet.HandlerMapping;
  *
  * <p>The one decision worth reading here is that the recorded path is the matched
  * route <strong>template</strong> —
- * {@code /api/admin/accounts/{username}/disable} — and never
+ * {@code /api/admin/accounts/{id}/unlock} — and never
  * {@code request.getRequestURI()}. The resolved URI of every administrative
  * endpoint carries the acted-on account's username inside it, so recording it
  * would put a username in an event body past every field that was deliberately
