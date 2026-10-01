@@ -336,6 +336,68 @@ class ScimDiscoveryIntegrationTests {
     }
 
     /**
+     * RFC 7643 §3.1 defines {@code meta.location} as the URI of the resource, so each discovery
+     * resource names the absolute URL it is served at — the same form Users and Groups render —
+     * and not a path a client would have to resolve against a base it was never told.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        BASE + "/ServiceProviderConfig",
+        BASE + "/ResourceTypes/User",
+        BASE + "/ResourceTypes/Group",
+        BASE + "/Schemas/" + USER_SCHEMA,
+        BASE + "/Schemas/" + GROUP_SCHEMA,
+    })
+    void a_discovery_resource_is_located_at_the_absolute_url_it_is_served_at(String path)
+            throws Exception {
+        MvcResult result = mvc.perform(get(path)).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(parsed(result).at("/meta/location").asText())
+                .startsWith("http://localhost/")
+                .isEqualTo(result.getRequest().getRequestURL().toString());
+    }
+
+    /**
+     * The list responses carry the same locations as the by-id ones: each listed resource is
+     * located at its by-id URL, and that URL serves it with the same location.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {BASE + "/ResourceTypes", BASE + "/Schemas"})
+    void every_listed_discovery_resource_is_located_at_its_by_id_url(String path)
+            throws Exception {
+        MvcResult list = mvc.perform(get(path)).andReturn();
+        String collectionUrl = list.getRequest().getRequestURL().toString();
+
+        JsonNode resources = parsed(list).get("Resources");
+        assertThat(resources).hasSize(2);
+        for (JsonNode resource : resources) {
+            String id = resource.get("id").asText();
+            String location = resource.at("/meta/location").asText();
+            assertThat(location).isEqualTo(collectionUrl + "/" + id);
+
+            MvcResult byId = mvc.perform(get(path + "/" + id)).andReturn();
+            assertThat(byId.getResponse().getStatus()).isEqualTo(200);
+            assertThat(parsed(byId).at("/meta/location").asText()).isEqualTo(location);
+        }
+    }
+
+    /**
+     * The base comes from the request, as it does for Users and Groups, so a deployment reached
+     * on another scheme, host or port renders that one — and needs no credential to do it.
+     */
+    @Test
+    void a_discovery_location_follows_the_scheme_host_and_port_the_request_arrived_on()
+            throws Exception {
+        String origin = "https://scim.example.test:8443";
+        MvcResult result = mvc.perform(get(origin + BASE + "/ServiceProviderConfig")).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(parsed(result).at("/meta/location").asText())
+                .isEqualTo(origin + BASE + "/ServiceProviderConfig");
+    }
+
+    /**
      * A refusal that has no {@code scimType} omits the key rather than carrying a null.
      *
      * <p>RFC 7644 §3.12 makes {@code scimType} optional and defines its values as a closed

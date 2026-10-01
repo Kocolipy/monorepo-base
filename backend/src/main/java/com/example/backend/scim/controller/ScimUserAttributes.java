@@ -143,8 +143,8 @@ final class ScimUserAttributes {
         return Set.copyOf(union(declared, COMMON_ATTRIBUTES));
     }
 
-    /** The core User schema, as {@code /Schemas} renders it. */
-    static Map<String, Object> schemaDocument() {
+    /** The core User schema, as {@code /Schemas} renders it, located under {@code baseUri}. */
+    static Map<String, Object> schemaDocument(String baseUri) {
         Map<String, Object> document = new LinkedHashMap<>();
         document.put("schemas", List.of(ScimSchemas.SCHEMA));
         document.put("id", ScimSchemas.USER);
@@ -155,7 +155,7 @@ final class ScimUserAttributes {
                 SCHEMA_ATTRIBUTES.stream().map(Attribute::render).toList());
         document.put("meta", Map.of(
                 "resourceType", "Schema",
-                "location", ScimSchemas.BASE_PATH + "/Schemas/" + ScimSchemas.USER));
+                "location", baseUri + "/Schemas/" + ScimSchemas.USER));
         return document;
     }
 

@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -271,17 +270,7 @@ class ScimUserController {
     }
 
 
-    /**
-     * This service's SCIM base URI, absolute, taken from the request.
-     *
-     * <p>From the request rather than from configuration so a deployment behind a
-     * host-rewriting proxy renders the URI its clients actually use, and so there is no
-     * second place the base path is written.
-     */
     private static String baseUri() {
-        return ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path(ScimSchemas.BASE_PATH)
-                .build()
-                .toUriString();
+        return ScimBaseUri.current();
     }
 }
