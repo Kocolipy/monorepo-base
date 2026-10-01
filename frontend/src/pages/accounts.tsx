@@ -2,11 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
-import {
-  CSRF_EXPIRED_MESSAGE,
-  useSessionRequest,
-  type SessionResult,
-} from "@/auth/use-session-request";
+import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -315,7 +311,7 @@ function useListing<T>(path: string, failureMessage: string, onFailure: (message
       }
       setRows([]);
       setFailed(true);
-      onFailure(result.kind === "csrf-expired" ? CSRF_EXPIRED_MESSAGE : failureMessage);
+      onFailure(refusalMessage(result, failureMessage));
     });
   }, [failureMessage, onFailure, path, request]);
 
@@ -344,9 +340,12 @@ function useDirectory() {
   );
   const setUsers = users.setRows;
 
-  const applyFailure = useCallback((result: SessionResult<unknown>, failureMessage: string) => {
-    setError(result.kind === "csrf-expired" ? CSRF_EXPIRED_MESSAGE : failureMessage);
-  }, []);
+  const applyFailure = useCallback(
+    (result: Exclude<SessionResult<unknown>, { kind: "ok" }>, failureMessage: string) => {
+      setError(refusalMessage(result, failureMessage));
+    },
+    [],
+  );
 
   /**
    * Runs one action and replaces just that row from the response, rather than

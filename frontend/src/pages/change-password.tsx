@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
 import { DEFAULT_DESTINATION } from "@/auth/session-route";
-import { CSRF_EXPIRED_MESSAGE } from "@/auth/use-session-request";
+import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,6 +30,8 @@ function refusalMessage(outcome: Exclude<PasswordChangeOutcome, { kind: "changed
       return "The current password is incorrect.";
     case "locked":
       return "Too many incorrect passwords: the account is now locked and this session has ended. An Admin must Unlock the account before you can sign in again.";
+    case "forbidden":
+      return FORBIDDEN_MESSAGE;
     case "csrf-expired":
       return CSRF_EXPIRED_MESSAGE;
     case "failed":
