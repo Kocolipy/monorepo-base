@@ -90,6 +90,7 @@ describe("AuthProvider", () => {
     { kind: "current-password-rejected" },
     { kind: "locked" },
     { kind: "policy-violation", message: "rule" },
+    { kind: "forbidden" },
     { kind: "csrf-expired" },
     { kind: "failed" },
   ] as authApi.PasswordChangeOutcome[])("keeps the session on a $kind refusal", async (refusal) => {

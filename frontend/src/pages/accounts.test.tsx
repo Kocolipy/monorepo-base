@@ -495,6 +495,34 @@ describe("Accounts", () => {
     );
   });
 
+  it("reports a refused action as permission denied and keeps the session", async () => {
+    routeApi({
+      actions: [{ kind: "forbidden" }],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
+    });
+    const user = userEvent.setup();
+    renderAccounts();
+
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/^You don't have permission to do this\.$/);
+    // The refused row is left as it was, and nothing ends the session.
+    expect(screen.getByRole("button", { name: "Unlock grace" })).toBeEnabled();
+    expect(auth.expireSession).not.toHaveBeenCalled();
+    expect(auth.logout).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused listing read as permission denied and keeps the session", async () => {
+    routeApi({ users: { kind: "forbidden" } });
+    renderAccounts();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^You don't have permission to do this\.$/,
+    );
+    expect(auth.expireSession).not.toHaveBeenCalled();
+    expect(auth.logout).not.toHaveBeenCalled();
+  });
+
   /**
    * The route guard means a signed-in user is always present, but the context
    * types it as optional; the page must not throw while it is absent, and with

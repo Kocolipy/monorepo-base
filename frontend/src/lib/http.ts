@@ -28,6 +28,7 @@ export type ApiRequestInit = Omit<RequestInit, "headers"> & {
 export type ApiResult<T, E = never> =
   | { kind: "ok"; data: T }
   | { kind: "unauthenticated" }
+  | { kind: "forbidden" }
   | { kind: "csrf-expired" }
   | { kind: "failed"; status?: number; detail?: E };
 
@@ -37,6 +38,13 @@ export type ApiResult<T, E = never> =
  * a `failed` result stays with the feature that knows what failed.
  */
 export const CSRF_EXPIRED_MESSAGE = "Your security token expired. Please try again.";
+
+/**
+ * Copy for a `forbidden` result: the backend refused the request on
+ * authorization, so retrying it will not help. Owned here beside
+ * `CSRF_EXPIRED_MESSAGE` so every feature says the same thing.
+ */
+export const FORBIDDEN_MESSAGE = "You don't have permission to do this.";
 
 export type ApiDecoder<T> = (response: Response) => Promise<T> | T;
 
@@ -79,6 +87,23 @@ async function readDetail<E>(response: Response, decode: ApiDecoder<E>): Promise
   }
 }
 
+/**
+ * Asks the backend for a fresh CSRF cookie, and says whether it answered.
+ *
+ * A `401` counts as answered: a guest's `GET /api/auth/me` is refused but
+ * still carries a freshly issued `XSRF-TOKEN`, and that is exactly the seed a
+ * guest's first `POST /api/auth/login` needs. Any other unsuccessful status,
+ * or no response at all, means no fresh token can be assumed.
+ */
+async function reseedCsrf(): Promise<boolean> {
+  try {
+    const seed = await fetch(CSRF_SEED_PATH, { credentials: "include" });
+    return seed.ok || seed.status === 401;
+  } catch {
+    return false;
+  }
+}
+
 export function apiFetch(path: string, init?: ApiRequestInit): Promise<ApiResult<void>>;
 export function apiFetch<T>(
   path: string,
@@ -95,10 +120,14 @@ export function apiFetch<T, E>(
 /**
  * Performs an API request and returns its meaning rather than a raw response.
  *
- * Unsafe requests retry exactly once after a `403` and CSRF re-seed. The final
- * response is then classified consistently for every feature. Successful body
- * decoding is explicit, so no-content responses remain type-safe, and so is
- * failure body decoding: only a caller passing `decodeFailure` gets a `detail`.
+ * A `403` is either a missing or stale CSRF token or an authorization refusal.
+ * CSRF applies only to unsafe methods, so a safe request's `403` is `forbidden`
+ * at once. An unsafe request re-seeds the token and retries exactly once; a
+ * `403` on the retry was sent with a token just issued, so it too is
+ * `forbidden`. `csrf-expired` is left for the one case where the token could
+ * not be re-seeded at all. Successful body decoding is explicit, so no-content
+ * responses remain type-safe, and so is failure body decoding: only a caller
+ * passing `decodeFailure` gets a `detail`.
  */
 export async function apiFetch<T, E>(
   path: string,
@@ -109,12 +138,12 @@ export async function apiFetch<T, E>(
   try {
     let response = await fetch(path, withCsrf(init));
     if (response.status === 403 && isUnsafe(init.method)) {
-      await fetch(CSRF_SEED_PATH, { credentials: "include" });
+      if (!(await reseedCsrf())) return { kind: "csrf-expired" };
       response = await fetch(path, withCsrf(init));
     }
 
     if (response.status === 401) return { kind: "unauthenticated" };
-    if (response.status === 403) return { kind: "csrf-expired" };
+    if (response.status === 403) return { kind: "forbidden" };
     if (!response.ok) {
       if (decodeFailure === undefined) return { kind: "failed", status: response.status };
       return {

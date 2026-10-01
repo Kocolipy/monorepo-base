@@ -9,18 +9,46 @@
 
 import { useCallback } from "react";
 
-import { apiFetch, type ApiDecoder, type ApiRequestInit, type ApiResult } from "@/lib/http";
+import {
+  apiFetch,
+  CSRF_EXPIRED_MESSAGE,
+  FORBIDDEN_MESSAGE,
+  type ApiDecoder,
+  type ApiRequestInit,
+  type ApiResult,
+} from "@/lib/http";
 
 import { useAuthState } from "./auth-context-value";
 
 /**
  * Re-exported so a feature reads the whole result contract — the cases and the
- * copy for the one case it does not own — from this seam alone.
+ * copy for the two cases it does not own — from this seam alone. A `forbidden`
+ * result passes through untouched: an authorization refusal is not the end of
+ * the session, so the seam never expires it.
  */
-export { CSRF_EXPIRED_MESSAGE } from "@/lib/http";
+export { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/lib/http";
 
 /** An `ApiResult` whose session outcome the seam has already handled. */
 export type SessionResult<T> = Exclude<ApiResult<T>, { kind: "unauthenticated" }>;
+
+/**
+ * The copy for an unsuccessful result: the seam's own for the two transport
+ * outcomes, and the feature's `failedMessage` for a plain `failed`, which only
+ * the feature can describe.
+ */
+export function refusalMessage(
+  result: Exclude<SessionResult<unknown>, { kind: "ok" }>,
+  failedMessage: string,
+): string {
+  switch (result.kind) {
+    case "forbidden":
+      return FORBIDDEN_MESSAGE;
+    case "csrf-expired":
+      return CSRF_EXPIRED_MESSAGE;
+    case "failed":
+      return failedMessage;
+  }
+}
 
 export interface SessionRequest {
   (path: string, init?: ApiRequestInit): Promise<SessionResult<void>>;

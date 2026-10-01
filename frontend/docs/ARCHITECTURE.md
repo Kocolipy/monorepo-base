@@ -74,7 +74,8 @@ dismissing it, navigating away or reloading loses it for good.
 `pages/accounts-api.ts` holds the wire types and paths both files share.
 
 Every request goes through `useSessionRequest`, so a `401` ends the session in
-one place and a `403` stays a CSRF problem. What each status means to an
+one place and a `403` never does: it reaches the page as `forbidden`, which shows
+permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 mapped in the page, because only the page knows what was being attempted.
 
@@ -88,11 +89,14 @@ The backend enforces CSRF double-submit (`/frontend/AGENTS.md`, "Backend contrac
 unsafe request needs the `XSRF-TOKEN` cookie echoed in an `X-XSRF-TOKEN` header
 or it comes back `403`. `apiFetch()` is the single place that knows this: it
 reads the cookie **at call time**, adds the header on unsafe methods only, and
-on a `403` re-seeds the cookie with a safe `GET` and retries exactly once.
+on an unsafe request's `403` re-seeds the cookie with a safe `GET` and retries
+exactly once. A safe request's `403` cannot be CSRF, so it is not retried.
 
 Its interface returns an `ApiResult`: `ok` carries data from an explicit decoder,
-`unauthenticated` means the session ended, `csrf-expired` keeps a persistent
-`403` distinct, and `failed` covers every other transport, HTTP, or decoding
+`unauthenticated` means the session ended, `forbidden` is an authorization
+refusal (a safe request's `403`, or a `403` that survived the re-seed),
+`csrf-expired` is a re-seed that itself failed, and `failed` covers every other
+transport, HTTP, or decoding
 failure. Features retain their own human-facing copy while sharing status
 meaning. A no-content request omits the decoder, so its `ok` data is typed as
 `void` rather than pretending every success is JSON.

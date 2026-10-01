@@ -3,11 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
-import {
-  CSRF_EXPIRED_MESSAGE,
-  useSessionRequest,
-  type SessionResult,
-} from "@/auth/use-session-request";
+import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -46,16 +42,11 @@ export function Showcase() {
   );
 
   const applyResult = useCallback((result: SessionResult<number>, failureMessage: string) => {
-    switch (result.kind) {
-      case "ok":
-        setCount(result.data);
-        return;
-      case "csrf-expired":
-        setError(CSRF_EXPIRED_MESSAGE);
-        return;
-      case "failed":
-        setError(failureMessage);
+    if (result.kind === "ok") {
+      setCount(result.data);
+      return;
     }
+    setError(refusalMessage(result, failureMessage));
   }, []);
 
   useEffect(() => {

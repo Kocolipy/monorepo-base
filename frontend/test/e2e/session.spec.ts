@@ -5,7 +5,8 @@ import { expireSession } from "./auth.helpers";
 const CSRF_HEADER = "x-xsrf-token";
 
 // What the SPA does when a request it expected to succeed comes back refused.
-// `src/lib/http.ts` classifies 401 and a *persistent* 403 into different results
+// `src/lib/http.ts` classifies 401 and a 403 that survives the CSRF re-seed into
+// different results
 // and `src/pages/showcase.tsx` answers them differently — a real backend on the
 // other end is the only thing that proves those two statuses are what it
 // actually sends. The unit suites cover the same branches against a stubbed
@@ -33,7 +34,9 @@ test.describe("sessions, signed in", () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("reports an expired security token without ending the session", async ({ page }) => {
+  test("reports a 403 that survives the re-seed as permission denied without ending the session", async ({
+    page,
+  }) => {
     await page.goto("/showcase");
 
     const increment = page.getByRole("button", { name: "Increment" });
@@ -42,9 +45,12 @@ test.describe("sessions, signed in", () => {
     // Corrupt the echoed token rather than deleting the cookie: `apiFetch`
     // answers a 403 by re-seeding the cookie and retrying once, so a deleted
     // cookie would simply be replaced and the request would succeed. Rewriting
-    // the header on every attempt makes the backend reject both, which is the
-    // only way to reach the `csrf-expired` result.
+    // the header on every attempt makes the backend reject both; a 403 sent
+    // with a just-issued token is an authorization refusal to `apiFetch`, so it
+    // reaches the page as `forbidden`.
+    let attempts = 0;
     await page.route("**/api/count/increment", async (route) => {
+      attempts += 1;
       await route.continue({
         headers: { ...route.request().headers(), [CSRF_HEADER]: "not-the-current-token" },
       });
@@ -52,9 +58,9 @@ test.describe("sessions, signed in", () => {
 
     await increment.click();
 
-    await expect(page.getByRole("alert")).toHaveText(
-      "Your security token expired. Please try again.",
-    );
+    await expect(page.getByRole("alert")).toHaveText("You don't have permission to do this.");
+    // Exactly one retry after the re-seed, never a loop.
+    expect(attempts).toBe(2);
 
     // A 403 is not a 401: the session survives, so the user stays where they are
     // instead of being sent back to sign in.

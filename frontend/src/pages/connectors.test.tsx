@@ -418,6 +418,34 @@ describe("Connectors", () => {
     );
   });
 
+  it("reports a refused mutation as permission denied and keeps the session", async () => {
+    routeApi({
+      actions: [{ kind: "forbidden" }],
+      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.click(await screen.findByRole("button", { name: "Rotate token a1b2c3d4" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^You don't have permission to do this\.$/,
+    );
+    expect(auth.expireSession).not.toHaveBeenCalled();
+    expect(auth.logout).not.toHaveBeenCalled();
+  });
+
+  it("reports a refused listing read as permission denied and keeps the session", async () => {
+    routeApi({ listings: [{ kind: "forbidden" }] });
+    renderConnectors();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^You don't have permission to do this\.$/,
+    );
+    expect(auth.expireSession).not.toHaveBeenCalled();
+    expect(auth.logout).not.toHaveBeenCalled();
+  });
+
   it("reports a failed listing read without claiming there are no connectors", async () => {
     routeApi({ listings: [{ kind: "failed", status: 503 }] });
     renderConnectors();

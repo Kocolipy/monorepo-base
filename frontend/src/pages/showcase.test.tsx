@@ -99,6 +99,16 @@ describe("Showcase", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/count", {}, expect.any(Function));
   });
 
+  it("decodes the count from the backend's response body", async () => {
+    resolveWith({ kind: "ok", data: 0 });
+    renderShowcase();
+    await screen.findByText("Clicked 0 times");
+
+    // apiFetch is stubbed above, so the decoder it was handed is exercised here.
+    const decode = apiFetchMock.mock.calls[0]?.[2];
+    await expect(decode?.(Response.json({ count: 7 }))).resolves.toBe(7);
+  });
+
   it("disables counter actions while the initial count is loading", async () => {
     let finishLoading: ((result: object) => void) | undefined;
     apiFetchMock.mockReturnValueOnce(
@@ -134,6 +144,23 @@ describe("Showcase", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Your security token expired. Please try again.",
     );
+  });
+
+  it("reports a refused counter update as permission denied and keeps the session", async () => {
+    resolveOnceWith({ kind: "ok", data: 2 });
+    resolveOnceWith({ kind: "forbidden" });
+    const user = userEvent.setup();
+    renderShowcase();
+
+    await user.click(await screen.findByRole("button", { name: "Increment" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^You don't have permission to do this\.$/,
+    );
+    // The count from the last successful read stands, and nothing ends the session.
+    expect(count()).toHaveTextContent("Clicked 2 times");
+    expect(auth.expireSession).not.toHaveBeenCalled();
+    expect(auth.logout).not.toHaveBeenCalled();
   });
 
   it("expires the auth state when the initial request is unauthenticated", async () => {
