@@ -92,6 +92,18 @@ public interface ScimGroupRepository {
     Optional<ScimGroup> replace(ScimGroup group);
 
     /**
+     * Advances the Group's own version and {@code meta.lastModified} and nothing else — for a
+     * write whose only visible change is the calling connector's {@code externalId}, which
+     * {@link #replace} cannot see because the alias is not a Group column.
+     *
+     * <p>No member's version moves: a User's rendered {@code groups} carries the Group's id and
+     * label, never an alias, so nothing a member renders has changed.
+     *
+     * @return the Group as stored, or empty when no Group has that id
+     */
+    Optional<ScimGroup> advanceVersion(UUID id, Instant now);
+
+    /**
      * Deletes the Group and its memberships, advancing the version of every User that was
      * a member — their {@code groups} attribute just lost an entry.
      *

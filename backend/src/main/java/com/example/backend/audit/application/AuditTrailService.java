@@ -87,6 +87,9 @@ public class AuditTrailService implements AuditTrail {
     /** What a membership change changes, and the only path a PATCH of members touches. */
     private static final List<String> GROUP_MEMBER_PATHS = List.of("members");
 
+    /** What a change to the calling connector's own alias changes; never the alias value. */
+    private static final List<String> EXTERNAL_ID_PATHS = List.of("externalId");
+
     /** A rejected login lengthens the failure run and nothing else. */
     private static final List<String> FAILURE_RUN_PATHS = List.of("failedLoginAttempts");
 
@@ -621,6 +624,7 @@ public class AuditTrailService implements AuditTrail {
                     case ACTIVE -> "active";
                     case PASSWORD -> "password";
                     case EMAILS -> "emails";
+                    case EXTERNAL_ID -> "externalId";
                     case GROUPS -> "groups";
                 })
                 .toList();
@@ -774,6 +778,7 @@ public class AuditTrailService implements AuditTrail {
                 .flatMap(attribute -> switch (attribute) {
                     case DISPLAY_NAME -> GROUP_NAME_PATHS.stream();
                     case MEMBERS -> GROUP_MEMBER_PATHS.stream();
+                    case EXTERNAL_ID -> EXTERNAL_ID_PATHS.stream();
                 })
                 .toList();
     }

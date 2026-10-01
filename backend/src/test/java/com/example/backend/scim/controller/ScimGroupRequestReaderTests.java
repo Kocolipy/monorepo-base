@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.scim.application.ScimGroupPatchOperation;
+import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveAllMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.SetDisplayName;
@@ -78,6 +79,59 @@ class ScimGroupRequestReaderTests {
         assertThat(read("[{\"op\":\"remove\",\"path\":\"URN:IETF:PARAMS:SCIM:SCHEMAS:CORE:2.0:"
                 + "GROUP:members\"}]"))
                 .containsExactly(new RemoveAllMembers());
+    }
+
+    /**
+     * {@code externalId} is read-write on a Group: {@code add} and {@code replace} set the caller's
+     * alias and {@code remove} clears it, by the bare and the schema-qualified path alike.
+     */
+    @Test
+    void external_id_is_set_and_removed_by_its_path() {
+        for (String path : List.of("externalId", "EXTERNALID",
+                "urn:ietf:params:scim:schemas:core:2.0:Group:externalId")) {
+            assertThat(read("[{\"op\":\"add\",\"path\":\"" + path + "\",\"value\":\"e1\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.SetExternalId("e1"));
+            assertThat(read("[{\"op\":\"replace\",\"path\":\"" + path
+                    + "\",\"value\":\"e2\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.SetExternalId("e2"));
+            assertThat(read("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.RemoveExternalId());
+        }
+    }
+
+    @Test
+    void external_id_takes_a_non_blank_string_and_has_no_sub_attributes() {
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":7}]", "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\"}]", "invalidSyntax");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":\" \"}]",
+                "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId.value\",\"value\":\"x\"}]",
+                "invalidPath");
+        refused("[{\"op\":\"move\",\"path\":\"externalId\",\"value\":\"x\"}]",
+                "invalidValue");
+    }
+
+    /** An unknown op on externalId is echoed sanitized: a control character cannot forge a log. */
+    @Test
+    void an_unknown_op_on_external_id_is_echoed_without_control_characters() {
+        assertThatThrownBy(() -> read(
+                "[{\"op\":\"mo\\u0007ve\",\"path\":\"externalId\",\"value\":\"x\"}]"))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
+                        assertThat(refusal.getMessage()).contains("move").doesNotContain("\u0007"));
+    }
+
+    /** A PUT body's {@code externalId} is carried to the use case, and an omitted one is null. */
+    @Test
+    void a_replacement_carries_the_external_id_or_null_when_omitted() {
+        UUID member = UUID.randomUUID();
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng","externalId":"e1","members":[{"value":"%s"}]}"""
+                .formatted(member))))
+                .isEqualTo(new ScimGroupReplacement("Eng", List.of(member), "e1"));
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng"}""")).externalId()).isNull();
     }
 
     @Test

@@ -1200,9 +1200,11 @@ paths:
           because a write-only secret can never be read back and resent;
         - read-only attributes (`id`, `meta`, `groups`) are ignored, so a client may PUT
           back what it read;
-        - `externalId` is fixed at creation: omitting it or restating the stored value is
-          accepted and changes nothing, and a different value is refused with
-          `400 mutability` — as PATCH refuses it — rather than silently dropped.
+        - `externalId` is read-write and replaced like any optional attribute: a
+          submitted value becomes the calling connector's alias, restating the stored
+          value changes nothing, and omitting it removes the caller's alias (RFC 7644
+          §3.5.1). Only the caller's alias is touched; another connector's alias for the
+          same User is neither read nor written.
 
         The version — and `meta.lastModified` — advance exactly once for a write that
         changes anything, and not at all for one that restates the stored state.
@@ -1223,8 +1225,11 @@ paths:
         ordinary profile or email change ends none. The write and the revocation are each
         audited, the revocation with its outcome.
 
-        The Bootstrap Admin cannot be written: `400 mutability`. A write that changes
-        nothing is still audited, with no changed paths.
+        The Bootstrap Admin cannot be written: `400 mutability`. That includes the
+        calling connector's own `externalId` for it — an alias change advances the
+        User's version, and no SCIM write may change that User — so no connector can
+        hold an alias for it. A write that changes nothing is still audited, with no
+        changed paths.
       operationId: replaceScimUser
       security:
         - connectorBearer: []
@@ -1296,7 +1301,8 @@ paths:
         | `emails` | `add` appends, `replace` replaces the list, `remove` clears it |
         | `emails[<filter>]` | `add`/`replace` with an object write the named sub-attributes onto the matching values; `remove` removes them |
         | `emails[<filter>].<sub>` or `emails.<sub>` | set or remove one sub-attribute on the matching (or every) value; removing `value` is `mutability` |
-        | none | `add`/`replace` apply each attribute of the object value as if it were the path; read-only attributes and `externalId` in it are ignored; `remove` without a path is `noTarget` |
+        | `externalId` | `add`/`replace` set the calling connector's alias; `remove` removes it. Another connector's alias is never reached |
+        | none | `add`/`replace` apply each attribute of the object value as if it were the path; read-only attributes in it are ignored; `remove` without a path is `noTarget` |
 
         An email value marked `primary` takes primacy from every other value.
 
@@ -1311,7 +1317,7 @@ paths:
         | not a `PatchOp`, no operations, unknown `op` | `invalidSyntax` |
         | malformed path, unimplemented attribute, filter or sub-attribute where there is none | `invalidPath` |
         | unsupported filter | `invalidFilter` |
-        | `id`, `meta`, `groups`, `schemas` or `externalId` as a path; removing a required value | `mutability` |
+        | `id`, `meta`, `groups` or `schemas` as a path; removing a required value | `mutability` |
         | a filter that matches no value; `remove` with no path | `noTarget` |
         | a value of the wrong type; a password the policy refuses (too short, too long, containing the `userName`, or reused) | `invalidValue` |
 
@@ -1657,12 +1663,12 @@ paths:
         rather than left alone — that is what replacing a resource means — so a PUT
         with no `members` empties the Group.
 
-        `externalId` in the body is accepted and DISCARDED, so a client may PUT back a
-        resource it read. The alias belongs to the connector's relationship with the
-        resource and is established at creation: a PUT that could change it would let
-        a replacement silently re-key the resource in the caller's own namespace, and
-        one that had to restate it would delete the alias of every connector that
-        omitted the field.
+        `externalId` is read-write and replaced the same way: a submitted value becomes
+        the calling connector's alias, restating it changes nothing, and omitting it
+        removes the caller's alias (RFC 7644 §3.5.1). Only the caller's alias is
+        touched; another connector's alias for the same Group is neither read nor
+        written. A change to the alias alone advances this Group's version and
+        `meta.lastModified`, and no member's — a member's `groups` renders no alias.
 
         **Version increments reach other resources.** A membership change advances
         this Group's version and the version of every User added or removed. A
@@ -1727,7 +1733,7 @@ paths:
         because none was ever written.
 
         Each operation requires a `path`, and the supported paths are a closed set —
-        a Group has two writable attributes. Paths and `op` are matched
+        a Group has three writable attributes. Paths and `op` are matched
         case-insensitively, and a path may carry the core Group schema URN as a prefix:
 
         | `op` | `path` | Meaning |
@@ -1738,6 +1744,8 @@ paths:
         | `replace` | `members` | Replace the whole membership. |
         | `remove` | `members` | With a value, remove the named Users; with none, clear the membership. Removing a non-member is a no-op. |
         | `remove` | `members[value eq "<id>"]` | Remove one member. The only value-path form accepted, because it is the one that occurs. |
+        | `add`, `replace` | `externalId` | Set the calling connector's alias. Single-valued, so adding replaces it. |
+        | `remove` | `externalId` | Remove the calling connector's alias. Another connector's alias is never reached. |
 
         | Refusal | `scimType` |
         | --- | --- |
@@ -2288,7 +2296,10 @@ components:
         group and cannot be added to any other Group, because a membership change
         moves that User's computed `groups` and its version, which a client reads.
         The Admin group's ORDINARY membership stays fully writable: granting and
-        revoking administrative access is what external provisioning is for.
+        revoking administrative access is what external provisioning is for. So does
+        the calling connector's own `externalId` for it: the alias is that connector's
+        name for the Group, invisible to every other connector, and setting or
+        removing it renames nothing and changes no one's authority.
 
         `400` rather than `403` deliberately. The token may be a perfectly valid
         read-write one; it is the TARGET that is refused, not the credential, and

@@ -157,10 +157,10 @@ class ScimUserServiceTests {
         return users.findById(ada.id()).orElseThrow();
     }
 
-    /** A PUT; the third argument is the externalId the body carried. */
-    private ScimUserResource put(ScimUserProfile profile, String password, String sentExternalId) {
+    /** A PUT; the third argument is the externalId the body carried, null when it omitted it. */
+    private ScimUserResource put(ScimUserProfile profile, String password, String externalId) {
         return service.replace(CONNECTOR, ada.id(), current(),
-                new ScimUserReplacement(profile, password, sentExternalId)).orElseThrow();
+                new ScimUserReplacement(profile, password, externalId)).orElseThrow();
     }
 
     private ScimUserResource patch(ScimUserPatchOperation... operations) {
@@ -333,37 +333,124 @@ class ScimUserServiceTests {
     // ---- aliases ------------------------------------------------------------------------
 
     /**
-     * The alias is fixed at creation, as a Group's is: a PUT carrying another value or none at
-     * all leaves it — and every other connector's — exactly as it was, and moves no version.
+     * {@code externalId} is read-write: a PUT carrying a different value re-keys the CALLING
+     * connector's alias, advances the version and stamps {@code lastModified} like any other
+     * change, and leaves another connector's alias for the same User as it was.
      */
     @Test
-    void a_put_restating_or_omitting_the_alias_leaves_every_connectors_alias_alone() {
+    void a_put_with_a_different_alias_changes_only_the_callers_alias() {
         aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
         long before = stored().version();
 
-        assertThat(put(stored().profile(), null, "ext-ada").externalId()).isEqualTo("ext-ada");
-        ScimUserResource written = put(stored().profile(), null, null);
+        ScimUserResource written = put(stored().profile(), null, "ext-ada-2");
 
-        assertThat(written.externalId()).isEqualTo("ext-ada");
-        assertThat(written.version()).isEqualTo(before);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+        assertThat(written.externalId()).isEqualTo("ext-ada-2");
+        assertThat(written.version()).isEqualTo(before + 1);
+        assertThat(stored().lastModifiedAt()).isEqualTo(LATER);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada-2");
         assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
+        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
     }
 
-    /** Refused, not dropped: PATCH answers the same attempt with the same refusal. */
+    /**
+     * RFC 7644 §3.5.1: an omitted read-write attribute is unassigned by a replacement, so a PUT
+     * with no {@code externalId} removes the caller's alias — and only the caller's.
+     */
     @Test
-    void a_put_asserting_a_different_alias_is_refused_as_mutability_and_changes_nothing() {
-        ScimUser before = stored();
+    void a_put_omitting_the_alias_removes_only_the_callers_alias() {
+        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
+        long before = stored().version();
 
-        assertThatThrownBy(() -> put(minimal("ada", false), null, "ext-other"))
-                .isInstanceOfSatisfying(ScimPatchRefusedException.class, refused ->
-                        assertThat(refused.reason())
-                                .isEqualTo(ScimPatchRefusedException.Reason.MUTABILITY));
+        ScimUserResource written = put(stored().profile(), null, null);
 
-        assertThat(stored()).isEqualTo(before);
-        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+        assertThat(written.externalId()).isNull();
+        assertThat(written.version()).isEqualTo(before + 1);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).isEmpty();
+        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
         assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("MUTABILITY");
+                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("EXTERNAL_ID");
+    }
+
+    /** Restating the stored alias is the no-op any restated attribute is. */
+    @Test
+    void a_put_restating_the_alias_changes_nothing() {
+        long before = stored().version();
+
+        assertThat(put(stored().profile(), null, "ext-ada").externalId()).isEqualTo("ext-ada");
+
+        assertThat(stored().version()).isEqualTo(before);
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+    }
+
+    /** PATCH sets, re-keys and removes the caller's alias, and only the caller's. */
+    @Test
+    void a_patch_sets_and_removes_only_the_callers_alias() {
+        aliases.put(OTHER_CONNECTOR.connectorId(), ada.id(), "theirs");
+        long before = stored().version();
+
+        ScimUserResource set = patch(new ScimUserPatchOperation.SetExternalId("ext-ada-2"));
+
+        assertThat(set.externalId()).isEqualTo("ext-ada-2");
+        assertThat(set.version()).isEqualTo(before + 1);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada-2");
+
+        ScimUserResource removed = patch(new ScimUserPatchOperation.RemoveExternalId());
+
+        assertThat(removed.externalId()).isNull();
+        assertThat(removed.version()).isEqualTo(before + 2);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).isEmpty();
+        assertThat(aliases.find(OTHER_CONNECTOR.connectorId(), ada.id())).contains("theirs");
+        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE))
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .containsExactly("EXTERNAL_ID", "EXTERNAL_ID");
+    }
+
+    /** A write that moves no alias writes no alias — not even the stored value again. */
+    @Test
+    void a_write_that_leaves_the_alias_alone_does_not_write_it() {
+        int before = aliases.writes();
+
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+        put(minimal("ada", false), null, "ext-ada");
+
+        assertThat(aliases.writes()).isEqualTo(before);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+    }
+
+    /**
+     * The other connector's write reaches its own namespace: a connector with no alias for Ada
+     * that sets one leaves the creating connector's alias unchanged.
+     */
+    @Test
+    void another_connector_setting_its_alias_does_not_touch_the_creators() {
+        ScimUserResource seenByOther = service.patch(OTHER_CONNECTOR, ada.id(), current(),
+                List.of(new ScimUserPatchOperation.SetExternalId("theirs"))).orElseThrow();
+
+        assertThat(seenByOther.externalId()).isEqualTo("theirs");
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+        assertThat(service.findById(CONNECTOR, ada.id()).orElseThrow().externalId())
+                .isEqualTo("ext-ada");
+    }
+
+    /**
+     * The Bootstrap Admin keeps its protection: an alias write is a write to that User — it
+     * advances its version — so it is refused like any other, and no alias is stored.
+     */
+    @Test
+    void the_bootstrap_admin_alias_cannot_be_written() {
+        ScimUser reserved = users.createReserved(
+                ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
+        ScimVersionPrecondition itsVersion = ScimVersionPrecondition.ofIfMatch(
+                List.of("\"" + reserved.version() + "\""));
+
+        assertThatThrownBy(() -> service.patch(CONNECTOR, reserved.id(), itsVersion,
+                List.of(new ScimUserPatchOperation.SetExternalId("root-alias"))))
+                .isInstanceOf(ProtectedResourceException.class);
+
+        assertThat(aliases.find(CONNECTOR.connectorId(), reserved.id())).isEmpty();
+        assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
     }
 
     // ---- the order of refusals ------------------------------------------------------------
@@ -487,19 +574,31 @@ class ScimUserServiceTests {
     }
 
     /**
-     * An over-length {@code externalId} on a PUT is named as too long, not as a change of the
-     * alias: the length is what the connector has to fix, whatever it is compared with.
+     * An over-length {@code externalId} is refused as too long on PUT and on PATCH — both can
+     * write the alias — and the stored alias is left as it was.
      */
     @Test
-    void an_over_length_external_id_on_put_is_an_invalid_value_not_a_mutability_refusal() {
+    void an_over_length_external_id_on_put_or_patch_is_an_invalid_value_and_keeps_the_alias() {
         ScimUser before = stored();
 
         assertThatThrownBy(() -> put(before.profile(), null, "x".repeat(257)))
                 .isInstanceOfSatisfying(ScimValueTooLongException.class,
                         refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
-
         assertLengthRefusedAndNothingChanged(before);
+        assertThatThrownBy(() -> patch(new ScimUserPatchOperation.SetExternalId("x".repeat(257))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
+
+        assertThat(stored()).isEqualTo(before);
         assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+    }
+
+    @Test
+    void an_external_id_at_its_limit_is_stored() {
+        String longest = "x".repeat(256);
+
+        assertThat(patch(new ScimUserPatchOperation.SetExternalId(longest)).externalId())
+                .isEqualTo(longest);
     }
 
     @Test

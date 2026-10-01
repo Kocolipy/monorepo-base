@@ -7,8 +7,9 @@ import java.util.UUID;
  * One thing a SCIM PATCH asks to be done to a Group, as a closed set.
  *
  * <p>Sealed, and that is the design. RFC 7644 §3.5.2 defines PATCH as operations over
- * attribute paths, which is an open-ended grammar; a Group in this directory has exactly two
- * writable attributes, so the set of things a PATCH can actually mean is small and finite.
+ * attribute paths, which is an open-ended grammar; a Group in this directory has exactly three
+ * writable attributes — {@code displayName}, {@code members} and the calling connector's
+ * {@code externalId} — so the set of things a PATCH can actually mean is small and finite.
  * Naming each of them is what lets the use case apply a PATCH as a fold over typed values
  * instead of interpreting paths at the point of writing — and what makes an unsupported path
  * a refusal at the adapter, where the request is still a request, rather than a surprise
@@ -29,6 +30,17 @@ public sealed interface ScimGroupPatchOperation {
      * RFC 7644 §3.5.2.1 says of a single-valued attribute.
      */
     record SetDisplayName(String displayName) implements ScimGroupPatchOperation {
+    }
+
+    /**
+     * Set the calling connector's alias. {@code add} and {@code replace} are one operation, for the
+     * reason they are on {@code displayName}: the attribute is single-valued.
+     */
+    record SetExternalId(String externalId) implements ScimGroupPatchOperation {
+    }
+
+    /** Remove the calling connector's alias; another connector's alias is not reachable. */
+    record RemoveExternalId() implements ScimGroupPatchOperation {
     }
 
     /**

@@ -131,8 +131,8 @@ class ScimStoredLengthIntegrationTests {
      * One stored User attribute: the path a refusal names, its column's limit, the body fragment
      * carrying a value for it, and the PatchOp operation setting it.
      *
-     * <p>{@code patchPath} is {@code null} for {@code externalId}, which no PATCH on main may
-     * write — it is refused as {@code mutability} whatever its length.
+     * <p>{@code patchPath} is {@code null} for an attribute no PATCH path writes; none now —
+     * {@code externalId} became PATCH-writable with issue #54.
      */
     record UserAttribute(
             String attribute,
@@ -161,7 +161,7 @@ class ScimStoredLengthIntegrationTests {
                 text("locale", 64),
                 text("timezone", 64),
                 new UserAttribute("externalId", 256, v -> "\"externalId\":\"" + v + "\"",
-                        null, null),
+                        "externalId", UserAttribute::quoted),
                 new UserAttribute("name.givenName", 256,
                         v -> "\"name\":{\"givenName\":\"" + v + "\"}",
                         "name.givenName", UserAttribute::quoted),
@@ -271,9 +271,16 @@ class ScimStoredLengthIntegrationTests {
         assertTooLong(perform(patch(GROUPS + "/" + group), etag,
                         patchOp("displayName", "\"" + tooLong + "\"")),
                 "displayName", 256, tooLong);
+        // externalId is PUT- and PATCH-writable since issue #54, so both are bounded too.
+        assertTooLong(perform(put(GROUPS + "/" + group), etag, """
+                {"schemas":["%s"],"displayName":"len-group","externalId":"%s"}"""
+                .formatted(GROUP_SCHEMA, tooLong)), "externalId", 256, tooLong);
+        assertTooLong(perform(patch(GROUPS + "/" + group), etag,
+                        patchOp("externalId", "\"" + tooLong + "\"")),
+                "externalId", 256, tooLong);
         assertThat(etagOf(GROUPS, group)).isEqualTo(etag);
         assertThat(refusalCodes("SCIM_GROUP_REPLACE"))
-                .containsExactly("INVALID_VALUE", "INVALID_VALUE");
+                .containsExactly("INVALID_VALUE", "INVALID_VALUE", "INVALID_VALUE", "INVALID_VALUE");
 
         MvcResult longest = createGroup("""
                 {"schemas":["%s"],"displayName":"%s"}"""

@@ -30,6 +30,16 @@ class ScimExternalIdPersistenceAdapter implements ScimExternalIdRepository {
     }
 
     /**
+     * Deletes by the whole key, so only this connector's row for this resource can go. Absent
+     * is not an error: removing an alias nobody set is a no-op, as RFC 7644 makes removing an
+     * unassigned attribute.
+     */
+    @Override
+    public void remove(UUID connectorId, UUID resourceId) {
+        aliases.deleteById(new ScimExternalIdEntity.Key(connectorId, resourceId));
+    }
+
+    /**
      * This connector's alias for this resource.
      *
      * <p>The lookup is by the whole key, so no query here can return a row belonging to

@@ -18,5 +18,11 @@ public enum AuditGroupAttribute {
     DISPLAY_NAME,
 
     /** Its membership changed — somebody was added, removed, or both. */
-    MEMBERS
+    MEMBERS,
+
+    /**
+     * The calling connector's own {@code externalId} alias changed. The path is recorded; the
+     * alias value never is.
+     */
+    EXTERNAL_ID
 }

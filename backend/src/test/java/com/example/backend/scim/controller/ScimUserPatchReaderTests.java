@@ -16,12 +16,14 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.NamePart;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveActive;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmailPart;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmails;
+import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveExternalId;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveName;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveNamePart;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemovePassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.ReplaceEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetActive;
+import com.example.backend.scim.domain.ScimUserPatchOperation.SetExternalId;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetPassword;
 import com.example.backend.scim.domain.ScimUserPatchOperation.SetText;
 import com.example.backend.scim.domain.ScimUserPatchOperation.TextAttribute;
@@ -146,10 +148,37 @@ class ScimUserPatchReaderTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"id", "meta", "groups", "schemas", "Groups", "externalId"})
+    @ValueSource(strings = {"id", "meta", "groups", "schemas", "Groups"})
     void a_read_only_attribute_as_a_path_is_mutability(String path) {
         refused("[{\"op\":\"replace\",\"path\":\"" + path + "\",\"value\":\"x\"}]",
                 400, "mutability");
+    }
+
+    /**
+     * {@code externalId} is read-write: {@code add} and {@code replace} set it, {@code remove}
+     * clears it, by the bare path and by the schema-qualified one, case-insensitively.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"externalId", "EXTERNALID",
+        "urn:ietf:params:scim:schemas:core:2.0:User:externalId"})
+    void external_id_is_set_and_removed_by_its_path(String path) {
+        assertThat(read("[{\"op\":\"add\",\"path\":\"" + path + "\",\"value\":\"e1\"}]"))
+                .containsExactly(new SetExternalId("e1"));
+        assertThat(read("[{\"op\":\"replace\",\"path\":\"" + path + "\",\"value\":\"e2\"}]"))
+                .containsExactly(new SetExternalId("e2"));
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]"))
+                .containsExactly(new RemoveExternalId());
+    }
+
+    @Test
+    void external_id_takes_a_non_blank_string_and_has_no_sub_attributes() {
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":7}]",
+                400, "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\"}]", 400, "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":\" \"}]",
+                400, "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId.value\",\"value\":\"x\"}]",
+                400, "invalidPath");
     }
 
     /** RFC 7644 §3.5.2.2: a remove with no path fails with {@code noTarget}. */
@@ -304,7 +333,8 @@ class ScimUserPatchReaderTests {
                   "id":"ignored","meta":{},"groups":[],"schemas":[],"externalId":"x"}}]"""))
                 .containsExactly(
                         new SetText(TextAttribute.DISPLAY_NAME, "Ada"),
-                        new SetActive(false));
+                        new SetActive(false),
+                        new SetExternalId("x"));
     }
 
     @Test

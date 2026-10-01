@@ -344,25 +344,30 @@ class ScimConditionalWriteIntegrationTests {
                 .doesNotThrowAnyException();
     }
 
-    /** A PUT may restate the stored alias but not change it — refused, not silently dropped. */
+    /**
+     * {@code externalId} is read-write (issue #54): a PUT carrying a different value re-keys the
+     * caller's alias and advances the version; restating it afterwards is a no-op that advances
+     * nothing.
+     */
     @Test
-    void a_put_changing_the_external_id_is_refused_and_restating_it_is_accepted()
+    void a_put_changing_the_external_id_re_keys_it_and_restating_it_changes_nothing()
             throws Exception {
         UUID user = createUser("put-alias");
         long before = version(USERS, user);
+        String body = "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"put-alias\","
+                + "\"externalId\":\"a-different-alias\"}";
 
-        MvcResult refused = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
-                "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"put-alias\","
-                        + "\"externalId\":\"a-different-alias\"}"), user)).andReturn();
-        assertThat(refused.getResponse().getStatus()).isEqualTo(400);
-        assertThat(body(refused).get("scimType").asText()).isEqualTo("mutability");
-        assertThat(version(USERS, user)).isEqualTo(before);
+        MvcResult changed = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
+                body), user)).andReturn();
+        assertThat(changed.getResponse().getStatus()).isEqualTo(200);
+        assertThat(body(changed).get("externalId").asText()).isEqualTo("a-different-alias");
+        assertThat(version(USERS, user)).isEqualTo(before + 1);
 
         MvcResult restated = mvc.perform(conditional(tokenA, withBody(put(USERS + "/" + user),
-                "{\"schemas\":[\"" + USER_SCHEMA + "\"],\"userName\":\"put-alias\","
-                        + "\"externalId\":\"ext-put-alias\"}"), user)).andReturn();
+                body), user)).andReturn();
         assertThat(restated.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(restated).get("externalId").asText()).isEqualTo("ext-put-alias");
+        assertThat(body(restated).get("externalId").asText()).isEqualTo("a-different-alias");
+        assertThat(version(USERS, user)).isEqualTo(before + 1);
     }
 
     /** A replacement never writes the failure run, so a failed login counted before it survives. */
