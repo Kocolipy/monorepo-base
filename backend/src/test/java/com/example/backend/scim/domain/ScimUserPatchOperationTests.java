@@ -7,7 +7,6 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.AddEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.EmailUpdate;
 import com.example.backend.scim.domain.ScimUserPatchOperation.MergeName;
 import com.example.backend.scim.domain.ScimUserPatchOperation.NamePart;
-import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveActive;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmailPart;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveEmails;
 import com.example.backend.scim.domain.ScimUserPatchOperation.RemoveName;
@@ -111,11 +110,11 @@ class ScimUserPatchOperationTests {
     }
 
     @Test
-    void active_is_set_and_its_removal_returns_it_to_the_default_of_true() {
+    void active_is_set_in_both_directions() {
         ScimUserEdit deactivated = fold(new SetActive(false));
 
         assertThat(deactivated.profile().active()).isFalse();
-        assertThat(ScimUserPatchOperation.fold(deactivated, List.of(new RemoveActive()))
+        assertThat(ScimUserPatchOperation.fold(deactivated, List.of(new SetActive(true)))
                 .profile().active()).isTrue();
     }
 
@@ -296,7 +295,7 @@ class ScimUserPatchOperationTests {
                 new SetText(TextAttribute.DISPLAY_NAME, "First"),
                 new SetText(TextAttribute.DISPLAY_NAME, "Second"),
                 new SetActive(false),
-                new RemoveActive());
+                new SetActive(true));
 
         assertThat(folded.profile().displayName()).isEqualTo("Second");
         assertThat(folded.profile().active()).isTrue();
@@ -322,7 +321,10 @@ class ScimUserPatchOperationTests {
                 .isTrue();
         assertThat(new ScimEmailFilter(List.of(
                 new ScimEmailFilter.Condition(ScimEmailPart.VALUE, "ADA@work.example")))
-                .matches(WORK)).as("value compares exactly").isFalse();
+                .matches(WORK)).as("value compares case-insensitively, as advertised").isTrue();
+        assertThat(new ScimEmailFilter(List.of(
+                new ScimEmailFilter.Condition(ScimEmailPart.VALUE, "eve@work.example")))
+                .matches(WORK)).as("a different address").isFalse();
         assertThat(new ScimEmailFilter(List.of(
                 new ScimEmailFilter.Condition(ScimEmailPart.VALUE, null))).matches(WORK))
                 .as("every email has a value, so value eq null matches none").isFalse();

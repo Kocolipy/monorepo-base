@@ -228,7 +228,7 @@ class InactivityGovernanceIntegrationTests {
         Instant basis = dormancyBasis(ada);
 
         userService.replace(connector, ada, ifMatch(ada), new ScimUserReplacement(
-                profile("dormancy-reassert", null, true), null, null));
+                profile("dormancy-reassert", null, true), null, null, true));
         userService.patch(connector, ada, ifMatch(ada), List.of(
                 new ScimUserPatchOperation.SetActive(true),
                 new ScimUserPatchOperation.SetText(
@@ -289,7 +289,7 @@ class InactivityGovernanceIntegrationTests {
                 new ScimUserPatchOperation.SetActive(false)));
         clock.advanceBy(Duration.ofDays(1));
         userService.replace(connector, ada, ifMatch(ada), new ScimUserReplacement(
-                profile("reactivate-credentialed", null, true), null, null));
+                profile("reactivate-credentialed", null, true), null, null, true));
         assertThat(passwordChangeRequiredSince(ada))
                 .as("PUT active=true reactivated a credentialed User")
                 .isEqualTo(clock.instant());
@@ -298,7 +298,7 @@ class InactivityGovernanceIntegrationTests {
         userService.patch(connector, ada, ifMatch(ada), List.of(
                 new ScimUserPatchOperation.SetActive(true)));
         userService.replace(connector, ada, ifMatch(ada), new ScimUserReplacement(
-                profile("reactivate-credentialed", null, true), null, null));
+                profile("reactivate-credentialed", null, true), null, null, true));
         assertThat(passwordChangeRequiredSince(ada))
                 .as("re-asserting active over an active User is not a reactivation")
                 .isNull();
@@ -331,7 +331,7 @@ class InactivityGovernanceIntegrationTests {
         userService.patch(connector, grace, ifMatch(grace), List.of(
                 new ScimUserPatchOperation.SetActive(false)));
         userService.replace(connector, grace, ifMatch(grace), new ScimUserReplacement(
-                profile("reactivate-credentialless", null, true), null, null));
+                profile("reactivate-credentialless", null, true), null, null, true));
         assertThat(passwordChangeRequiredSince(grace)).as("after PUT").isNull();
 
         userService.patch(connector, grace, ifMatch(grace), List.of(

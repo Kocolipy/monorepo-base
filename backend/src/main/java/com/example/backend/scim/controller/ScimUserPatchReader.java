@@ -227,9 +227,17 @@ final class ScimUserPatchReader {
                     : new ScimUserPatchOperation.SetText(text, stringValue(value, attribute));
         }
         return switch (attribute) {
-            case "active" -> op == Op.REMOVE
-                    ? new ScimUserPatchOperation.RemoveActive()
-                    : new ScimUserPatchOperation.SetActive(booleanValue(value, "active"));
+            // A remove is refused rather than read as "back to the create default". RFC 7644
+            // §3.5.2.2 makes a removed attribute unassigned, and this service has no unassigned
+            // `active` to store; reading it as `true` would let a remove reactivate a deactivated
+            // User, which only an explicit false-to-true replace may do.
+            case "active" -> {
+                if (op == Op.REMOVE) {
+                    throw ScimErrorException.mutability(
+                            "active cannot be removed; replace it with true or false.");
+                }
+                yield new ScimUserPatchOperation.SetActive(booleanValue(value, "active"));
+            }
             case "password" -> op == Op.REMOVE
                     ? new ScimUserPatchOperation.RemovePassword()
                     : new ScimUserPatchOperation.SetPassword(stringValue(value, "password"));

@@ -226,9 +226,9 @@ Schema URI: `urn:ietf:params:scim:schemas:core:2.0:User`.
 | `preferredLanguage` | no | read-write / default | Valid language-priority value |
 | `locale` | no | read-write / default | Valid language tag |
 | `timezone` | no | read-write / default | Valid IANA time-zone identifier |
-| `active` | no | read-write / default | Defaults true on create; false blocks Login and revokes sessions |
-| `password` | no | write-only / never | PRECIS-processed, policy-validated and hashed immediately; never returned, filtered, logged or audited as a value |
-| `emails` | no | read-write / default | `value`, `type`, `primary`; at most one primary; `(type,value)` duplicates removed |
+| `active` | no | read-write / default | Defaults true on create; false blocks Login and revokes sessions. A PUT that omits it keeps the stored value, and PATCH `remove` of it is `400 mutability`, so only an explicit `true` reactivates |
+| `password` | no | write-only / never | Case-exact; PRECIS-processed, policy-validated and hashed immediately; never returned, filtered, logged or audited as a value |
+| `emails` | no | read-write / default | `value`, `type`, `primary`; at most one primary; `(type,value)` duplicates removed, compared case-insensitively; `type` advertises canonical values `work`, `home`, `other` |
 | `groups` | no | read-only / default | Computed direct memberships with `value`, `$ref`, `display`, `type=direct`; writes occur through Group |
 | `meta` | server | read-only / default | `resourceType`, `created`, `lastModified`, `location`, `version` |
 
@@ -367,7 +367,7 @@ Implement the complete RFC 7644 grammar over supported attributes:
 - complex sub-attributes;
 - multi-valued value-path expressions.
 
-Attribute names and operators are case-insensitive. String values follow each attribute's `caseExact`; `externalId` and `id` are case-exact, while supported profile strings follow their schema definitions. Boolean and date comparisons enforce type compatibility. The parser produces an AST; a persistence adapter translates it to parameterized predicates. No filter literal is concatenated into SQL.
+Attribute names and operators are case-insensitive. String values follow each attribute's `caseExact`; `id`, `externalId`, the `meta` values and the `value`/`$ref` of `groups` and `members` are case-exact, while every supported profile string (including `emails.value` and `emails.type`) is case-insensitive, as RFC 7643 §2.2 and §8.7.1 declare. `$ref` attributes advertise `referenceTypes` (`Group` for `groups.$ref`, `User` for `members.$ref`). Boolean and date comparisons enforce type compatibility. The parser produces an AST; a persistence adapter translates it to parameterized predicates. No filter literal is concatenated into SQL.
 
 Malformed grammar, unsupported paths, password paths, unknown operators and invalid type/operator pairs return `400 invalidFilter`. In a base search spanning Users and Groups, a valid attribute absent from one resource type evaluates as no value for that type.
 

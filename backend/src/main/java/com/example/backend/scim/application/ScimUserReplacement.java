@@ -16,11 +16,30 @@ import com.example.backend.scim.domain.ScimUserProfile;
  * connector's alias is affected — aliases are keyed by connector, so another connector's name for
  * the same User is neither read nor written.
  *
- * @param profile    the replacement profile
- * @param password   the submitted password, or {@code null} to keep the stored credential
- * @param externalId the calling connector's alias after the PUT, or {@code null} to remove it
+ * <p>{@code active} is the second exception. A PUT that does not assert it keeps the stored value
+ * rather than reading the omission as the create default: {@code active} has no unassigned state,
+ * and reading "omitted" as {@code true} would let a connector that simply does not map the
+ * attribute reactivate a User the inactivity job or an earlier write deactivated. Only an explicit
+ * {@code active=true} reactivates.
+ *
+ * @param profile        the replacement profile; its {@code active} is meaningful only when
+ *                       {@code activeAsserted}
+ * @param password       the submitted password, or {@code null} to keep the stored credential
+ * @param externalId     the calling connector's alias after the PUT, or {@code null} to remove it
+ * @param activeAsserted whether the body carried a non-null {@code active}
  */
-public record ScimUserReplacement(ScimUserProfile profile, String password, String externalId) {
+public record ScimUserReplacement(
+        ScimUserProfile profile, String password, String externalId, boolean activeAsserted) {
+
+    /** The profile to store over {@code stored}: this one, keeping the stored {@code active} unless asserted. */
+    public ScimUserProfile profileOver(ScimUserProfile stored) {
+        if (activeAsserted) {
+            return profile;
+        }
+        return new ScimUserProfile(profile.userName(), profile.name(), profile.displayName(),
+                profile.preferredLanguage(), profile.locale(), profile.timezone(),
+                stored.active(), profile.emails());
+    }
 
     /** Redacted: the password never appears. */
     @Override

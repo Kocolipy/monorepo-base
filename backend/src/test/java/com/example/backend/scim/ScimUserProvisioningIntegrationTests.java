@@ -185,6 +185,32 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(passwordEncoder.matches(PASSWORD, hash)).isTrue();
     }
 
+    /**
+     * {@code primary} is rendered on every email, false included, so a client comparing what it
+     * wrote with what it reads back sees the flag it sent — including one it left out, which
+     * RFC 7643 §2.4 makes false.
+     */
+    @Test
+    void every_email_renders_its_primary_flag_false_included() throws Exception {
+        MvcResult created = create("""
+                {"schemas":["%s"],"userName":"primary-flags",
+                 "emails":[{"value":"a@work.example","type":"work","primary":true},
+                           {"value":"b@home.example","type":"home","primary":false},
+                           {"value":"c@other.example","type":"other"}]}"""
+                .formatted(USER_SCHEMA));
+
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        JsonNode emails = body(created).get("emails");
+        assertThat(emails).hasSize(3);
+        assertThat(emails.get(0).get("primary").isBoolean()).isTrue();
+        assertThat(emails.get(0).get("primary").booleanValue()).isTrue();
+        for (int i = 1; i < 3; i++) {
+            assertThat(emails.get(i).get("primary")).as("email %d", i).isNotNull();
+            assertThat(emails.get(i).get("primary").isBoolean()).isTrue();
+            assertThat(emails.get(i).get("primary").booleanValue()).isFalse();
+        }
+    }
+
     /** A credentialless User is a supported state, not a rejected one. */
     @Test
     void a_user_is_created_without_a_password_and_stores_no_hash() throws Exception {
@@ -226,6 +252,44 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(body.get("groups")).isNull();
         UUID id = UUID.fromString(body.get("id").asText());
         assertThat(readAs(writeToken, id).get("groups")).isNull();
+    }
+
+    /**
+     * Nothing but an explicit {@code active=true} reactivates a User: a PUT that leaves
+     * {@code active} out keeps it deactivated, and a PATCH that removes it is refused rather
+     * than read as the create default. Neither request carries {@code If-Match}, which is the
+     * shape a provisioning client that does not track ETags sends.
+     */
+    @Test
+    void a_deactivated_user_is_not_reactivated_by_omitting_or_removing_active() throws Exception {
+        MvcResult created = create("""
+                {"schemas":["%s"],"userName":"stays-inactive","active":false}"""
+                .formatted(USER_SCHEMA));
+        UUID id = UUID.fromString(body(created).get("id").asText());
+
+        MvcResult replaced = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],"userName":"stays-inactive",
+                                 "displayName":"Renamed"}""".formatted(USER_SCHEMA)))
+                .andReturn();
+        assertThat(replaced.getResponse().getStatus()).isEqualTo(200);
+        assertThat(body(replaced).get("active").asBoolean(true)).as("PUT without active").isFalse();
+        assertThat(body(replaced).get("displayName").asText()).isEqualTo("Renamed");
+
+        MvcResult removed = mvc.perform(asConnector(patch(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                                 "Operations":[{"op":"remove","path":"active"}]}"""))
+                .andReturn();
+        assertRefusal(removed, 400, "mutability");
+        assertThat(readAs(writeToken, id).get("active").asBoolean(true)).isFalse();
+
+        MvcResult reactivated = mvc.perform(asConnector(put(USERS + "/" + id)).contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],"userName":"stays-inactive","active":true}"""
+                                .formatted(USER_SCHEMA)))
+                .andReturn();
+        assertThat(body(reactivated).get("active").asBoolean(false)).as("explicit true").isTrue();
     }
 
     /**

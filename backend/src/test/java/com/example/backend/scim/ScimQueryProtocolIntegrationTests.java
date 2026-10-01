@@ -199,12 +199,17 @@ class ScimQueryProtocolIntegrationTests {
     Stream<Arguments> fixtures() {
         return Stream.of(
                 // eq, and case rules: attribute names and operators are case-insensitive; a
-                // caseExact=false attribute compares case-insensitively and a caseExact one does not
+                // caseExact=false attribute compares case-insensitively — every profile string,
+                // as RFC 7643 declares them — and a caseExact one (an id) does not
                 users("userName eq \"qp-alice\"", "qp-alice"),
                 users("USERNAME EQ \"QP-ALICE\"", "qp-alice"),
                 users("userName eq \"qp-carol\"", "qp-Carol"),
                 users("displayName eq \"bob jones\"", "qp-bob"),
-                users("displayName eq \"BOB JONES\""),
+                users("displayName eq \"BOB JONES\"", "qp-bob"),
+                users("emails.value eq \"ALICE@WORK.EXAMPLE\"", "qp-alice"),
+                users("emails[type eq \"WORK\" and value sw \"BOB\"]", "qp-bob"),
+                users("name.familyName eq \"o'brien\"", "qp-Carol"),
+                users("externalId eq \"EXT-ALICE\""),
                 // substring and ordering operators
                 users("userName sw \"qp-a\"", "qp-alice"),
                 users("userName ew \"OB\"", "qp-bob"),
@@ -242,9 +247,10 @@ class ScimQueryProtocolIntegrationTests {
                 users("emails.type eq \"work\" and emails.value co \"home\"", "qp-alice"),
                 users("emails[type eq \"work\" or primary eq true]", "qp-alice", "qp-bob", "qp-dave"),
                 users("emails[not (type eq \"work\")]", "qp-alice", "qp-dave"),
-                // the read-only reverse membership view; a deleted member left no trace
+                // the read-only reverse membership view; a deleted member left no trace. The
+                // label is case-insensitive like a Group's displayName; the id and $ref are not
                 users("groups.display eq \"qp-Engineering\"", "qp-alice", "qp-bob"),
-                users("groups[display sw \"QP-SUP\"]"),
+                users("groups[display sw \"QP-SUP\"]", "qp-Carol"),
                 users("groups[display sw \"qp-sup\"]", "qp-Carol"),
                 users("groups.value eq \"{qp-support}\"", "qp-Carol"),
                 users("groups.type eq \"direct\"", "qp-alice", "qp-bob", "qp-Carol"),
@@ -502,10 +508,11 @@ class ScimQueryProtocolIntegrationTests {
             "userName          | -          | qp-alice,qp-bob,qp-Carol,qp-dave",
             "userName          | descending | qp-dave,qp-Carol,qp-bob,qp-alice",
             "USERNAME          | DESCENDING | qp-dave,qp-Carol,qp-bob,qp-alice",
-            // caseExact sorts in byte order, and Carol has no displayName: last ascending...
-            "displayName       | ascending  | qp-alice,qp-dave,qp-bob,qp-Carol",
+            // displayName too, now case-insensitive ("bob jones" between Alice and Dave), and
+            // Carol has no displayName: last ascending...
+            "displayName       | ascending  | qp-alice,qp-bob,qp-dave,qp-Carol",
             // ...and first descending
-            "displayName       | descending | qp-Carol,qp-bob,qp-dave,qp-alice",
+            "displayName       | descending | qp-Carol,qp-dave,qp-bob,qp-alice",
             // multi-valued: the primary value, else the first; none sorts as missing
             "emails.value      | -          | qp-alice,qp-bob,qp-dave,qp-Carol",
             "emails.value      | descending | qp-Carol,qp-dave,qp-bob,qp-alice",

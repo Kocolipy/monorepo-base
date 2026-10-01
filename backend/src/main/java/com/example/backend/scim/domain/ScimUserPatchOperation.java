@@ -113,21 +113,6 @@ public sealed interface ScimUserPatchOperation {
         }
     }
 
-    /**
-     * {@code remove} of {@code active}, which returns it to its default: {@code true}.
-     *
-     * <p>{@code active} is optional in the schema and this service stores it as a boolean, so an
-     * unassigned value has to read as something; the create default is what RFC 7644 §3.5.1
-     * allows a replacement to assign to an attribute it was not given, and PUT uses the same rule.
-     */
-    record RemoveActive() implements ScimUserPatchOperation {
-
-        @Override
-        public ScimUserEdit applyTo(ScimUserEdit edit) {
-            return new SetActive(true).applyTo(edit);
-        }
-    }
-
     /** {@code add} or {@code replace} of {@code password}. */
     record SetPassword(String password) implements ScimUserPatchOperation {
 

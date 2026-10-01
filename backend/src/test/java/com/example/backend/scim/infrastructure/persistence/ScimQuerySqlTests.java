@@ -120,10 +120,10 @@ class ScimQuerySqlTests {
         ScimQuerySql insensitive = new ScimQuerySql(CONNECTOR, BASE_URI);
         String userName = insensitive.count(query("userName eq \"A\"", USERS));
         ScimQuerySql exact = new ScimQuerySql(CONNECTOR, BASE_URI);
-        String displayName = exact.count(query("displayName eq \"A\"", USERS));
+        String externalId = exact.count(query("externalId eq \"A\"", USERS));
 
         assertThat(userName).contains("lower(u.user_name) = lower(:p0)");
-        assertThat(displayName).contains("u.display_name = :p0").doesNotContain("lower(");
+        assertThat(externalId).doesNotContain("lower(");
     }
 
     @Test

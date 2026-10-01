@@ -136,12 +136,10 @@ final class ScimUserRenderer {
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("value", email.value());
             putIfPresent(value, "type", email.type());
-            // Rendered only when true: `primary` means "this is the preferred value", and
-            // RFC 7643 treats its absence as false, so emitting false on every other
-            // value is noise a client has to ignore.
-            if (email.primary()) {
-                value.put("primary", true);
-            }
+            // Always rendered, false included. RFC 7643 §2.4 lets an absent `primary` mean
+            // false, but a client that compares what it wrote with what it reads back sees an
+            // omitted false as a changed value, so the stored flag is stated either way.
+            value.put("primary", email.primary());
             rendered.add(value);
         }
         return List.copyOf(rendered);

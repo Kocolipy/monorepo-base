@@ -44,7 +44,6 @@ final class ScimGroupAttributes {
             ScimUserAttributes.Attribute
                     .singular("displayName", "string", READ_WRITE, DEFAULT_RETURNED)
                     .asRequired()
-                    .caseInsensitive()
                     // Not what RFC 7643 says — the RFC leaves `displayName` non-unique. This
                     // directory makes it server-unique because a Group's membership confers
                     // authority, and two Groups an administrator reads as the same name is how
@@ -53,18 +52,25 @@ final class ScimGroupAttributes {
                     .unique("server"),
             ScimUserAttributes.Attribute.multiValued(
                     "members", READ_WRITE, DEFAULT_RETURNED, List.of(
-                            // The only sub-attribute a write supplies: the member's resource id.
+                            // The only sub-attribute a write supplies: the member's resource id,
+                            // which like every id is case-exact.
                             ScimUserAttributes.Attribute
-                                    .singular("value", "string", READ_WRITE, DEFAULT_RETURNED),
+                                    .singular("value", "string", READ_WRITE, DEFAULT_RETURNED)
+                                    .asCaseExact(),
                             // Both read-only, and both derived from the referenced User rather
                             // than stored, which is why a submitted value is ignored: there is no
                             // column it could be written to.
                             ScimUserAttributes.Attribute
                                     .singular("display", "string", READ_ONLY, DEFAULT_RETURNED),
+                            // Only Users can be members — this directory has no nested Groups — so
+                            // `User` is the one resource type advertised for both.
                             ScimUserAttributes.Attribute
-                                    .singular("$ref", "reference", READ_ONLY, DEFAULT_RETURNED),
+                                    .singular("$ref", "reference", READ_ONLY, DEFAULT_RETURNED)
+                                    .asCaseExact()
+                                    .references("User"),
                             ScimUserAttributes.Attribute
-                                    .singular("type", "string", READ_ONLY, DEFAULT_RETURNED))));
+                                    .singular("type", "string", READ_ONLY, DEFAULT_RETURNED)
+                                    .canonical("User"))));
 
     private ScimGroupAttributes() {
     }

@@ -127,6 +127,11 @@ final class ScimFixtures {
             assertThat(attributes.get("groups").get("mutability").asText()).isEqualTo("readOnly");
             assertThat(attributes.get("userName").get("required").asBoolean()).isTrue();
             assertThat(attributes.get("userName").get("caseExact").asBoolean()).isFalse();
+            assertThat(attributes.get("displayName").get("caseExact").asBoolean()).isFalse();
+            assertThat(subAttributes(attributes.get("emails")).get("type").get("canonicalValues"))
+                    .hasSize(3);
+            assertThat(subAttributes(attributes.get("groups")).get("$ref").get("referenceTypes")
+                    .get(0).asText()).isEqualTo("Group");
         });
 
         add(all, "discovery: the Group schema advertises exactly the implemented attributes", t -> {
@@ -205,6 +210,10 @@ final class ScimFixtures {
             byName.put(attribute.get("name").asText(), attribute);
         }
         return byName;
+    }
+
+    private static Map<String, JsonNode> subAttributes(JsonNode attribute) {
+        return byName(attribute.get("subAttributes"));
     }
 
     // ==== lifecycle (RFC 7644 §3.3–§3.6) ===================================================
@@ -1296,7 +1305,7 @@ final class ScimFixtures {
         // filter -> expected suffixes of the three seeded Users (-a Alice, -b Bob, -c Carol)
         Map<String, List<String>> users = new java.util.LinkedHashMap<>();
         users.put("userName eq \"P-A\" (case-insensitive value)", List.of("-a"));
-        users.put("displayName eq \"alice smith\" (caseExact value)", List.of());
+        users.put("displayName eq \"alice smith\" (case-insensitive value)", List.of("-a"));
         users.put("displayName co \"o\"", List.of("-b"));
         users.put("userName ew \"-b\"", List.of("-b"));
         users.put("displayName pr", List.of("-a", "-b"));

@@ -159,7 +159,7 @@ class ScimUserServiceTests {
     /** A PUT; the third argument is the externalId the body carried, null when it omitted it. */
     private ScimUserResource put(ScimUserProfile profile, String password, String externalId) {
         return service.replace(CONNECTOR, ada.id(), current(),
-                new ScimUserReplacement(profile, password, externalId)).orElseThrow();
+                new ScimUserReplacement(profile, password, externalId, true)).orElseThrow();
     }
 
     private ScimUserResource patch(ScimUserPatchOperation... operations) {
@@ -207,7 +207,7 @@ class ScimUserServiceTests {
         UUID id = grace.id();
 
         service.replace(CONNECTOR, id, versionOf(id),
-                new ScimUserReplacement(minimal("grace", false), null, null));
+                new ScimUserReplacement(minimal("grace", false), null, null, true));
 
         assertThat(users.findById(id).orElseThrow().login().isPasswordChangeRequired()).isFalse();
     }
@@ -227,7 +227,7 @@ class ScimUserServiceTests {
                 CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
         UUID id = grace.id();
         service.replace(CONNECTOR, id, versionOf(id),
-                new ScimUserReplacement(minimal("grace", true), "a-put-password", null));
+                new ScimUserReplacement(minimal("grace", true), "a-put-password", null, true));
         assertThat(users.findById(id).orElseThrow().login().isPasswordChangeRequired())
                 .as("PUT with a password").isTrue();
 
@@ -459,7 +459,7 @@ class ScimUserServiceTests {
     void an_unknown_id_is_absent_whatever_the_precondition_and_nothing_is_recorded() {
         assertThat(service.replace(CONNECTOR, UUID.randomUUID(),
                 ScimVersionPrecondition.ofIfMatch(List.of()),
-                new ScimUserReplacement(minimal("x", true), null, null))).isEmpty();
+                new ScimUserReplacement(minimal("x", true), null, null, true))).isEmpty();
         assertThat(service.patch(CONNECTOR, UUID.randomUUID(),
                 ScimVersionPrecondition.ofIfMatch(List.of()),
                 List.of(new SetActive(false)))).isEmpty();
@@ -503,7 +503,7 @@ class ScimUserServiceTests {
 
         assertThatThrownBy(() -> service.replace(CONNECTOR, ada.id(),
                 ScimVersionPrecondition.ofIfMatch(List.of("\"" + (before.version() + 1) + "\"")),
-                new ScimUserReplacement(minimal("ada", false), "x-password-9", null)))
+                new ScimUserReplacement(minimal("ada", false), "x-password-9", null, true)))
                 .isInstanceOf(PreconditionFailedException.class);
 
         assertThat(stored()).isEqualTo(before);
@@ -900,7 +900,7 @@ class ScimUserServiceTests {
                         List.of(new SetPassword("old-pw"))),
                 "old-pw", PasswordPolicy.Rule.TOO_SHORT);
         assertRefusedFor(() -> service.replace(CONNECTOR, legacy.id(), versionOf(legacy.id()),
-                        new ScimUserReplacement(legacy.profile(), "old-pw", null)),
+                        new ScimUserReplacement(legacy.profile(), "old-pw", null, true)),
                 "old-pw", PasswordPolicy.Rule.TOO_SHORT);
         assertThat(encoder.matches).isZero();
     }
