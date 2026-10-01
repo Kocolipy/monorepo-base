@@ -1,13 +1,10 @@
 package com.example.backend.scim.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.time.Duration;
-import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
-/** The password policy's own rules, and the grace period's window. */
+/** The password policy's own rules. */
 class PasswordPolicyTests {
 
     @Test
@@ -64,29 +61,5 @@ class PasswordPolicyTests {
         assertThat(PasswordPolicy.Rule.TOO_SHORT.message()).contains("12");
         assertThat(PasswordPolicy.Rule.TOO_LONG.message()).contains("256");
         assertThat(PasswordPolicy.Rule.REUSED.message()).contains("3");
-    }
-
-    @Test
-    void theGracePeriodDefaultsToThirtyDays() {
-        assertThat(PasswordChangeGracePolicy.DEFAULT_WINDOW).isEqualTo(Duration.ofDays(30));
-        assertThat(PasswordChangeGracePolicy.defaults().window()).isEqualTo(Duration.ofDays(30));
-        assertThat(new PasswordChangeGracePolicy(Duration.ofDays(7)).window())
-                .isEqualTo(Duration.ofDays(7));
-    }
-
-    @Test
-    void theGraceCutoffIsTheWindowBeforeNow() {
-        Instant now = Instant.parse("2026-03-01T00:00:00Z");
-        assertThat(new PasswordChangeGracePolicy(Duration.ofDays(2)).cutoff(now))
-                .isEqualTo(Instant.parse("2026-02-27T00:00:00Z"));
-    }
-
-    @Test
-    void aZeroOrNegativeGracePeriodIsRefused() {
-        assertThatThrownBy(() -> new PasswordChangeGracePolicy(Duration.ZERO))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("PT0S");
-        assertThatThrownBy(() -> new PasswordChangeGracePolicy(Duration.ofDays(-1)))
-                .isInstanceOf(IllegalArgumentException.class);
     }
 }

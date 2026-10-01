@@ -206,12 +206,5 @@ public enum AuditOperation {
      * the new value is ever recorded: an accepted change records the changed paths, a refusal its
      * reason from {@link AuditPasswordChangeRefusal}.
      */
-    PASSWORD_CHANGE,
-
-    /**
-     * The grace-period job deactivated a User that had left a required password change unmade past
-     * the configured window. Actorless, as {@link #INACTIVITY_DEACTIVATION} is; the sessions it
-     * ended are recorded after the commit as {@link #USER_SESSIONS_REVOKE}.
-     */
-    PASSWORD_CHANGE_GRACE_DEACTIVATION
+    PASSWORD_CHANGE
 }

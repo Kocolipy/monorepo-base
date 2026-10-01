@@ -273,12 +273,6 @@ public final class RecordingAuditTrail implements AuditTrail {
         recorded.add(new Recorded(AuditOperation.PASSWORD_CHANGE, userId, userId, reason.name()));
     }
 
-    @Override
-    public void recordPasswordChangeGraceDeactivation(UUID userId) {
-        recorded.add(new Recorded(
-                AuditOperation.PASSWORD_CHANGE_GRACE_DEACTIVATION, null, userId, null));
-    }
-
     private static String joined(Set<? extends Enum<?>> values) {
         return values.stream().map(Enum::name).sorted().collect(Collectors.joining(","));
     }

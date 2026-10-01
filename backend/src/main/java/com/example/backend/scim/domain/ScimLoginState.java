@@ -25,8 +25,10 @@ import java.time.Instant;
  * about this value alone — a lock cannot be "in the past", so no caller has to agree
  * with the server about the time to agree about the state.
  *
- * <p>{@code lastAuthenticatedAt} is the dormancy basis: when the User last logged in
- * successfully, or was last explicitly reactivated. It is written by its own narrow port
+ * <p>{@code lastAuthenticatedAt} is the dormancy basis: when the User last used the account —
+ * a successful login while no password change was required of it, or a completed self-service
+ * change — or was last explicitly reactivated. A login confined by a required change does not
+ * move it, so an imposed credential nobody replaces still ages into deactivation. It is written by its own narrow port
  * operation ({@link ScimUserRepository#recordAuthentication}) and by a reactivation, never
  * by {@link ScimUserRepository#updateLoginState}, and like the other components it is not a
  * SCIM attribute — recording a login does not move the version.
@@ -41,7 +43,7 @@ import java.time.Instant;
  *                             {@code null} when none is — the change-required flag. Present when
  *                             the current credential was imposed on the User by somebody else (a
  *                             connector, an Admin forcing a change or lifting a lockout); its
- *                             value is the instant the grace period is measured from. A presence
+ *                             value is when the change was last required. A presence
  *                             rather than a boolean plus a timestamp, as the lock is, so the two
  *                             cannot disagree. Written only by its own narrow port operations,
  *                             never by {@link ScimUserRepository#updateLoginState}, and not a
@@ -118,15 +120,6 @@ public record ScimLoginState(
     }
 
     /**
-     * Whether the change has been required since strictly before {@code cutoff} — whether the grace
-     * period {@code cutoff} was computed from has run out. An instant exactly at the cutoff is still
-     * within it, and a User with no change required is never overdue.
-     */
-    public boolean isPasswordChangeOverdueAt(Instant cutoff) {
-        return passwordChangeRequiredSince != null && passwordChangeRequiredSince.isBefore(cutoff);
-    }
-
-    /**
      * The state after one rejected login attempt.
      *
      * <p>A locked User is returned unchanged: the lock is already in force, so attempts
@@ -188,8 +181,8 @@ public record ScimLoginState(
 
     /**
      * The state with a password change required as of {@code since}. Re-dated rather than kept
-     * when already set: each imposed credential is a new one the User did not choose, and the grace
-     * period runs from the credential it must replace.
+     * when already set: each imposed credential is a new one the User did not choose, and the flag
+     * records when the credential it must replace was imposed.
      */
     public ScimLoginState withPasswordChangeRequired(Instant since) {
         if (since == null) {

@@ -46,8 +46,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
 
     private List<UUID> staleDormancyCandidates;
 
-    private List<UUID> stalePasswordChangeCandidates;
-
     /**
      * Makes the dormancy candidate query answer with these ids, whatever the stored state says.
      *
@@ -59,15 +57,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
      */
     public void answerDormancyCandidatesWith(List<UUID> ids) {
         staleDormancyCandidates = List.copyOf(ids);
-    }
-
-    /**
-     * Makes the password-change-overdue candidate query answer with these ids, whatever the stored
-     * state says — the same query-then-lock window as {@link #answerDormancyCandidatesWith}, for
-     * the grace-period job.
-     */
-    public void answerPasswordChangeCandidatesWith(List<UUID> ids) {
-        stalePasswordChangeCandidates = List.copyOf(ids);
     }
 
     @Override
@@ -361,20 +350,6 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         stored.put(id, updated);
         writes++;
         return Optional.of(updated);
-    }
-
-    @Override
-    public List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff) {
-        if (stalePasswordChangeCandidates != null) {
-            return stalePasswordChangeCandidates;
-        }
-        return stored.values().stream()
-                .filter(user -> user.profile().active())
-                .filter(user -> user.reservedName() == null)
-                .filter(user -> user.login().isPasswordChangeOverdueAt(cutoff))
-                .map(ScimUser::id)
-                .sorted()
-                .toList();
     }
 
     /**

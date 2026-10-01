@@ -146,8 +146,9 @@ public class ScimSeedService {
      * <p>Seeded with a password change required. Its password comes from deployment configuration
      * — and {@code application.yaml} carries working fallbacks on a public remote — so it is a
      * default credential known outside the User, which must be replaced before it is used for
-     * anything else. Login confines the session until it is. The grace-period job exempts the
-     * reserved User, so an unchanged recovery credential never deactivates the recovery path.
+     * anything else. Login confines the session until it is. The reserved User is exempt from
+     * inactivity deactivation, so an unchanged recovery credential never deactivates the recovery
+     * path.
      */
     private ScimUser seedBootstrapAdmin(SeededIdentity recovery, Instant now) {
         ScimUser seeded = newUser(recovery, now);

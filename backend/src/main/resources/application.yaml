@@ -50,10 +50,9 @@ spring:
     scheduling:
       pool:
         # One thread per scheduled job — audit retention, inactivity deactivation,
-        # dormant-authority revocation, password-change grace deactivation — so a
-        # slow run of one never delays another in-process. Across instances each
-        # job is serialized by its own lock row.
-        size: 4
+        # dormant-authority revocation — so a slow run of one never delays another
+        # in-process. Across instances each job is serialized by its own lock row.
+        size: 3
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -131,11 +130,6 @@ app:
     # rule as unset. Override with APP_DORMANCY_DEACTIVATION_WINDOW and
     # APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW (e.g. 60d); see README.md's
     # Configuration section. A zero or negative window fails startup.
-  password-change:
-    # `grace-period` is deliberately absent, for the same reason: its 30-day
-    # default belongs to PasswordChangeGracePolicy. Override with
-    # APP_PASSWORD_CHANGE_GRACE_PERIOD (e.g. 14d); see README.md's Configuration
-    # section. A zero or negative period fails startup.
 
 # The `management:` block lives in `telemetry.yaml` (imported above), which
 # defines a superset of what main declared here — health, info AND the

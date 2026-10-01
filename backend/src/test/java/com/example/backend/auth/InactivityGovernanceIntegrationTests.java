@@ -264,7 +264,7 @@ class InactivityGovernanceIntegrationTests {
      * Reactivating a credentialed User requires a password change, by either SCIM path that can
      * reactivate — a PATCH of {@code active} and a PUT restating it — because a credential that
      * sat unused across a deactivation is not trusted on return. The flag is dated by the
-     * reactivation, so the grace period runs from it.
+     * reactivation that imposed it.
      *
      * <p>The User's connector-set first password flags it at creation, so the change is completed
      * first: what the test then observes is a flag only reactivation could have set.

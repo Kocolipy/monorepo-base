@@ -23,7 +23,7 @@ The application must become an inbound SCIM 2.0 service provider without turning
 6. Provide practical generic RFC 7643/7644 conformance without vendor-specific behavior or Bulk.
 7. Keep the Accounts page operational: SCIM-owned data is visible but read-only; application-owned Unlock, connector tokens and audit remain actionable.
 8. Make every security-sensitive identity change revoke existing sessions before the affected User can continue acting under stale identity or authority.
-9. Enforce application-owned credential hygiene — inactivity deactivation, dormant authority revocation, first-login and Admin-forced password change with a grace period, password history, and end-user self-service password change — without moving any of it into the SCIM contract.
+9. Enforce application-owned credential hygiene — inactivity deactivation, dormant authority revocation, first-login and Admin-forced password change, password history, and end-user self-service password change — without moving any of it into the SCIM contract.
 10. Emit operational telemetry for the provisioning surface so connector failure is observable without a user report.
 
 ## Actors
@@ -103,7 +103,7 @@ A User with a pending forced password change authenticates normally; the refusal
 
 ### Inactivity deactivation
 
-The User records `lastAuthenticatedAt`, set on every successful password Login. A scheduled application job deactivates any User whose inactivity window has elapsed:
+The User records `lastAuthenticatedAt`, set on every successful password Login while no password change is required of it, and on every completed self-service password change. A login confined by a required change is not use of the account and does not move it, so a User that keeps logging in with an imposed credential it never replaces still ages into deactivation. A scheduled application job deactivates any User whose inactivity window has elapsed:
 
 - the window is 90 days, deployment-configurable;
 - inactivity is measured from `lastAuthenticatedAt`, falling back to `meta.created` for a User that has never authenticated, so a credentialless User is not deactivated the moment it is provisioned;
@@ -137,10 +137,10 @@ The User carries an application-owned `mustChangePassword` flag, also absent fro
 - A successful change hashes the new password, clears the flag, revokes all of that User's sessions including the one that submitted it, increments the User's SCIM version and appends a redacted audit event. The SPA returns the User to Login.
 - A connector setting `password` through SCIM **sets** the flag rather than clearing it. A credential chosen and transported by a third party is known outside the User, so it must be replaced before it is used for anything else — this is the first-login change requirement, and it applies equally to the first password a provisioned User receives and to any later connector-set password, including one sent to displace a credential an Admin distrusted.
 - A User provisioned without a password is not flagged; the flag is set when a password first arrives.
-- The flag records `mustChangePasswordSince`. A scheduled job deactivates any flagged User who has not changed the password within the grace period — 30 days, deployment-configurable — setting `active=false`, revoking sessions and appending an audit event whose actor is the system job. The Bootstrap Admin is exempt, for the same reason it is exempt from inactivity deactivation.
+- The flag records `mustChangePasswordSince`. There is no grace period: no IM8 control requires deactivating a User that leaves the change unmade, and the confinement above is the control ac-6 and as-15 ask for. An imposed credential that is never replaced is bounded instead by inactivity deactivation, since confined logins do not move `lastAuthenticatedAt`.
 - Reactivating a credentialed User sets the flag, because a credential that sat unused across a deactivation should not be trusted on return.
 
-All three scheduled jobs — inactivity deactivation, grace-period deactivation and dormant authority revocation — are serialized per job name so that no two runs of the same job overlap across instances.
+Both scheduled jobs — inactivity deactivation and dormant authority revocation — are serialized per job name so that no two runs of the same job overlap across instances.
 
 Admins never see, choose or transport a User's password: forcing a change invalidates the existing credential, it does not disclose or replace it.
 
@@ -172,7 +172,7 @@ On a fresh database the server seeds:
 - one Admin Group;
 - their immutable membership.
 
-The Bootstrap Admin is always active, locally credentialed and visible through SCIM. SCIM cannot PUT, PATCH or DELETE it. It is seeded with `mustChangePassword` set, so the credential that came from deployment configuration must be replaced at first login and never becomes the standing one; it is exempt from the grace-period deactivation that flag normally carries, because deactivating the recovery identity is the outcome that flag exists to avoid. The Admin Group cannot be renamed or deleted, and no operation may remove the Bootstrap Admin membership. These instance-level policy refusals return `403` without `scimType`; they do not change the core schema's mutability for ordinary resources.
+The Bootstrap Admin is always active, locally credentialed and visible through SCIM. SCIM cannot PUT, PATCH or DELETE it. It is seeded with `mustChangePassword` set, so the credential that came from deployment configuration must be replaced at first login and never becomes the standing one; like any flagged User it is confined until it changes, and it is exempt from inactivity deactivation, so an unchanged recovery credential never removes the recovery path. The Admin Group cannot be renamed or deleted, and no operation may remove the Bootstrap Admin membership. These instance-level policy refusals return `403` without `scimType`; they do not change the core schema's mutability for ordinary resources.
 
 ## SCIM base and endpoint contract
 
@@ -457,7 +457,6 @@ After a successful committed mutation, revoke all Redis sessions indexed by stab
 | forced password change set by an Admin | affected User |
 | self-service password change | affected User, including the session that submitted it |
 | inactivity deactivation by the scheduled job | affected User |
-| grace-period deactivation by the scheduled job | affected User |
 | dormant authority revocation by the scheduled job | affected User |
 | `userName` changed | affected User |
 | User deleted | affected User |
@@ -695,7 +694,7 @@ Security-sensitive code requires mutation evidence. PIT targets all changed iden
 - Inactivity deactivation runs on schedule, measures from last authentication or creation, exempts the Bootstrap Admin, and revokes sessions with an audit event.
 - Deactivation outranks a connector re-asserting `active=true`: only an explicit false-to-true transition reactivates and resets the window.
 - Dormant authority revocation drops Admin Group membership at the configured window, leaves baseline authority and ordinary Groups intact, exempts the Bootstrap Admin, and re-applies after a connector re-adds the membership.
-- A connector-set password sets `mustChangePassword`, and a flagged User who does not change it within the grace period is deactivated with an audit event.
+- A connector-set password sets `mustChangePassword`; a flagged User's logins are confined and do not move its dormancy basis, so one that never changes the password is deactivated by inactivity deactivation.
 - A new password is refused when it matches any of the User's newest three password hashes, on the self-service path and on every SCIM path alike.
 - The password policy enforces the 12-to-256 length bound, accepts every printable and Unicode character including spaces, imposes no composition or expiry rule, and rejects blocklisted values from a local corpus with no candidate or hash leaving the deployment.
 - All three scheduled jobs are serialized per job name and cannot overlap across instances.
@@ -709,7 +708,7 @@ Security-sensitive code requires mutation evidence. PIT targets all changed iden
 - Audit events carry HTTP method, path and request id; a bulk read is audited once with its result count and filter shape and no literal filter value; the application database role cannot `UPDATE` or `DELETE` audit rows.
 - A configured audit retention below 90 days is refused at startup, and the retention job logs its schedule and each run's deleted-row count and duration.
 - Client-influenced values reaching a log line are emitted as structured fields with control characters stripped.
-- The Bootstrap Admin is seeded with `mustChangePassword` set and is exempt from grace-period deactivation.
+- The Bootstrap Admin is seeded with `mustChangePassword` set and is exempt from inactivity deactivation.
 - A set `mustChangePassword` flag confines the session to change-password and logout; a successful self-service change clears the flag, revokes every session of that User and records no password value.
 - Telemetry publishes traffic, latency, error-class and saturation signals with no identifier, filter text or secret in any tag, the documented alerts exist, and the metrics endpoint is unreachable with a connector token.
 - Edge rate-limiting requirements for `/scim/v2/**`, Login and change-password are documented in `infra/` and the deployment README.

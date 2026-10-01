@@ -72,22 +72,10 @@ class ScimLoginStateTests {
         assertThat(flagged.isPasswordChangeRequired()).isTrue();
         assertThat(flagged.withPasswordChangeRequired(later.plusSeconds(5))
                 .passwordChangeRequiredSince())
-                .as("a newly imposed credential re-dates the grace period")
+                .as("a newly imposed credential re-dates the flag")
                 .isEqualTo(later.plusSeconds(5));
         assertThatThrownBy(() -> state.withPasswordChangeRequired(null))
                 .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void a_change_is_overdue_only_strictly_before_the_cutoff() {
-        ScimLoginState flagged = new ScimLoginState("hash", 0, null, null, NOW);
-
-        assertThat(flagged.isPasswordChangeOverdueAt(NOW.plusNanos(1))).isTrue();
-        assertThat(flagged.isPasswordChangeOverdueAt(NOW)).isFalse();
-        assertThat(flagged.isPasswordChangeOverdueAt(NOW.minusNanos(1))).isFalse();
-        assertThat(ScimLoginState.of("hash").isPasswordChangeOverdueAt(NOW.plusSeconds(1)))
-                .as("an unflagged state is never overdue")
-                .isFalse();
     }
 
     @Test

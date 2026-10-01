@@ -570,7 +570,7 @@ class IdentityAdministrationServiceTests {
                 AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
     }
 
-    /** A User already flagged keeps the grace period it is serving; nothing is re-imposed. */
+    /** A User already flagged keeps when its change was first required; nothing is re-imposed. */
     @Test
     void forcingAChangeOnAFlaggedUserIsANoOp() {
         users.given(ScimIdentities.userWithLoginState(

@@ -71,7 +71,7 @@ public interface ScimUserRepository {
      *
      * <p>A reactivation of a User that holds a credential also requires a password change as of
      * {@code now}: a credential that sat unused across a deactivation is not trusted on return.
-     * Re-dated even when the flag was already set, so the grace period runs from the reactivation.
+     * Re-dated even when the flag was already set, so it records the reactivation that imposed it.
      *
      * <p>Writes only what differs. The login path writes the failure run on this row on every
      * rejected attempt without taking the resource lock, so a full-row write carrying the failure
@@ -118,7 +118,8 @@ public interface ScimUserRepository {
     void updateLoginState(UUID id, ScimLoginState loginState);
 
     /**
-     * Records a successful login: writes {@code lastAuthenticatedAt} and nothing else.
+     * Records use of the account — a login with no password change owed, or a completed
+     * self-service change: writes {@code lastAuthenticatedAt} and nothing else.
      *
      * <p>Narrow for the reason {@link #updateLoginState} is, and like it this does NOT
      * advance the version: the dormancy basis is not a SCIM attribute, so a login changes
@@ -180,13 +181,6 @@ public interface ScimUserRepository {
      * @return the User as it now stands, or empty when no User has that id
      */
     Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now);
-
-    /**
-     * The ids of every active, unreserved User whose change-required flag was set strictly before
-     * {@code cutoff}, ordered by id — the grace-period job's candidates. Candidates only, as
-     * {@link #findDormantActiveUserIds} are: the job re-reads each under its resource lock.
-     */
-    List<UUID> findPasswordChangeOverdueActiveUserIds(Instant cutoff);
 
     /**
      * Deletes the User — its resource row and, through the cascades, its profile, emails,

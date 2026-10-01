@@ -135,14 +135,4 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
              where u.resourceId = :id""")
     int completePasswordChange(
             @Param("id") UUID id, @Param("passwordHash") String passwordHash);
-
-    /** Active, unreserved Users whose change-required flag was set strictly before the cutoff. */
-    @Query("""
-            select u.resourceId
-              from ScimUserEntity u
-             where u.active = true
-               and u.resource.reservedName is null
-               and u.login.passwordChangeRequiredSince < :cutoff
-             order by u.resourceId""")
-    List<UUID> findPasswordChangeOverdueActiveUserIds(@Param("cutoff") Instant cutoff);
 }

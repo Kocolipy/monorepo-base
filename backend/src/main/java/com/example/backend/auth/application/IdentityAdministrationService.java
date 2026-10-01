@@ -189,8 +189,8 @@ public class IdentityAdministrationService {
      *   <li>on a credentialless User, which already cannot log in and has nothing to replace.
      * </ul>
      *
-     * <p>Idempotent: a User already required to change is returned unchanged, and the grace period
-     * it is serving is not restarted.
+     * <p>Idempotent: a User already required to change is returned unchanged, and the instant
+     * the change was first required is kept.
      */
     @Transactional
     public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
