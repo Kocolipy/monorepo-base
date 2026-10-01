@@ -2,10 +2,17 @@ package com.example.backend.scim.domain;
 
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
- * The rules a new password must satisfy on the self-service change path, apart from reuse — which
- * needs the User's history and is {@link PasswordHistoryPolicy}'s.
+ * The rules a new password must satisfy on every path that sets one — SCIM {@code password} on
+ * create, replace and PATCH, and the self-service change.
+ *
+ * <p>Reuse needs the User's history and an encoder, which this class does not hold, so a caller
+ * supplies it as a predicate to {@link #violation(String, String, Predicate)}. That method is the
+ * one place the ORDER is decided: the intrinsic rules first, in the order of {@link Rule}, and
+ * reuse only for a candidate that passed them — so every path names the same rule for the same
+ * candidate, and a sub-policy value is never hashed-and-compared against the history at all.
  *
  * <p>Each rule is named by a closed-set member so a refusal can say WHICH rule was unmet without
  * echoing the value that failed it. The candidate is normalized first
@@ -65,5 +72,22 @@ public final class PasswordPolicy {
             return Optional.of(Rule.CONTAINS_USER_NAME);
         }
         return Optional.empty();
+    }
+
+    /**
+     * The first rule {@code candidate} fails, reuse included: the intrinsic rules of
+     * {@link #violation(String, String)} first, then {@code reused}, which is consulted only when
+     * they all pass.
+     *
+     * @param userName the {@code userName} the User will hold once the password is set
+     * @param reused   whether the candidate matches the current credential or a retained one
+     */
+    public static Optional<Rule> violation(
+            String candidate, String userName, Predicate<String> reused) {
+        Optional<Rule> intrinsic = violation(candidate, userName);
+        if (intrinsic.isPresent()) {
+            return intrinsic;
+        }
+        return reused.test(candidate) ? Optional.of(Rule.REUSED) : Optional.empty();
     }
 }

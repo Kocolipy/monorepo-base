@@ -280,6 +280,23 @@ class AuditTrailServiceTests {
     }
 
     /**
+     * A refused User create names its reason and no subject, whichever refusal it was — a held
+     * {@code userName} or a password the policy does not accept.
+     */
+    @Test
+    void aRefusedUserCreateNamesTheReasonAndNoSubject() {
+        trail.recordScimUserCreateRejected(ACTOR, AuditScimRefusal.INVALID_VALUE);
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_CREATE);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(event.subjectId()).isNull();
+        assertThat(event.resourceId()).isNull();
+        assertThat(event.errorCode()).isEqualTo("INVALID_VALUE");
+        assertThat(event.statusClass()).isEqualTo("client_error");
+    }
+
+    /**
      * A refused create names no subject: the Group was not created, and the existing resource
      * that caused the refusal is not what the event is about.
      */
@@ -477,7 +494,7 @@ class AuditTrailServiceTests {
 
         trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
         trail.recordLockoutSet(SUBJECT);
-        trail.recordScimUserCreateRejectedAsDuplicate(ACTOR);
+        trail.recordScimUserCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
         trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
         trail.recordScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
         trail.recordScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY);

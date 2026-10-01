@@ -2,6 +2,9 @@ package com.example.backend.scim.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 
 /** The password policy's own rules. */
@@ -61,5 +64,35 @@ class PasswordPolicyTests {
         assertThat(PasswordPolicy.Rule.TOO_SHORT.message()).contains("12");
         assertThat(PasswordPolicy.Rule.TOO_LONG.message()).contains("256");
         assertThat(PasswordPolicy.Rule.REUSED.message()).contains("3");
+    }
+
+    // ---- the order every setting path shares ----------------------------------------------
+
+    /** The intrinsic rules are decided first, and reuse is never consulted for a value they refuse. */
+    @Test
+    void reuseIsConsultedOnlyForACandidateTheIntrinsicRulesAccept() {
+        List<String> consulted = new ArrayList<>();
+        Predicate<String> reused = candidate -> {
+            consulted.add(candidate);
+            return true;
+        };
+
+        assertThat(PasswordPolicy.violation("short", "ada", reused))
+                .contains(PasswordPolicy.Rule.TOO_SHORT);
+        assertThat(PasswordPolicy.violation("x".repeat(PasswordPolicy.MAX_LENGTH + 1), "ada", reused))
+                .contains(PasswordPolicy.Rule.TOO_LONG);
+        assertThat(PasswordPolicy.violation("my-name-is-ada-okay", "ada", reused))
+                .contains(PasswordPolicy.Rule.CONTAINS_USER_NAME);
+        assertThat(consulted).isEmpty();
+
+        assertThat(PasswordPolicy.violation("an-unrelated-passphrase", "ada", reused))
+                .contains(PasswordPolicy.Rule.REUSED);
+        assertThat(consulted).containsExactly("an-unrelated-passphrase");
+    }
+
+    @Test
+    void aCandidatePassingEveryRuleAndNotReusedIsAccepted() {
+        assertThat(PasswordPolicy.violation("an-unrelated-passphrase", "ada", candidate -> false))
+                .isEmpty();
     }
 }

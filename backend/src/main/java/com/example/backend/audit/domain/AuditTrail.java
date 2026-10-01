@@ -95,8 +95,8 @@ public interface AuditTrail {
     void recordScimUserCreated(UUID connectorId, UUID userId);
 
     /**
-     * Records a create refused because a live User already holds the
-     * {@code userName}.
+     * Records a User create refused — a {@code userName} a live User already holds
+     * ({@code UNIQUENESS}), or a password the policy does not accept ({@code INVALID_VALUE}).
      *
      * <p>No subject id, because there is none: the resource was not created, and the
      * existing User that holds the name is not what the event is about. Naming it
@@ -104,8 +104,9 @@ public interface AuditTrail {
      * history.
      *
      * @param connectorId the connector whose create was refused
+     * @param reason      why, as the {@code scimType} the connector received
      */
-    void recordScimUserCreateRejectedAsDuplicate(UUID connectorId);
+    void recordScimUserCreateRejected(UUID connectorId, AuditScimRefusal reason);
 
     /**
      * Records a connector querying the User collection — a bulk read — through

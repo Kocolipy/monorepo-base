@@ -3,12 +3,16 @@ package com.example.backend.scim.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.scim.domain.PasswordPolicy;
+import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -79,6 +83,22 @@ class ScimExceptionHandlerBodyTests {
                     assertThat(refusal.scimType()).isNull();
                     assertThat(refusal.detail()).contains("/Me");
                 });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PasswordPolicy.Rule.class,
+            names = {"TOO_SHORT", "TOO_LONG", "CONTAINS_USER_NAME"})
+    void a_policy_refusal_is_invalid_value_naming_the_rule_and_its_requirement(
+            PasswordPolicy.Rule rule) {
+        ResponseEntity<Map<String, Object>> rendered =
+                handler.handle(new PasswordPolicyRefusedException(rule));
+
+        assertThat(rendered.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rendered.getBody())
+                .containsEntry("status", "400")
+                .containsEntry("scimType", "invalidValue")
+                .containsEntry("detail", "The password does not satisfy the password policy ("
+                        + rule.name() + "). " + rule.message() + ".");
     }
 
     private static HttpMessageNotReadableException readThrough(InputStream body) {

@@ -929,6 +929,51 @@ final class ScimFixtures {
             t.assertUnchanged(user, resource);
         });
 
+        // -- the password policy, on every path that sets a password --
+        String[][] subPolicy = {
+                {"too short", "short-pw-1", "TOO_SHORT"},
+                {"containing the userName", "i-am-%s-truly", "CONTAINS_USER_NAME"}};
+        for (String[] bad : subPolicy) {
+            String label = bad[0];
+            String rule = bad[2];
+            add(all, "User password: create with a password " + label + " is invalidValue", t -> {
+                String userName = name();
+                String candidate = bad[1].formatted(userName);
+                JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, user.collection()), """
+                        {"schemas":["%s"],"userName":"%s","password":"%s"}"""
+                        .formatted(USER_SCHEMA, userName, candidate)), 400, "invalidValue");
+                assertThat(error.get("detail").asText()).contains(rule);
+                assertThat(error.toString()).doesNotContain(candidate);
+                JsonNode found = json(t.expect(t.scim(HttpMethod.GET, user.collection())
+                        .param("filter", "userName eq \"" + userName + "\""), 200));
+                assertThat(found.get("totalResults").asInt()).as("nothing was created").isZero();
+            });
+            add(all, "User password: replace with a password " + label + " is invalidValue", t -> {
+                Resource resource = t.create(user);
+                String userName = resource.body().get("userName").asText();
+                String candidate = bad[1].formatted(userName);
+                JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, user.one(resource.id()))
+                        .header(HttpHeaders.IF_MATCH, resource.etag()), """
+                        {"schemas":["%s"],"userName":"%s","password":"%s"}"""
+                        .formatted(USER_SCHEMA, userName, candidate)), 400, "invalidValue");
+                assertThat(error.get("detail").asText()).contains(rule);
+                assertThat(error.toString()).doesNotContain(candidate);
+                t.assertUnchanged(user, resource);
+            });
+            add(all, "User password: patch with a password " + label + " is invalidValue", t -> {
+                Resource resource = t.create(user);
+                String candidate = bad[1].formatted(resource.body().get("userName").asText());
+                JsonNode error = t.expectError(body(t.scim(HttpMethod.PATCH,
+                        user.one(resource.id())).header(HttpHeaders.IF_MATCH, resource.etag()),
+                        Kind.patch("""
+                        {"op":"replace","path":"password","value":"%s"}""".formatted(candidate))),
+                        400, "invalidValue");
+                assertThat(error.get("detail").asText()).contains(rule);
+                assertThat(error.toString()).doesNotContain(candidate);
+                t.assertUnchanged(user, resource);
+            });
+        }
+
         add(all, "User mutability: groups is read-only and ignored on create", t -> {
             Resource group = t.create(Kind.GROUP);
             Resource resource = t.create(user, user.create(name()).replace("{",

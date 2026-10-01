@@ -105,12 +105,12 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordScimUserCreateRejectedAsDuplicate(UUID connectorId) {
+    public void recordScimUserCreateRejected(UUID connectorId, AuditScimRefusal reason) {
         recorded.add(new Recorded(
                 AuditOperation.SCIM_USER_CREATE,
                 connectorId,
                 null,
-                AuditScimRefusal.UNIQUENESS.name()));
+                reason.name()));
     }
 
     @Override

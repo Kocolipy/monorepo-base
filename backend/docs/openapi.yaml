@@ -1013,7 +1013,12 @@ paths:
         `password` is optional — a credentialless User is a supported state and
         cannot authenticate until a password is set. A supplied password is hashed
         before the resource is persisted and appears in no response, no log and no
-        audit event. Read-only attributes in the body (`id`, `meta`, `groups`) are
+        audit event. It must satisfy the password policy — the one `/api/auth/change-password`
+        applies: 12 to 256 characters after normalization, and not containing the
+        `userName` case-insensitively. A password that breaks it is refused with
+        `400 invalidValue` before anything is written; the `detail` names the unmet rule
+        (`TOO_SHORT`, `TOO_LONG`, `CONTAINS_USER_NAME`) and never the value, and the
+        refusal is audited. Read-only attributes in the body (`id`, `meta`, `groups`) are
         ignored, as RFC 7644 requires, so a client may round-trip a resource it read;
         an attribute this service does not implement is refused with
         `400 invalidValue` rather than dropped. `active` defaults to true.
@@ -1185,10 +1190,15 @@ paths:
         The version — and `meta.lastModified` — advance exactly once for a write that
         changes anything, and not at all for one that restates the stored state.
 
-        A supplied `password` goes through the password history: it is refused with
-        `400 invalidValue` when it matches, after normalization, any of the User's three
-        most recent passwords, the current one included. The detail names the rule, never
-        the value. A successful change remembers the new password and forgets the oldest.
+        A supplied `password` goes through the password policy, in the order
+        `/api/auth/change-password` applies it: first the intrinsic rules — 12 to 256
+        characters after normalization, and not containing the `userName` the write leaves
+        the User with, case-insensitively — and only then the password history, which
+        refuses a value matching, after normalization, any of the User's three most recent
+        passwords, the current one included. Each refusal is `400 invalidValue`, audited,
+        and writes nothing; the `detail` names the first unmet rule (`TOO_SHORT`,
+        `TOO_LONG`, `CONTAINS_USER_NAME`, or reuse), never the value. A successful change
+        remembers the new password and forgets the oldest.
 
         **Sessions.** A write that deactivates the User (`active` true to false), sets or
         changes its password, or changes its `userName` ends every session the User holds
@@ -1286,10 +1296,11 @@ paths:
         | unsupported filter | `invalidFilter` |
         | `id`, `meta`, `groups`, `schemas` or `externalId` as a path; removing a required value | `mutability` |
         | a filter that matches no value; `remove` with no path | `noTarget` |
-        | a value of the wrong type; a reused password | `invalidValue` |
+        | a value of the wrong type; a password the policy refuses (too short, too long, containing the `userName`, or reused) | `invalidValue` |
 
-        The password history, session revocation, audit and Bootstrap Admin rules are
-        those of PUT. Returns `200` with the patched resource rather than `204`, so the
+        The password policy and its order, password history, session revocation, audit and
+        Bootstrap Admin rules are those of PUT. Returns `200` with the patched resource
+        rather than `204`, so the
         client learns the new ETag without re-reading.
       operationId: patchScimUser
       security:
