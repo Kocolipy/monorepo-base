@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import { PASSWORD_LENGTH } from "@/auth/password-policy";
 
 import { ChangePassword } from "./change-password";
 
@@ -122,6 +123,39 @@ describe("ChangePassword", () => {
       expect(field(name)).toHaveAttribute("autocomplete", "new-password");
       expect(field(name)).toBeRequired();
     }
+  });
+
+  it("states the password requirements before submission and links them to the new-password field", () => {
+    renderPage(flaggedAuth());
+
+    const requirements = screen.getByRole("list");
+    expect(requirements).toHaveAttribute("id", "newPasswordRequirements");
+    expect(Array.from(requirements.querySelectorAll("li"), (item) => item.textContent)).toEqual([
+      "12 to 256 characters long",
+      "Must not contain your user name",
+      "Must not reuse your current or recent passwords",
+    ]);
+    expect(field("New password")).toHaveAttribute("aria-describedby", "newPasswordRequirements");
+    expect(field("New password")).toHaveAccessibleDescription(
+      "12 to 256 characters long Must not contain your user name Must not reuse your current or recent passwords",
+    );
+    // Shown before anything is submitted: no refusal is needed to learn the rules.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("bounds the new password and its confirmation by the backend's length policy", () => {
+    renderPage(flaggedAuth());
+
+    // Literal values, not the constant: PasswordPolicy.java is the authority,
+    // and a drift in the SPA's mirror of it must fail here.
+    expect(PASSWORD_LENGTH).toEqual({ min: 12, max: 256 });
+    for (const name of ["New password", "Confirm new password"]) {
+      expect(field(name)).toHaveAttribute("minlength", "12");
+      expect(field(name)).toHaveAttribute("maxlength", "256");
+    }
+    // The current password is whatever it already is; no bound applies to it.
+    expect(field("Current password")).not.toHaveAttribute("minlength");
+    expect(field("Current password")).not.toHaveAttribute("maxlength");
   });
 
   it("submits current and new password and shows nothing on success", async () => {
