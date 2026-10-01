@@ -260,6 +260,98 @@ class InactivityGovernanceIntegrationTests {
         assertThat(active(ada)).isFalse();
     }
 
+    /**
+     * Reactivating a credentialed User requires a password change, by either SCIM path that can
+     * reactivate — a PATCH of {@code active} and a PUT restating it — because a credential that
+     * sat unused across a deactivation is not trusted on return. The flag is dated by the
+     * reactivation, so the grace period runs from it.
+     *
+     * <p>The User's connector-set first password flags it at creation, so the change is completed
+     * first: what the test then observes is a flag only reactivation could have set.
+     */
+    @Test
+    void reactivatingACredentialedUserRequiresAPasswordChangeByEitherPath() {
+        UUID ada = createUser("reactivate-credentialed", "first-correct-horse");
+        completePasswordChange(ada);
+        assertThat(passwordChangeRequiredSince(ada)).isNull();
+
+        userService.patch(connector, ada, ifMatch(ada), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        clock.advanceBy(Duration.ofDays(1));
+        userService.patch(connector, ada, ifMatch(ada), List.of(
+                new ScimUserPatchOperation.SetActive(true)));
+        assertThat(passwordChangeRequiredSince(ada))
+                .as("PATCH active=true reactivated a credentialed User")
+                .isEqualTo(clock.instant());
+
+        completePasswordChange(ada);
+        userService.patch(connector, ada, ifMatch(ada), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        clock.advanceBy(Duration.ofDays(1));
+        userService.replace(connector, ada, ifMatch(ada), new ScimUserReplacement(
+                profile("reactivate-credentialed", null, true), null, null));
+        assertThat(passwordChangeRequiredSince(ada))
+                .as("PUT active=true reactivated a credentialed User")
+                .isEqualTo(clock.instant());
+
+        completePasswordChange(ada);
+        userService.patch(connector, ada, ifMatch(ada), List.of(
+                new ScimUserPatchOperation.SetActive(true)));
+        userService.replace(connector, ada, ifMatch(ada), new ScimUserReplacement(
+                profile("reactivate-credentialed", null, true), null, null));
+        assertThat(passwordChangeRequiredSince(ada))
+                .as("re-asserting active over an active User is not a reactivation")
+                .isNull();
+
+        // The repository's own reactivation statement, which no SCIM path uses today but whose
+        // contract promises the same rule.
+        userService.patch(connector, ada, ifMatch(ada), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        clock.advanceBy(Duration.ofDays(1));
+        reactivateThroughThePort(ada);
+        assertThat(passwordChangeRequiredSince(ada))
+                .as("updateActive(true) reactivated a credentialed User")
+                .isEqualTo(clock.instant());
+    }
+
+    /**
+     * A credentialless User cannot log in, so it has no credential to distrust: reactivating it
+     * sets no flag, by either path. The flag arrives with its first password.
+     */
+    @Test
+    void reactivatingACredentiallessUserRequiresNoPasswordChange() {
+        UUID grace = createUser("reactivate-credentialless", null);
+
+        userService.patch(connector, grace, ifMatch(grace), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        userService.patch(connector, grace, ifMatch(grace), List.of(
+                new ScimUserPatchOperation.SetActive(true)));
+        assertThat(passwordChangeRequiredSince(grace)).as("after PATCH").isNull();
+
+        userService.patch(connector, grace, ifMatch(grace), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        userService.replace(connector, grace, ifMatch(grace), new ScimUserReplacement(
+                profile("reactivate-credentialless", null, true), null, null));
+        assertThat(passwordChangeRequiredSince(grace)).as("after PUT").isNull();
+
+        userService.patch(connector, grace, ifMatch(grace), List.of(
+                new ScimUserPatchOperation.SetActive(false)));
+        reactivateThroughThePort(grace);
+        assertThat(active(grace)).isTrue();
+        assertThat(passwordChangeRequiredSince(grace)).as("after updateActive(true)").isNull();
+    }
+
+    private void reactivateThroughThePort(UUID user) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                users.updateActive(user, true, clock.instant()));
+    }
+
+    /** As a successful self-service change leaves it, keeping the same credential. */
+    private void completePasswordChange(UUID user) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                users.completePasswordChange(user, passwordHashOf(user), clock.instant()));
+    }
+
     // ---- Part A: concurrency --------------------------------------------------------------
 
     /**
@@ -443,6 +535,9 @@ class InactivityGovernanceIntegrationTests {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             if (!active(id)) {
                 users.updateActive(id, true, clock.instant());
+                // A reactivation requires a password change; the shared seeded User's baseline is
+                // unflagged, so later tests can log in as it.
+                users.completePasswordChange(id, passwordHashOf(id), clock.instant());
             }
         });
         return id;
@@ -567,6 +662,17 @@ class InactivityGovernanceIntegrationTests {
                 "SELECT last_authenticated_at FROM scim_users WHERE resource_id = ?",
                 Timestamp.class, user);
         return at == null ? null : at.toInstant();
+    }
+
+    private Instant passwordChangeRequiredSince(UUID user) {
+        Timestamp at = jdbc.queryForObject(
+                "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?",
+                Timestamp.class, user);
+        return at == null ? null : at.toInstant();
+    }
+
+    private String passwordHashOf(UUID user) {
+        return users.findById(user).orElseThrow().login().passwordHash();
     }
 
     private Instant dormancyBasis(UUID user) {

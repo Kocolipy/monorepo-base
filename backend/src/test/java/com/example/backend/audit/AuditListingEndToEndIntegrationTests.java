@@ -162,8 +162,12 @@ class AuditListingEndToEndIntegrationTests {
         }
         UUID seeded = users.findByNormalizedUserName(NormalizedUserName.of("test-user"))
                 .orElseThrow().id();
-        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
-                users.updateActive(seeded, true, clock.instant()));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            users.updateActive(seeded, true, clock.instant());
+            // Reactivation requires a password change; the shared seeded baseline is unflagged.
+            users.completePasswordChange(seeded,
+                    users.findById(seeded).orElseThrow().login().passwordHash(), clock.instant());
+        });
     }
 
     @Test
