@@ -729,6 +729,50 @@ final class ScimFixtures {
             assertThat(filtered.get("totalResults").asInt()).isZero();
         });
 
+        add(all, k + " mutability: PUT re-keys, restates and removes the caller's externalId",
+                t -> {
+            String name = name();
+            Resource resource = t.create(kind, kind.create(name)
+                    .replace("{", "{\"externalId\":\"ext-1\","));
+            MvcResult changed = t.expect(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), kind.replace(name)
+                    .replace("{", "{\"externalId\":\"ext-2\",")), 200);
+            assertThat(json(changed).get("externalId").asText()).isEqualTo("ext-2");
+            String changedTag = changed.getResponse().getHeader(HttpHeaders.ETAG);
+            assertThat(changedTag).isNotEqualTo(resource.etag());
+            MvcResult restated = t.expect(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, changedTag), kind.replace(name)
+                    .replace("{", "{\"externalId\":\"ext-2\",")), 200);
+            assertThat(restated.getResponse().getHeader(HttpHeaders.ETAG)).isEqualTo(changedTag);
+            JsonNode omitted = json(t.expect(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, changedTag), kind.replace(name)), 200));
+            assertThat(omitted.has("externalId")).as("omitted on replace is unassigned").isFalse();
+        });
+
+        add(all, k + " mutability: PATCH adds, replaces and removes the caller's externalId",
+                t -> {
+            Resource resource = t.create(kind);
+            String qualified = kind.schema + ":externalId";
+            MvcResult added = t.expect(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), Kind.patch("""
+                    {"op":"add","path":"externalId","value":"ext-1"}""")), 200);
+            assertThat(json(added).get("externalId").asText()).isEqualTo("ext-1");
+            MvcResult replaced = t.expect(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, added.getResponse().getHeader(HttpHeaders.ETAG)),
+                    Kind.patch("""
+                    {"op":"replace","path":"%s","value":"ext-2"}""".formatted(qualified))), 200);
+            assertThat(json(replaced).get("externalId").asText()).isEqualTo("ext-2");
+            JsonNode filtered = json(t.expect(t.scim(HttpMethod.GET, kind.collection())
+                    .param("filter", "externalId eq \"ext-2\" and id eq \"" + resource.id()
+                            + "\""), 200));
+            assertThat(filtered.get("totalResults").asInt()).isEqualTo(1);
+            JsonNode removed = json(t.expect(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH,
+                            replaced.getResponse().getHeader(HttpHeaders.ETAG)), Kind.patch("""
+                    {"op":"remove","path":"externalId"}""")), 200));
+            assertThat(removed.has("externalId")).isFalse();
+        });
+
         add(all, k + " mutability: an unassigned attribute is omitted, never null", t -> {
             Resource resource = t.create(kind);
             for (JsonNode value : resource.body()) {

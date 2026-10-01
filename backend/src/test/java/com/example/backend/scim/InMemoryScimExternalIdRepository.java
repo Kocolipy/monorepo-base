@@ -22,6 +22,12 @@ public final class InMemoryScimExternalIdRepository implements ScimExternalIdRep
     }
 
     @Override
+    public void remove(UUID connectorId, UUID resourceId) {
+        aliases.removeIf(alias -> alias.connectorId().equals(connectorId)
+                && alias.resourceId().equals(resourceId));
+    }
+
+    @Override
     public java.util.Optional<String> find(UUID connectorId, UUID resourceId) {
         return aliases.stream()
                 .filter(alias -> alias.connectorId().equals(connectorId)

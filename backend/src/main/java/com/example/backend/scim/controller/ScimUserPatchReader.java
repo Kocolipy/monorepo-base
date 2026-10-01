@@ -33,8 +33,8 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>a value filter using anything but {@code eq} comparisons joined by {@code and} —
  *       {@code invalidFilter}, because the full filter grammar is not implemented yet and an
  *       approximated filter would select values the client did not ask for;
- *   <li>a path naming a read-only attribute ({@code id}, {@code meta}, {@code groups}), or
- *       {@code externalId}, which is fixed at creation — {@code mutability};
+ *   <li>a path naming a read-only attribute ({@code id}, {@code meta}, {@code groups}) —
+ *       {@code mutability};
  *   <li>a {@code remove} with no path — {@code noTarget}, which RFC 7644 §3.5.2.2 names for it;
  *   <li>a value of the wrong JSON type for its target — {@code invalidValue}.
  * </ul>
@@ -58,8 +58,9 @@ final class ScimUserPatchReader {
     private static final Set<String> READ_ONLY = Set.of("id", "meta", "groups", "schemas");
 
     /**
-     * Fixed at creation, as a Group's is: a PATCH naming it is refused as {@code mutability} rather
-     * than applied, and a path-less value carrying it — a resource sent back as read — ignores it.
+     * The calling connector's alias: read-write, as the schema declares it. {@code add} and
+     * {@code replace} set it and {@code remove} clears it; the use case writes it under the calling
+     * connector alone, so no PATCH can reach another connector's alias.
      */
     private static final String EXTERNAL_ID = "externalid";
 
@@ -171,7 +172,7 @@ final class ScimUserPatchReader {
         List<ScimUserPatchOperation> read = new ArrayList<>();
         for (String attribute : value.propertyNames()) {
             String lower = attribute.toLowerCase(Locale.ROOT);
-            if (READ_ONLY.contains(lower) || EXTERNAL_ID.equals(lower)) {
+            if (READ_ONLY.contains(lower)) {
                 continue;
             }
             if (!PATH.matcher(attribute).matches() || attribute.contains(".")
@@ -207,16 +208,17 @@ final class ScimUserPatchReader {
         if (READ_ONLY.contains(attribute)) {
             throw ScimErrorException.mutability(attribute + " is read-only.");
         }
-        if (EXTERNAL_ID.equals(attribute)) {
-            throw ScimErrorException.mutability(
-                    "externalId is set when the User is created and is not changed afterwards.");
-        }
         if (path.filter() != null && !attribute.equals("emails")) {
             throw ScimErrorException.invalidPath("Only emails accepts a value filter.");
         }
         if (path.subAttribute() != null && !attribute.equals("name")
                 && !attribute.equals("emails")) {
             throw ScimErrorException.invalidPath(attribute + " has no sub-attributes.");
+        }
+        if (EXTERNAL_ID.equals(attribute)) {
+            return op == Op.REMOVE
+                    ? new ScimUserPatchOperation.RemoveExternalId()
+                    : new ScimUserPatchOperation.SetExternalId(stringValue(value, "externalId"));
         }
         TextAttribute text = TEXT.get(attribute);
         if (text != null) {

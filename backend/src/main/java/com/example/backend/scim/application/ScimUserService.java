@@ -234,15 +234,12 @@ public class ScimUserService {
             UUID id,
             ScimVersionPrecondition precondition,
             ScimUserReplacement replacement) {
-        return write(connector, id, precondition, stored -> {
-            refuseAliasChange(stored.externalId(), replacement.sentExternalId());
-            return new ScimUserEdit(
-                    replacement.profile(),
-                    stored.externalId(),
-                    replacement.password() == null
-                            ? ScimPasswordChange.UNCHANGED
-                            : ScimPasswordChange.set(replacement.password()));
-        });
+        return write(connector, id, precondition, stored -> new ScimUserEdit(
+                replacement.profile(),
+                replacement.externalId(),
+                replacement.password() == null
+                        ? ScimPasswordChange.UNCHANGED
+                        : ScimPasswordChange.set(replacement.password())));
     }
 
     /**
@@ -361,6 +358,9 @@ public class ScimUserService {
         if (password.kind() == ScimPasswordChange.Kind.SET) {
             passwordHistory.record(id, passwordHash, now);
         }
+        if (changed.contains(AuditUserAttribute.EXTERNAL_ID)) {
+            writeAlias(connectorId, id, after.externalId());
+        }
         audit.recordScimUserReplaced(connectorId, id, changed);
 
         Set<ScimUserSessions.Cause> causes = revocationCauses(before, after, passwordChanged);
@@ -368,21 +368,6 @@ public class ScimUserService {
             sessions.revokeAfterCommit(connectorId, id, causes);
         }
         return Optional.of(projection(connector, written));
-    }
-
-    /**
-     * Refuses a PUT that tries to change the stored alias.
-     *
-     * <p>Absent and equal are both a restatement and are accepted; a different value is refused as
-     * {@code mutability}, the answer PATCH gives for the same attempt, rather than dropped — a
-     * silently discarded value is a connector believing it stored one.
-     */
-    private static void refuseAliasChange(String stored, String sent) {
-        if (sent != null && !sent.equals(stored)) {
-            throw new ScimPatchRefusedException(
-                    ScimPatchRefusedException.Reason.MUTABILITY,
-                    "externalId is set when the User is created and is not changed afterwards.");
-        }
     }
 
     /**
@@ -449,7 +434,21 @@ public class ScimUserService {
         addIf(changed, AuditUserAttribute.ACTIVE, was.active() != is.active());
         addIf(changed, AuditUserAttribute.EMAILS, !was.emails().equals(is.emails()));
         addIf(changed, AuditUserAttribute.PASSWORD, passwordChanged);
+        addIf(changed, AuditUserAttribute.EXTERNAL_ID,
+                !Objects.equals(before.externalId(), after.externalId()));
         return changed;
+    }
+
+    /**
+     * Sets or removes the calling connector's alias. Keyed by the calling connector alone, so no
+     * write of one connector reaches another's alias for the same User.
+     */
+    private void writeAlias(UUID connectorId, UUID id, String externalId) {
+        if (externalId == null) {
+            aliases.remove(connectorId, id);
+        } else {
+            aliases.put(connectorId, id, externalId);
+        }
     }
 
     private static void addIf(

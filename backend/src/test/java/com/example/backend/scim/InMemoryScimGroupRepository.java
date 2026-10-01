@@ -135,6 +135,18 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
         return Optional.of(written);
     }
 
+    @Override
+    public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
+        ScimGroup current = stored.get(id);
+        if (current == null) {
+            return Optional.empty();
+        }
+        ScimGroup written = new ScimGroup(current.id(), current.displayName(), current.members(),
+                current.reservedName(), current.version() + 1, current.createdAt(), now);
+        stored.put(id, written);
+        return Optional.of(written);
+    }
+
     private static java.util.Set<UUID> userIdsOf(List<ScimGroupMember> members) {
         return members.stream().map(ScimGroupMember::userId).collect(java.util.stream.Collectors.toSet());
     }

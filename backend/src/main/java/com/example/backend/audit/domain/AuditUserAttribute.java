@@ -19,6 +19,11 @@ public enum AuditUserAttribute {
     PASSWORD,
     EMAILS,
     /**
+     * The calling connector's own {@code externalId} alias changed. Named as a path like any
+     * other attribute; the alias value itself never reaches an event.
+     */
+    EXTERNAL_ID,
+    /**
      * The User's read-only {@code groups} view. No SCIM write moves it directly; it changes when a
      * membership does, and is named when that change is what ends the User's sessions — the
      * dormant-authority job removing its Admin-group membership.

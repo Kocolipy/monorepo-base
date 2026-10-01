@@ -70,7 +70,23 @@ class ScimUserPatchOperationTests {
         assertThat(fold(new SetText(TextAttribute.TIMEZONE, "Europe/Paris")).profile()
                 .timezone()).isEqualTo("Europe/Paris");
         assertThat(fold(new SetText(TextAttribute.USER_NAME, "ada2")).externalId())
-                .as("no operation touches the alias").isEqualTo("ext-1");
+                .as("a text operation leaves the alias").isEqualTo("ext-1");
+    }
+
+    /** The alias is set and removed on its own, leaving the profile and credential alone. */
+    @Test
+    void set_and_remove_external_id_change_only_the_alias() {
+        ScimUserEdit set = fold(new ScimUserPatchOperation.SetExternalId("ext-2"));
+        assertThat(set.externalId()).isEqualTo("ext-2");
+        assertThat(set.profile()).isEqualTo(START.profile());
+        assertThat(set.password()).isEqualTo(ScimPasswordChange.UNCHANGED);
+
+        ScimUserEdit removed = fold(new ScimUserPatchOperation.RemoveExternalId());
+        assertThat(removed.externalId()).isNull();
+        assertThat(removed.profile()).isEqualTo(START.profile());
+
+        assertThatThrownBy(() -> new ScimUserPatchOperation.SetExternalId(null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

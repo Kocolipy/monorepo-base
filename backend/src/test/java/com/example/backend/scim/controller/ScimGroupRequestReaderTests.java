@@ -80,6 +80,45 @@ class ScimGroupRequestReaderTests {
                 .containsExactly(new RemoveAllMembers());
     }
 
+    /**
+     * {@code externalId} is read-write on a Group: {@code add} and {@code replace} set the caller's
+     * alias and {@code remove} clears it, by the bare and the schema-qualified path alike.
+     */
+    @Test
+    void external_id_is_set_and_removed_by_its_path() {
+        for (String path : List.of("externalId", "EXTERNALID",
+                "urn:ietf:params:scim:schemas:core:2.0:Group:externalId")) {
+            assertThat(read("[{\"op\":\"add\",\"path\":\"" + path + "\",\"value\":\"e1\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.SetExternalId("e1"));
+            assertThat(read("[{\"op\":\"replace\",\"path\":\"" + path
+                    + "\",\"value\":\"e2\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.SetExternalId("e2"));
+            assertThat(read("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]"))
+                    .containsExactly(new ScimGroupPatchOperation.RemoveExternalId());
+        }
+    }
+
+    @Test
+    void external_id_takes_a_non_blank_string_and_has_no_sub_attributes() {
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":7}]", "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\"}]", "invalidSyntax");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId\",\"value\":\" \"}]",
+                "invalidValue");
+        refused("[{\"op\":\"replace\",\"path\":\"externalId.value\",\"value\":\"x\"}]",
+                "invalidPath");
+    }
+
+    /** A PUT body's {@code externalId} is carried to the use case, and an omitted one is null. */
+    @Test
+    void a_replacement_carries_the_external_id_or_null_when_omitted() {
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng","externalId":"e1"}""")).externalId()).isEqualTo("e1");
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng"}""")).externalId()).isNull();
+    }
+
     @Test
     void a_members_value_path_with_remove_names_one_member() {
         UUID member = UUID.randomUUID();

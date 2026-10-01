@@ -24,6 +24,13 @@ public interface ScimExternalIdRepository {
      */
     void put(UUID connectorId, UUID resourceId, String externalId);
 
+    /**
+     * Removes this connector's alias for this resource, if it holds one. Another connector's
+     * alias for the same resource is untouched: the key is the pair, so there is no form of this
+     * call that could reach it.
+     */
+    void remove(UUID connectorId, UUID resourceId);
+
     /** This connector's alias for this resource, or empty when it set none. */
     Optional<String> find(UUID connectorId, UUID resourceId);
 

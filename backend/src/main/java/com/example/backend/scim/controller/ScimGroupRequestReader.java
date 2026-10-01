@@ -29,7 +29,7 @@ import tools.jackson.databind.JsonNode;
  *
  * <h2>PATCH is narrowed to what a Group can mean</h2>
  *
- * <p>RFC 7644 §3.5.2 defines PATCH over an open-ended path grammar. A Group here has two writable
+ * <p>RFC 7644 §3.5.2 defines PATCH over an open-ended path grammar. A Group here has three writable
  * attributes, so the set of things a PATCH can mean is finite, and this reader's job is to turn each
  * supported request into one of {@link ScimGroupPatchOperation}'s variants and refuse the rest.
  * Refusing HERE is the point: an unsupported path is still a request at this layer, so it becomes a
@@ -86,16 +86,15 @@ final class ScimGroupRequestReader {
      * the document does not mention is being set to nothing. That is the difference between PUT and
      * PATCH and it is resolved here, so nothing below this has to know which verb it came from.
      *
-     * <p>{@code externalId} is read and DISCARDED. The alias belongs to the connector's relationship
-     * with the resource and is established at creation: a PUT that could change it would let a
-     * replacement silently re-key the resource in the caller's own namespace, and one that had to
-     * restate it would delete the alias of every connector that omitted the field. It is accepted
-     * rather than refused so a client can PUT back a resource it read.
+     * <p>{@code externalId} is replaced on the same terms: the submitted value becomes the calling
+     * connector's alias, and an omitted one removes it.
      */
     static ScimGroupReplacement readReplace(JsonNode body) {
         requireGroupBody(body);
         return new ScimGroupReplacement(
-                requiredString(body, "displayName"), readMemberIds(body.get("members")));
+                requiredString(body, "displayName"),
+                readMemberIds(body.get("members")),
+                optionalString(body, "externalId"));
     }
 
     /**
@@ -161,8 +160,8 @@ final class ScimGroupRequestReader {
                 throw ScimErrorException.noTarget("A remove operation requires a path.");
             }
             throw ScimErrorException.invalidValue(
-                    "This service requires a path on each PATCH operation, naming displayName"
-                            + " or members.");
+                    "This service requires a path on each PATCH operation, naming displayName,"
+                            + " members or externalId.");
         }
 
         Matcher memberValuePath = MEMBER_VALUE_PATH.matcher(path);
@@ -182,6 +181,7 @@ final class ScimGroupRequestReader {
         return switch (attribute) {
             case "displayname" -> readDisplayNameOperation(op, value);
             case "members" -> readMembersOperation(op, value);
+            case "externalid" -> readExternalIdOperation(op, value);
             default -> throw ScimErrorException.invalidPath(
                     "This service does not implement the Group PATCH path: " + sanitized(path));
         };
@@ -206,6 +206,20 @@ final class ScimGroupRequestReader {
                     requiredStringValue(value, "displayName"));
             case "remove" -> throw ScimErrorException.mutability(
                     "displayName is required and cannot be removed.");
+            default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
+        };
+    }
+
+    /**
+     * {@code add} and {@code replace} on {@code externalId} set the calling connector's alias, and
+     * {@code remove} clears it — the attribute is optional, so unlike {@code displayName} it may
+     * be removed.
+     */
+    private static ScimGroupPatchOperation readExternalIdOperation(String op, JsonNode value) {
+        return switch (op) {
+            case "add", "replace" -> new ScimGroupPatchOperation.SetExternalId(
+                    requiredStringValue(value, "externalId"));
+            case "remove" -> new ScimGroupPatchOperation.RemoveExternalId();
             default -> throw ScimErrorException.invalidValue("Unsupported PATCH op: " + sanitized(op));
         };
     }

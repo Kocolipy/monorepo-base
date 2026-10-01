@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +58,11 @@ import org.springframework.transaction.annotation.Transactional;
  *       change does mutate it: it moves the User's computed {@code groups} attribute and
  *       advances its version, which a client reads.
  * </ul>
+ *
+ * <p>The calling connector's own {@code externalId} on the Admin group stays writable. It is that
+ * connector's name for the Group, not part of the Group, and no other connector reads it, so
+ * changing it neither renames the recovery authority nor alters who holds it — and an IdP that
+ * re-keys its objects must be able to keep finding the Group it manages.
  *
  * <p>Every refusal is raised before anything is written, so a refused write changes nothing —
  * which is what makes "verified by re-reading unchanged" a property of this class rather than
@@ -184,10 +190,12 @@ public class ScimGroupService {
                 connector,
                 id,
                 precondition,
-                current -> current.replacedWith(
-                        replacement.displayName(),
-                        references(replacement.memberIds()),
-                        clock.instant()));
+                current -> new GroupEdit(
+                        current.group().replacedWith(
+                                replacement.displayName(),
+                                references(replacement.memberIds()),
+                                clock.instant()),
+                        replacement.externalId()));
     }
 
     /**
@@ -220,13 +228,16 @@ public class ScimGroupService {
      * is: the whole PATCH resolved to a single desired state, which is what makes partial
      * failure unrepresentable.
      */
-    private ScimGroup folded(ScimGroup current, List<ScimGroupPatchOperation> operations) {
-        String displayName = current.displayName();
+    private GroupEdit folded(GroupEdit current, List<ScimGroupPatchOperation> operations) {
+        String displayName = current.group().displayName();
+        String externalId = current.externalId();
         List<UUID> memberIds = new ArrayList<>(
-                current.members().stream().map(ScimGroupMember::userId).toList());
+                current.group().members().stream().map(ScimGroupMember::userId).toList());
         for (ScimGroupPatchOperation operation : operations) {
             switch (operation) {
                 case ScimGroupPatchOperation.SetDisplayName set -> displayName = set.displayName();
+                case ScimGroupPatchOperation.SetExternalId set -> externalId = set.externalId();
+                case ScimGroupPatchOperation.RemoveExternalId ignored -> externalId = null;
                 case ScimGroupPatchOperation.AddMembers add -> memberIds.addAll(add.userIds());
                 case ScimGroupPatchOperation.RemoveMembers remove ->
                         memberIds.removeAll(remove.userIds());
@@ -237,7 +248,9 @@ public class ScimGroupService {
                 case ScimGroupPatchOperation.RemoveAllMembers ignored -> memberIds.clear();
             }
         }
-        return current.replacedWith(displayName, references(memberIds), clock.instant());
+        return new GroupEdit(
+                current.group().replacedWith(displayName, references(memberIds), clock.instant()),
+                externalId);
     }
 
     /**
@@ -294,7 +307,7 @@ public class ScimGroupService {
             AuthenticatedConnector connector,
             UUID id,
             ScimVersionPrecondition precondition,
-            UnaryOperator<ScimGroup> change) {
+            UnaryOperator<GroupEdit> change) {
         Optional<ScimGroup> stored = groups.findByIdForUpdate(id);
         if (stored.isEmpty()) {
             return Optional.empty();
@@ -303,7 +316,10 @@ public class ScimGroupService {
         // After existence, before anything is computed: a missing or stale precondition changes
         // nothing, and the lock above is what makes "stale" exact under concurrent writers.
         precondition.requireSatisfiedBy(current.version());
-        ScimGroup desired = change.apply(current);
+        UUID connectorId = connector.connectorId();
+        String currentAlias = aliases.find(connectorId, id).orElse(null);
+        GroupEdit edit = change.apply(new GroupEdit(current, currentAlias));
+        ScimGroup desired = edit.group();
 
         if (current.isProtectedFromWrites()
                 && !current.displayName().equals(desired.displayName())) {
@@ -328,8 +344,21 @@ public class ScimGroupService {
             // have seen a moment earlier, which is the truthful answer either way.
             return Optional.empty();
         }
-        audit.recordScimGroupReplaced(
-                connector.connectorId(), id, changedAttributes(current, written));
+        Set<AuditGroupAttribute> changed = changedAttributes(current, written);
+        if (!Objects.equals(currentAlias, edit.externalId())) {
+            writeAlias(connectorId, id, edit.externalId());
+            if (changed.isEmpty()) {
+                // The alias is not a Group column, so the replacement above saw no change and
+                // advanced nothing; the representation this connector reads did change, so its
+                // version and lastModified must. A write that also moved a column already did.
+                written = groups.advanceVersion(id, desired.lastModifiedAt()).orElse(null);
+                if (written == null) {
+                    return Optional.empty();
+                }
+            }
+            changed.add(AuditGroupAttribute.EXTERNAL_ID);
+        }
+        audit.recordScimGroupReplaced(connectorId, id, changed);
         return Optional.of(projection(connector, written));
     }
 
@@ -423,6 +452,25 @@ public class ScimGroupService {
         return group.members().stream()
                 .map(ScimGroupMember::userId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * Sets or removes the calling connector's alias. Keyed by the calling connector alone, so no
+     * write of one connector reaches another's alias for the same Group.
+     */
+    private void writeAlias(UUID connectorId, UUID id, String externalId) {
+        if (externalId == null) {
+            aliases.remove(connectorId, id);
+        } else {
+            aliases.put(connectorId, id, externalId);
+        }
+    }
+
+    /**
+     * A Group write's desired state: the Group, and the calling connector's alias for it — which
+     * is not a Group column, so it travels beside the Group rather than inside it.
+     */
+    private record GroupEdit(ScimGroup group, String externalId) {
     }
 
     /** Submitted ids as membership values, with no label — the label is read-only. */

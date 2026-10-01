@@ -1,8 +1,7 @@
 package com.example.backend.scim.domain;
 
 /**
- * A write could not be applied to the resource as it currently stands — a PATCH operation, or a
- * PUT asserting a changed {@code externalId}.
+ * A PATCH operation could not be applied to the resource as it currently stands.
  *
  * <p>Raised while the operations are folded onto the stored resource — which is the only place
  * these refusals can be decided, because whether a filter matches anything depends on the stored

@@ -76,6 +76,33 @@ public sealed interface ScimUserPatchOperation {
         }
     }
 
+    /**
+     * {@code add} or {@code replace} of {@code externalId} — the calling connector's alias. The
+     * attribute is single-valued, so adding to it replaces it, as for any other string.
+     */
+    record SetExternalId(String externalId) implements ScimUserPatchOperation {
+
+        public SetExternalId {
+            if (externalId == null) {
+                throw new IllegalArgumentException("an externalId set carries a value");
+            }
+        }
+
+        @Override
+        public ScimUserEdit applyTo(ScimUserEdit edit) {
+            return edit.withExternalId(externalId);
+        }
+    }
+
+    /** {@code remove} of {@code externalId}: the calling connector no longer holds an alias. */
+    record RemoveExternalId() implements ScimUserPatchOperation {
+
+        @Override
+        public ScimUserEdit applyTo(ScimUserEdit edit) {
+            return edit.withExternalId(null);
+        }
+    }
+
     /** {@code add} or {@code replace} of {@code active}. */
     record SetActive(boolean active) implements ScimUserPatchOperation {
 

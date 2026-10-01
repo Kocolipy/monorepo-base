@@ -410,11 +410,13 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     /**
-     * An {@code externalId} on a PUT is accepted and DISCARDED, so a client can PUT back a
-     * resource it read without either re-keying the alias or deleting it.
+     * An {@code externalId} on a PUT is stored, not discarded: a different value re-keys the
+     * caller's alias and the response shows the value that was stored. Before issue #54 this
+     * answered 200 with the OLD value, so an IdP believed it had stored one it had not. The full
+     * read-write contract is in {@code ScimExternalIdReadWriteIntegrationTests}.
      */
     @Test
-    void a_put_accepts_an_external_id_without_changing_the_alias() throws Exception {
+    void a_put_with_a_different_external_id_re_keys_the_alias() throws Exception {
         UUID id = idOf(createGroup("""
                 {"schemas":["%s"],"displayName":"Engineering-grpit","externalId":"grp-1"}"""
                 .formatted(GROUP_SCHEMA)));
@@ -427,9 +429,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .andReturn();
 
         assertThat(replaced.getResponse().getStatus()).isEqualTo(200);
-        assertThat(body(replaced).get("externalId").asText())
-                .as("the alias is established at creation and a replacement cannot re-key it")
-                .isEqualTo("grp-1");
+        assertThat(body(replaced).get("externalId").asText()).isEqualTo("other");
     }
 
     // ---- the request reader's refusals ---------------------------------------------------------
@@ -656,11 +656,11 @@ class ScimGroupProvisioningIntegrationTests {
 
         MvcResult refused = patchGroup(id, """
                 {"schemas":["%s"],
-                 "Operations":[{"op":"replace","path":"ExternalId","value":"x"}]}"""
+                 "Operations":[{"op":"replace","path":"NickName","value":"x"}]}"""
                 .formatted(PATCH_OP));
 
         assertRefusal(refused, 400, "invalidPath");
-        assertThat(body(refused).get("detail").asText()).contains("externalid");
+        assertThat(body(refused).get("detail").asText()).contains("nickname");
     }
 
     /**
@@ -674,12 +674,12 @@ class ScimGroupProvisioningIntegrationTests {
 
         MvcResult refused = patchGroup(id, """
                 {"schemas":["%s"],
-                 "Operations":[{"op":"replace","path":"External\\u0007Id","value":"x"}]}"""
+                 "Operations":[{"op":"replace","path":"Nick\\u0007Name","value":"x"}]}"""
                 .formatted(PATCH_OP));
 
         assertRefusal(refused, 400, "invalidPath");
         assertThat(body(refused).get("detail").asText())
-                .contains("externalid")
+                .contains("nickname")
                 .doesNotContain("\u0007");
     }
 

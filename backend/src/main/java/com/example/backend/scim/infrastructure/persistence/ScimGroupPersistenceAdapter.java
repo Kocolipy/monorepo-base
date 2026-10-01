@@ -185,6 +185,14 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         return findById(group.id());
     }
 
+    @Override
+    public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
+        if (resources.advanceVersions(List.of(id), now) == 0) {
+            return Optional.empty();
+        }
+        return findById(id);
+    }
+
     /**
      * Deletes the Group and advances the version of every User that was a member.
      *
