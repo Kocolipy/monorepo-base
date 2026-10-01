@@ -37,16 +37,20 @@ test.describe("USER user listing", () => {
 
   /**
    * The control endpoints matter more than the listing here: a `USER` who could
-   * reach them could disable an administrator. The CSRF token is sent
+   * reach them could unlock or flag an administrator. The CSRF token is sent
    * deliberately — without it the chain answers 403 from the CSRF filter first,
-   * and the test would pass without ever exercising the role check.
+   * and the test would pass without ever exercising the role check. Any id will
+   * do: the role is refused before the target is looked up.
    */
-  test("is forbidden from disabling, enabling, or unlocking an account", async ({ page }) => {
+  test("is forbidden from the Groups listing and from unlocking or flagging a User", async ({
+    page,
+  }) => {
     // Precondition, so the test cannot pass vacuously on an admin session.
     expect(await (await page.request.get("/api/auth/me")).json()).toMatchObject({ role: "USER" });
 
-    for (const action of ["disable", "enable", "unlock"]) {
-      const response = await postAdminAction(page, "admin", action);
+    expect((await page.request.get("/api/admin/groups")).status()).toBe(403);
+    for (const action of ["unlock", "force-password-change"]) {
+      const response = await postAdminAction(page, crypto.randomUUID(), action);
 
       expect(response.status(), `a USER must not reach ${action}`).toBe(403);
     }

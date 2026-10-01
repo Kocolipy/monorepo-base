@@ -204,36 +204,36 @@ a `USER` reaching one must be refused for its role, and that is only proven with
 a valid token present, since a missing one earns the same `403` from the CSRF
 filter first.
 
-A spec that changes an account's state must restore it in a `finally`, and must
-not pick an account whose state another project depends on. **Exactly one spec may
-change a given seeded account**, and `accounts-admin.spec.ts` is that spec for
-the seeded User: it disables and re-enables it through the page, drives it into a
-lockout and unlocks it, and is `test.describe.serial` so its own tests cannot race
-each other under `fullyParallel`. `roles-admin.spec.ts` therefore asserts only the
-idempotent actions and the refusals, and the disable/enable contract itself —
-statuses, the `409`s, the response shape — is covered in
-`AdminAccountEndpointTests`, where no shared row is at stake.
+A spec must not change a **seeded** account's lockout or change-required state
+at all. Unlock and a forced password change both leave the User required to
+change its password, and password history refuses the old one back, so a seeded
+identity put in either state cannot be restored for the specs that sign in as it.
+`accounts-admin.spec.ts` therefore PROVISIONS the Users it acts on: it creates a
+connector and issues a token through the page, reads the value off the one-time
+disclosure, creates two throwaway Users over SCIM with it (straight to the
+backend — SCIM is not behind the Vite `/api` proxy; `E2E_BACKEND_URL` overrides
+`http://localhost:8080`), has each settle on a password of its own through
+`POST /api/auth/change-password`, then locks and unlocks one and force-changes
+the other from the page. It deletes the Users and the connector in a `finally`.
+It is `test.describe.serial` because its steps depend on each other.
+`roles-admin.spec.ts` asserts only idempotent actions and refusals against the
+seeded accounts — an Unlock of a User serving no lockout requires no change — and
+the statuses and response shapes are covered in `AdminAccountEndpointTests`.
 
-Disabling that account also **revokes the sessions it holds**, the saved session
-the `user` project replays included — so the two projects cannot run beside each
-other, and `playwright.config.ts` gives the `admin` project
-`dependencies: ["setup", "user"]`. The destructive project runs last. The `guest`
-project needs no such ordering: it signs in as the Admin, and disabling the last
-enabled Admin is refused. Proving revocation therefore needs a session of its own
-rather than the page's — sign in through `submitLoginViaApi` on an
-`APIRequestContext` with an empty `storageState`, check it answers 200 _before_
-the disable (an unauthenticated jar answers 401 too, so the assertion is vacuous
-without it), then expect 401 after.
+A forced change **revokes the sessions it holds**. The `admin` project keeps
+`dependencies: ["setup", "user"]` so it still runs after the `user` project,
+although nothing in it now touches the seeded `user`'s sessions. Proving
+revocation needs a session of its own rather than the page's — sign in through
+`submitLoginViaApi` on an `APIRequestContext` with an empty `storageState`, check
+it answers 200 _before_ the action (an unauthenticated jar answers 401 too, so
+the assertion is vacuous without it), then expect 401 after.
 
 A **lockout** is imposed by failed logins rather than by an endpoint, so provoking
 one means submitting real credentials — and an accepted login rotates the session
 id of the cookie jar it arrives in, which would destroy the session the other
 specs in this project replay. Submit those attempts through an `APIRequestContext`
 built with an empty `storageState` (`submitLoginViaApi` in `auth.helpers.ts` takes
-one for exactly this reason), never through `page.request`. Unlocking through the
-API in a `finally` is what makes the whole thing self-healing: it ends the lockout
-early _and_ clears the failure run, so the next spec to authenticate as that
-account starts from zero.
+one for exactly this reason), never through `page.request`.
 
 Two specs looking at the same listing also have to agree on what they may
 assume: the environment may hold accounts nobody seeded (a stray second admin, in

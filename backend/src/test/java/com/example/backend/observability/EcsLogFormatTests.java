@@ -89,6 +89,15 @@ class EcsLogFormatTests {
     @Autowired
     private CsrfTokenRepository csrfTokenRepository;
 
+    @Autowired
+    private com.example.backend.scim.domain.ScimUserRepository users;
+
+    private java.util.UUID testUserId() {
+        return users.findByNormalizedUserName(
+                com.example.backend.scim.domain.NormalizedUserName.of("test-user"))
+                .orElseThrow().id();
+    }
+
     private MockMvc mvc;
 
     private EcsLogCapture logs;
@@ -168,7 +177,7 @@ class EcsLogFormatTests {
     @Test
     void anAdministrativeChangeIsOneEcsRecordCarryingTheRequestsCorrelationId()
             throws Exception {
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", testUserId()))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk());
 
@@ -193,7 +202,7 @@ class EcsLogFormatTests {
 
         logIn("test-user", "test-password").andExpect(status().isOk());
         logIn("not-a-real-account", "wrong-password").andExpect(status().isUnauthorized());
-        mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", testUserId()))
                         .session(authenticatedSession("ROLE_ADMIN")))
                 .andExpect(status().isOk());
 

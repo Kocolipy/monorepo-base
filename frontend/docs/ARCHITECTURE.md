@@ -48,15 +48,33 @@ that _consume_ this; they hold no session or role logic themselves, and none
 decides where a visitor goes next. A new protected area adds a route declaration,
 not a second copy of the guard.
 
-`pages/accounts.tsx` is the widest of the three: it reads the account listing from
-`GET /api/admin/accounts` and posts the three administration actions, replacing the
-one affected row from each response rather than reloading the listing — the
-response _is_ that account's new state, so a refetch would only add a request that
-could disagree with it. Every request goes through `useSessionRequest`, so a
-`401` ends the session in one place and a `403` stays a CSRF problem. What each
-status means to an administrator (`409` a refused change, `404` an account that
-has since gone) is mapped in that page, because only the page knows what was being
-attempted.
+`pages/accounts.tsx` is the widest of the three. It reads two read-only
+projections — Users from `GET /api/admin/accounts`, Groups from
+`GET /api/admin/groups` — and posts the two operations an Admin performs on a
+User, Unlock and the forced password change, to
+`/api/admin/accounts/{id}/unlock` and `/api/admin/accounts/{id}/force-password-change`
+by the User's stable id. Each action replaces the one affected row from its
+response rather than reloading the listing — the response _is_ that User's new
+state, so a refetch would only add a request that could disagree with it.
+Nothing the directory owns (`userName`, display name, `active`, Group
+membership) has a control on the page, and the backend has no endpoint that
+would accept one; the former Disable and Enable actions and their endpoints were
+removed. The page hides Unlock and the forced change where the backend would
+refuse them — on the Admin's own row, and Unlock on the Bootstrap Admin, which
+cannot be locked and shows no lockout state.
+
+Its connector panel, `pages/connectors.tsx`, lists, creates and deletes
+connectors and issues, rotates and revokes their tokens through
+`/api/admin/connectors/**`, re-reading the listing after every change because a
+rotation, revocation or delete changes more than one token. A token's plaintext
+lives only in that component's state, shown once in the disclosure panel, so
+dismissing it, navigating away or reloading loses it for good.
+`pages/accounts-api.ts` holds the wire types and paths both files share.
+
+Every request goes through `useSessionRequest`, so a `401` ends the session in
+one place and a `403` stays a CSRF problem. What each status means to an
+administrator (`409` a refused change, `404` a User that has since gone) is
+mapped in the page, because only the page knows what was being attempted.
 
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
 enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
@@ -189,12 +207,12 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table — four routes, deliberately flat:
 
-| Path        | Element                                                              | Notes                                                   |
-| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| `/`         | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase` |
-| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                         |
-| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | account administration, restricted to `ADMIN`           |
-| `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                        |
+| Path        | Element                                                              | Notes                                                                      |
+| ----------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `/`         | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase`                    |
+| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                                            |
+| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | Users/Groups projections, Unlock, forced change, connectors — `ADMIN` only |
+| `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                                           |
 
 **Change-password route — backend only, not yet rendered.** The backend confines
 a session whose password must be replaced (the change-required flag, see

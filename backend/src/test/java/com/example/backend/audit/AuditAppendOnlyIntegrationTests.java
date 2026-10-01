@@ -127,8 +127,8 @@ class AuditAppendOnlyIntegrationTests {
      * into. Keyed on the normalized {@code userName}, which is the column uniqueness is
      * decided on.
      */
-    private static final String ACTIVE_OF_USER =
-            "SELECT active FROM scim_users WHERE normalized_user_name = ?";
+    private static final String CHANGE_REQUIRED_SINCE_OF_USER =
+            "SELECT password_change_required_since FROM scim_users WHERE resource_id = ?";
 
     private static final String FORCED_FAILURE_FUNCTION = """
             CREATE OR REPLACE FUNCTION forced_append_failure() RETURNS trigger
@@ -212,34 +212,43 @@ class AuditAppendOnlyIntegrationTests {
 
     @Test
     void aForcedAuditInsertFailureRollsBackTheMutationItWasRecording() {
-        assertThat(require(USER).profile().active()).isTrue();
-        forceAppendFailure();
+        ScimUser target = throwaway("append-rollback-target");
+        try {
+            forceAppendFailure();
 
-        assertThatThrownBy(() -> administration.deactivate(USER, ADMIN))
-                .isInstanceOf(RuntimeException.class);
+            assertThatThrownBy(() -> administration.forcePasswordChange(target.id(), ADMIN))
+                    .isInstanceOf(RuntimeException.class);
 
-        // Read back from the database, not from the object the call returned: the
-        // claim is that nothing was committed.
-        assertThat(jdbc.queryForObject(ACTIVE_OF_USER, Boolean.class, normalized(USER)))
-                .isTrue();
-        assertThat(require(USER).profile().active()).isTrue();
-        assertThat(allEvents()).isEmpty();
-        // The revocation is deferred to after the commit, so a rollback never
-        // reaches it either.
-        assertThat(sessions.sessionsOf(idOf(USER))).isEmpty();
+            // Read back from the database, not from the object the call returned: the
+            // claim is that nothing was committed.
+            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, Timestamp.class,
+                    target.id())).isNull();
+            assertThat(allEvents()).isEmpty();
+            // The revocation is deferred to after the commit, so a rollback never
+            // reaches it either.
+            assertThat(sessions.revocations()).doesNotContain(target.id());
+        } finally {
+            jdbc.execute(DROP_FORCED_FAILURE_TRIGGER);
+            discard(target);
+        }
     }
 
     /**
      * The same write with no forced failure commits, so the test above is about the
-     * rollback rather than about a disable that never worked in the first place.
+     * rollback rather than about a forced change that never worked in the first place.
      */
     @Test
     void theSameWriteCommitsWhenTheAppendSucceeds() {
-        administration.deactivate(USER, ADMIN);
+        ScimUser target = throwaway("append-commit-target");
+        try {
+            administration.forcePasswordChange(target.id(), ADMIN);
 
-        assertThat(jdbc.queryForObject(ACTIVE_OF_USER, Boolean.class, normalized(USER)))
-                .isFalse();
-        assertThat(rows(AuditOperation.ACCOUNT_DISABLE)).hasSize(1);
+            assertThat(jdbc.queryForObject(CHANGE_REQUIRED_SINCE_OF_USER, Timestamp.class,
+                    target.id())).isNotNull();
+            assertThat(rows(AuditOperation.PASSWORD_CHANGE_REQUIRE)).hasSize(1);
+        } finally {
+            discard(target);
+        }
     }
 
     // A failure event that cannot be appended alerts without changing the response
@@ -488,9 +497,6 @@ class AuditAppendOnlyIntegrationTests {
     }
 
     /** The stored uniqueness form of a userName, which is what the row is keyed on. */
-    private static String normalized(String userName) {
-        return NormalizedUserName.of(userName).value();
-    }
 
     private void clearRecordedEvents() {
         transactions.executeWithoutResult(status -> {
@@ -509,6 +515,25 @@ class AuditAppendOnlyIntegrationTests {
      * <p>Wrapped in a transaction because both are modifying queries: without one they have
      * no {@code EntityManager} to flush.
      */
+    /**
+     * A credentialed User of this test's own, so a forced change it commits does not leave a
+     * seeded identity flagged for every other test sharing this context — a flag only a real
+     * password change clears.
+     */
+    private ScimUser throwaway(String userName) {
+        return transactions.execute(status -> users.create(ScimUser.created(
+                UUID.randomUUID(),
+                new com.example.backend.scim.domain.ScimUserProfile(
+                        userName, null, null, null, null, null, true, List.of()),
+                "hash",
+                Instant.now())));
+    }
+
+    private void discard(ScimUser user) {
+        transactions.executeWithoutResult(status -> users.deleteById(user.id(), Instant.now()));
+        clearRecordedEvents();
+    }
+
     private void restore(String userName) {
         transactions.executeWithoutResult(status -> {
             ScimUser user = require(userName);

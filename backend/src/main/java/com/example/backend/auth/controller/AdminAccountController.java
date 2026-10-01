@@ -7,6 +7,7 @@ import com.example.backend.auth.application.UnknownIdentityException;
 import com.example.backend.auth.application.UnsafeIdentityChangeException;
 import java.security.Principal;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,18 +18,25 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Inbound HTTP adapter for administrative account review and control.
+ * Inbound HTTP adapter for the Users projection of the Accounts page and the two operations an
+ * administrator may perform on a User.
  *
  * <p>Authorization is not expressed here. {@code /api/admin/**} is restricted to
  * {@code ROLE_ADMIN} by the filter chain, so a non-admin never reaches this
  * class — which keeps every access rule in one readable place instead of half
  * here and half there. The chain is what {@code SecurityConfigTests} asserts on.
  *
- * <p>Enabling and unlocking are separate endpoints because they are separate
- * capabilities: one governs whether an account is permitted at all, the other
- * whether it is being penalised for failed logins right now. Collapsing them
- * would make an administrator restoring access silently forgive a failure run
- * they never looked at.
+ * <p>READ-ONLY for everything the directory owns, and enforced by absence: there is no handler
+ * that accepts a {@code userName}, an {@code active} flag or a Group membership, so a
+ * {@code PUT}, {@code PATCH} or {@code DELETE} on a User is answered {@code 405} by the dispatcher
+ * before any code here runs. The Disable and Enable actions that used to live here were removed
+ * rather than hidden: {@code active} is a SCIM attribute the connector owns, so an administrator
+ * overriding it would be overwritten by the next synchronization, and an endpoint kept for a
+ * control nobody renders is an endpoint nobody reviews.
+ *
+ * <p>What remains addresses its User by the stable resource {@code id}, never by {@code userName}:
+ * a connector may rename a User between the Admin reading the row and clicking, and an id-targeted
+ * action cannot then land on whoever inherited the name.
  *
  * <p>{@link IdentitySummary} is returned as the wire shape rather than copied into
  * a response type of this adapter's own. The copy would have been field-identical
@@ -53,35 +61,21 @@ public class AdminAccountController {
     }
 
     /**
-     * Closes an account to new logins and ends the sessions it already holds, so
-     * the next request it makes arrives as a stranger. What exactly that costs the
-     * holder is {@code IdentityAdministrationService}'s to define.
+     * Ends a lockout — the only way one ends — and requires a password change of a User that has a
+     * password. Says nothing about {@code active}.
      */
-    @PostMapping("/{username}/disable")
-    public IdentitySummary disable(@PathVariable String username, Principal principal) {
-        return identities.deactivate(username, principal.getName());
-    }
-
-    /** Reopens an account to logins, leaving any lockout it is serving standing. */
-    @PostMapping("/{username}/enable")
-    public IdentitySummary enable(@PathVariable String username, Principal principal) {
-        return identities.activate(username, principal.getName());
-    }
-
-    /** Ends a lockout and requires a password change. Says nothing about whether it is enabled. */
-    @PostMapping("/{username}/unlock")
-    public IdentitySummary unlock(@PathVariable String username, Principal principal) {
-        return identities.unlock(username, principal.getName());
+    @PostMapping("/{id}/unlock")
+    public IdentitySummary unlock(@PathVariable UUID id, Principal principal) {
+        return identities.unlock(id, principal.getName());
     }
 
     /**
      * Requires the account to replace its password before it may do anything else, ending the
      * sessions it holds. The Admin never learns or chooses the password.
      */
-    @PostMapping("/{username}/force-password-change")
-    public IdentitySummary forcePasswordChange(
-            @PathVariable String username, Principal principal) {
-        return identities.forcePasswordChange(username, principal.getName());
+    @PostMapping("/{id}/force-password-change")
+    public IdentitySummary forcePasswordChange(@PathVariable UUID id, Principal principal) {
+        return identities.forcePasswordChange(id, principal.getName());
     }
 
     /** A refusal about whose account it is — the caller's own, or the Bootstrap Admin. */
@@ -94,12 +88,14 @@ public class AdminAccountController {
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public void unknownIdentity() {
         // The caller is already an administrator, so naming what is missing
-        // reveals nothing they could not read from the listing.
+        // reveals nothing they could not read from the listing. An id that is
+        // not a UUID at all never gets here: the dispatcher answers it 400.
     }
 
     /**
-     * A refusal about the action rather than the caller, so neither 403 (the role
-     * is fine) nor 400 (the request is well formed) fits.
+     * A refusal about the action rather than the caller — a forced change on a User with no
+     * password to replace — so neither 403 (the role is fine) nor 400 (the request is well
+     * formed) fits.
      */
     @ExceptionHandler(UnsafeIdentityChangeException.class)
     @ResponseStatus(HttpStatus.CONFLICT)

@@ -207,14 +207,14 @@ class AuditListingEndToEndIntegrationTests {
                 "{\"currentPassword\":\"%s\",\"newPassword\":\"%s\"}"
                         .formatted(MEMBER_INITIAL, MEMBER_REPLACED), 204);
         assertThat(loginStatus("audit-e2e-member", WRONG_PASSWORD)).isEqualTo(401);
-        send(post("/api/admin/accounts/audit-e2e-member/force-password-change").session(admin),
+        send(post("/api/admin/accounts/" + member + "/force-password-change").session(admin),
                 null, 200);
 
         // ---- #11 lockout set, lifted by Admin Unlock (there is no expiry lift) ----
         for (int attempt = 0; attempt < 5; attempt++) {
             assertThat(loginStatus("audit-e2e-locked", WRONG_PASSWORD)).isEqualTo(401);
         }
-        send(post("/api/admin/accounts/audit-e2e-locked/unlock").session(admin), null, 200);
+        send(post("/api/admin/accounts/" + locked + "/unlock").session(admin), null, 200);
 
         // Read the stored credential forms now, while they exist, to search for them later.
         List<String> storedSecrets = storedCredentialForms(tokenId, member, locked);

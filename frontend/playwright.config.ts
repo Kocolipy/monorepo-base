@@ -46,14 +46,11 @@ export default defineConfig({
     {
       name: "admin",
       testMatch: /(?:authentication|session|roles-admin|accounts-admin)\.spec\.ts/,
-      // After the `user` project, not beside it. Disabling an account now revokes
-      // the sessions it holds, and `accounts-admin.spec.ts` disables the seeded
-      // `user` — which is the very session the `user` project replays. Running
-      // them in parallel would have this project pull that one's session out from
-      // under it, so the destructive project goes last.
-      //
-      // The `guest` project needs no such ordering: it signs in as `admin`, and
-      // disabling the last enabled administrator is refused.
+      // After the `user` project, not beside it: this project drives the
+      // administration surface, and ordering it last keeps any future spec that
+      // acts on a seeded identity from pulling a session out from under the
+      // `user` project. `accounts-admin.spec.ts` itself only acts on Users it
+      // provisions over SCIM, never on the seeded `user`.
       dependencies: ["setup", "user"],
       use: {
         ...devices["Desktop Chrome"],

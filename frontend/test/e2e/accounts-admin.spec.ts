@@ -1,305 +1,318 @@
-import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
+import {
+  expect,
+  request,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
-import { postAdminAction, submitLoginViaApi } from "./auth.helpers";
+import { adminRequest, submitLoginViaApi } from "./auth.helpers";
 
 /**
- * The accounts page driven as an administrator uses it.
+ * The Accounts page driven as an Admin uses it: both read-only projections,
+ * Unlock, the forced password change, and a connector's token lifecycle, all
+ * from the one interface.
  *
- * Serial, and the only place a spec changes a seeded account's standing — whether
- * it is disabled, and whether it is serving a lockout. Two reasons: the suite runs
- * `fullyParallel`, so tests in one file would otherwise race each other over the
- * same row; and the seeded `user` identity is shared with the `user` project, so
- * every round trip below has to put it back before anything else reads it.
+ * Every User this spec changes is one it PROVISIONS for itself, over SCIM,
+ * with a token it issued through the page. The seeded `user` is never locked or
+ * flagged here: since Unlock and a forced change both require a password change,
+ * and password history refuses the old password back, a seeded identity put in
+ * either state could not be restored for the specs that sign in as it. The
+ * throwaway Users and the connector are deleted in a `finally`.
  *
- * Disabling that account also ends the sessions it holds, the `user` project's
- * replayed one included — which is why `playwright.config.ts` makes this project
- * depend on `user` rather than run beside it.
+ * Serial because the steps depend on each other: the token issued in the first
+ * step is what provisions the Users every later step acts on.
  */
-test.describe.serial("ADMIN accounts page", () => {
-  const openAccounts = async (page: Page) => {
-    await page.goto("/accounts");
-    await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-    // The listing has arrived: every later assertion reads a rendered row
-    // rather than the loading state.
-    await expect(page.getByRole("rowheader", { exact: true, name: "admin" })).toBeVisible();
-  };
 
-  const accountRow = (page: Page, username: string) =>
-    page
-      .getByRole("row")
-      .filter({ has: page.getByRole("rowheader", { exact: true, name: username }) });
+/** The backend itself: SCIM is not behind the Vite `/api` proxy. */
+const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
 
-  /** The seeded `USER` password, as `auth.setup.ts` signs in with it. */
-  const USER_PASSWORD = "P@ssw0rd";
+const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 
-  /** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
-  const REFUSALS_BEFORE_LOCKOUT = 5;
+/** Mirrors `app.auth.lockout.max-attempts` (`APP_LOCKOUT_MAX_ATTEMPTS`). */
+const REFUSALS_BEFORE_LOCKOUT = 5;
 
-  /**
-   * A cookie jar of its own for the login attempts below, so nothing here
-   * touches the admin session this project replays: an accepted login rotates
-   * the session id of the jar it arrives in.
-   */
-  const anonymousApi = async (): Promise<APIRequestContext> =>
-    request.newContext({
-      baseURL: test.info().project.use.baseURL,
-      storageState: { cookies: [], origins: [] },
+const RUN = Date.now().toString(36);
+const CONNECTOR_NAME = `e2e-connector-${RUN}`;
+const LOCKED_USER = `e2e-locked-${RUN}`;
+const FORCED_USER = `e2e-forced-${RUN}`;
+/** What the connector provisions; the connector write itself flags a change. */
+const PROVISIONED_PASSWORD = "Provisioned-Secret-9x";
+/** What each User sets for itself, clearing that flag, before the spec acts on it. */
+const OWN_PASSWORD = "Self-Chosen-Secret-7q";
+
+/** A cookie jar of its own, so nothing here touches the admin session this project replays. */
+const anonymousApi = async (): Promise<APIRequestContext> =>
+  request.newContext({
+    baseURL: test.info().project.use.baseURL,
+    storageState: { cookies: [], origins: [] },
+  });
+
+/** A bearer-authenticated SCIM client, straight to the backend. */
+const scimApi = async (token: string): Promise<APIRequestContext> =>
+  request.newContext({
+    baseURL: BACKEND_URL,
+    extraHTTPHeaders: {
+      Accept: "application/scim+json",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/scim+json",
+    },
+    storageState: { cookies: [], origins: [] },
+  });
+
+async function provision(scim: APIRequestContext, userName: string): Promise<string> {
+  const created = await scim.post("/scim/v2/Users", {
+    data: { active: true, password: PROVISIONED_PASSWORD, schemas: [USER_SCHEMA], userName },
+  });
+  expect(created.status(), `provisioning ${userName}`).toBe(201);
+  return ((await created.json()) as { id: string }).id;
+}
+
+/** Deletes a SCIM User under its current ETag, as the conditional-write rules require. */
+async function deprovision(scim: APIRequestContext, id: string) {
+  const current = await scim.get(`/scim/v2/Users/${id}`);
+  if (current.status() === 404) return;
+  const deleted = await scim.delete(`/scim/v2/Users/${id}`, {
+    headers: { "If-Match": current.headers()["etag"] ?? "" },
+  });
+  expect(deleted.status()).toBe(204);
+}
+
+/** Sign in as the provisioned User and replace the connector's password with its own. */
+async function settle(userName: string) {
+  const api = await anonymousApi();
+  try {
+    expect((await submitLoginViaApi(api, userName, PROVISIONED_PASSWORD)).status()).toBe(200);
+    const { cookies } = await api.storageState();
+    const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
+    const changed = await api.post("/api/auth/change-password", {
+      data: { currentPassword: PROVISIONED_PASSWORD, newPassword: OWN_PASSWORD },
+      headers: { "X-XSRF-TOKEN": String(token) },
     });
+    expect(changed.status(), `${userName} sets its own password`).toBe(204);
+  } finally {
+    await api.dispose();
+  }
+}
 
-  /** Drive the seeded account into a lockout the way a forgetful person does. */
-  const lockAccount = async (api: APIRequestContext, username: string) => {
-    for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
-      const refused = await submitLoginViaApi(api, username, "not-the-password");
-      expect(refused.status()).toBe(401);
-    }
-  };
+/** Whether a fresh login as this User is accepted, and whether it is confined to the change. */
+async function signInState(userName: string) {
+  const api = await anonymousApi();
+  try {
+    const login = await submitLoginViaApi(api, userName, OWN_PASSWORD);
+    if (login.status() !== 200) return { accepted: false, confined: false };
+    const me = (await (await api.get("/api/auth/me")).json()) as {
+      passwordChangeRequired?: boolean;
+    };
+    return { accepted: true, confined: me.passwordChangeRequired === true };
+  } finally {
+    await api.dispose();
+  }
+}
 
-  test("lists every registered account with its role, status, and creation date", async ({
+const usersTable = (page: Page) => page.getByRole("table", { name: "Users" });
+const groupsTable = (page: Page) => page.getByRole("table", { name: "Groups" });
+
+/**
+ * A row addressed by its row header, exactly: `admin` must not also match
+ * `admin2`. The `has` locator is resolved inside each row, so it is built from
+ * the page rather than from the table.
+ */
+const rowOf = (page: Page, table: Locator, name: string) =>
+  table.getByRole("row").filter({
+    has: page.getByRole("rowheader", { name: new RegExp(`^${name}(?![\\w-])`) }),
+  });
+
+async function openAccounts(page: Page) {
+  await page.goto("/accounts");
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(usersTable(page).getByRole("row").nth(1)).toBeVisible();
+  await expect(groupsTable(page).getByRole("row").nth(1)).toBeVisible();
+}
+
+test.describe.serial("ADMIN accounts page", () => {
+  test("shows both projections with no writable identity or membership control", async ({
     page,
   }) => {
     await openAccounts(page);
 
-    // The seeded identities, by role rather than by name where the assertion
-    // allows it, so renaming a seed account in configuration does not fail this.
-    await expect(page.getByRole("rowheader", { exact: true, name: "user" })).toBeVisible();
+    for (const table of [usersTable(page), groupsTable(page)]) {
+      await expect(table.getByRole("textbox")).toHaveCount(0);
+      await expect(table.getByRole("checkbox")).toHaveCount(0);
+      await expect(table.getByRole("combobox")).toHaveCount(0);
+      await expect(table.getByRole("spinbutton")).toHaveCount(0);
+    }
+    await expect(groupsTable(page).getByRole("button")).toHaveCount(0);
+    for (const label of await usersTable(page).getByRole("button").allTextContents()) {
+      expect(label).toMatch(/^(Unlock|Force password change for) /);
+    }
+    await expect(page.getByRole("button", { name: /Disable|Enable|Deactivate/ })).toHaveCount(0);
 
-    const admin = accountRow(page, "admin");
-    await expect(admin).toContainText("ADMIN");
-    // A date in the rendered ISO form the page formats, whatever day the
-    // environment first seeded the account.
-    await expect(admin).toContainText(/\d{4}-\d{2}-\d{2}/);
-    await expect(admin.getByText("Active")).toBeVisible();
-  });
-
-  test("offers no unlock for an account serving no lockout", async ({ page }) => {
-    await openAccounts(page);
-
+    // The protected Admin group is marked, and Unlock is described as the only lift.
+    await expect(groupsTable(page).getByText("Protected Admin group")).toHaveCount(1);
     await expect(
-      accountRow(page, "user").getByRole("button", { name: "Unlock user" }),
-    ).toBeDisabled();
+      page.getByText(/A lockout never expires: Unlock is the only way it ends/),
+    ).toBeVisible();
+
+    // The Bootstrap Admin — this project's own session — shows no lockout state and no Unlock.
+    const bootstrap = rowOf(page, usersTable(page), "admin");
+    await expect(bootstrap.getByText("Bootstrap Admin")).toBeVisible();
+    await expect(bootstrap.getByTitle("The Bootstrap Admin cannot be locked")).toBeVisible();
+    await expect(bootstrap.getByText(/^(Locked|Not locked)$/)).toHaveCount(0);
+    await expect(bootstrap.getByRole("button", { name: /Unlock/ })).toHaveCount(0);
   });
 
-  /**
-   * The self-disable refusal, shown before the click rather than after it. The
-   * backend refuses the same request with a 409 — asserted in
-   * `roles-admin.spec.ts`, where the response status is visible.
-   */
-  test("does not offer to disable the account making the request", async ({ page }) => {
-    await openAccounts(page);
-
-    const disableSelf = accountRow(page, "admin").getByRole("button", { name: "Disable admin" });
-    await expect(disableSelf).toBeDisabled();
-    await expect(disableSelf).toHaveAttribute("title", "You cannot disable your own account");
-  });
-
-  /**
-   * The whole point of the page: an administrator closes an account to logins
-   * and reopens it without leaving the browser. Restored in a `finally` even
-   * when an expectation fails, because the `user` project depends on that
-   * account existing and enabled.
-   */
-  test("closes an account to logins and reopens it", async ({ page }) => {
-    await openAccounts(page);
-    const row = accountRow(page, "user");
+  test("unlocks a User, forces another's change and manages a connector's tokens", async ({
+    page,
+  }) => {
+    // Two provisions, two self-service changes, a lockout's worth of refused
+    // logins and four confirming sign-ins, each a password hash on the backend.
+    test.setTimeout(120_000);
+    const provisioned: string[] = [];
+    let scim: APIRequestContext | undefined;
 
     try {
-      await row.getByRole("button", { name: "Disable user" }).click();
-
-      await expect(row.getByText("Disabled")).toBeVisible();
-      await expect(row.getByRole("button", { name: "Enable user" })).toBeVisible();
-      await expect(page.getByRole("alert")).toHaveCount(0);
-
-      // The change is the backend's, not just the rendered row's: a reload shows
-      // the same state.
-      await page.reload();
-      await expect(accountRow(page, "user").getByText("Disabled")).toBeVisible();
-
-      await accountRow(page, "user").getByRole("button", { name: "Enable user" }).click();
-      await expect(accountRow(page, "user").getByText("Active")).toBeVisible();
-    } finally {
-      // Belt and braces: if the UI enable above never ran, put the account back
-      // through the API so no other spec inherits a disabled account.
-      const restored = await postAdminAction(page, "user", "enable");
-      expect(restored.status()).toBe(200);
-    }
-  });
-
-  /**
-   * The disable an administrator actually wants: the account stops acting now
-   * rather than when its session happens to expire.
-   *
-   * Asserted over the API rather than through the page, because the subject is a
-   * *second* caller's session. A cookie jar of its own is what makes "the holder
-   * is signed out" observable at all — the accounts page has no view of it, and
-   * the admin session this project replays must not be the one under test.
-   */
-  test("ends the session an account already holds", async ({ page }) => {
-    const holder = await anonymousApi();
-
-    try {
-      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
-      expect(signedIn.status()).toBe(200);
-
-      // Live *before* the disable. Without this the 401 below would prove
-      // nothing: an unauthenticated jar answers 401 too.
-      const working = await holder.get("/api/auth/me");
-      expect(working.status()).toBe(200);
-
-      const disabled = await postAdminAction(page, "user", "disable");
-      expect(disabled.status()).toBe(200);
-
-      // Same jar, same cookie, and the session behind it no longer exists.
-      const refused = await holder.get("/api/auth/me");
-      expect(refused.status()).toBe(401);
-    } finally {
-      const restored = await postAdminAction(page, "user", "enable");
-      expect(restored.status()).toBe(200);
-      await holder.dispose();
-    }
-  });
-
-  /**
-   * Enabling is not the inverse of disabling. A revoked session is gone for good;
-   * reopening the account only means it may sign in again, which is what the
-   * fresh jar at the end proves.
-   */
-  test("does not hand a revoked session back when the account is reopened", async ({ page }) => {
-    const holder = await anonymousApi();
-
-    try {
-      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
-      expect(signedIn.status()).toBe(200);
-
-      const disabled = await postAdminAction(page, "user", "disable");
-      expect(disabled.status()).toBe(200);
-      const reopened = await postAdminAction(page, "user", "enable");
-      expect(reopened.status()).toBe(200);
-
-      const refused = await holder.get("/api/auth/me");
-      expect(refused.status()).toBe(401);
-
-      const fresh = await anonymousApi();
-      try {
-        const accepted = await submitLoginViaApi(fresh, "user", USER_PASSWORD);
-        expect(accepted.status()).toBe(200);
-      } finally {
-        await fresh.dispose();
-      }
-    } finally {
-      // The account is already enabled unless an expectation above failed first.
-      const restored = await postAdminAction(page, "user", "enable");
-      expect(restored.status()).toBe(200);
-      await holder.dispose();
-    }
-  });
-
-  /**
-   * The lockout as an administrator meets it: nobody imposes it, a run of failed
-   * logins does, and the listing is where it becomes visible. Locking a *seeded*
-   * account is only safe in this file, for the same reason disabling one is — it
-   * is serial, and it puts the account back before anything else reads it.
-   *
-   * The failed logins go through an anonymous cookie jar rather than this page's,
-   * so the admin session the parallel specs share is never in the blast radius.
-   */
-  test("reports an account that has locked itself out, and unlocks it", async ({ page }) => {
-    const api = await anonymousApi();
-
-    try {
-      await lockAccount(api, "user");
+      // A connector and a READ_WRITE token, from the page. The value is read off
+      // the one-time disclosure — there is no other way to get it.
       await openAccounts(page);
-      const row = accountRow(page, "user");
+      await page.getByLabel("New connector name").fill(CONNECTOR_NAME);
+      await page.getByRole("button", { name: "Create connector" }).click();
+      const section = page.getByRole("region", { name: `Connector ${CONNECTOR_NAME}` });
+      await expect(section).toBeVisible();
+      await section.getByLabel(`Scope for ${CONNECTOR_NAME}`).selectOption("READ_WRITE");
+      await section.getByRole("button", { name: `Issue token for ${CONNECTOR_NAME}` }).click();
+      const firstValue = await page.getByLabel("New token value").textContent();
+      expect(firstValue).toBeTruthy();
+      await expect(section.getByText("Active")).toHaveCount(1);
 
-      // The listing reports the lockout the login path imposed — this is the only
-      // place an administrator can see it at all, and there is no expiry to show
-      // because nothing but Unlock ends it.
-      await expect(row.getByText("Locked")).toBeVisible();
-      // Still enabled: a lockout is not a standing decision, and the page must
-      // not conflate the two refusal mechanisms.
-      await expect(row.getByRole("button", { name: "Disable user" })).toBeEnabled();
+      // Two Users of this spec's own, each settled on a password it chose.
+      scim = await scimApi(firstValue!);
+      provisioned.push(await provision(scim, LOCKED_USER), await provision(scim, FORCED_USER));
+      await settle(LOCKED_USER);
+      await settle(FORCED_USER);
 
-      const unlock = row.getByRole("button", { name: "Unlock user" });
-      await expect(unlock).toBeEnabled();
-      await unlock.click();
-
-      await expect(row.getByText("Active")).toBeVisible();
-      await expect(row.getByRole("button", { name: "Unlock user" })).toBeDisabled();
-
-      // The unlock was the backend's, and it cleared the failure run with it: the
-      // correct password is accepted again, and from a fresh jar so this proves
-      // authentication rather than a surviving session.
-      const fresh = await anonymousApi();
+      // Lock the first the way a forgetful person does.
+      const guesser = await anonymousApi();
       try {
-        const accepted = await submitLoginViaApi(fresh, "user", USER_PASSWORD);
-        expect(accepted.status()).toBe(200);
+        for (let attempt = 0; attempt < REFUSALS_BEFORE_LOCKOUT; attempt += 1) {
+          expect((await submitLoginViaApi(guesser, LOCKED_USER, "not-the-password")).status()).toBe(
+            401,
+          );
+        }
       } finally {
-        await fresh.dispose();
+        await guesser.dispose();
       }
+      expect(await signInState(LOCKED_USER)).toEqual({ accepted: false, confined: false });
+
+      // Unlock it from the page.
+      await page.reload();
+      const locked = rowOf(page, usersTable(page), LOCKED_USER);
+      await expect(locked.getByText("Locked", { exact: true })).toBeVisible();
+      await locked.getByRole("button", { name: `Unlock ${LOCKED_USER}` }).click();
+      await expect(locked.getByText("Not locked")).toBeVisible();
+      await expect(locked.getByText("Required")).toBeVisible();
+      await expect(locked.getByRole("button", { name: /^Unlock/ })).toHaveCount(0);
+      // The backend's doing: the password works again, into the change flow only.
+      expect(await signInState(LOCKED_USER)).toEqual({ accepted: true, confined: true });
+
+      // Force the second's change from the page.
+      const forced = rowOf(page, usersTable(page), FORCED_USER);
+      await expect(forced.getByText("No", { exact: true })).toBeVisible();
+      await forced
+        .getByRole("button", { name: `Force password change for ${FORCED_USER}` })
+        .click();
+      await expect(forced.getByText("Required")).toBeVisible();
+      await expect(forced.getByRole("button", { name: /^Force password change/ })).toHaveCount(0);
+      expect(await signInState(FORCED_USER)).toEqual({ accepted: true, confined: true });
+
+      // Deprovision with the token that provisioned them, before rotating it away.
+      for (const id of provisioned.splice(0)) await deprovision(scim, id);
+      await scim.dispose();
+      scim = undefined;
+
+      // The disclosure did not survive the reload before the Unlock: the value
+      // exists nowhere on the page any more, only in the client that used it.
+      await expect(page.getByLabel("New token value")).toHaveCount(0);
+      expect(await page.content()).not.toContain(firstValue!);
+
+      // Rotate from the page: a new value, disclosed once; the old one stops working.
+      await section.getByRole("button", { name: /^Rotate token/ }).click();
+      const rotatedValue = await page.getByLabel("New token value").textContent();
+      expect(rotatedValue).toBeTruthy();
+      expect(rotatedValue).not.toBe(firstValue);
+      const oldClient = await scimApi(firstValue!);
+      const newClient = await scimApi(rotatedValue!);
+      try {
+        expect((await oldClient.get("/scim/v2/Users?count=1")).status()).toBe(401);
+        expect((await newClient.get("/scim/v2/Users?count=1")).status()).toBe(200);
+
+        // The disclosure is gone after a reload, and nothing on the page carries the value.
+        await page.reload();
+        await expect(page.getByLabel("New token value")).toHaveCount(0);
+        expect(await page.content()).not.toContain(rotatedValue!);
+
+        // Revoke from the page.
+        await section.getByRole("button", { name: /^Revoke token/ }).click();
+        await expect(section.getByRole("button", { name: /^Revoke token/ })).toHaveCount(0);
+        await expect(section.getByText(/^Revoked /)).toHaveCount(1);
+        expect((await newClient.get("/scim/v2/Users?count=1")).status()).toBe(401);
+      } finally {
+        await oldClient.dispose();
+        await newClient.dispose();
+      }
+
+      // Delete the connector from the page.
+      await section.getByRole("button", { name: `Delete ${CONNECTOR_NAME}` }).click();
+      await expect(section).toHaveCount(0);
     } finally {
-      const restored = await postAdminAction(page, "user", "unlock");
-      expect(restored.status()).toBe(200);
-      await api.dispose();
-    }
-  });
-
-  /**
-   * Criterion 3, from the holder's side: imposing the lockout ends the sessions
-   * the account is already holding, so it stops acting the moment the lock lands
-   * rather than when its session happens to expire.
-   *
-   * Shaped like the disable test above, and for the same reason: the subject is a
-   * *second* caller's session, which only a cookie jar of its own makes
-   * observable. The refusals that impose the lock are driven from a third jar, so
-   * the 401 below cannot be an artefact of the failed logins landing in the jar
-   * under test.
-   */
-  test("ends the session an account held before it locked itself out", async ({ page }) => {
-    const holder = await anonymousApi();
-    const guesser = await anonymousApi();
-
-    try {
-      const signedIn = await submitLoginViaApi(holder, "user", USER_PASSWORD);
-      expect(signedIn.status()).toBe(200);
-
-      // Live *before* the lockout. Without this the 401 below would prove
-      // nothing: an unauthenticated jar answers 401 too.
-      const working = await holder.get("/api/auth/me");
-      expect(working.status()).toBe(200);
-
-      await lockAccount(guesser, "user");
-
-      // Same jar, same cookie, and the session behind it no longer exists.
-      const refused = await holder.get("/api/auth/me");
-      expect(refused.status()).toBe(401);
-    } finally {
-      const restored = await postAdminAction(page, "user", "unlock");
-      expect(restored.status()).toBe(200);
-      await guesser.dispose();
-      await holder.dispose();
-    }
-  });
-
-  /**
-   * What the lockout is for: while it holds, the account's own password stops
-   * working. Asserted over the API because the SPA is told nothing that
-   * distinguishes it from a wrong password — that is the point of the bare 401.
-   */
-  test("keeps refusing the correct password while the lockout holds", async ({ page }) => {
-    const api = await anonymousApi();
-
-    try {
-      await lockAccount(api, "user");
-
-      // Same jar as the refusals above: a refused login mints no session, so
-      // there is nothing here for this attempt to sail in on.
-      const refused = await submitLoginViaApi(api, "user", USER_PASSWORD);
-
-      expect(refused.status()).toBe(401);
-      expect(await refused.text()).toBe("");
-    } finally {
-      const restored = await postAdminAction(page, "user", "unlock");
-      expect(restored.status()).toBe(200);
-      await api.dispose();
+      await cleanUp(page, scim);
     }
   });
 });
+
+/**
+ * Whatever the happy path did not get to remove — from this run or from an
+ * earlier one that died mid-way: every `e2e-` User, through a token minted for
+ * the purpose, then every `e2e-` connector, over the admin API.
+ */
+async function cleanUp(page: Page, scim: APIRequestContext | undefined) {
+  await scim?.dispose();
+  const connectors = (await (await page.request.get("/api/admin/connectors")).json()) as Array<{
+    displayName: string;
+    id: string;
+  }>;
+  const leftovers = connectors.filter((connector) =>
+    connector.displayName.startsWith("e2e-connector-"),
+  );
+  const users = (await (await page.request.get("/api/admin/accounts")).json()) as Array<{
+    id: string;
+    userName: string;
+  }>;
+  const strays = users.filter((row) => /^e2e-(locked|forced)-/.test(row.userName));
+
+  if (strays.length > 0) {
+    let owner = leftovers[0];
+    if (owner === undefined) {
+      const created = await adminRequest(page, "POST", "/api/admin/connectors", {
+        displayName: `e2e-connector-cleanup-${RUN}`,
+      });
+      owner = (await created.json()) as { displayName: string; id: string };
+      leftovers.push(owner);
+    }
+    const issued = await adminRequest(page, "POST", `/api/admin/connectors/${owner.id}/tokens`, {
+      scope: "READ_WRITE",
+    });
+    const client = await scimApi(
+      ((await issued.json()) as { presentedValue: string }).presentedValue,
+    );
+    try {
+      for (const stray of strays) await deprovision(client, stray.id);
+    } finally {
+      await client.dispose();
+    }
+  }
+  for (const leftover of leftovers) {
+    await adminRequest(page, "DELETE", `/api/admin/connectors/${leftover.id}`);
+  }
+}

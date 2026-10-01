@@ -51,7 +51,7 @@ class AuditTrailServiceTests {
     private final RecordingRepository events = new RecordingRepository();
     private final RecordingAlerts alerts = new RecordingAlerts();
     private final AuditRequestContext requests =
-            () -> new AuditRequest("POST", "/api/admin/accounts/{username}/disable", "req-1");
+            () -> new AuditRequest("POST", "/api/admin/accounts/{id}/unlock", "req-1");
 
     private final AuditTrail trail = new AuditTrailService(
             events,
@@ -106,7 +106,7 @@ class AuditTrailServiceTests {
             assertThat(event.changedPaths()).isEmpty();
             assertThat(event.occurredAt()).isEqualTo(NOW);
             assertThat(event.httpMethod()).isEqualTo("POST");
-            assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{username}/disable");
+            assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
             assertThat(event.requestId()).isEqualTo("req-1");
             assertThat(event.id()).isNotNull();
         });
@@ -158,7 +158,7 @@ class AuditTrailServiceTests {
         assertThat(event.changedPaths()).isEmpty();
         assertThat(event.occurredAt()).isEqualTo(NOW);
         assertThat(event.httpMethod()).isEqualTo("POST");
-        assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{username}/disable");
+        assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
         assertThat(event.requestId()).isEqualTo("req-1");
     }
 
@@ -217,20 +217,6 @@ class AuditTrailServiceTests {
         assertThat(event.changedPaths()).containsExactly("failedLoginAttempts", "lockedAt");
     }
 
-    @Test
-    void anAdministrativeChangeNamesBothTheActorAndTheSubject() {
-        trail.recordAccountDisabled(ACTOR, SUBJECT);
-        trail.recordAccountEnabled(ACTOR, SUBJECT);
-
-        assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
-                AuditOperation.ACCOUNT_DISABLE, AuditOperation.ACCOUNT_ENABLE);
-        assertThat(events.appended).allSatisfy(event -> {
-            assertThat(event.actorId()).isEqualTo(ACTOR);
-            assertThat(event.subjectId()).isEqualTo(SUBJECT);
-            assertThat(event.changedPaths()).containsExactly("active");
-        });
-    }
-
     /**
      * Authentication, lockout, administrative standing and provisioning all name one
      * resource type now, because they act on one resource: the account aggregate is gone and
@@ -245,8 +231,7 @@ class AuditTrailServiceTests {
         trail.recordLogout(SUBJECT);
         trail.recordLockoutSet(SUBJECT);
         trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
-        trail.recordAccountDisabled(ACTOR, SUBJECT);
-        trail.recordAccountEnabled(ACTOR, SUBJECT);
+        trail.recordPasswordChangeRequired(ACTOR, SUBJECT);
         trail.recordScimUserCreated(ACTOR, SUBJECT);
         trail.recordScimUsersQueried(ACTOR, 3, null);
 
@@ -263,11 +248,11 @@ class AuditTrailServiceTests {
      */
     @Test
     void theRequestIsRecordedAsItsRouteTemplate() {
-        trail.recordAccountDisabled(ACTOR, SUBJECT);
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
 
         AuditEvent event = events.only();
         assertThat(event.httpMethod()).isEqualTo("POST");
-        assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{username}/disable");
+        assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
         assertThat(event.requestId()).isEqualTo("req-1");
     }
 
@@ -441,14 +426,14 @@ class AuditTrailServiceTests {
      */
     @Test
     void aRefusedAdministrativeChangeNamesBothPartiesAndTheReason() {
-        trail.recordAdministrativeChangeRefused(
-                ACTOR, SUBJECT, AuditAdministrativeRefusal.LAST_ENABLED_ADMINISTRATOR);
+        trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
 
         AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
         assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
         assertThat(event.actorId()).isEqualTo(ACTOR);
         assertThat(event.subjectId()).isEqualTo(SUBJECT);
-        assertThat(event.errorCode()).isEqualTo("LAST_ENABLED_ADMINISTRATOR");
+        assertThat(event.errorCode()).isEqualTo("SELF_TARGET");
         assertThat(event.statusClass()).isEqualTo("client_error");
         assertThat(event.changedPaths()).isEmpty();
     }
@@ -459,7 +444,7 @@ class AuditTrailServiceTests {
     void aFailClosedAppendPropagatesSoTheMutationRollsBack() {
         events.failWith(new IllegalStateException("insert refused"));
 
-        assertThatThrownBy(() -> trail.recordAccountDisabled(ACTOR, SUBJECT))
+        assertThatThrownBy(() -> trail.recordPasswordChangeRequired(ACTOR, SUBJECT))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordLoginSuccess(SUBJECT))
                 .isInstanceOf(IllegalStateException.class);
@@ -493,8 +478,7 @@ class AuditTrailServiceTests {
         trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
         trail.recordLockoutSet(SUBJECT);
         trail.recordScimUserCreateRejectedAsDuplicate(ACTOR);
-        trail.recordAdministrativeChangeRefused(
-                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_DISABLE);
+        trail.recordUnlockRefused(ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
         trail.recordScimGroupCreateRejected(ACTOR, AuditScimRefusal.UNIQUENESS);
         trail.recordScimGroupWriteRejected(ACTOR, GROUP, AuditScimRefusal.MUTABILITY);
 
@@ -502,7 +486,7 @@ class AuditTrailServiceTests {
                 AuditOperation.LOGIN_FAILURE,
                 AuditOperation.LOCKOUT_SET,
                 AuditOperation.SCIM_USER_CREATE,
-                AuditOperation.ACCOUNT_DISABLE,
+                AuditOperation.LOCKOUT_LIFT,
                 AuditOperation.SCIM_GROUP_CREATE,
                 AuditOperation.SCIM_GROUP_REPLACE);
     }

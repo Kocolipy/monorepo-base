@@ -121,6 +121,16 @@ public interface ScimGroupRepository {
     List<ScimGroup> findAllById(List<UUID> ids);
 
     /**
+     * Every live Group, memberships included, ordered by normalized {@code displayName}.
+     *
+     * <p>For the Admin's read-only directory projection, which reports every Group with its
+     * member count and — inverted — every User's direct Groups. One membership read for the
+     * whole directory rather than one per User: a listing of a thousand Users is otherwise a
+     * thousand statements to compute a column.
+     */
+    List<ScimGroup> findAllOrderedByNormalizedDisplayName();
+
+    /**
      * The Groups this User is a direct member of, for the read-only reverse view on User.
      *
      * <p>Returns references rather than Groups: rendering a User's {@code groups} needs the

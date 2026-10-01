@@ -6,12 +6,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import { apiFetch } from "@/lib/http";
 
-import { Accounts, type AdminAccount } from "./accounts";
+import { Accounts } from "./accounts";
+import type { GroupRow, UserRow } from "./accounts-api";
 
 vi.mock("@/lib/http", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/http")>()),
   apiFetch: vi.fn(),
 }));
+
+// The connector panel has its own suite; here it would only add a third
+// listing request to every test.
+vi.mock("./connectors", () => ({ Connectors: () => null }));
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -24,19 +29,56 @@ const auth: AuthContextState = {
   user: { role: "ADMIN", username: "ada" },
 };
 
-const account = (overrides: Partial<AdminAccount> = {}): AdminAccount => ({
+const GRACE_ID = "00000000-0000-4000-8000-000000000001";
+
+const userRow = (overrides: Partial<UserRow> = {}): UserRow => ({
   active: true,
   admin: false,
+  bootstrapAdmin: false,
   createdAt: "2026-01-02T03:04:05Z",
+  displayName: null,
+  groups: [],
   hasPassword: true,
-  id: "00000000-0000-4000-8000-000000000001",
+  id: GRACE_ID,
+  lastAuthenticatedAt: null,
   locked: false,
+  passwordChangeRequired: false,
   userName: "grace",
   ...overrides,
 });
 
-function resolveOnceWith(result: object) {
-  apiFetchMock.mockResolvedValueOnce(result as never);
+const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
+  adminGroup: false,
+  displayName: "Engineering",
+  id: "00000000-0000-4000-8000-0000000000e0",
+  memberCount: 2,
+  ...overrides,
+});
+
+type Result = object | Promise<object>;
+
+/**
+ * Answers the two listing reads by path and every other request from a queue,
+ * in order — so a test states what the listings hold and what each action
+ * answers, not the order the page happens to issue its reads in.
+ */
+function routeApi({
+  actions = [],
+  groups = { kind: "ok", data: [] },
+  users,
+}: {
+  actions?: Result[];
+  groups?: Result;
+  users: Result;
+}) {
+  const queue = [...actions];
+  apiFetchMock.mockImplementation(((path: string) => {
+    if (path === "/api/admin/accounts") return Promise.resolve(users);
+    if (path === "/api/admin/groups") return Promise.resolve(groups);
+    const next = queue.shift();
+    if (next === undefined) throw new Error(`unexpected request to ${path}`);
+    return Promise.resolve(next);
+  }) as never);
 }
 
 function renderAccounts(value: AuthContextState = auth) {
@@ -49,9 +91,16 @@ function renderAccounts(value: AuthContextState = auth) {
   );
 }
 
-/** The row for a named account, addressed by its row header. */
-const row = (username: string) =>
-  within(screen.getByRole("rowheader", { name: username }).closest("tr")!);
+const usersTable = () => screen.getByRole("table", { name: "Users" });
+const groupsTable = () => screen.getByRole("table", { name: "Groups" });
+
+/** The row for a named User or Group, addressed by its row header. */
+const row = (name: string, table = usersTable()) =>
+  within(
+    within(table)
+      .getByRole("rowheader", { name: new RegExp(`^${name}`) })
+      .closest("tr")!,
+  );
 
 describe("Accounts", () => {
   beforeEach(() => {
@@ -60,206 +109,321 @@ describe("Accounts", () => {
     vi.mocked(auth.logout).mockReset();
   });
 
-  it("lists every account with its role, status, and creation date", async () => {
-    resolveOnceWith({ kind: "ok", data: [account(), account({ admin: true, userName: "ada" })] });
+  it("lists every User with its identity, standing, credential and history", async () => {
+    routeApi({
+      users: {
+        kind: "ok",
+        data: [
+          userRow({
+            displayName: "Grace Hopper",
+            groups: [
+              { displayName: "Engineering", id: "g1" },
+              { displayName: "Operators", id: "g2" },
+            ],
+            lastAuthenticatedAt: "2026-03-04T05:06:07Z",
+          }),
+          userRow({ admin: true, id: "ada-id", userName: "ada" }),
+        ],
+      },
+    });
     renderAccounts();
 
-    expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
+    expect(
+      within(usersTable())
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual([
+      "User",
+      "Role",
+      "Active",
+      "Password",
+      "Lockout",
+      "Change required",
+      "Last sign-in",
+      "Created",
+      "Groups",
+      "Actions",
+    ]);
     const grace = row("grace");
+    expect(grace.getByText("Grace Hopper")).toBeInTheDocument();
     expect(grace.getByText("User")).toBeInTheDocument();
     expect(grace.getByText("Active")).toBeInTheDocument();
+    expect(grace.getByText("Configured")).toBeInTheDocument();
+    expect(grace.getByText("Not locked")).toBeInTheDocument();
+    expect(grace.getByText("No")).toBeInTheDocument();
+    expect(grace.getByText("2026-03-04 05:06")).toBeInTheDocument();
     expect(grace.getByText("2026-01-02")).toBeInTheDocument();
+    expect(grace.getByText("Engineering, Operators")).toBeInTheDocument();
 
-    expect(screen.getByRole("rowheader", { name: "ada" })).toBeInTheDocument();
+    expect(row("ada").getByText("Admin")).toBeInTheDocument();
     expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/accounts", {}, expect.any(Function));
   });
 
-  /**
-   * The row that used to be here — "renders a row written before the creation column
-   * existed" — is deleted rather than adapted. It guarded a nullable `createdAt`, and
-   * the column cannot be null any more: the timestamp lives on the SCIM resource row,
-   * which cannot exist without one. A test kept alive by widening the type would have
-   * been asserting a state the backend can no longer produce.
-   */
-  it("renders the administrative column from the derived boolean, not a role string", async () => {
-    resolveOnceWith({
-      kind: "ok",
-      data: [account(), account({ admin: true, userName: "ada" })],
+  it("reports the states a directory and the login path can leave a User in", async () => {
+    routeApi({
+      users: {
+        kind: "ok",
+        data: [
+          userRow({ active: false, hasPassword: false, userName: "closed" }),
+          userRow({ id: "p", locked: true, passwordChangeRequired: true, userName: "penalised" }),
+        ],
+      },
     });
     renderAccounts();
 
-    expect(await screen.findByRole("rowheader", { name: "grace" })).toBeInTheDocument();
-    expect(row("grace").getByText("User")).toBeInTheDocument();
-    expect(row("ada").getByText("Admin")).toBeInTheDocument();
-  });
-
-  /**
-   * The acceptance criterion the status column exists for: an account can be
-   * both closed to logins and serving a lockout, and reporting only one of them
-   * would hide the other from the administrator who has to clear it.
-   */
-  it("reports being disabled and being locked as separate states", async () => {
-    resolveOnceWith({
-      kind: "ok",
-      data: [
-        account({ active: false, userName: "closed" }),
-        account({ locked: true, userName: "penalised" }),
-        account({ active: false, locked: true, userName: "both" }),
-      ],
-    });
-    renderAccounts();
-
-    expect(await screen.findByRole("rowheader", { name: "closed" })).toBeInTheDocument();
-    expect(row("closed").getByText("Disabled")).toBeInTheDocument();
-    expect(row("closed").queryByText("Locked")).not.toBeInTheDocument();
-
+    expect(await screen.findByRole("rowheader", { name: /^closed/ })).toBeInTheDocument();
+    expect(row("closed").getByText("Inactive")).toBeInTheDocument();
+    expect(row("closed").getByText("None")).toBeInTheDocument();
+    expect(row("closed").getByText("Never")).toBeInTheDocument();
+    expect(row("closed").getByText("—")).toBeInTheDocument();
     expect(row("penalised").getByText("Locked")).toBeInTheDocument();
-    expect(row("penalised").queryByText("Disabled")).not.toBeInTheDocument();
-
-    expect(row("both").getByText("Disabled")).toBeInTheDocument();
-    expect(row("both").getByText("Locked")).toBeInTheDocument();
+    expect(row("penalised").getByText("Required")).toBeInTheDocument();
   });
 
-  it("closes an account to logins and offers to reopen it", async () => {
-    resolveOnceWith({ kind: "ok", data: [account()] });
-    resolveOnceWith({ kind: "ok", data: account({ active: false }) });
-    const user = userEvent.setup();
+  it("lists every Group with its member count and marks the protected Admin group", async () => {
+    routeApi({
+      groups: {
+        kind: "ok",
+        data: [
+          groupRow({ adminGroup: true, displayName: "Admins", id: "a", memberCount: 1 }),
+          groupRow(),
+        ],
+      },
+      users: { kind: "ok", data: [userRow()] },
+    });
     renderAccounts();
 
-    await user.click(await screen.findByRole("button", { name: "Disable grace" }));
-
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/accounts/grace/disable",
-      { method: "POST" },
-      expect.any(Function),
-    );
-    expect(row("grace").getByText("Disabled")).toBeInTheDocument();
-    expect(row("grace").getByRole("button", { name: "Enable grace" })).toBeEnabled();
-    expect(row("grace").queryByRole("button", { name: "Disable grace" })).not.toBeInTheDocument();
-  });
-
-  it("reopens a disabled account", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ active: false })] });
-    resolveOnceWith({ kind: "ok", data: account() });
-    const user = userEvent.setup();
-    renderAccounts();
-
-    await user.click(await screen.findByRole("button", { name: "Enable grace" }));
-
-    expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/accounts/grace/enable",
-      { method: "POST" },
-      expect.any(Function),
-    );
-    expect(row("grace").getByText("Active")).toBeInTheDocument();
+    expect(await screen.findByRole("rowheader", { name: "Admins" })).toBeInTheDocument();
+    expect(row("Admins", groupsTable()).getByText("1")).toBeInTheDocument();
+    expect(row("Admins", groupsTable()).getByText("Protected Admin group")).toBeInTheDocument();
+    expect(row("Engineering", groupsTable()).getByText("2")).toBeInTheDocument();
+    expect(row("Engineering", groupsTable()).getByText("—")).toBeInTheDocument();
+    expect(
+      row("Engineering", groupsTable()).queryByText("Protected Admin group"),
+    ).not.toBeInTheDocument();
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/admin/groups", {}, expect.any(Function));
   });
 
   /**
-   * Enabling does not lift a lockout, so a reopened account that is still
-   * serving one keeps its Unlock control — otherwise the administrator would
-   * believe access was restored when it was not.
+   * The read-only criterion as the page renders it: no form control anywhere in
+   * either projection, and no button but the two application-owned actions —
+   * nothing that could change a name, the active flag or a membership.
    */
-  it("keeps a standing lockout after the account is reopened", async () => {
-    resolveOnceWith({
-      kind: "ok",
-      data: [account({ active: false, locked: true })],
+  it("offers no control that could change what the directory owns", async () => {
+    routeApi({
+      groups: { kind: "ok", data: [groupRow({ adminGroup: true, displayName: "Admins" })] },
+      users: {
+        kind: "ok",
+        data: [
+          userRow({ locked: true }),
+          userRow({ active: false, id: "h", userName: "hopper" }),
+          userRow({ bootstrapAdmin: true, id: "r", userName: "root" }),
+        ],
+      },
     });
-    resolveOnceWith({
-      kind: "ok",
-      data: account({ locked: true }),
-    });
-    const user = userEvent.setup();
     renderAccounts();
 
-    await user.click(await screen.findByRole("button", { name: "Enable grace" }));
-
-    expect(row("grace").queryByText("Disabled")).not.toBeInTheDocument();
-    expect(row("grace").getByText("Locked")).toBeInTheDocument();
-    expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
+    await screen.findByRole("rowheader", { name: /^grace/ });
+    for (const table of [usersTable(), groupsTable()]) {
+      expect(within(table).queryAllByRole("textbox")).toHaveLength(0);
+      expect(within(table).queryAllByRole("checkbox")).toHaveLength(0);
+      expect(within(table).queryAllByRole("combobox")).toHaveLength(0);
+    }
+    expect(within(groupsTable()).queryAllByRole("button")).toHaveLength(0);
+    const labels = within(usersTable())
+      .getAllByRole("button")
+      .map((button) => button.textContent ?? "");
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels.every((label) => /^(Unlock|Force password change for) /.test(label))).toBe(true);
+    expect(screen.queryByRole("button", { name: /Disable|Enable|Deactivate|Activate/ })).toBeNull();
   });
 
-  it("ends a lockout early", async () => {
-    resolveOnceWith({
-      kind: "ok",
-      data: [account({ locked: true })],
+  it("says Unlock is the only way a lockout ends and that it requires a password change", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
+    renderAccounts();
+
+    const unlock = await screen.findByRole("button", { name: "Unlock grace" });
+    const explanation =
+      "A lockout never expires: Unlock is the only way it ends, and Unlock also requires the User to change their password before they can do anything else.";
+    expect(screen.getByText(explanation, { exact: false })).toBeInTheDocument();
+    expect(unlock).toHaveAttribute("title", explanation);
+    // No expiry anywhere: there is nothing to count down to.
+    expect(screen.queryByText(/until|expires in|remaining/i)).not.toBeInTheDocument();
+  });
+
+  it("ends a lockout by the User's stable id and shows the change it now requires", async () => {
+    routeApi({
+      actions: [{ kind: "ok", data: userRow({ locked: false, passwordChangeRequired: true }) }],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
     });
-    resolveOnceWith({ kind: "ok", data: account() });
     const user = userEvent.setup();
     renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(apiFetchMock).toHaveBeenLastCalledWith(
-      "/api/admin/accounts/grace/unlock",
+      `/api/admin/accounts/${GRACE_ID}/unlock`,
       { method: "POST" },
       expect.any(Function),
     );
-    expect(row("grace").getByText("Active")).toBeInTheDocument();
-    expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeDisabled();
+    expect(row("grace").getByText("Not locked")).toBeInTheDocument();
+    expect(row("grace").getByText("Required")).toBeInTheDocument();
+    expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
   });
 
-  it("offers no unlock for an account serving no lockout", async () => {
-    resolveOnceWith({ kind: "ok", data: [account()] });
+  it("forces a password change by the User's stable id", async () => {
+    routeApi({
+      actions: [{ kind: "ok", data: userRow({ passwordChangeRequired: true }) }],
+      users: { kind: "ok", data: [userRow()] },
+    });
+    const user = userEvent.setup();
     renderAccounts();
 
-    expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeDisabled();
+    await user.click(
+      await screen.findByRole("button", { name: "Force password change for grace" }),
+    );
+
+    expect(apiFetchMock).toHaveBeenLastCalledWith(
+      `/api/admin/accounts/${GRACE_ID}/force-password-change`,
+      { method: "POST" },
+      expect.any(Function),
+    );
+    expect(row("grace").getByText("Required")).toBeInTheDocument();
+    expect(
+      row("grace").queryByRole("button", { name: "Force password change for grace" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("refuses to disable the signed-in administrator's own account", async () => {
-    resolveOnceWith({ kind: "ok", data: [account({ admin: true, userName: "ada" })] });
+  it("offers Unlock only while a lockout is in force", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow()] } });
     renderAccounts();
 
-    const button = await screen.findByRole("button", { name: "Disable ada" });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", "You cannot disable your own account");
+    await screen.findByRole("rowheader", { name: /^grace/ });
+    expect(row("grace").queryByRole("button", { name: "Unlock grace" })).not.toBeInTheDocument();
+  });
+
+  it("offers no forced change to a User with no password or one already flagged", async () => {
+    routeApi({
+      users: {
+        kind: "ok",
+        data: [
+          userRow({ hasPassword: false, userName: "nopass" }),
+          userRow({ id: "f", passwordChangeRequired: true, userName: "flagged" }),
+        ],
+      },
+    });
+    renderAccounts();
+
+    await screen.findByRole("rowheader", { name: /^nopass/ });
+    expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  /**
+   * The backend refuses both with a 403; hiding them makes the refusal visible
+   * before the click. The session name is compared the way the backend compares
+   * it, so a differently-cased spelling still recognises its own row.
+   */
+  it("offers the signed-in Admin neither action on their own account", async () => {
+    routeApi({
+      users: { kind: "ok", data: [userRow({ admin: true, locked: true, userName: "ADA" })] },
+    });
+    renderAccounts();
+
+    await screen.findByRole("rowheader", { name: /^ADA/ });
+    expect(within(usersTable()).queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("shows the Bootstrap Admin with no lockout state and no Unlock", async () => {
+    routeApi({
+      users: {
+        kind: "ok",
+        // Locked is impossible for it; even a row claiming it renders no state.
+        data: [userRow({ admin: true, bootstrapAdmin: true, locked: true, userName: "root" })],
+      },
+    });
+    renderAccounts();
+
+    await screen.findByRole("rowheader", { name: /^root/ });
+    const root = row("root");
+    expect(root.getByText("Bootstrap Admin")).toBeInTheDocument();
+    expect(root.getByTitle("The Bootstrap Admin cannot be locked")).toHaveTextContent("—");
+    expect(root.queryByText("Locked")).not.toBeInTheDocument();
+    expect(root.queryByText("Not locked")).not.toBeInTheDocument();
+    expect(root.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
+    // Only the Bootstrap Admin may force its own change, so another Admin is not offered it.
+    expect(root.queryByRole("button", { name: /Force password change/ })).not.toBeInTheDocument();
+  });
+
+  it("offers the Bootstrap Admin a forced change on its own account", async () => {
+    routeApi({
+      users: { kind: "ok", data: [userRow({ bootstrapAdmin: true, userName: "root" })] },
+    });
+    renderAccounts({ ...auth, user: { role: "ADMIN", username: "root" } });
+
+    expect(
+      await screen.findByRole("button", { name: "Force password change for root" }),
+    ).toBeEnabled();
   });
 
   it("disables every control while an action is in flight", async () => {
     let finishAction: ((result: object) => void) | undefined;
-    resolveOnceWith({ kind: "ok", data: [account(), account({ userName: "hopper" })] });
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishAction = resolve;
-      }) as never,
-    );
+    routeApi({
+      actions: [
+        new Promise<object>((resolve) => {
+          finishAction = resolve;
+        }),
+      ],
+      users: {
+        kind: "ok",
+        data: [userRow({ locked: true }), userRow({ id: "h", locked: true, userName: "hopper" })],
+      },
+    });
     const user = userEvent.setup();
     renderAccounts();
 
-    await user.click(await screen.findByRole("button", { name: "Disable grace" }));
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
-    expect(screen.getByRole("button", { name: "Disable grace" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Unlock grace" })).toBeDisabled();
     // The other row too: two actions in flight could each answer with a row
     // built from a listing the other one has already changed.
-    expect(screen.getByRole("button", { name: "Disable hopper" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Force password change for hopper" })).toBeDisabled();
 
     await act(async () => {
-      finishAction?.({ kind: "ok", data: account({ active: false }) });
+      finishAction?.({ kind: "ok", data: userRow() });
     });
-    expect(screen.getByRole("button", { name: "Disable hopper" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Unlock hopper" })).toBeEnabled();
   });
 
-  it("reports a refused change as a refusal about the action", async () => {
-    resolveOnceWith({ kind: "ok", data: [account()] });
-    resolveOnceWith({ kind: "failed", status: 409 });
+  it("reports a forced change refused for a User with no password to replace", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 409 }],
+      users: { kind: "ok", data: [userRow()] },
+    });
     const user = userEvent.setup();
     renderAccounts();
 
-    await user.click(await screen.findByRole("button", { name: "Disable grace" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Force password change for grace" }),
+    );
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Refused: disabling grace would leave nobody able to restore access.",
+      "Refused: grace has no password to replace.",
     );
     // The listing is untouched: the backend refused, so nothing changed.
-    expect(row("grace").getByText("Active")).toBeInTheDocument();
+    expect(row("grace").getByText("No")).toBeInTheDocument();
   });
 
-  it("reports an account that has since been removed", async () => {
-    resolveOnceWith({ kind: "ok", data: [account()] });
-    resolveOnceWith({ kind: "failed", status: 404 });
+  it("reports a User that has since been removed", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 404 }],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
+    });
     const user = userEvent.setup();
     renderAccounts();
 
-    await user.click(await screen.findByRole("button", { name: "Disable grace" }));
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
       "grace no longer exists. Reload the page for the current list.",
@@ -267,61 +431,116 @@ describe("Accounts", () => {
   });
 
   it("reports a failed action with action-specific copy", async () => {
-    resolveOnceWith({
-      kind: "ok",
-      data: [account({ locked: true })],
+    routeApi({
+      actions: [{ kind: "failed", status: 503 }, { kind: "failed" }],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
     });
-    resolveOnceWith({ kind: "failed", status: 503 });
+    const user = userEvent.setup();
+    renderAccounts();
+
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Unable to unlock grace. Please try again.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Force password change for grace" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Unable to force a password change for grace. Please try again.",
+    );
+  });
+
+  it("reports an expired security token with transport-specific copy", async () => {
+    routeApi({
+      actions: [{ kind: "csrf-expired" }],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
+    });
     const user = userEvent.setup();
     renderAccounts();
 
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Unable to unlock grace. Please try again.",
-    );
-  });
-
-  it("reports an expired security token with transport-specific copy", async () => {
-    resolveOnceWith({ kind: "ok", data: [account()] });
-    resolveOnceWith({ kind: "csrf-expired" });
-    const user = userEvent.setup();
-    renderAccounts();
-
-    await user.click(await screen.findByRole("button", { name: "Disable grace" }));
-
-    expect(screen.getByRole("alert")).toHaveTextContent(
       "Your security token expired. Please try again.",
     );
   });
 
-  it("reports a failed listing read", async () => {
-    resolveOnceWith({ kind: "failed", status: 503 });
+  it("clears the previous error when the next action succeeds", async () => {
+    routeApi({
+      actions: [
+        { kind: "failed", status: 503 },
+        { kind: "ok", data: userRow() },
+      ],
+      users: { kind: "ok", data: [userRow({ locked: true })] },
+    });
+    const user = userEvent.setup();
+    renderAccounts();
+
+    await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Unlock grace" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("reports an expired security token on a listing read with transport-specific copy", async () => {
+    routeApi({ users: { kind: "csrf-expired" } });
     renderAccounts();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unable to load the accounts. Please try again.",
+      "Your security token expired. Please try again.",
     );
-    expect(screen.queryByText("No accounts are registered.")).not.toBeInTheDocument();
   });
 
-  it("says so when no account is registered", async () => {
-    resolveOnceWith({ kind: "ok", data: [] });
+  /**
+   * The route guard means a signed-in user is always present, but the context
+   * types it as optional; the page must not throw while it is absent, and with
+   * no name to compare it recognises no row as the caller's own.
+   */
+  it("renders without a signed-in user and treats no row as the caller's own", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
+    renderAccounts({ ...auth, user: null });
+
+    expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
+  });
+
+  it("reports a failed Users read", async () => {
+    routeApi({ groups: { kind: "ok", data: [] }, users: { kind: "failed", status: 503 } });
     renderAccounts();
 
-    expect(await screen.findByText("No accounts are registered.")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load the users. Please try again.",
+    );
+    expect(screen.queryByText("No users are provisioned.")).not.toBeInTheDocument();
+  });
+
+  it("reports a failed Groups read", async () => {
+    routeApi({ groups: { kind: "failed", status: 503 }, users: { kind: "ok", data: [userRow()] } });
+    renderAccounts();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load the groups. Please try again.",
+    );
+    expect(screen.queryByText("No groups are provisioned.")).not.toBeInTheDocument();
+  });
+
+  it("says so when no User or Group is provisioned", async () => {
+    routeApi({ users: { kind: "ok", data: [] } });
+    renderAccounts();
+
+    expect(await screen.findByText("No users are provisioned.")).toBeInTheDocument();
+    expect(await screen.findByText("No groups are provisioned.")).toBeInTheDocument();
   });
 
   it("expires the auth state when the listing read is unauthenticated", async () => {
     let finishLoading: ((result: object) => void) | undefined;
-    apiFetchMock.mockReturnValueOnce(
-      new Promise((resolve) => {
+    routeApi({
+      users: new Promise<object>((resolve) => {
         finishLoading = resolve;
-      }) as never,
-    );
+      }),
+    });
     renderAccounts();
 
-    expect(screen.getByText("Loading accounts…")).toBeInTheDocument();
+    expect(screen.getByText("Loading users…")).toBeInTheDocument();
+    expect(screen.getByText("Loading groups…")).toBeInTheDocument();
 
     await act(async () => {
       finishLoading?.({ kind: "unauthenticated" });
@@ -333,7 +552,7 @@ describe("Accounts", () => {
   });
 
   it("signs out", async () => {
-    resolveOnceWith({ kind: "ok", data: [] });
+    routeApi({ users: { kind: "ok", data: [] } });
     const user = userEvent.setup();
     renderAccounts();
 

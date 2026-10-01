@@ -1,0 +1,144 @@
+/**
+ * The wire shapes and paths of the administration API the Accounts page reads
+ * and drives — `/frontend/AGENTS.md`'s page-owned `api.ts`, named for its page
+ * because `src/pages/` holds more than one.
+ *
+ * Nothing here requests anything: every call goes through `useSessionRequest`
+ * in the component that makes it, so a `401` still ends the session in one
+ * place. This file only says what a response looks like and where each
+ * operation lives.
+ */
+
+/** A Group a User belongs to directly, as its row reports it. */
+export interface DirectGroup {
+  id: string;
+  displayName: string;
+}
+
+/**
+ * One row of the **Users projection**, exactly as `GET /api/admin/accounts`
+ * reports it.
+ *
+ * Directory-owned fields — `userName`, `displayName`, `active`, `groups` — are
+ * read-only on this page: a connector writes them over SCIM, and the backend
+ * has no administration endpoint that would accept a change to them. The rest
+ * is application-owned state, and the two operations on a row (Unlock and the
+ * forced change) address it by `id`, never by the mutable `userName`.
+ *
+ * A lockout carries no expiry: it stands until an administrator unlocks the
+ * identity, so there is nothing to count down to and no field for it.
+ * `bootstrapAdmin` marks the recovery identity, which can never be locked.
+ */
+export interface UserRow {
+  id: string;
+  userName: string;
+  displayName: string | null;
+  admin: boolean;
+  bootstrapAdmin: boolean;
+  active: boolean;
+  locked: boolean;
+  hasPassword: boolean;
+  passwordChangeRequired: boolean;
+  lastAuthenticatedAt: string | null;
+  createdAt: string;
+  groups: DirectGroup[];
+}
+
+/** One row of the read-only **Groups projection**, from `GET /api/admin/groups`. */
+export interface GroupRow {
+  id: string;
+  displayName: string;
+  memberCount: number;
+  adminGroup: boolean;
+}
+
+export type TokenScope = "READ_ONLY" | "READ_WRITE";
+
+/**
+ * A token's metadata. There is no field for its value: a listing cannot return
+ * what this type cannot hold, which is how "never retrievable again" holds on
+ * this side of the wire too.
+ */
+export interface ConnectorToken {
+  id: string;
+  scope: TokenScope;
+  issuedAt: string;
+  expiresAt: string;
+  originalExpiresAt: string;
+  revokedAt: string | null;
+  active: boolean;
+}
+
+export interface Connector {
+  id: string;
+  displayName: string;
+  createdAt: string;
+  tokens: ConnectorToken[];
+}
+
+/**
+ * A token just issued or rotated — the only shape that carries plaintext, and
+ * only in the response to the request that minted it.
+ */
+export interface IssuedToken {
+  connectorId: string;
+  tokenId: string;
+  scope: TokenScope;
+  issuedAt: string;
+  expiresAt: string;
+  presentedValue: string;
+}
+
+/** The two operations on a User row, named as the backend's path segments. */
+export type UserAction = "unlock" | "force-password-change";
+
+export const USERS_PATH = "/api/admin/accounts";
+export const GROUPS_PATH = "/api/admin/groups";
+export const CONNECTORS_PATH = "/api/admin/connectors";
+
+/** `encodeURIComponent` although ids are UUIDs: a path segment is never trusted to be one. */
+export const userActionPath = (id: string, action: UserAction) =>
+  `${USERS_PATH}/${encodeURIComponent(id)}/${action}`;
+
+export const connectorPath = (connectorId: string) =>
+  `${CONNECTORS_PATH}/${encodeURIComponent(connectorId)}`;
+
+export const tokensPath = (connectorId: string) => `${connectorPath(connectorId)}/tokens`;
+
+export const tokenActionPath = (
+  connectorId: string,
+  tokenId: string,
+  action: "rotate" | "revoke",
+) => `${tokensPath(connectorId)}/${encodeURIComponent(tokenId)}/${action}`;
+
+/** A JSON body for an unsafe request; `apiFetch` adds the CSRF header itself. */
+export const jsonBody = (
+  method: "POST",
+  body: unknown,
+): { method: string; body: string; headers: Record<string, string> } => ({
+  body: JSON.stringify(body),
+  headers: { "Content-Type": "application/json" },
+  method,
+});
+
+export const decodeJson = <T>(response: Response): Promise<T> => response.json() as Promise<T>;
+
+/**
+ * Timestamps are rendered from the ISO instant rather than through
+ * `toLocaleString`, so what an administrator reads does not depend on the
+ * machine's locale and a test can assert an exact string.
+ */
+export const formatDate = (instant: string): string => instant.slice(0, 10);
+
+/** Date and minute, still locale-independent, for the instants where the day is not enough. */
+export const formatInstant = (instant: string): string =>
+  `${instant.slice(0, 10)} ${instant.slice(11, 16)}`;
+
+/**
+ * Whether a signed-in username names this row, compared the way the backend
+ * compares them — NFKC, then lower-cased — so a differently-cased session name
+ * still recognises its own row and hides the controls the backend would refuse.
+ */
+export const namesSameUser = (userName: string, signedIn: string | undefined): boolean =>
+  signedIn !== undefined &&
+  userName.normalize("NFKC").toLowerCase() === signedIn.normalize("NFKC").toLowerCase();

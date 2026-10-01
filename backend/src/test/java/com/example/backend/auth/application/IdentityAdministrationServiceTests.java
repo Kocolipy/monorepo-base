@@ -22,6 +22,7 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserProfile;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -31,24 +32,21 @@ import org.junit.jupiter.api.Test;
 /**
  * The identity use cases an administrator drives, against the unified SCIM identity.
  *
- * <p>Replaces {@code AccountAdministrationServiceTests}. Three things changed shape rather
- * than meaning and are worth naming, because every assertion below is the old one
- * translated through them:
+ * <p>Replaces {@code AccountAdministrationServiceTests}. Things that changed shape rather
+ * than meaning and are worth naming:
  *
  * <ul>
- *   <li>{@code enabled} became SCIM's {@code active}, so disable/enable became
- *       deactivate/activate and {@code IdentitySummary.active} is what they report.
- *   <li>The role column became DERIVED membership of the reserved Admin group, so "the last
- *       enabled administrator" is now a question about that Group's members.
+ *   <li>The role column became DERIVED membership of the reserved Admin group.
  *   <li>The Bootstrap Admin is recognised by its reservation marker rather than by a
  *       configured name — which is why it is seeded through {@code createReserved} and why
- *       the refusal cannot be moved by a rename.
+ *       its protections cannot be moved by a rename.
+ *   <li>Deactivate and Activate are gone: {@code active} is the directory's to set over
+ *       SCIM, so the listing reports it and nothing here writes it. Unlock and the forced
+ *       change are addressed by stable id.
  * </ul>
  *
- * <p>And one behaviour is genuinely new: every refusal is AUDITED as well as logged, because
- * a run of attempts to deactivate the recovery identity is a signal only the trail can
- * carry. The old suite asserted a refused change recorded nothing; it now asserts the
- * refusal event and its closed-set reason.
+ * <p>Every refusal is AUDITED as well as logged, because a run of refused attempts against
+ * the recovery identity is a signal only the trail can carry.
  */
 class IdentityAdministrationServiceTests {
 
@@ -77,11 +75,131 @@ class IdentityAdministrationServiceTests {
     void listsEveryIdentityWithoutItsPasswordHash() {
         ScimUser ada = given("ada");
         ScimUser bob = given("bob");
-        givenAdminGroup(ada);
+        ScimGroup admins = givenAdminGroup(ada);
 
         assertThat(service.listIdentities()).containsExactly(
-                new IdentitySummary(ada.id(), "ada", true, true, false, true, false, NOW),
-                new IdentitySummary(bob.id(), "bob", false, true, false, true, false, NOW));
+                new IdentitySummary(ada.id(), "ada", null, true, false, true, false, true, false,
+                        null, NOW, List.of(new IdentitySummary.DirectGroup(admins.id(), "Admins"))),
+                new IdentitySummary(bob.id(), "bob", null, false, false, true, false, true, false,
+                        null, NOW, List.of()));
+    }
+
+    /**
+     * The directory-owned half of a row — the name the directory displays and the Groups it
+     * put the User in — and the application-owned instant it last authenticated, each read
+     * from the stored User rather than assumed.
+     */
+    @Test
+    void reportsTheDisplayNameLastAuthenticationAndDirectGroups() {
+        Instant lastLogin = NOW.minus(Duration.ofDays(2));
+        ScimUser grace = users.given(new ScimUser(
+                UUID.randomUUID(),
+                new ScimUserProfile("grace", null, "Grace Hopper", null, null, null, true, List.of()),
+                new ScimLoginState("hash", 0, null, lastLogin),
+                null,
+                ScimUser.INITIAL_VERSION,
+                NOW.minus(Duration.ofDays(30)),
+                NOW));
+        ScimUser bob = given("bob");
+        // Created out of display-name order, so the row's order is the listing's own sort.
+        ScimGroup ops = groups.create(ScimIdentities.group("Operators", grace));
+        ScimGroup eng = groups.create(ScimIdentities.group("Engineering", grace, bob));
+
+        IdentitySummary row = service.listIdentities().getFirst();
+
+        assertThat(row.userName()).isEqualTo("bob");
+        assertThat(row.groups()).containsExactly(
+                new IdentitySummary.DirectGroup(eng.id(), "Engineering"));
+        IdentitySummary graceRow = service.listIdentities().get(1);
+        assertThat(graceRow.displayName()).isEqualTo("Grace Hopper");
+        // Read through the accessors, not only by record equality: an expected record built by
+        // the same constructor would agree with a field the constructor dropped.
+        assertThat(graceRow.active()).isTrue();
+        assertThat(graceRow.hasPassword()).isTrue();
+        assertThat(graceRow.locked()).isFalse();
+        assertThat(row.groups()).isNotNull();
+        assertThat(graceRow.lastAuthenticatedAt()).isEqualTo(lastLogin);
+        assertThat(graceRow.createdAt()).isEqualTo(NOW.minus(Duration.ofDays(30)));
+        assertThat(graceRow.groups()).containsExactly(
+                new IdentitySummary.DirectGroup(eng.id(), "Engineering"),
+                new IdentitySummary.DirectGroup(ops.id(), "Operators"));
+    }
+
+    /**
+     * The Bootstrap Admin is flagged so the page can show it with no lockout state and no
+     * Unlock: it can never be locked. Recognised by the reservation marker, so a User merely
+     * NAMED like it is not.
+     */
+    @Test
+    void flagsTheBootstrapAdminByItsReservationMarker() {
+        givenBootstrapAdmin();
+        given("root-lookalike");
+
+        assertThat(service.listIdentities())
+                .extracting(IdentitySummary::userName, IdentitySummary::bootstrapAdmin)
+                .containsExactly(tuple(BOOTSTRAP, true), tuple("root-lookalike", false));
+    }
+
+    /** An operation's response is the same row the listing would show, Groups included. */
+    @Test
+    void anOperationAnswersWithTheFullRowGroupsIncluded() {
+        givenBootstrapAdmin();
+        ScimUser bob = givenLocked("bob");
+        ScimGroup admins = givenAdminGroup(bob);
+        ScimGroup eng = groups.create(ScimIdentities.group("Engineering", bob));
+
+        IdentitySummary unlocked = service.unlock(bob.id(), BOOTSTRAP);
+
+        assertThat(unlocked.admin()).isTrue();
+        assertThat(unlocked.bootstrapAdmin()).isFalse();
+        assertThat(unlocked.groups()).containsExactly(
+                new IdentitySummary.DirectGroup(admins.id(), "Admins"),
+                new IdentitySummary.DirectGroup(eng.id(), "Engineering"));
+        assertThat(unlocked).isEqualTo(service.listIdentities().stream()
+                .filter(row -> row.id().equals(bob.id()))
+                .findFirst()
+                .orElseThrow());
+    }
+
+    // Reviewing the Groups
+
+    /**
+     * Every Group with its direct member count, and the protected Admin group marked by its
+     * reservation — not by its name, which a connector-created Group can share in spirit.
+     */
+    @Test
+    void listsEveryGroupWithItsMemberCountAndTheProtectedAdminMarker() {
+        ScimUser ada = given("ada");
+        ScimUser bob = given("bob");
+        ScimGroup admins = givenAdminGroup(ada);
+        ScimGroup lookalike = groups.create(ScimIdentities.group("Administrators", ada, bob));
+        ScimGroup empty = groups.create(ScimIdentities.group("Empty"));
+
+        // Normalized display-name order: "administrators" sorts before "admins".
+        assertThat(service.listGroups()).containsExactly(
+                new GroupSummary(lookalike.id(), "Administrators", 2, false),
+                new GroupSummary(admins.id(), "Admins", 1, true),
+                new GroupSummary(empty.id(), "Empty", 0, false));
+    }
+
+    @Test
+    void listsNoGroupsWhenNoneAreStored() {
+        assertThat(service.listGroups()).isEmpty();
+    }
+
+    /** Reading the directory writes nothing and records nothing. */
+    @Test
+    void reviewingTheDirectoryChangesNothing() {
+        given("ada");
+        givenAdminGroup(users.require("ada"));
+        int before = users.writes();
+
+        service.listIdentities();
+        service.listGroups();
+
+        assertThat(users.writes()).isEqualTo(before);
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(transaction.pending()).isZero();
     }
 
     @Test
@@ -152,473 +270,13 @@ class IdentityAdministrationServiceTests {
                 .isEqualTo(false);
     }
 
-    // Deactivating
-
-    @Test
-    void deactivatingClosesTheIdentityAndReportsItBack() {
-        given("bob");
-
-        IdentitySummary deactivated = service.deactivate("bob", "ada");
-
-        assertThat(deactivated.active()).isFalse();
-        assertThat(users.require("bob").profile().active()).isFalse();
-    }
-
-    /**
-     * The two capabilities are separate, so deactivating must not double as a penalty reset:
-     * the failure run is evidence, and it is most wanted at exactly the moment an identity
-     * is being closed.
-     */
-    @Test
-    void deactivatingLeavesTheFailureRunAndLockoutUntouched() {
-        givenLocked("bob");
-
-        service.deactivate("bob", "ada");
-
-        ScimUser stored = users.require("bob");
-        assertThat(stored.login().failedLoginAttempts()).isEqualTo(3);
-        assertThat(stored.login().lockedAt()).isEqualTo(NOW);
-        assertThat(stored.login().isLocked()).isTrue();
-    }
-
-    @Test
-    void deactivatingAnAlreadyInactiveIdentityWritesNothing() {
-        users.given(ScimIdentities.inactiveUser("bob"));
-        int before = users.writes();
-
-        assertThat(service.deactivate("bob", "ada").active()).isFalse();
-        assertThat(users.writes()).isEqualTo(before);
-    }
-
-    /**
-     * {@code active} IS a SCIM attribute, so unlike a failure run, writing it advances the
-     * resource's version: a connector's cached copy of this User is genuinely stale.
-     */
-    @Test
-    void deactivatingAdvancesTheResourceVersion() {
-        ScimUser bob = given("bob");
-
-        service.deactivate("bob", "ada");
-
-        assertThat(users.require("bob").version()).isEqualTo(bob.version() + 1);
-    }
-
-    @Test
-    void refusesToDeactivateTheIdentityMakingTheRequest() {
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(ada, zoe);
-
-        assertThatThrownBy(() -> service.deactivate("ada", "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class)
-                .hasMessage("An identity cannot deactivate itself");
-        assertThat(users.require("ada").profile().active()).isTrue();
-    }
-
-    /**
-     * The self-guard compares NORMALIZED names, because the subject was looked up on the
-     * normalized form.
-     *
-     * <p>This was a real defect, found by migrating these tests: the guard compared the raw
-     * strings, so an administrator whose session carried a differently-cased spelling of their
-     * own name resolved to the same identity, failed the equality check, and could deactivate
-     * themselves — with only the last-active-administrator guard left to catch it, which a
-     * second active administrator satisfies. Two active administrators are arranged here for
-     * exactly that reason: without the fix, this deactivation succeeds.
-     */
-    @Test
-    void refusesToDeactivateTheRequesterWhateverCaseTheirNameWasSubmittedIn() {
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(ada, zoe);
-
-        assertThatThrownBy(() -> service.deactivate("ada", "ADA"))
-                .isInstanceOf(UnsafeIdentityChangeException.class)
-                .hasMessage("An identity cannot deactivate itself");
-        assertThat(users.require("ada").profile().active()).isTrue();
-    }
-
-    /**
-     * An actor whose name cannot be normalized at all names nobody, rather than failing the
-     * whole operation.
-     *
-     * <p>Also a real defect found by this migration: the actor lookup normalized its argument
-     * unguarded, so a blank or absent requester threw out of a Group write and turned an
-     * administrative change into a {@code 500} — in a class whose surrounding design
-     * deliberately tolerates an unresolvable administrator and records the event with no actor.
-     */
-    @Test
-    void recordsAnUnresolvableRequesterAsNoActorRatherThanFailing() {
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(ada, zoe);
-
-        assertThat(service.deactivate("ada", "  ").active()).isFalse();
-        assertThat(audit.of(AuditOperation.ACCOUNT_DISABLE)).singleElement()
-                .satisfies(event -> {
-                    assertThat(event.actorId()).isNull();
-                    assertThat(event.subjectId()).isEqualTo(ada.id());
-                });
-    }
-
-    /**
-     * Nothing else could undo this: reactivating an identity needs an administrator who can
-     * log in, and the last one deactivated cannot.
-     */
-    @Test
-    void refusesToDeactivateTheLastActiveAdministrator() {
-        ScimUser ada = given("ada");
-        given("bob");
-        givenAdminGroup(ada);
-
-        assertThatThrownBy(() -> service.deactivate("ada", "zoe"))
-                .isInstanceOf(UnsafeIdentityChangeException.class)
-                .hasMessageContaining("last active administrator");
-        assertThat(users.require("ada").profile().active()).isTrue();
-    }
-
-    @Test
-    void allowsDeactivatingAnAdministratorWhileAnotherActiveOneRemains() {
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(ada, zoe);
-
-        assertThat(service.deactivate("ada", "zoe").active()).isFalse();
-    }
-
-    /**
-     * A locked administrator still counts as a means of recovery — not because the lockout
-     * ends by itself, which it no longer does, but because the Bootstrap Admin can always
-     * log in and unlock it. Excluding a locked administrator here would refuse
-     * deactivations that leave the deployment perfectly recoverable.
-     */
-    @Test
-    void countsALockedAdministratorAsAvailableForRecovery() {
-        ScimUser ada = givenLocked("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(ada, zoe);
-
-        assertThat(service.deactivate("zoe", "ada").active()).isFalse();
-    }
-
-    /**
-     * What makes the clause above safe. A locked administrator counts as available because
-     * the Bootstrap Admin cannot be locked and cannot be closed out — an argument that holds
-     * only while the second half is true, so the refusal is asserted rather than left to the
-     * javadoc that relies on it.
-     */
-    @Test
-    void refusesToDeactivateTheBootstrapAdmin() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(recovery, ada, zoe);
-
-        assertThatThrownBy(() -> service.deactivate(BOOTSTRAP, "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class)
-                .hasMessageContaining("recovery identity");
-
-        assertThat(users.require(BOOTSTRAP).profile().active()).isTrue();
-    }
-
-    /**
-     * The refusal does not depend on how many administrators are active, which is the whole
-     * difference between it and the last-active-administrator guard: two other active
-     * administrators would satisfy that one, and the deployment is still unrecoverable once
-     * both of them lock themselves out.
-     */
-    @Test
-    void refusesToDeactivateTheBootstrapAdminEvenBesidePlentyOfOtherAdministrators() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = givenLocked("ada");
-        ScimUser zoe = givenLocked("zoe");
-        givenAdminGroup(recovery, ada, zoe);
-
-        assertThatThrownBy(() -> service.deactivate(BOOTSTRAP, "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-    }
-
-    /**
-     * The protection is the reservation marker, not the name — so an ordinary identity
-     * holding a name a configured-string guard would have matched is deactivated like any
-     * other, and the reserved identity is refused whatever it is called.
-     */
-    @Test
-    void theProtectionFollowsTheReservationMarkerAndNotTheUserName() {
-        ScimUser lookalike = users.createReserved(
-                ScimIdentities.user("someone-else"), ReservedResourceName.BOOTSTRAP_ADMIN);
-        ScimUser ada = given(BOOTSTRAP);
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(lookalike, ada, zoe);
-
-        assertThat(service.deactivate(BOOTSTRAP, "zoe").active()).isFalse();
-        assertThatThrownBy(() -> service.deactivate("someone-else", "zoe"))
-                .isInstanceOf(UnsafeIdentityChangeException.class)
-                .hasMessageContaining("recovery identity");
-    }
-
-    /**
-     * A refused deactivation revokes nothing, so the recovery identity keeps the session it
-     * is holding: the refusal has to leave the deployment exactly as reachable as it found
-     * it, including for a Bootstrap Admin that is already signed in.
-     */
-    @Test
-    void aRefusedBootstrapAdminDeactivationLeavesItsSessionsAlone() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-        givenAdminGroup(recovery, ada);
-        sessions.open(recovery.id(), "session-1");
-
-        assertThatThrownBy(() -> service.deactivate(BOOTSTRAP, "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(recovery.id())).containsExactly("session-1");
-    }
-
-    /**
-     * The guard is the reserved identity, not administrators in general: an ordinary
-     * administrator is deactivated as before. Without this the refusal above would be
-     * indistinguishable from one that had started refusing every administrative
-     * deactivation.
-     */
-    @Test
-    void stillDeactivatesAnOrdinaryAdministratorThatIsNotTheRecoveryIdentity() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-        ScimUser zoe = given("zoe");
-        givenAdminGroup(recovery, ada, zoe);
-
-        assertThat(service.deactivate("zoe", "ada").active()).isFalse();
-    }
-
-    @Test
-    void doesNotCountAnInactiveAdministratorAsAvailableForRecovery() {
-        ScimUser ada = given("ada");
-        ScimUser zoe = users.given(ScimIdentities.inactiveUser("zoe"));
-        givenAdminGroup(ada, zoe);
-
-        assertThatThrownBy(() -> service.deactivate("ada", "bob"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-    }
-
-    /**
-     * The recovery guard is about administrators, and asks whether the identity being
-     * deactivated is one before it counts anyone. A non-member is never the last active
-     * administrator, whatever the administrators' standing — and it takes asking: "every
-     * active administrator is this identity" is vacuously true of no administrators at all,
-     * so a check that counted first would start refusing every deactivation the moment the
-     * last administrator was closed out of band.
-     */
-    @Test
-    void deactivatesANonAdministratorEvenWhenNoAdministratorIsActive() {
-        ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
-        given("bob");
-        givenAdminGroup(ada);
-
-        assertThat(service.deactivate("bob", "ada").active()).isFalse();
-    }
-
-    /**
-     * The guard asks whether the identity is active <em>now</em>, which is what keeps a
-     * deactivation idempotent on an administrator that is already closed: repeating it takes
-     * no recovery route away, so there is nothing to refuse — even when this is the only
-     * administrator there is. Without that clause the vacuous "every active administrator is
-     * this one" would refuse it.
-     */
-    @Test
-    void deactivatingAnAlreadyInactiveAdministratorIsAllowedEvenAsTheOnlyOne() {
-        ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
-        givenAdminGroup(ada);
-
-        assertThat(service.deactivate("ada", "zoe").active()).isFalse();
-    }
-
-    /**
-     * The reason this is a use case and not a column write: closing an identity that is
-     * signed in somewhere has to reach that session, or the decision does not take effect
-     * until the session expires on its own.
-     */
-    @Test
-    void deactivatingEndsTheSessionsTheIdentityAlreadyHolds() {
-        ScimUser bob = given("bob");
-        sessions.open(bob.id(), "session-1");
-        sessions.open(bob.id(), "session-2");
-
-        service.deactivate("bob", "ada");
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(bob.id())).isEmpty();
-    }
-
-    /**
-     * The ordering the deactivation promises: the revocation is arranged, not performed,
-     * while the transaction is open. Anything that reads the sessions before the commit
-     * still finds them, which is what makes a rollback able to leave nothing behind.
-     */
-    @Test
-    void deactivatingRevokesNothingUntilTheTransactionCommits() {
-        ScimUser bob = given("bob");
-        sessions.open(bob.id(), "session-1");
-
-        service.deactivate("bob", "ada");
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
-        assertThat(transaction.pending()).isEqualTo(1);
-
-        transaction.commit();
-
-        assertThat(sessions.revocations()).containsExactly(bob.id());
-        assertThat(sessions.sessionsOf(bob.id())).isEmpty();
-    }
-
-    /**
-     * Redis is not in the transaction, so a revocation performed before the commit could not
-     * be taken back by a rollback: the identity would read active while its holder was
-     * signed out, with nothing recording why. Deferring the revocation is what makes a
-     * failed commit leave both halves untouched.
-     */
-    @Test
-    void aDeactivationWhoseTransactionRollsBackRevokesNothing() {
-        ScimUser bob = given("bob");
-        sessions.open(bob.id(), "session-1");
-
-        service.deactivate("bob", "ada");
-        transaction.rollback();
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
-    }
-
-    /** Only that identity's. A deactivation is about one identity, and so is its blast radius. */
-    @Test
-    void deactivatingLeavesEveryOtherIdentitySignedIn() {
-        ScimUser bob = given("bob");
-        ScimUser zoe = given("zoe");
-        sessions.open(bob.id(), "session-1");
-        sessions.open(zoe.id(), "session-2");
-
-        service.deactivate("bob", "ada");
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(zoe.id())).containsExactly("session-2");
-    }
-
-    /**
-     * An identity already closed is still asked to give up its sessions. Nothing guarantees
-     * the earlier deactivation revoked anything — it may predate this behaviour, or have
-     * been written straight into the database — and a second deactivation is how an
-     * administrator acts on that doubt.
-     */
-    @Test
-    void deactivatingAnAlreadyInactiveIdentityStillEndsItsSessions() {
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
-        sessions.open(bob.id(), "session-1");
-
-        service.deactivate("bob", "ada");
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(bob.id())).isEmpty();
-    }
-
-    /**
-     * Every refusal leaves the store and the sessions exactly as it found them: the checks
-     * all run before anything is written or ended.
-     */
-    @Test
-    void aRefusedDeactivationEndsNoSessionsAndChangesNothing() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-        // Ada alone in the Admin group, so she IS the last active administrator; the
-        // recovery identity is protected by its marker rather than by membership.
-        givenAdminGroup(ada);
-        sessions.open(ada.id(), "session-1");
-        sessions.open(recovery.id(), "session-2");
-        int writesBefore = users.writes();
-        long adaVersionBefore = users.require("ada").version();
-
-        // Self, the reserved recovery identity, and the last active administrator.
-        assertThatThrownBy(() -> service.deactivate("ada", "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-        assertThatThrownBy(() -> service.deactivate(BOOTSTRAP, "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-        assertThatThrownBy(() -> service.deactivate("ada", "zoe"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(transaction.pending()).isZero();
-        assertThat(sessions.sessionsOf(ada.id())).containsExactly("session-1");
-        assertThat(sessions.sessionsOf(recovery.id())).containsExactly("session-2");
-        assertThat(users.writes()).isEqualTo(writesBefore);
-        assertThat(users.require("ada").profile().active()).isTrue();
-        assertThat(users.require(BOOTSTRAP).profile().active()).isTrue();
-        assertThat(users.require("ada").version()).isEqualTo(adaVersionBefore);
-    }
-
-    @Test
-    void deactivatingAnIdentitySignedInNowhereIsNotAFailure() {
-        given("bob");
-
-        assertThat(service.deactivate("bob", "ada").active()).isFalse();
-    }
-
-    // Activating
-
-    @Test
-    void activatingReopensTheIdentity() {
-        users.given(ScimIdentities.inactiveUser("bob"));
-
-        assertThat(service.activate("bob", BOOTSTRAP).active()).isTrue();
-        assertThat(users.require("bob").profile().active()).isTrue();
-    }
-
-    /**
-     * Activating is not the inverse of deactivating. Reopening an identity says it may sign
-     * in again, and a session is not something an administrator hands back.
-     */
-    @Test
-    void activatingTouchesNoSessions() {
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
-        sessions.open(bob.id(), "session-1");
-
-        service.activate("bob", BOOTSTRAP);
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
-    }
-
-    /**
-     * The decision the user asked for: restoring access is not a finding that the failed
-     * logins did not happen, so the lockout survives and needs its own call.
-     */
-    @Test
-    void activatingDoesNotLiftALockout() {
-        users.given(lockedAndInactive("bob"));
-
-        IdentitySummary activated = service.activate("bob", BOOTSTRAP);
-
-        assertThat(activated.active()).isTrue();
-        assertThat(activated.locked()).isTrue();
-        assertThat(users.require("bob").login().failedLoginAttempts()).isEqualTo(3);
-    }
-
-    @Test
-    void activatingAnAlreadyActiveIdentityWritesNothing() {
-        given("bob");
-        int before = users.writes();
-
-        assertThat(service.activate("bob", BOOTSTRAP).active()).isTrue();
-        assertThat(users.writes()).isEqualTo(before);
-    }
-
     // Unlocking
 
     @Test
     void unlockingEndsTheLockoutAndTheFailureRun() {
         givenLocked("bob");
 
-        IdentitySummary unlocked = service.unlock("bob", BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(users.require("bob").login().lockedAt()).isNull();
@@ -630,7 +288,7 @@ class IdentityAdministrationServiceTests {
     void unlockingDoesNotActivateAnInactiveIdentity() {
         users.given(lockedAndInactive("bob"));
 
-        IdentitySummary unlocked = service.unlock("bob", BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.active()).isFalse();
@@ -642,7 +300,7 @@ class IdentityAdministrationServiceTests {
         given("bob");
         int before = users.writes();
 
-        assertThat(service.unlock("bob", BOOTSTRAP).locked()).isFalse();
+        assertThat(service.unlock(id("bob"), BOOTSTRAP).locked()).isFalse();
         assertThat(users.writes()).isEqualTo(before);
     }
 
@@ -654,7 +312,7 @@ class IdentityAdministrationServiceTests {
     void unlockingDoesNotAdvanceTheResourceVersion() {
         ScimUser bob = givenLocked("bob");
 
-        service.unlock("bob", BOOTSTRAP);
+        service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(users.require("bob").version()).isEqualTo(bob.version());
     }
@@ -664,7 +322,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = givenLocked("bob");
         sessions.open(bob.id(), "session-1");
 
-        service.unlock("bob", BOOTSTRAP);
+        service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(sessions.revocations()).isEmpty();
         assertThat(sessions.sessionsOf(bob.id())).containsExactly("session-1");
@@ -679,7 +337,7 @@ class IdentityAdministrationServiceTests {
         givenLocked("bob");
         clock.advanceBy(A_LONG_TIME);
 
-        service.unlock("bob", BOOTSTRAP);
+        service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(users.require("bob").login().lockedAt()).isNull();
         assertThat(users.require("bob").login().failedLoginAttempts()).isZero();
@@ -689,63 +347,51 @@ class IdentityAdministrationServiceTests {
 
     @Test
     void refusesToActOnAnIdentityThatDoesNotExist() {
-        assertThatThrownBy(() -> service.deactivate("nobody", "ada"))
+        given(BOOTSTRAP);
+        UUID nobody = UUID.randomUUID();
+        int before = users.writes();
+
+        assertThatThrownBy(() -> service.unlock(nobody, BOOTSTRAP))
                 .isInstanceOf(UnknownIdentityException.class);
-        assertThatThrownBy(() -> service.activate("nobody", BOOTSTRAP))
+        assertThatThrownBy(() -> service.forcePasswordChange(nobody, BOOTSTRAP))
                 .isInstanceOf(UnknownIdentityException.class);
-        assertThatThrownBy(() -> service.unlock("nobody", BOOTSTRAP))
-                .isInstanceOf(UnknownIdentityException.class);
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("nobody"))).isEmpty();
+
+        assertThat(users.writes()).isEqualTo(before);
+        assertThat(audit.recorded()).isEmpty();
     }
 
     /**
-     * And says nothing about the value it could not find. A {@code userName} is half a
-     * credential, and an exception message is the shortest path into a log line.
+     * The operations address a User by its stable id, not its {@code userName}: a User renamed
+     * after the Admin read the row is still the one acted on, and the name it used to have
+     * names nobody.
      */
     @Test
-    void anUnknownIdentityRefusalDoesNotNameTheSubmittedUserName() {
-        assertThatThrownBy(() -> service.deactivate("nobody", "ada"))
-                .isInstanceOf(UnknownIdentityException.class)
-                .hasMessageNotContaining("nobody");
+    void anOperationFollowsTheIdAcrossARename() {
+        ScimUser bob = givenLocked("bob");
+        users.given(new ScimUser(
+                bob.id(),
+                ScimIdentities.profile("robert", true),
+                bob.login(),
+                null,
+                bob.version() + 1,
+                bob.createdAt(),
+                NOW));
+
+        IdentitySummary unlocked = service.unlock(bob.id(), BOOTSTRAP);
+
+        assertThat(unlocked.userName()).isEqualTo("robert");
+        assertThat(unlocked.locked()).isFalse();
+        assertThat(users.require("robert").login().isLocked()).isFalse();
     }
 
     // What the trail is told
-
-    /**
-     * Both parties by stable id: the administrator who acted, and the identity acted on. The
-     * administrator's userName is what the caller passes in and what must not be what gets
-     * recorded.
-     */
-    @Test
-    void deactivatingIsRecordedNamingBothPartiesByStableId() {
-        ScimUser ada = given("ada");
-        ScimUser recovery = given(BOOTSTRAP);
-        ScimUser bob = given("bob");
-        givenAdminGroup(ada, recovery);
-
-        service.deactivate("bob", BOOTSTRAP);
-
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.ACCOUNT_DISABLE, recovery.id(), bob.id(), null));
-    }
-
-    @Test
-    void activatingIsRecordedNamingBothPartiesByStableId() {
-        ScimUser recovery = given(BOOTSTRAP);
-        ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
-
-        service.activate("bob", BOOTSTRAP);
-
-        assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.ACCOUNT_ENABLE, recovery.id(), bob.id(), null));
-    }
 
     @Test
     void unlockingIsRecordedAsALiftCausedByAnAdministrator() {
         ScimUser recovery = given(BOOTSTRAP);
         ScimUser bob = givenLocked("bob");
 
-        service.unlock("bob", BOOTSTRAP);
+        service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(audit.recorded()).containsExactly(
                 new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), null),
@@ -762,64 +408,9 @@ class IdentityAdministrationServiceTests {
         given(BOOTSTRAP);
         given("bob");
 
-        service.unlock("bob", BOOTSTRAP);
+        service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).hasSize(1);
-    }
-
-    /**
-     * Each refusal is recorded with its closed-set reason and both parties' ids. This is the
-     * behaviour that is genuinely new: the log line deliberately names neither party, so a
-     * run of attempts to close the recovery identity is a signal only the trail can carry.
-     */
-    @Test
-    void eachRefusedDeactivationIsRecordedWithItsReasonAndBothParties() {
-        ScimUser recovery = givenBootstrapAdmin();
-        ScimUser ada = given("ada");
-        givenAdminGroup(ada);
-
-        assertThatThrownBy(() -> service.deactivate("ada", "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-        assertThatThrownBy(() -> service.deactivate(BOOTSTRAP, "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-        assertThatThrownBy(() -> service.deactivate("ada", "zoe"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-
-        assertThat(audit.recorded()).containsExactly(
-                new Recorded(
-                        AuditOperation.ACCOUNT_DISABLE,
-                        ada.id(),
-                        ada.id(),
-                        AuditAdministrativeRefusal.SELF_DISABLE.name()),
-                new Recorded(
-                        AuditOperation.ACCOUNT_DISABLE,
-                        ada.id(),
-                        recovery.id(),
-                        AuditAdministrativeRefusal.PROTECTED_RESOURCE.name()),
-                // The actor's own name resolves to nobody here, which is recorded as no
-                // actor rather than as the name.
-                new Recorded(
-                        AuditOperation.ACCOUNT_DISABLE,
-                        null,
-                        ada.id(),
-                        AuditAdministrativeRefusal.LAST_ENABLED_ADMINISTRATOR.name()));
-    }
-
-    /**
-     * A refusal is recorded as a refusal and never as a change: the detail carries the
-     * reason, where a change carries none.
-     */
-    @Test
-    void aRefusedDeactivationIsNotRecordedAsAChange() {
-        given("ada");
-
-        assertThatThrownBy(() -> service.deactivate("ada", "ada"))
-                .isInstanceOf(UnsafeIdentityChangeException.class);
-
-        assertThat(audit.recorded())
-                .singleElement()
-                .satisfies(event -> assertThat(event.detail())
-                        .isEqualTo(AuditAdministrativeRefusal.SELF_DISABLE.name()));
     }
 
     /**
@@ -831,10 +422,10 @@ class IdentityAdministrationServiceTests {
     void anUnresolvableAdministratorIsRecordedAsNoActorRatherThanAName() {
         ScimUser bob = given("bob");
 
-        service.activate("bob", "vanished");
+        service.unlock(bob.id(), "vanished");
 
         assertThat(audit.recorded()).containsExactly(new Recorded(
-                AuditOperation.ACCOUNT_ENABLE, null, bob.id(), null));
+                AuditOperation.LOCKOUT_LIFT, null, bob.id(), null));
     }
 
     /**
@@ -855,12 +446,13 @@ class IdentityAdministrationServiceTests {
         givenAdminGroup(recovery, ada);
         givenLocked("bob");
 
-        try (CapturedLog captured = CapturedLog.attach()) {
-            service.deactivate("bob", BOOTSTRAP);
-            service.activate("bob", BOOTSTRAP);
-            service.unlock("bob", BOOTSTRAP);
+        ScimUser carol = given("carol");
 
-            assertThat(List.of("identity.deactivate", "identity.activate", "identity.unlock"))
+        try (CapturedLog captured = CapturedLog.attach()) {
+            service.unlock(id("bob"), BOOTSTRAP);
+            service.forcePasswordChange(carol.id(), BOOTSTRAP);
+
+            assertThat(List.of("identity.unlock", "identity.force_password_change"))
                     .allSatisfy(action -> assertThat(
                                     captured.withAction(Level.INFO, LogEvent.ACTION, action))
                             .singleElement()
@@ -875,19 +467,23 @@ class IdentityAdministrationServiceTests {
      */
     @Test
     void aRefusedWriteReportsItsActionReasonAndFailureToTheLogStream() {
-        given("ada");
+        ScimUser ada = givenLocked("ada");
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            assertThatThrownBy(() -> service.deactivate("ada", "ada"))
-                    .isInstanceOf(UnsafeIdentityChangeException.class);
+            assertThatThrownBy(() -> service.unlock(ada.id(), "ada"))
+                    .isInstanceOf(ForbiddenIdentityChangeException.class);
+            assertThatThrownBy(() -> service.forcePasswordChange(ada.id(), "ada"))
+                    .isInstanceOf(ForbiddenIdentityChangeException.class);
 
-            assertThat(captured.withAction(Level.WARN, LogEvent.ACTION, "identity.deactivate"))
-                    .singleElement()
-                    .satisfies(record -> assertThat(CapturedLog.fields(record))
-                            .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
-                            .containsEntry(
-                                    LogEvent.REASON,
-                                    AuditAdministrativeRefusal.SELF_DISABLE.name()));
+            assertThat(List.of("identity.unlock", "identity.force_password_change"))
+                    .allSatisfy(action -> assertThat(
+                                    captured.withAction(Level.WARN, LogEvent.ACTION, action))
+                            .singleElement()
+                            .satisfies(record -> assertThat(CapturedLog.fields(record))
+                                    .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                                    .containsEntry(
+                                            LogEvent.REASON,
+                                            AuditAdministrativeRefusal.SELF_TARGET.name())));
         }
     }
 
@@ -904,7 +500,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = givenLocked("bob");
         clock.advanceBy(Duration.ofHours(1));
 
-        IdentitySummary unlocked = service.unlock("bob", BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(unlocked.passwordChangeRequired()).isTrue();
         assertThat(users.require("bob").login().passwordChangeRequiredSince())
@@ -922,7 +518,7 @@ class IdentityAdministrationServiceTests {
         users.given(ScimIdentities.userWithLoginState(
                 "carol", new ScimLoginState(null, 3, NOW)));
 
-        IdentitySummary unlocked = service.unlock("carol", BOOTSTRAP);
+        IdentitySummary unlocked = service.unlock(id("carol"), BOOTSTRAP);
 
         assertThat(unlocked.locked()).isFalse();
         assertThat(unlocked.passwordChangeRequired()).isFalse();
@@ -935,7 +531,7 @@ class IdentityAdministrationServiceTests {
     void anIdempotentUnlockRequiresNoChange() {
         given("bob");
 
-        assertThat(service.unlock("bob", BOOTSTRAP).passwordChangeRequired()).isFalse();
+        assertThat(service.unlock(id("bob"), BOOTSTRAP).passwordChangeRequired()).isFalse();
         assertThat(users.require("bob").login().isPasswordChangeRequired()).isFalse();
     }
 
@@ -944,7 +540,7 @@ class IdentityAdministrationServiceTests {
         ScimUser ada = givenLocked("ada");
         int before = users.writes();
 
-        assertThatThrownBy(() -> service.unlock("ADA", "ada"))
+        assertThatThrownBy(() -> service.unlock(id("ADA"), "ada"))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertThat(users.writes()).isEqualTo(before);
@@ -962,7 +558,7 @@ class IdentityAdministrationServiceTests {
         ScimUser bob = given("bob");
         sessions.open(bob.id(), "bob-session");
 
-        IdentitySummary forced = service.forcePasswordChange("bob", BOOTSTRAP);
+        IdentitySummary forced = service.forcePasswordChange(id("bob"), BOOTSTRAP);
 
         assertThat(forced.passwordChangeRequired()).isTrue();
         assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
@@ -982,7 +578,7 @@ class IdentityAdministrationServiceTests {
         clock.advanceBy(Duration.ofDays(3));
         int before = users.writes();
 
-        assertThat(service.forcePasswordChange("bob", BOOTSTRAP).passwordChangeRequired()).isTrue();
+        assertThat(service.forcePasswordChange(id("bob"), BOOTSTRAP).passwordChangeRequired()).isTrue();
 
         assertThat(users.writes()).isEqualTo(before);
         assertThat(users.require("bob").login().passwordChangeRequiredSince()).isEqualTo(NOW);
@@ -999,8 +595,8 @@ class IdentityAdministrationServiceTests {
                 "fay", new ScimLoginState("hash", 0, null, null, NOW)));
         givenAdminGroup(eve, fay);
 
-        IdentitySummary flagged = service.forcePasswordChange("eve", BOOTSTRAP);
-        IdentitySummary alreadyFlagged = service.forcePasswordChange("fay", BOOTSTRAP);
+        IdentitySummary flagged = service.forcePasswordChange(id("eve"), BOOTSTRAP);
+        IdentitySummary alreadyFlagged = service.forcePasswordChange(id("fay"), BOOTSTRAP);
 
         assertThat(flagged.admin()).isTrue();
         assertThat(flagged.createdAt()).isEqualTo(eve.createdAt()).isNotNull();
@@ -1012,7 +608,7 @@ class IdentityAdministrationServiceTests {
     void forcingAChangeOnACredentiallessUserIsRefused() {
         ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
 
-        assertThatThrownBy(() -> service.forcePasswordChange("carol", BOOTSTRAP))
+        assertThatThrownBy(() -> service.forcePasswordChange(id("carol"), BOOTSTRAP))
                 .isInstanceOf(UnsafeIdentityChangeException.class);
 
         assertRefusedWithoutEffect(carol, AuditAdministrativeRefusal.CREDENTIALLESS_TARGET);
@@ -1022,7 +618,7 @@ class IdentityAdministrationServiceTests {
     void anAdminCannotForceAChangeOnTheirOwnAccount() {
         ScimUser ada = given("ada");
 
-        assertThatThrownBy(() -> service.forcePasswordChange("ada", "Ada"))
+        assertThatThrownBy(() -> service.forcePasswordChange(id("ada"), "Ada"))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertRefusedWithoutEffect(ada, AuditAdministrativeRefusal.SELF_TARGET);
@@ -1033,7 +629,7 @@ class IdentityAdministrationServiceTests {
         ScimUser recovery = givenBootstrapAdmin();
         given("ada");
 
-        assertThatThrownBy(() -> service.forcePasswordChange(BOOTSTRAP, "ada"))
+        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), "ada"))
                 .isInstanceOf(ForbiddenIdentityChangeException.class);
 
         assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isFalse();
@@ -1048,9 +644,31 @@ class IdentityAdministrationServiceTests {
     void theBootstrapAdminMayFlagItself() {
         givenBootstrapAdmin();
 
-        assertThat(service.forcePasswordChange(BOOTSTRAP, BOOTSTRAP).passwordChangeRequired())
-                .isTrue();
+        IdentitySummary flagged = service.forcePasswordChange(id(BOOTSTRAP), BOOTSTRAP);
+
+        assertThat(flagged.passwordChangeRequired()).isTrue();
+        // The response is the row the page redraws, so it keeps saying which row this is.
+        assertThat(flagged.bootstrapAdmin()).isTrue();
         assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isTrue();
+    }
+
+    /**
+     * A requester with no usable name — null or blank, which only a bypassed web adapter could
+     * send — names nobody: it is not the subject, so nothing is refused as self-targeted, and the
+     * event records no actor rather than failing the operation.
+     */
+    @Test
+    void aRequesterWithNoNameIsNobodyRatherThanAFailure() {
+        ScimUser bob = givenLocked("bob");
+        ScimUser carol = given("carol");
+
+        assertThat(service.unlock(bob.id(), null).locked()).isFalse();
+        assertThat(service.forcePasswordChange(carol.id(), "  ").passwordChangeRequired()).isTrue();
+
+        assertThat(audit.recorded())
+                .extracting(Recorded::actorId)
+                .containsOnlyNulls()
+                .hasSize(3);
     }
 
     private void assertRefusedWithoutEffect(ScimUser target, AuditAdministrativeRefusal reason) {
@@ -1064,6 +682,11 @@ class IdentityAdministrationServiceTests {
                     assertThat(event.subjectId()).isEqualTo(target.id());
                     assertThat(event.detail()).isEqualTo(reason.name());
                 });
+    }
+
+    /** The stable id every operation addresses a User by. */
+    private UUID id(String userName) {
+        return users.require(userName).id();
     }
 
     private ScimUser given(String userName) {

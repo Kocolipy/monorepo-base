@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
@@ -10,161 +10,392 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-/**
- * One row of the **identity listing**, exactly as `GET /api/admin/accounts` reports
- * it.
- *
- * The field names changed when the login identity and the SCIM User became one
- * resource: `username` became `userName`, the `role` string became the derived
- * boolean `admin`, and `enabled` became SCIM's own `active`. The route keeps its
- * name; what it lists is SCIM Users.
- *
- * `active` and `locked` are two separate refusal mechanisms and both are shown:
- * an identity serving a lockout right now looks healthy if only `active` is
- * rendered, and an administrator would have no way to tell which need unlocking. A
- * lockout carries no expiry: it stands until an administrator unlocks the identity,
- * so there is nothing to count down to.
- *
- * `admin` is DERIVED by the backend from membership of the server-seeded Admin
- * group rather than stored, and it takes effect at the identity's next login — a
- * session already open keeps the authority it was issued with.
- *
- * `hasPassword` is false for a SCIM-provisioned identity that has never been given
- * a credential. It exists and cannot log in, which is otherwise indistinguishable
- * from a forgotten password — and only the first is fixed by a SCIM write.
- */
-export interface AdminAccount {
-  id: string;
-  userName: string;
-  admin: boolean;
-  active: boolean;
-  locked: boolean;
-  hasPassword: boolean;
-  createdAt: string;
-}
+import {
+  decodeJson,
+  formatDate,
+  formatInstant,
+  GROUPS_PATH,
+  namesSameUser,
+  userActionPath,
+  USERS_PATH,
+  type GroupRow,
+  type UserAction,
+  type UserRow,
+} from "./accounts-api";
+import { Connectors } from "./connectors";
 
-/** The three account actions, named as the backend's path segments. */
-type AccountAction = "disable" | "enable" | "unlock";
+/** The sentence the Users view exists to make true: a lockout ends in exactly one way. */
+const UNLOCK_EXPLANATION =
+  "A lockout never expires: Unlock is the only way it ends, and Unlock also requires the User to change their password before they can do anything else.";
 
-const decodeAccounts = (response: Response): Promise<AdminAccount[]> =>
-  response.json() as Promise<AdminAccount[]>;
-
-const decodeAccount = (response: Response): Promise<AdminAccount> =>
-  response.json() as Promise<AdminAccount>;
-
-/**
- * Timestamps are rendered from the ISO instant rather than through
-/**
- * Timestamps are rendered from the ISO instant rather than through
- * `toLocaleString`, so what an administrator reads does not depend on the
- * machine's locale and a test can assert an exact string.
- *
- * <p>No longer nullable: the timestamp lives on the SCIM resource row, which cannot
- * exist without one.
- */
-const formatDate = (instant: string): string => instant.slice(0, 10);
+/** What was being attempted, as the refusal copy names it. */
+const ATTEMPTED: Record<UserAction, (userName: string) => string> = {
+  unlock: (userName) => `unlock ${userName}`,
+  "force-password-change": (userName) => `force a password change for ${userName}`,
+};
 
 /** Copy for a refused action, keyed on what the backend refused. */
-function actionFailure(action: AccountAction, username: string, status?: number): string {
-  if (status === 409) {
-    return `Refused: disabling ${username} would leave nobody able to restore access.`;
-  }
+function actionFailure(action: UserAction, userName: string, status?: number): string {
   if (status === 404) {
-    return `${username} no longer exists. Reload the page for the current list.`;
+    return `${userName} no longer exists. Reload the page for the current list.`;
   }
-  return `Unable to ${action} ${username}. Please try again.`;
+  if (status === 409) {
+    return `Refused: ${userName} has no password to replace.`;
+  }
+  return `Unable to ${ATTEMPTED[action](userName)}. Please try again.`;
 }
 
-function StatusCell({ account }: { account: AdminAccount }) {
-  if (account.active && !account.locked) {
-    return <span className="text-sm text-muted-foreground">Active</span>;
+/**
+ * The lockout cell. The Bootstrap Admin gets no state at all — it cannot be
+ * locked, so "not locked" would describe a condition that could change — and
+ * nobody gets an expiry, because a lockout has none.
+ */
+function LockoutCell({ user }: { user: UserRow }) {
+  if (user.bootstrapAdmin) {
+    return (
+      <span className="text-muted-foreground" title="The Bootstrap Admin cannot be locked">
+        —
+      </span>
+    );
   }
+  return user.locked ? (
+    <span className="font-medium text-destructive">Locked</span>
+  ) : (
+    <span className="text-muted-foreground">Not locked</span>
+  );
+}
 
+/**
+ * Whether the signed-in Admin may force this row's password change: never on
+ * their own account, except the Bootstrap Admin's own; never on the Bootstrap
+ * Admin by anyone else; and only for a User with a password not already
+ * flagged. The backend refuses every excluded case independently.
+ */
+function offersForcedChange(user: UserRow, self: boolean): boolean {
+  if (!user.hasPassword || user.passwordChangeRequired) return false;
+  return self === user.bootstrapAdmin;
+}
+
+/** Unlock only while a lockout is in force, and never on the caller's own account. */
+const offersUnlock = (user: UserRow, self: boolean): boolean =>
+  user.locked && !user.bootstrapAdmin && !self;
+
+/** The role column: the recovery identity first, then the derived Admin flag. */
+function roleOf(user: UserRow): string {
+  if (user.bootstrapAdmin) return "Bootstrap Admin";
+  return user.admin ? "Admin" : "User";
+}
+
+type OnAction = (user: UserRow, action: UserAction) => void;
+
+function UserActions({
+  onAction,
+  pending,
+  self,
+  user,
+}: {
+  onAction: OnAction;
+  pending: boolean;
+  self: boolean;
+  user: UserRow;
+}) {
   return (
-    <span className="flex flex-col gap-1">
-      {account.active ? null : (
-        <span className="text-sm font-medium text-destructive">Disabled</span>
-      )}
-      {account.locked ? <span className="text-sm font-medium text-destructive">Locked</span> : null}
+    <span className="flex flex-wrap gap-2">
+      {offersUnlock(user, self) ? (
+        <Button
+          disabled={pending}
+          onClick={() => onAction(user, "unlock")}
+          size="sm"
+          title={UNLOCK_EXPLANATION}
+          variant="outline"
+        >
+          Unlock {user.userName}
+        </Button>
+      ) : null}
+      {offersForcedChange(user, self) ? (
+        <Button
+          disabled={pending}
+          onClick={() => onAction(user, "force-password-change")}
+          size="sm"
+          variant="outline"
+        >
+          Force password change for {user.userName}
+        </Button>
+      ) : null}
     </span>
   );
 }
 
-/**
- * Account administration: the whole listing, and the controls for the two
- * refusal mechanisms behind it.
- *
- * The `ADMIN` route guard is what keeps a `USER` out of this page; the backend
- * restricts `/api/admin/**` to `ROLE_ADMIN` independently, so the guard is a
- * rendering decision and never the authorization.
- */
-export function Accounts() {
-  const { logout, user } = useAuth();
-  const request = useSessionRequest();
+const MUTED_CELL = "py-3 pr-4 text-muted-foreground";
 
-  const [accounts, setAccounts] = useState<AdminAccount[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<string | null>(null);
-
-  const loadAccounts = useCallback(
-    () => request("/api/admin/accounts", {}, decodeAccounts),
-    [request],
+function UserRowView({
+  onAction,
+  pending,
+  signedIn,
+  user,
+}: {
+  onAction: OnAction;
+  pending: boolean;
+  signedIn: string | undefined;
+  user: UserRow;
+}) {
+  return (
+    <tr className="border-b align-top last:border-0">
+      <th className="py-3 pr-4 font-medium" scope="row">
+        {user.userName}
+        {user.displayName ? (
+          <span className="block font-normal text-muted-foreground">{user.displayName}</span>
+        ) : null}
+      </th>
+      <td className={MUTED_CELL}>{roleOf(user)}</td>
+      <td className="py-3 pr-4">
+        {user.active ? (
+          <span className="text-muted-foreground">Active</span>
+        ) : (
+          <span className="font-medium text-destructive">Inactive</span>
+        )}
+      </td>
+      <td className={MUTED_CELL}>{user.hasPassword ? "Configured" : "None"}</td>
+      <td className="py-3 pr-4">
+        <LockoutCell user={user} />
+      </td>
+      <td className={MUTED_CELL}>{user.passwordChangeRequired ? "Required" : "No"}</td>
+      <td className={MUTED_CELL}>
+        {user.lastAuthenticatedAt ? formatInstant(user.lastAuthenticatedAt) : "Never"}
+      </td>
+      <td className={MUTED_CELL}>{formatDate(user.createdAt)}</td>
+      <td className={MUTED_CELL}>
+        {user.groups.map((group) => group.displayName).join(", ") || "—"}
+      </td>
+      <td className="py-3">
+        <UserActions
+          onAction={onAction}
+          pending={pending}
+          self={namesSameUser(user.userName, signedIn)}
+          user={user}
+        />
+      </td>
+    </tr>
   );
+}
+
+const USER_COLUMNS = [
+  "User",
+  "Role",
+  "Active",
+  "Password",
+  "Lockout",
+  "Change required",
+  "Last sign-in",
+  "Created",
+  "Groups",
+  "Actions",
+];
+
+function UsersTable({
+  onAction,
+  pending,
+  signedIn,
+  users,
+}: {
+  onAction: OnAction;
+  pending: boolean;
+  signedIn: string | undefined;
+  users: UserRow[];
+}) {
+  return (
+    <table className="w-full border-collapse text-left text-sm">
+      <caption className="sr-only">Users</caption>
+      <thead>
+        <tr className="border-b text-muted-foreground">
+          {USER_COLUMNS.map((heading) => (
+            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+              {heading}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {users.map((user) => (
+          <UserRowView
+            key={user.id}
+            onAction={onAction}
+            pending={pending}
+            signedIn={signedIn}
+            user={user}
+          />
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function GroupsTable({ groups }: { groups: GroupRow[] }) {
+  return (
+    <table className="w-full border-collapse text-left text-sm">
+      <caption className="sr-only">Groups</caption>
+      <thead>
+        <tr className="border-b text-muted-foreground">
+          <th className="py-2 pr-4 font-medium" scope="col">
+            Group
+          </th>
+          <th className="py-2 pr-4 font-medium" scope="col">
+            Members
+          </th>
+          <th className="py-2 font-medium" scope="col">
+            Authority
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {groups.map((group) => (
+          <tr className="border-b last:border-0" key={group.id}>
+            <th className="py-3 pr-4 font-medium" scope="row">
+              {group.displayName}
+            </th>
+            <td className="py-3 pr-4 text-muted-foreground">{group.memberCount}</td>
+            <td className="py-3 text-muted-foreground">
+              {group.adminGroup ? "Protected Admin group" : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * A projection's card: its loading state, its empty state — withheld when the
+ * read failed, so a failure is never also reported as an empty directory — and
+ * otherwise its table.
+ */
+function ProjectionCard({
+  children,
+  description,
+  empty,
+  failed,
+  rows,
+  title,
+}: {
+  children: ReactNode;
+  description: string;
+  empty: string;
+  failed: boolean;
+  rows: unknown[] | null;
+  title: string;
+}) {
+  let body: ReactNode = children;
+  if (rows === null) {
+    body = <p className="text-sm text-muted-foreground">Loading {title.toLowerCase()}…</p>;
+  } else if (rows.length === 0) {
+    body = failed ? null : <p className="text-sm text-muted-foreground">{empty}</p>;
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">{body}</CardContent>
+    </Card>
+  );
+}
+
+/** One listing read, reported into state: the rows, or a failure and its copy. */
+function useListing<T>(path: string, failureMessage: string, onFailure: (message: string) => void) {
+  const request = useSessionRequest();
+  const [rows, setRows] = useState<T[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    void request(path, {}, decodeJson<T[]>).then((result) => {
+      if (result.kind === "ok") {
+        setRows(result.data);
+        return;
+      }
+      setRows([]);
+      setFailed(true);
+      onFailure(result.kind === "csrf-expired" ? CSRF_EXPIRED_MESSAGE : failureMessage);
+    });
+  }, [failureMessage, onFailure, path, request]);
+
+  return { failed, rows, setRows };
+}
+
+/**
+ * The two listing reads and the row actions, as state: what the page shows and
+ * the one function that changes it.
+ */
+function useDirectory() {
+  const request = useSessionRequest();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const report = useCallback((message: string) => setError(message), []);
+  const users = useListing<UserRow>(
+    USERS_PATH,
+    "Unable to load the users. Please try again.",
+    report,
+  );
+  const groups = useListing<GroupRow>(
+    GROUPS_PATH,
+    "Unable to load the groups. Please try again.",
+    report,
+  );
+  const setUsers = users.setRows;
 
   const applyFailure = useCallback((result: SessionResult<unknown>, failureMessage: string) => {
     setError(result.kind === "csrf-expired" ? CSRF_EXPIRED_MESSAGE : failureMessage);
   }, []);
 
-  useEffect(() => {
-    void loadAccounts().then((result) => {
-      if (result.kind === "ok") {
-        setAccounts(result.data);
-        return;
-      }
-      setAccounts([]);
-      applyFailure(result, "Unable to load the accounts. Please try again.");
-    });
-  }, [applyFailure, loadAccounts]);
-
   /**
    * Runs one action and replaces just that row from the response, rather than
-   * reloading the listing: the response *is* the account's new state, so a
-   * refetch would only add a request that could disagree with it.
+   * reloading the listing: the response *is* the User's new state, so a refetch
+   * would only add a request that could disagree with it.
    */
-  const runAction = async (account: AdminAccount, action: AccountAction) => {
+  const runAction = async (target: UserRow, action: UserAction) => {
     setError(null);
-    setPending(account.userName);
+    setPending(true);
     try {
       const result = await request(
-        `/api/admin/accounts/${account.userName}/${action}`,
+        userActionPath(target.id, action),
         { method: "POST" },
-        decodeAccount,
+        decodeJson<UserRow>,
       );
-
       if (result.kind === "ok") {
         const updated = result.data;
-        setAccounts((current) =>
-          (current ?? []).map((row) => (row.userName === updated.userName ? updated : row)),
+        setUsers((current) =>
+          (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
         );
         return;
       }
-      applyFailure(
-        result,
-        actionFailure(
-          action,
-          account.userName,
-          result.kind === "failed" ? result.status : undefined,
-        ),
-      );
+      const status = result.kind === "failed" ? result.status : undefined;
+      applyFailure(result, actionFailure(action, target.userName, status));
     } finally {
-      setPending(null);
+      setPending(false);
     }
   };
 
-  const isSelf = (account: AdminAccount) => account.userName === user?.username;
+  return { error, groups, pending, runAction, users };
+}
+
+/**
+ * The Accounts page: the directory's Users and Groups as read-only
+ * projections, the two operations an Admin performs on a User, and connector
+ * and token management.
+ *
+ * Nothing the directory owns is editable here, and that is enforced twice: the
+ * page renders no control that could change it, and the backend has no
+ * endpoint that would accept the change. The `ADMIN` route guard keeps a
+ * `USER` out; the backend restricts `/api/admin/**` independently, so the
+ * guard is a rendering decision and never the authorization.
+ */
+export function Accounts() {
+  const { logout, user } = useAuth();
+  const { error, groups, pending, runAction, users } = useDirectory();
 
   return (
-    <main className="mx-auto flex min-h-svh max-w-4xl flex-col justify-center gap-6 p-8">
+    <main className="mx-auto flex min-h-svh max-w-6xl flex-col gap-6 p-8">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm text-muted-foreground">Signed in as {user?.username}</p>
@@ -175,111 +406,38 @@ export function Accounts() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Account administration</CardTitle>
-          <CardDescription>
-            Every registered account, whether it is closed to logins, and whether it is serving a
-            lockout right now.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          ) : null}
+      {error ? (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
 
-          {accounts === null ? (
-            <p className="text-sm text-muted-foreground">Loading accounts…</p>
-          ) : (
-            <table className="w-full border-collapse text-left text-sm">
-              <caption className="sr-only">Registered accounts</caption>
-              <thead>
-                <tr className="border-b text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium" scope="col">
-                    Username
-                  </th>
-                  <th className="py-2 pr-4 font-medium" scope="col">
-                    Role
-                  </th>
-                  <th className="py-2 pr-4 font-medium" scope="col">
-                    Status
-                  </th>
-                  <th className="py-2 pr-4 font-medium" scope="col">
-                    Created
-                  </th>
-                  <th className="py-2 font-medium" scope="col">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((account) => (
-                  <tr className="border-b last:border-0" key={account.userName}>
-                    <th className="py-3 pr-4 font-medium" scope="row">
-                      {account.userName}
-                    </th>
-                    <td className="py-3 pr-4 text-muted-foreground">
-                      {account.admin ? "Admin" : "User"}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <StatusCell account={account} />
-                    </td>
-                    <td className="py-3 pr-4 text-muted-foreground">
-                      {formatDate(account.createdAt)}
-                    </td>
-                    <td className="py-3">
-                      <span className="flex gap-2">
-                        {account.active ? (
-                          <Button
-                            // Refused with a 409 by the backend as well: an
-                            // administrator who closed their own account could
-                            // not reopen it. Turned off here so the refusal is
-                            // visible before the click, not after it.
-                            disabled={pending !== null || isSelf(account)}
-                            onClick={() => void runAction(account, "disable")}
-                            size="sm"
-                            title={
-                              isSelf(account) ? "You cannot disable your own account" : undefined
-                            }
-                            variant="destructive"
-                          >
-                            Disable {account.userName}
-                          </Button>
-                        ) : (
-                          <Button
-                            disabled={pending !== null}
-                            onClick={() => void runAction(account, "enable")}
-                            size="sm"
-                          >
-                            Enable {account.userName}
-                          </Button>
-                        )}
-                        <Button
-                          // Unlocking an account serving no lockout is a no-op,
-                          // so the control only offers itself when it would do
-                          // something.
-                          disabled={pending !== null || !account.locked}
-                          onClick={() => void runAction(account, "unlock")}
-                          size="sm"
-                          variant="outline"
-                        >
-                          Unlock {account.userName}
-                        </Button>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+      <ProjectionCard
+        description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
+        empty="No users are provisioned."
+        failed={users.failed}
+        rows={users.rows}
+        title="Users"
+      >
+        <UsersTable
+          onAction={(target, action) => void runAction(target, action)}
+          pending={pending}
+          signedIn={user?.username}
+          users={users.rows ?? []}
+        />
+      </ProjectionCard>
 
-          {accounts !== null && accounts.length === 0 && error === null ? (
-            <p className="text-sm text-muted-foreground">No accounts are registered.</p>
-          ) : null}
-        </CardContent>
-      </Card>
+      <ProjectionCard
+        description="Groups and their membership come from the directory and are read-only here. Direct members of the protected Admin group hold administrative authority from their next sign-in."
+        empty="No groups are provisioned."
+        failed={groups.failed}
+        rows={groups.rows}
+        title="Groups"
+      >
+        <GroupsTable groups={groups.rows ?? []} />
+      </ProjectionCard>
+
+      <Connectors />
 
       <Link className="text-sm font-medium underline underline-offset-4" to="/showcase">
         Back to counter

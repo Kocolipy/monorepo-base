@@ -54,10 +54,15 @@ them:
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
   `accounts.tsx`). A page requests through `useSessionRequest`, never `apiFetch`
   directly — the `mb-transport-is-behind-the-session-seam` rule enforces it. Free
-  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN account
-  administration page: it reads `GET /api/admin/accounts` and posts the
-  disable / enable / unlock actions, and owns the copy for what each refusal
-  status means to an administrator.
+  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN Accounts
+  page: it reads the read-only Users (`GET /api/admin/accounts`) and Groups
+  (`GET /api/admin/groups`) projections, posts Unlock and the forced password
+  change by the User's stable id (`POST /api/admin/accounts/{id}/unlock`,
+  `.../force-password-change`), and owns the copy for what each refusal status
+  means to an administrator. `connectors.tsx` is its connector/token panel
+  (`/api/admin/connectors/**`); `accounts-api.ts` holds both files' wire types and
+  paths. There is no Disable or Enable: `active` is the directory's, and those
+  endpoints were removed.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with

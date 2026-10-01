@@ -233,34 +233,6 @@ public class AuditTrailService implements AuditTrail {
                 null));
     }
 
-    /** Records an account closed to logins. Fail-closed. */
-    @Transactional
-    @Override
-    public void recordAccountDisabled(UUID actorId, UUID subjectId) {
-        append(event(
-                AuditOperation.ACCOUNT_DISABLE,
-                AuditOutcome.SUCCESS,
-                actorId,
-                subjectId,
-                ENABLED_PATHS,
-                AuditEvent.STATUS_OK,
-                null));
-    }
-
-    /** Records an account reopened to logins. Fail-closed. */
-    @Transactional
-    @Override
-    public void recordAccountEnabled(UUID actorId, UUID subjectId) {
-        append(event(
-                AuditOperation.ACCOUNT_ENABLE,
-                AuditOutcome.SUCCESS,
-                actorId,
-                subjectId,
-                ENABLED_PATHS,
-                AuditEvent.STATUS_OK,
-                null));
-    }
-
     /**
      * Records a connector created. Fail-closed: the connector exists only if the
      * event does.
@@ -371,28 +343,6 @@ public class AuditTrailService implements AuditTrail {
                 AuditEvent.USER_RESOURCE_TYPE,
                 resultCount,
                 filter));
-    }
-
-    /**
-     * Records an administrative change refused because of what it would leave behind.
-     *
-     * <p>Fail-open with an alert. The caller is already receiving a {@code 409} and that
-     * answer must not become a {@code 500} because the trail is unavailable — and there is no
-     * mutation for a failed append to take down, because the refusal happens before anything
-     * is written. Fail-closed would therefore buy nothing and cost the refusal's own
-     * reliability.
-     */
-    @Override
-    public void recordAdministrativeChangeRefused(
-            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
-        appendRaisingAlertOnFailure(event(
-                AuditOperation.ACCOUNT_DISABLE,
-                AuditOutcome.FAILURE,
-                actorId,
-                subjectId,
-                List.of(),
-                AuditEvent.STATUS_CLIENT_ERROR,
-                reason.name()));
     }
 
     /**

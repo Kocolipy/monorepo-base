@@ -72,16 +72,6 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordAccountDisabled(UUID actorId, UUID subjectId) {
-        recorded.add(new Recorded(AuditOperation.ACCOUNT_DISABLE, actorId, subjectId, null));
-    }
-
-    @Override
-    public void recordAccountEnabled(UUID actorId, UUID subjectId) {
-        recorded.add(new Recorded(AuditOperation.ACCOUNT_ENABLE, actorId, subjectId, null));
-    }
-
-    @Override
     public void recordConnectorCreated(UUID actorId, UUID connectorId) {
         recorded.add(new Recorded(AuditOperation.CONNECTOR_CREATE, actorId, connectorId, null));
     }
@@ -132,13 +122,6 @@ public final class RecordingAuditTrail implements AuditTrail {
     /** A bulk read's count and rendered shape, e.g. {@code 2 userName eq ?}, as the detail. */
     private static String queryDetail(int resultCount, AuditFilterShape filter) {
         return resultCount + (filter == null ? "" : " " + filter.render());
-    }
-
-    @Override
-    public void recordAdministrativeChangeRefused(
-            UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
-        recorded.add(new Recorded(
-                AuditOperation.ACCOUNT_DISABLE, actorId, subjectId, reason.name()));
     }
 
     @Override

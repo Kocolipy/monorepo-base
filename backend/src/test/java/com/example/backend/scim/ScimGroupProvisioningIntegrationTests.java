@@ -12,6 +12,9 @@ import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.ConnectorTokenScope;
+import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
@@ -143,6 +146,39 @@ class ScimGroupProvisioningIntegrationTests {
     }
 
     // ---- retrieval ----------------------------------------------------------------------------
+
+    /**
+     * The port the Accounts page's Groups projection and each User's direct Groups are read
+     * through, against the real adapter: every live Group in normalized display-name order —
+     * not insertion order, which is why the two are created backwards — each carrying its own
+     * memberships and no one else's, from a single membership read.
+     */
+    @Test
+    void every_group_is_listed_in_display_name_order_with_its_own_members() throws Exception {
+        UUID ada = createUser("ada-directory-listing");
+        UUID bob = createUser("bob-directory-listing");
+        UUID zulu = idOf(createGroup("""
+                {"schemas":["%s"],"displayName":"zz-listing-Zulu","members":[{"value":"%s"}]}"""
+                .formatted(GROUP_SCHEMA, ada)));
+        UUID alpha = idOf(createGroup("""
+                {"schemas":["%s"],"displayName":"zz-listing-alpha",
+                 "members":[{"value":"%s"},{"value":"%s"}]}"""
+                .formatted(GROUP_SCHEMA, ada, bob)));
+
+        List<ScimGroup> listed = groupRepository.findAllOrderedByNormalizedDisplayName().stream()
+                .filter(group -> group.displayName().startsWith("zz-listing-"))
+                .toList();
+
+        assertThat(listed).extracting(ScimGroup::id).containsExactly(alpha, zulu);
+        assertThat(listed.get(0).members()).extracting(ScimGroupMember::userId)
+                .containsExactlyInAnyOrder(ada, bob);
+        assertThat(listed.get(1).members()).extracting(ScimGroupMember::userId)
+                .containsExactly(ada);
+        assertThat(groupRepository.findAllOrderedByNormalizedDisplayName())
+                .as("the seeded Admin group is listed too, with its reservation")
+                .anySatisfy(group -> assertThat(group.reservedName())
+                        .isEqualTo(ReservedResourceName.ADMIN_GROUP));
+    }
 
     /** A create, then the same Group read back by its id with its validator and its location. */
     @Test

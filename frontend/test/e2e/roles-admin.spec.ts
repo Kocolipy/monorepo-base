@@ -1,55 +1,62 @@
 import { expect, test } from "@playwright/test";
 
-import { postAdminAction } from "./auth.helpers";
+import { adminRequest, postAdminAction, userIdOf } from "./auth.helpers";
 
 test.describe("ADMIN route guards", () => {
   test("may view the accounts page", async ({ page }) => {
     await page.goto("/accounts");
 
     await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
-    await expect(page.getByRole("rowheader", { exact: true, name: "admin" })).toBeVisible();
+    await expect(page.getByRole("rowheader", { name: /^admin/ }).first()).toBeVisible();
     await expect(page).toHaveURL(/\/accounts$/);
   });
 });
 
-test.describe("ADMIN user listing", () => {
+test.describe("ADMIN directory projections", () => {
   // `page.request` shares the context's cookie jar, so the replayed ADMIN
   // session authenticates this call. No CSRF header is needed: the token is
   // only demanded of unsafe methods.
-  test("lists every registered account", async ({ page }) => {
+  test("lists every User with the projection's fields", async ({ page }) => {
     const response = await page.request.get("/api/admin/accounts");
-
     expect(response.status()).toBe(200);
 
     const users = (await response.json()) as Array<Record<string, unknown>>;
     expect(users.length).toBeGreaterThanOrEqual(2);
+    // The seeded identities, by derived authority rather than by name where it
+    // allows, so renaming a seed account in configuration does not fail this.
+    expect(users.map((user) => user.admin)).toContain(true);
+    expect(users.map((user) => user.admin)).toContain(false);
 
-    // The seeded identities, by role rather than by name, so renaming either
-    // seed account in configuration does not fail this.
-    expect(users.map((user) => user.role)).toContain("USER");
-    expect(users.map((user) => user.role)).toContain("ADMIN");
+    const admin = users.find((user) => user.bootstrapAdmin === true);
+    expect(admin, "the Bootstrap Admin should be listed").toBeTruthy();
+    expect(Object.keys(admin!).sort()).toEqual([
+      "active",
+      "admin",
+      "bootstrapAdmin",
+      "createdAt",
+      "displayName",
+      "groups",
+      "hasPassword",
+      "id",
+      "lastAuthenticatedAt",
+      "locked",
+      "passwordChangeRequired",
+      "userName",
+    ]);
+    // It cannot be locked, and its direct Groups include the Admin group.
+    expect(admin!.locked).toBe(false);
+    expect((admin!.groups as unknown[]).length).toBeGreaterThanOrEqual(1);
+    expect(Number.isNaN(Date.parse(String(admin!.createdAt)))).toBe(false);
   });
 
-  test("reports each account's username, role, status, and creation date", async ({ page }) => {
-    const response = await page.request.get("/api/admin/accounts");
-    const users = (await response.json()) as Array<Record<string, unknown>>;
+  test("lists every Group with its member count and the Admin marker", async ({ page }) => {
+    const response = await page.request.get("/api/admin/groups");
+    expect(response.status()).toBe(200);
 
-    const admin = users.find((user) => user.role === "ADMIN");
-    expect(admin, "the seeded ADMIN account should be listed").toBeTruthy();
-
-    expect(Object.keys(admin!).sort()).toEqual([
-      "createdAt",
-      "enabled",
-      "locked",
-      "role",
-      "username",
-    ]);
-    expect(admin!.username).toEqual(expect.any(String));
-    expect(admin!.enabled).toBe(true);
-    expect(admin!.locked).toBe(false);
-    // Parseable as a date rather than a fixed value: the timestamp is whenever
-    // this environment first seeded the account.
-    expect(Number.isNaN(Date.parse(String(admin!.createdAt)))).toBe(false);
+    const groups = (await response.json()) as Array<Record<string, unknown>>;
+    const adminGroups = groups.filter((group) => group.adminGroup === true);
+    expect(adminGroups).toHaveLength(1);
+    expect(adminGroups[0]!.memberCount).toEqual(expect.any(Number));
   });
 
   /**
@@ -58,66 +65,94 @@ test.describe("ADMIN user listing", () => {
    * object would still be caught.
    */
   test("never returns password hashes", async ({ page }) => {
-    const response = await page.request.get("/api/admin/accounts");
-    const body = await response.text();
+    const body = await (await page.request.get("/api/admin/accounts")).text();
 
-    expect(body).not.toContain("password");
+    expect(body).not.toContain('"password"');
     expect(body).not.toContain("$2a$");
+    expect(body).not.toContain("argon2");
   });
 });
 
 test.describe("ADMIN account control", () => {
   /**
-   * The disable/enable round trip is asserted through the page in
-   * `accounts-admin.spec.ts`, which reaches the same endpoints through the SPA.
-   * It lives in exactly one spec on purpose: the seeded `user` identity is
-   * shared with the `user` project running beside this one, and two specs
-   * toggling it in parallel would race. The endpoint's own contract — status
-   * codes, the refusals, the response shape — is covered in
-   * `AdminAccountEndpointTests`.
+   * Unlocking a User that is serving no lockout is the safe case to assert
+   * live: it is idempotent, writes nothing and requires no change, so it cannot
+   * disturb a parallel spec. The locked case is driven through the page in
+   * `accounts-admin.spec.ts`, on a User that spec provisions for itself.
    */
-
-  /**
-   * Unlocking an account that is serving no lockout is the safe case to assert
-   * live: it is idempotent, writes nothing, and cannot disturb a parallel spec.
-   * That enabling does not lift a lockout, and unlocking does not enable, is
-   * asserted in `AccountAdministrationServiceTests`, where the clock can be moved
-   * and a locked account can be set up without three real failed logins racing
-   * every other spec's session.
-   */
-  test("reports an account as unlocked when it is serving no lockout", async ({ page }) => {
-    const response = await postAdminAction(page, "user", "unlock");
+  test("reports a User as unlocked when it is serving no lockout", async ({ page }) => {
+    const response = await postAdminAction(page, await userIdOf(page, "user"), "unlock");
 
     expect(response.status()).toBe(200);
-    expect(await response.json()).toMatchObject({ locked: false });
+    expect(await response.json()).toMatchObject({ locked: false, passwordChangeRequired: false });
   });
 
   /**
-   * Asserted as self-disable rather than as the last-administrator guard: this
-   * project's session IS the `admin` account, so the self check answers first and
-   * the result does not depend on how many administrators the environment
-   * happens to have seeded. The last-administrator refusal is covered in
-   * `AdminAccountEndpointTests`, where exactly two accounts exist and disabling the
-   * only admin can be provoked deterministically.
+   * This project's session IS the Bootstrap Admin, the one Admin that cannot be
+   * locked; unlocking yourself is refused regardless, for the reason the page
+   * never offers it — a self-inflicted state takes a second Admin to undo.
    */
-  test("refuses to disable the account making the request", async ({ page }) => {
-    const response = await postAdminAction(page, "admin", "disable");
+  test("refuses to unlock the account making the request", async ({ page }) => {
+    const response = await postAdminAction(page, await userIdOf(page, "admin"), "unlock");
 
-    // 409, not 403: the caller is an administrator, the action is what is
-    // refused. A 403 here would mean the role check turned it away instead.
-    expect(response.status()).toBe(409);
+    expect(response.status()).toBe(403);
+  });
 
+  test("answers a request for a User that does not exist with 404", async ({ page }) => {
+    const response = await postAdminAction(page, crypto.randomUUID(), "unlock");
+
+    expect(response.status()).toBe(404);
+  });
+
+  /**
+   * The legacy Disable and Enable endpoints are gone, not hidden: a valid
+   * Admin session with a valid CSRF token reaches the dispatcher and is told the
+   * path does not exist — by the old `userName` addressing and by the new id.
+   */
+  test("no longer serves the removed Disable and Enable endpoints", async ({ page }) => {
+    const id = await userIdOf(page, "user");
+
+    for (const target of ["user", id]) {
+      for (const action of ["disable", "enable"]) {
+        const response = await postAdminAction(page, target, action);
+        expect(response.status(), `${action} ${target}`).toBe(404);
+      }
+    }
     const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
       Record<string, unknown>
     >;
-    expect(listing.find((account) => account.username === "admin")).toMatchObject({
-      enabled: true,
-    });
+    expect(listing.find((row) => row.id === id)).toMatchObject({ active: true });
   });
 
-  test("answers a request for an account that does not exist with 404", async ({ page }) => {
-    const response = await postAdminAction(page, "nobody", "disable");
+  /**
+   * The read-only criterion from the backend's side, over the real stack: no
+   * write reaches a directory-owned field, whatever method or path it takes.
+   */
+  test("refuses every write to a User or a Group", async ({ page }) => {
+    const id = await userIdOf(page, "user");
+    const directoryOwned = async () => {
+      const rows = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
+        Record<string, unknown>
+      >;
+      const row = rows.find((candidate) => candidate.id === id)!;
+      // Only the directory-owned fields: another project signing in moves
+      // `lastAuthenticatedAt`, which is application-owned and not in question.
+      return { active: row.active, groups: row.groups, userName: row.userName };
+    };
+    const before = await directoryOwned();
+    const change = { active: false, groups: [], userName: "renamed" };
 
-    expect(response.status()).toBe(404);
+    for (const [method, path] of [
+      ["PUT", `/api/admin/accounts/${id}`],
+      ["PATCH", `/api/admin/accounts/${id}`],
+      ["DELETE", `/api/admin/accounts/${id}`],
+      ["POST", "/api/admin/accounts"],
+      ["POST", "/api/admin/groups"],
+      ["PUT", "/api/admin/groups"],
+    ] as const) {
+      const response = await adminRequest(page, method, path, change);
+      expect([404, 405], `${method} ${path}`).toContain(response.status());
+    }
+    expect(await directoryOwned()).toEqual(before);
   });
 });

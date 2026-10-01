@@ -35,13 +35,13 @@ class HttpAuditRequestContextTests {
 
     @Test
     void theRouteTemplateIsRecordedAndTheResolvedUriIsNot() {
-        bind(request("POST", "/api/admin/accounts/ada/disable",
-                "/api/admin/accounts/{username}/disable", "req-7"));
+        bind(request("POST", "/api/admin/accounts/00000000-0000-4000-8000-00000000ada0/unlock",
+                "/api/admin/accounts/{id}/unlock", "req-7"));
 
         AuditRequest current = requests.current();
 
         assertThat(current.method()).isEqualTo("POST");
-        assertThat(current.pathTemplate()).isEqualTo("/api/admin/accounts/{username}/disable");
+        assertThat(current.pathTemplate()).isEqualTo("/api/admin/accounts/{id}/unlock");
         assertThat(current.requestId()).isEqualTo("req-7");
         // The username was in the URI and is in nothing this returned.
         assertThat(current.pathTemplate()).doesNotContain("ada");
@@ -55,7 +55,7 @@ class HttpAuditRequestContextTests {
      */
     @Test
     void anUnmatchedRequestRecordsNoPathRatherThanTheUri() {
-        bind(request("POST", "/api/admin/accounts/ada/disable", null, "req-8"));
+        bind(request("POST", "/api/admin/accounts/00000000-0000-4000-8000-00000000ada0/unlock", null, "req-8"));
 
         AuditRequest current = requests.current();
 

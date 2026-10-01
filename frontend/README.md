@@ -5,7 +5,8 @@ up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
 login page, a counter page for authenticated accounts, and an administrator-only
-accounts page that lists every account and closes, reopens or unlocks one, all
+accounts page that shows the directory's Users and Groups read-only, unlocks a
+User or forces its password change, and manages SCIM connectors and their tokens, all
 talking to the Spring Boot backend over session cookies. What is actually built
 out is the toolchain: type checking, linting, unit tests, architecture tests,
 E2E, static security analysis, dead-code/complexity analysis, and mutation
@@ -76,7 +77,9 @@ src/
   auth/                   session state, route guards, request seam
   pages/login.tsx         the public login page at /
   pages/showcase.tsx      the USER/ADMIN counter page at /showcase
-  pages/accounts.tsx      the ADMIN-only account administration page at /accounts
+  pages/accounts.tsx      the ADMIN-only Accounts page at /accounts: Users and Groups projections
+  pages/connectors.tsx    its connector/token panel, with the one-time token disclosure
+  pages/accounts-api.ts   the administration API's wire shapes and paths, for both
   components/ui/          shadcn primitives (placeholder — see below)
   lib/utils.ts            cn()
   lib/http.ts             typed API results — credentials + CSRF + status + decoding

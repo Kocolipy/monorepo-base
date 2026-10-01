@@ -4,7 +4,7 @@ package com.example.backend.audit.domain;
  * The triggering request, as much of it as an audit event may carry.
  *
  * <p>{@code pathTemplate} is the matched route pattern —
- * {@code /api/admin/accounts/{username}/disable} — and never the resolved URI.
+ * {@code /api/admin/accounts/{id}/unlock} — and never the resolved URI.
  * That distinction is the whole reason this is a value type rather than a raw
  * string pulled from a servlet: the resolved path of every administrative
  * endpoint has the acted-on account's username inside it, so recording it would

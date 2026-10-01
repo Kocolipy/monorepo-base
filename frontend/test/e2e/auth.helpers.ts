@@ -118,21 +118,52 @@ export async function submitLoginViaApi(
 }
 
 /**
- * POST an administration action, obeying the CSRF contract.
- *
- * Returns the response rather than asserting on it, because both outcomes are
- * worth testing: an `ADMIN` gets the updated account, and a `USER` must get a
- * `403` for the *role* — which is only proven when the token is present, since a
- * missing token earns the same 403 from the CSRF filter first.
+ * The CSRF header for an unsafe request made through this page's cookie jar,
+ * read out exactly as the SPA reads it. A safe request first guarantees a token
+ * exists even on a cold context.
  */
-export async function postAdminAction(page: Page, username: string, action: string) {
+async function csrfHeader(page: Page): Promise<Record<string, string>> {
   await page.request.get("/api/auth/me");
 
   const cookies = await page.context().cookies();
   const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
   expect(token, "the backend should have seeded an XSRF-TOKEN cookie").toBeTruthy();
 
-  return page.request.post(`/api/admin/accounts/${username}/${action}`, {
-    headers: { "X-XSRF-TOKEN": String(token) },
+  return { "X-XSRF-TOKEN": String(token) };
+}
+
+/**
+ * POST an administration action on a User, obeying the CSRF contract. Addressed
+ * by the User's stable id, which is what the operations take.
+ *
+ * Returns the response rather than asserting on it, because both outcomes are
+ * worth testing: an `ADMIN` gets the updated row, and a `USER` must get a
+ * `403` for the *role* — which is only proven when the token is present, since a
+ * missing token earns the same 403 from the CSRF filter first.
+ */
+export async function postAdminAction(page: Page, userId: string, action: string) {
+  return page.request.post(`/api/admin/accounts/${userId}/${action}`, {
+    headers: await csrfHeader(page),
   });
+}
+
+/** Any unsafe administration request, obeying the CSRF contract. */
+export async function adminRequest(
+  page: Page,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  data?: unknown,
+) {
+  return page.request.fetch(path, { data, headers: await csrfHeader(page), method });
+}
+
+/** The stable id of a listed User, read from the Users projection by `userName`. */
+export async function userIdOf(page: Page, userName: string): Promise<string> {
+  const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<{
+    id: string;
+    userName: string;
+  }>;
+  const found = listing.find((row) => row.userName === userName);
+  expect(found, `${userName} should be listed`).toBeTruthy();
+  return found!.id;
 }
