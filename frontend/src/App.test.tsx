@@ -174,3 +174,171 @@ describe("App", () => {
     expect(await screen.findByText("No connectors exist.")).toBeInTheDocument();
   });
 });
+
+/** A confined session exactly as `/api/auth/me` and login report one. */
+const CONFINED = { passwordChangeRequired: true, role: null, username: "ada" };
+
+describe("App with the change-required flag", () => {
+  beforeEach(() => {
+    document.cookie = "XSRF-TOKEN=test-token; path=/";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
+    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  });
+
+  const changePage = () => screen.findByRole("heading", { name: "Change your password" });
+
+  it.each(["/showcase", "/accounts", "/", "/no-such-page", "/change-password"])(
+    "lands a flagged session on /change-password from %s",
+    async (path) => {
+      window.history.replaceState(null, "", path);
+      const fetchMock = vi.fn().mockResolvedValue(Response.json(CONFINED));
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      expect(await changePage()).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/change-password");
+      // Confined: no data call was attempted on the way, only the session check.
+      expect(fetchMock.mock.calls.map(([url]) => url as string)).toEqual(["/api/auth/me"]);
+    },
+  );
+
+  it("confines a flagged session straight after login, whatever destination was recorded", async () => {
+    window.history.replaceState(null, "", "/accounts");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 401 }))
+        .mockResolvedValueOnce(Response.json(CONFINED)),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText("Username"), "ada");
+    await user.type(screen.getByLabelText("Password"), "provisioned");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await changePage()).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/change-password");
+  });
+
+  it("renders the change for an unflagged User, and sends a Visitor to login", async () => {
+    window.history.replaceState(null, "", "/change-password");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        ),
+    );
+    const { unmount } = render(<App />);
+    expect(await changePage()).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/change-password");
+    unmount();
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("returns to login on a successful change, then signs in to the default destination", async () => {
+    const [current, next] = ["provisioned-1", "self-chosen-passphrase"];
+    window.history.replaceState(null, "", "/change-password");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(CONFINED))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+      )
+      .mockResolvedValue(Response.json({ count: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText("Current password"), current);
+    await user.type(screen.getByLabelText("New password"), next);
+    await user.type(screen.getByLabelText("Confirm new password"), next);
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /^Your password was changed\. Sign in with your new password\.$/,
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/change-password", {
+      body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
+      method: "POST",
+    });
+
+    await user.type(screen.getByLabelText("Username"), "ada");
+    await user.type(screen.getByLabelText("Password"), next);
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // Not replayed back to /change-password: the change recorded no return destination.
+    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/showcase");
+  });
+
+  it("keeps the session on a wrong current password and stays on the change", async () => {
+    window.history.replaceState(null, "", "/change-password");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(CONFINED))
+        .mockResolvedValueOnce(new Response(null, { status: 401 }))
+        .mockResolvedValueOnce(Response.json(CONFINED)),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText("Current password"), "wrong-one");
+    await user.type(screen.getByLabelText("New password"), "self-chosen-passphrase");
+    await user.type(screen.getByLabelText("Confirm new password"), "self-chosen-passphrase");
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^The current password is incorrect\.$/,
+    );
+    expect(window.location.pathname).toBe("/change-password");
+  });
+
+  it("shows a policy refusal by the rule the backend names", async () => {
+    window.history.replaceState(null, "", "/change-password");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json(CONFINED))
+        .mockResolvedValueOnce(
+          Response.json(
+            {
+              message: "The new password must not contain the user name",
+              rule: "CONTAINS_USER_NAME",
+            },
+            { status: 400 },
+          ),
+        ),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(await screen.findByLabelText("Current password"), "provisioned-1");
+    await user.type(screen.getByLabelText("New password"), "ada-is-my-name-ok");
+    await user.type(screen.getByLabelText("Confirm new password"), "ada-is-my-name-ok");
+    await user.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^The new password must not contain the user name$/,
+    );
+  });
+});

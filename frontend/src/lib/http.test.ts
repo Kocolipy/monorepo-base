@@ -187,4 +187,42 @@ describe("apiFetch", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json")));
     await expect(apiFetch("/api/count", {}, decodeCount)).resolves.toEqual({ kind: "failed" });
   });
+
+  const decodeRule = async (response: Response): Promise<string> => {
+    const body = (await response.json()) as { rule: string };
+    return body.rule;
+  };
+
+  it("decodes a failure body only for a caller that asks for one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(Response.json({ rule: "TOO_SHORT" }, { status: 400 }))),
+    );
+
+    await expect(
+      apiFetch("/api/auth/change-password", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "failed", status: 400, detail: "TOO_SHORT" });
+    // Without a failure decoder the body is not read, and no `detail` key appears.
+    await expect(apiFetch("/api/auth/change-password", { method: "POST" })).resolves.toStrictEqual({
+      kind: "failed",
+      status: 400,
+    });
+  });
+
+  it("decodes success data alongside a failure decoder", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ count: 4 })));
+
+    await expect(apiFetch("/api/count", {}, decodeCount, decodeRule)).resolves.toEqual({
+      kind: "ok",
+      data: 4,
+    });
+  });
+
+  it("keeps the status when a failure body does not decode", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 400 })));
+
+    await expect(
+      apiFetch("/api/auth/change-password", { method: "POST" }, undefined, decodeRule),
+    ).resolves.toStrictEqual({ kind: "failed", status: 400, detail: undefined });
+  });
 });

@@ -15,12 +15,14 @@ vi.mock("@/lib/http", async (importOriginal) => ({
 const apiFetchMock = vi.mocked(apiFetch);
 
 const state: AuthContextState = {
+  changePassword: vi.fn(),
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
+  passwordChanged: false,
   sessionExpired: false,
   status: "authenticated",
-  user: { role: "USER", username: "ada" },
+  user: { passwordChangeRequired: false, role: "USER", username: "ada" },
 };
 
 const wrapper = ({ children }: { children: ReactNode }) => (

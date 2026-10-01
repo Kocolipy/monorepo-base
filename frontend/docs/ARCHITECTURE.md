@@ -27,8 +27,10 @@ runs it.
 
 `src/auth/` is a _concern_, not a screen. It holds six files:
 
-- `api.ts` — the three `/api/auth/*` calls, each mapping a status code to a
-  domain outcome (`401` on `/me` is a guest, not an error).
+- `api.ts` — the four `/api/auth/*` calls, each mapping a status code to a
+  domain outcome (`401` on `/me` is a guest, not an error; `401` on
+  change-password is a wrong current password or a lockout, never a reason to
+  end the session by itself).
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
   mount and owns the session status plus the expiry provenance.
 - `auth-context-value.ts` — the context object and the `useAuth` hook, split out
@@ -43,10 +45,10 @@ runs it.
   `unauthenticated` result itself and returns a `SessionResult`, which has no
   `unauthenticated` member, so no page can forget to relay a session ending.
 
-`pages/login.tsx`, `pages/showcase.tsx`, and `pages/accounts.tsx` are screens
-that _consume_ this; they hold no session or role logic themselves, and none
-decides where a visitor goes next. A new protected area adds a route declaration,
-not a second copy of the guard.
+`pages/login.tsx`, `pages/showcase.tsx`, `pages/accounts.tsx` and
+`pages/change-password.tsx` are screens that _consume_ this; they hold no
+session or role logic themselves, and none decides where a visitor goes next. A
+new protected area adds a route declaration, not a second copy of the guard.
 
 `pages/accounts.tsx` is the widest of the three. It reads two read-only
 projections — Users from `GET /api/admin/accounts`, Groups from
@@ -205,31 +207,54 @@ directory that a test run writes into belongs on this list.
 
 ## Routing
 
-`App.tsx` owns the whole route table — four routes, deliberately flat:
+`App.tsx` owns the whole route table — five routes, deliberately flat:
 
-| Path        | Element                                                              | Notes                                                                      |
-| ----------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `/`         | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase`                    |
-| `/showcase` | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                                            |
-| `/accounts` | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | Users/Groups projections, Unlock, forced change, connectors — `ADMIN` only |
-| `*`         | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                                           |
+| Path               | Element                                                              | Notes                                                                                       |
+| ------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `/`                | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase`                                     |
+| `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                                                             |
+| `/accounts`        | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | Users/Groups projections, Unlock, forced change, connectors — `ADMIN` only                  |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                | self-service change for any authenticated User; the only route a flagged session is offered |
+| `*`                | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                                                            |
 
-**Change-password route — backend only, not yet rendered.** The backend confines
-a session whose password must be replaced (the change-required flag, see
-`/CONTEXT.md`): `GET /api/auth/me` and the login response report
-`passwordChangeRequired: true` with `role: null`, and every endpoint but
-`POST /api/auth/change-password` and logout answers `403`. The SPA does not read
-the flag yet — `AuthUser` has no field for it — so such a session is routed as
-authenticated, lands on `/showcase`, and sees its data calls refused. The page
-that closes this is a `/change-password` route that `resolveSessionRoute` sends
-every flagged session to (and nowhere else), submitting current and new password
-and returning to login on `204`, since the change ends every session.
+**Change-password route.** The backend confines a session whose password must be
+replaced (the change-required flag, see `/CONTEXT.md`): `GET /api/auth/me` and
+the login response report `passwordChangeRequired: true` with `role: null`, and
+every endpoint but `POST /api/auth/change-password` and logout answers `403`.
+`AuthUser` carries that flag, and `resolveSessionRoute` confines such a session
+to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
+the login route, an unknown path (which falls back to login first) — redirects
+there, ahead of the role check and of any recorded return destination, so a
+flagged Admin is confined exactly as a flagged User is. The page offers sign-out,
+so a flagged User is never stuck on it. An unflagged User may open it too, for a
+voluntary change, and the showcase links to it.
+
+`pages/change-password.tsx` submits current and new password (plus a
+confirmation checked in the browser) through `changePassword` on the auth
+context, not through `useSessionRequest`: a `401` there is an answer about the
+current password, and the seam would end the session on it unconditionally.
+`src/auth/api.ts` maps the outcomes. `204` means every session of the User has
+ended, the submitting one included, so the context clears its auth state and
+records why, and the guard returns the visitor to login with "Your password was
+changed" and no return destination — the next sign-in lands on `/showcase`, not
+back on the change. A `400` carries the backend's `PasswordRuleViolation`, and
+the page shows its statement of the unmet rule. The backend answers a wrong
+current password and a lockout with the same bodiless `401`, so `api.ts` tells
+them apart by asking `GET /api/auth/me` whether the session survived: a wrong
+password leaves it standing; reaching the lockout threshold revokes every
+session of the User, and the page then says an Admin must Unlock the account and
+closes the form. Every refusal clears all three fields. The inputs are
+uncontrolled, because React mirrors a controlled input's value into the DOM
+`value` attribute, and no message the page shows contains either value.
 
 `resolveSessionRoute` is the pure transition table behind both guard adapters.
-It sends a Visitor to login with a return destination, renders authenticated
-routes for either role, and redirects a role mismatch to `/showcase`. Spring
-Security remains authoritative for server operations: `/api/admin/**` requires
-`ADMIN` even if client-side routing is bypassed, so the guard decides what is
+It sends a Visitor to login with a return destination, confines a flagged
+session to `/change-password`, renders authenticated routes for either role, and
+redirects a role mismatch to `/showcase`. After a successful change it sends the
+visitor to login carrying `passwordChanged` instead of a return destination.
+Spring Security remains authoritative for server operations: `/api/admin/**`
+requires `ADMIN`, and a flagged session is refused everything but the change and
+logout, even if client-side routing is bypassed, so the guard decides what is
 _rendered_ and never what is _permitted_.
 
 `BrowserRouter` means real paths, not hashes, so the backend has to serve

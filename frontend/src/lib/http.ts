@@ -20,11 +20,16 @@ export type ApiRequestInit = Omit<RequestInit, "headers"> & {
   headers?: Record<string, string>;
 };
 
-export type ApiResult<T> =
+/**
+ * `E` is what a caller-supplied failure decoder reads out of an unsuccessful
+ * response's body. It defaults to `never`, so a result requested without one
+ * carries no `detail` to read.
+ */
+export type ApiResult<T, E = never> =
   | { kind: "ok"; data: T }
   | { kind: "unauthenticated" }
   | { kind: "csrf-expired" }
-  | { kind: "failed"; status?: number };
+  | { kind: "failed"; status?: number; detail?: E };
 
 /**
  * Copy for a `csrf-expired` result, owned here because the condition is a
@@ -61,25 +66,46 @@ function withCsrf(init: ApiRequestInit): RequestInit {
   };
 }
 
+/**
+ * A failure body is evidence, not a contract: one that does not decode leaves
+ * the result a plain `failed` with its status, rather than turning it into a
+ * transport failure that has lost the status too.
+ */
+async function readDetail<E>(response: Response, decode: ApiDecoder<E>): Promise<E | undefined> {
+  try {
+    return await decode(response);
+  } catch {
+    return undefined;
+  }
+}
+
 export function apiFetch(path: string, init?: ApiRequestInit): Promise<ApiResult<void>>;
 export function apiFetch<T>(
   path: string,
   init: ApiRequestInit,
   decode: ApiDecoder<T>,
 ): Promise<ApiResult<T>>;
+export function apiFetch<T, E>(
+  path: string,
+  init: ApiRequestInit,
+  decode: ApiDecoder<T> | undefined,
+  decodeFailure: ApiDecoder<E>,
+): Promise<ApiResult<T, E>>;
 
 /**
  * Performs an API request and returns its meaning rather than a raw response.
  *
  * Unsafe requests retry exactly once after a `403` and CSRF re-seed. The final
  * response is then classified consistently for every feature. Successful body
- * decoding is explicit, so no-content responses remain type-safe.
+ * decoding is explicit, so no-content responses remain type-safe, and so is
+ * failure body decoding: only a caller passing `decodeFailure` gets a `detail`.
  */
-export async function apiFetch<T>(
+export async function apiFetch<T, E>(
   path: string,
   init: ApiRequestInit = {},
   decode?: ApiDecoder<T>,
-): Promise<ApiResult<T | void>> {
+  decodeFailure?: ApiDecoder<E>,
+): Promise<ApiResult<T | void, E>> {
   try {
     let response = await fetch(path, withCsrf(init));
     if (response.status === 403 && isUnsafe(init.method)) {
@@ -89,7 +115,14 @@ export async function apiFetch<T>(
 
     if (response.status === 401) return { kind: "unauthenticated" };
     if (response.status === 403) return { kind: "csrf-expired" };
-    if (!response.ok) return { kind: "failed", status: response.status };
+    if (!response.ok) {
+      if (decodeFailure === undefined) return { kind: "failed", status: response.status };
+      return {
+        kind: "failed",
+        status: response.status,
+        detail: await readDetail(response, decodeFailure),
+      };
+    }
     if (decode === undefined) return { kind: "ok", data: undefined };
 
     return { kind: "ok", data: await decode(response) };

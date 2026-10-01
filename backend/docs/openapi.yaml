@@ -188,6 +188,13 @@ paths:
             No usable session, or the change was refused: wrong current password,
             an account locked out, or an inactive account. One bodiless answer
             covers every reason, as for Login.
+
+            The SESSION tells them apart. A wrong current password below the
+            threshold leaves the submitting session standing; the attempt that
+            reaches the threshold locks the account and revokes every session of
+            the User, the submitting one included, so a `GET /api/auth/me` after
+            it answers `401`. The SPA reads a `401` here followed by a `401` from
+            `/me` as the lockout.
         "403":
           $ref: "#/components/responses/CsrfTokenRejected"
   /api/self:

@@ -16,12 +16,14 @@ vi.mock("@/lib/http", async (importOriginal) => ({
 const apiFetchMock = vi.mocked(apiFetch);
 
 const auth: AuthContextState = {
+  changePassword: vi.fn(),
   expireSession: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
+  passwordChanged: false,
   sessionExpired: false,
   status: "authenticated",
-  user: { role: "ADMIN", username: "ada" },
+  user: { passwordChangeRequired: false, role: "ADMIN", username: "ada" },
 };
 
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";

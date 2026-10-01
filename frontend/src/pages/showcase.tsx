@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
+import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import {
   CSRF_EXPIRED_MESSAGE,
   useSessionRequest,
@@ -115,14 +116,19 @@ export function Showcase() {
           >
             Reset
           </Button>
-          {user?.role === "ADMIN" ? (
+          <div className="ml-auto flex gap-4">
+            {user?.role === "ADMIN" ? (
+              <Link className="text-sm font-medium underline underline-offset-4" to="/accounts">
+                Manage accounts
+              </Link>
+            ) : null}
             <Link
-              className="ml-auto text-sm font-medium underline underline-offset-4"
-              to="/accounts"
+              className="text-sm font-medium underline underline-offset-4"
+              to={CREDENTIAL_CHANGE_PATH}
             >
-              Manage accounts
+              Change password
             </Link>
-          ) : null}
+          </div>
         </CardFooter>
       </Card>
     </main>

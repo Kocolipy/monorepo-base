@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { AuthUser } from "./api";
+import type { AuthUser, PasswordChangeOutcome } from "./api";
 
 /** The session status: what the SPA currently knows about the visitor's session. */
 export type AuthStatus = "checking" | "authenticated" | "guest";
@@ -10,11 +10,19 @@ export type AuthStatus = "checking" | "authenticated" | "guest";
  *
  * Deliberately has no member for *ending* a session: a feature request that
  * comes back unauthenticated is handled by `useSessionRequest`, so no page has
- * to remember to relay it.
+ * to remember to relay it. `changePassword` ends one only on success, which is
+ * the backend's doing — it revokes every session of the User, this one included.
  */
 export interface AuthContextValue {
+  /**
+   * Submits the session's own password change. On `changed` the auth state is
+   * already cleared, so the route guard returns the visitor to login.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<PasswordChangeOutcome>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** True while the current `guest` status came from a successful password change. */
+  passwordChanged: boolean;
   status: AuthStatus;
   /** True while the current `guest` status came from an expired session rather than a cold visit. */
   sessionExpired: boolean;
