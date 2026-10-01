@@ -156,10 +156,10 @@ backend side moves. What the SPA has to honour:
   holds, so signing in from a second browser or profile signs the first
   out; the first presents as the ordinary `401` path above.
 - **Logout answers `Clear-Site-Data: "cache","cookies","storage"`.** The
-  browser may therefore drop the replacement `XSRF-TOKEN` the same response
-  sets, along with anything in `localStorage` / `sessionStorage`. Nothing in the
-  SPA may rely on storage surviving logout, and the next login's `403` re-seed
-  (above) is what recovers a dropped token.
+  browser drops anything in `localStorage` / `sessionStorage` along with the
+  session cookie. Nothing in the SPA may rely on storage surviving logout. The
+  CSRF token is unaffected: it lives in memory only and in the session the
+  logout ended, and the SPA discards it on logout anyway.
 - **The CSP forbids inline script, `eval`, and every third-party origin** for
   scripts, styles, fonts, images and `fetch`. Self-host instead of adding a CDN,
   and prefer Vite plugins that keep their output out of an inline `<script>`.

@@ -257,11 +257,11 @@ class SecurityConfigTests {
      */
     @Test
     void aFrontendPathIsPublicForGetOnly() throws Exception {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
+        MockHttpSession session = new MockHttpSession();
+        String[] token = mvc.perform(get(ProbeController.TOKEN).session(session))
+                .andReturn().getResponse().getContentAsString().split(":", 2);
 
-        mvc.perform(post("/")
-                        .cookie(new Cookie(CSRF_COOKIE, token.getToken()))
-                        .header(CSRF_HEADER, token.getToken()))
+        mvc.perform(post("/").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
     }
 
