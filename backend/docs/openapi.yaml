@@ -43,6 +43,7 @@ tags:
   - name: Counter
   - name: Administration
   - name: Connectors
+  - name: Audit
   - name: SCIM
   - name: Health
 paths:
@@ -676,6 +677,106 @@ paths:
           $ref: "#/components/responses/AdminRoleRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
+  /api/admin/audit-events:
+    get:
+      tags: [Audit]
+      summary: List redacted audit events, newest first, paginated and filterable
+      description: |
+        The administrative read of the append-only audit trail: authentication,
+        lockout, administrative, connector and token lifecycle, SCIM provisioning,
+        bulk-read and scheduled-job events, newest first (ties broken by event id,
+        so paging never repeats or skips an event).
+
+        Every filter is optional and they combine with AND. `totalElements` and
+        `totalPages` describe the whole filtered set, counted in the same
+        snapshot as the page. A page past the end is `200` with no events.
+
+        **Redaction is structural.** Each listed event is the stored record
+        itself, which has no field a password, bearer value, token or password
+        hash, `userName`, profile value or literal filter value could be written
+        into: actors and resources are stable ids, classifications come from
+        closed sets, `httpPath` is the matched route template and never the
+        resolved path, and a bulk read carries its filter's shape (`userName eq ?`)
+        and never its values.
+
+        Reading the trail is not itself recorded. The listing is served only to an
+        Admin, like every operation under `/api/admin`.
+      operationId: listAuditEvents
+      parameters:
+        - name: operation
+          in: query
+          required: false
+          description: Only events of this operation.
+          schema:
+            $ref: "#/components/schemas/AuditOperation"
+        - name: outcome
+          in: query
+          required: false
+          description: Only events with this outcome.
+          schema:
+            $ref: "#/components/schemas/AuditOutcome"
+        - name: actorId
+          in: query
+          required: false
+          description: |
+            Only events whose actor is this stable id — an Admin or User for an
+            authentication or administrative event, a connector for a SCIM one.
+          schema:
+            type: string
+            format: uuid
+        - name: resourceId
+          in: query
+          required: false
+          description: Only events about this resource's stable id.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: Only events that occurred at or after this instant (inclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: false
+          description: Only events that occurred strictly before this instant (exclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          required: false
+          description: Zero-based page number.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          description: Events per page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: One page of matching events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventPage"
+        "400":
+          description: |
+            `page` is negative, `size` is outside 1–200, or a filter is not a member
+            of its closed set, a UUID or an ISO-8601 instant.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AdminRoleRequired"
   /scim/v2/ServiceProviderConfig:
     get:
       tags: [SCIM]
@@ -2204,6 +2305,140 @@ components:
         status:
           type: string
       additionalProperties: true
+    AuditEventPage:
+      type: object
+      required: [events, page, size, totalElements, totalPages]
+      properties:
+        events:
+          type: array
+          description: This page's events, newest first.
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        page:
+          type: integer
+          description: The zero-based page number asked for.
+        size:
+          type: integer
+          description: The page size asked for.
+        totalElements:
+          type: integer
+          format: int64
+          description: Matching events across every page.
+        totalPages:
+          type: integer
+          format: int64
+          description: Pages of `size` those events fill; `0` when none match.
+    AuditEvent:
+      type: object
+      description: |
+        One recorded event, exactly as stored. There is no property a password,
+        bearer value, hash, `userName`, profile value or literal filter value
+        could occupy.
+      required: [id, occurredAt, operation, outcome, resourceType, changedPaths, statusClass]
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+          description: When the audited operation happened, in UTC.
+        operation:
+          $ref: "#/components/schemas/AuditOperation"
+        outcome:
+          $ref: "#/components/schemas/AuditOutcome"
+        actorId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Who acted, by stable id: an Admin or User for authentication and
+            administrative events (including connector and token lifecycle), the
+            connector for SCIM events. `null` when nobody was authenticated (a
+            refused login, a lockout) or when a scheduled job or startup seeding
+            acted — the operation names the job.
+        subjectId:
+          type: [string, "null"]
+          format: uuid
+          description: The resource acted on; equal to `resourceId`.
+        resourceType:
+          type: string
+          enum: [User, Group, ScimConnector, "User,Group"]
+          description: |
+            `ScimConnector` for connector and token lifecycle events, named by the
+            connector's id rather than the token's; `User,Group` for a base
+            `/.search`.
+        resourceId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Stable id of the resource acted on. `null` when the operation named no
+            existing resource — a login for an unknown `userName`, a refused
+            create, a bulk read.
+        changedPaths:
+          type: array
+          items:
+            type: string
+          description: Attribute paths the operation changed, never their values; empty when none.
+        statusClass:
+          type: string
+          enum: [ok, client_error, server_error]
+        errorCode:
+          type: [string, "null"]
+          description: A refusal reason from the service's own closed set (e.g. `BAD_CREDENTIALS`), never a message.
+        httpMethod:
+          type: [string, "null"]
+        httpPath:
+          type: [string, "null"]
+          description: The matched route template, never the resolved path.
+        requestId:
+          type: [string, "null"]
+          description: Correlation id of the triggering request, shared with its log lines.
+        resultCount:
+          type: [integer, "null"]
+          description: How many resources a bulk read returned; `null` for every other operation.
+        filterShape:
+          type: [string, "null"]
+          description: |
+            A bulk read's filter with every literal replaced by `?`
+            (`userName eq ?`); `null` when it had none or is not a bulk read.
+    AuditOutcome:
+      type: string
+      enum: [SUCCESS, FAILURE]
+      description: Whether the audited operation worked — not whether recording it did.
+    AuditOperation:
+      type: string
+      enum:
+        - LOGIN_SUCCESS
+        - LOGIN_FAILURE
+        - LOGOUT
+        - LOCKOUT_SET
+        - LOCKOUT_LIFT
+        - ACCOUNT_DISABLE
+        - ACCOUNT_ENABLE
+        - CONNECTOR_CREATE
+        - CONNECTOR_DELETE
+        - CONNECTOR_TOKEN_ISSUE
+        - CONNECTOR_TOKEN_ROTATE
+        - CONNECTOR_TOKEN_REVOKE
+        - SCIM_USER_CREATE
+        - SCIM_USER_LIST
+        - SCIM_USER_REPLACE
+        - SCIM_USER_DELETE
+        - USER_SESSIONS_REVOKE
+        - SCIM_GROUP_CREATE
+        - SCIM_GROUP_REPLACE
+        - SCIM_GROUP_DELETE
+        - SCIM_GROUP_LIST
+        - SCIM_RESOURCE_LIST
+        - SCIM_RESOURCE_SEED
+        - INACTIVITY_DEACTIVATION
+        - DORMANT_AUTHORITY_REVOCATION
+        - PASSWORD_CHANGE_REQUIRE
+        - PASSWORD_CHANGE
+        - PASSWORD_CHANGE_GRACE_DEACTIVATION
+      description: |
+        What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
+        a lockout has no duration, so there is no expiry lift.
     ConnectorTokenScope:
       type: string
       enum: [READ_ONLY, READ_WRITE]
