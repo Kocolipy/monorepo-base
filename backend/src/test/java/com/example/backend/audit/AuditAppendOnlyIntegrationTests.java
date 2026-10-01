@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.SessionCsrf;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.ContainerTestConfiguration;
@@ -20,7 +21,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,9 +45,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -183,9 +180,6 @@ class AuditAppendOnlyIntegrationTests {
 
     @Autowired
     private TransactionTemplate transactions;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     @Qualifier("springSecurityFilterChain")
@@ -545,9 +539,6 @@ class AuditAppendOnlyIntegrationTests {
     }
 
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request
-                .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                .header("X-XSRF-TOKEN", token.getToken());
+        return SessionCsrf.withCsrf(mvc, request);
     }
 }

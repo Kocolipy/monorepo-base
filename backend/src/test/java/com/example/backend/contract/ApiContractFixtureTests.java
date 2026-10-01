@@ -3,6 +3,7 @@ package com.example.backend.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -35,9 +36,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -96,9 +94,6 @@ class ApiContractFixtureTests {
 
     @Autowired
     private ConnectorAdministrationService connectors;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -195,12 +190,21 @@ class ApiContractFixtureTests {
     // ---- /api/auth --------------------------------------------------------------------
 
     private static void authentication(List<Fixture> all) {
-        add(all, "login: 200 with the session and a replacement CSRF cookie", t -> {
+        add(all, "csrf: 200 with the session's token in the body, never cached", t -> {
+            MvcResult issued = t.expect(t.get(SessionCsrf.PATH), 200);
+            assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
+                    .isEqualTo("no-store");
+            JsonNode body = json(issued);
+            assertThat(body.get("headerName").asText()).isEqualTo("X-CSRF-TOKEN");
+            assertThat(body.get("token").asText()).isNotBlank();
+        });
+        add(all, "login: 200 with the session and no CSRF cookie", t -> {
             MvcResult login = t.expect(t.csrf(t.post("/api/auth/login"))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(credentials(ADMIN, ADMIN_PASSWORD)), 200);
             assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
-                    .anyMatch(cookie -> cookie.startsWith("XSRF-TOKEN="));
+                    .anyMatch(cookie -> cookie.startsWith("SESSION="))
+                    .noneMatch(cookie -> cookie.startsWith("XSRF-TOKEN="));
         });
         add(all, "login: 400 for a body that fails validation", t ->
                 t.expect(t.csrf(t.post("/api/auth/login")).contentType(MediaType.APPLICATION_JSON)
@@ -457,11 +461,9 @@ class ApiContractFixtureTests {
         return request.contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
-    /** Adds a real CSRF double-submit pair, as the SPA sends it. */
+    /** Adds the token of the request's own session, fetched as the SPA fetches it. */
     MockHttpServletRequestBuilder csrf(MockHttpServletRequestBuilder request) {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request.cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                .header("X-XSRF-TOKEN", token.getToken());
+        return SessionCsrf.withCsrf(mvc, request);
     }
 
     MvcResult expect(MockHttpServletRequestBuilder request, int status) throws Exception {

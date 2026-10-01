@@ -195,9 +195,10 @@ cookie jar but adds **no headers of
 its own**, so it does not satisfy the backend's CSRF contract
 (`/frontend/AGENTS.md`, "Backend contract") — an unsafe request made that way
 returns `403` and the
-spec fails somewhere unrelated to what it was testing. Read the token out of the
-context and echo it, as `resetCounterViaApi()` in `test/e2e/auth.helpers.ts`
-does; add new API fixtures beside it rather than inlining a raw
+spec fails somewhere unrelated to what it was testing. Fetch the session's token
+from `GET /api/auth/csrf` and echo it, as `csrfHeaderFor()` in
+`test/e2e/auth.helpers.ts` does — after any login, which rotates the session and
+discards the pre-login token; add new API fixtures beside it rather than inlining a raw
 `page.request.post`. `postAdminAction()` is the fixture for the administration
 endpoints, and it deliberately RETURNS the response instead of asserting on it:
 a `USER` reaching one must be refused for its role, and that is only proven with
@@ -249,18 +250,19 @@ response:
 
 - **`401`** — drop the session cookie from the browser context and put every
   other cookie back (`expireSession()` in `test/e2e/auth.helpers.ts`). The CSRF
-  token lives outside the session (`CookieCsrfTokenRepository`), so keeping it is
-  what makes this a `401` and not a `403`. The backend session stays valid, so a
-  spec doing this cannot break one running beside it.
-- **`403`, persistently** — rewrite the `X-XSRF-TOKEN` header with
-  `page.route`. Deleting the cookie does not work: `apiFetch` answers a `403` by
-  re-seeding the cookie and retrying once, so the retry would succeed. Rewriting
+  token lives in the session, so it goes too: an unsafe request is first refused
+  `403`, and `apiFetch`'s re-fetch — which opens a fresh, anonymous session —
+  then lands the retry on the `401`. The backend session stays valid, so a spec
+  doing this cannot break one running beside it.
+- **`403`, persistently** — rewrite the `X-CSRF-TOKEN` header with
+  `page.route`. A stale token does not work: `apiFetch` answers a `403` by
+  re-fetching the token and retrying once, so the retry would succeed. Rewriting
   on every attempt makes the backend reject both, and a `403` that survives the
-  re-seed is reported as `forbidden`.
+  re-fetch is reported as `forbidden`.
 
 A test that forces a failure has to be shown to **fire**: neuter the mechanism
-(rename the cookie, drop the header rewrite), confirm the test fails, then put it
-back. Both of these were verified that way.
+(keep the session cookie, drop the header rewrite), confirm the test fails, then put it
+back.
 
 ### Sharing backend state under `fullyParallel`
 
@@ -276,8 +278,11 @@ recovery, status classification, and decoding. Feature tests mock `apiFetch`
 with an `ApiResult` (`ok`, `unauthenticated`, `forbidden`, `csrf-expired`, or
 `failed`) and
 assert only their own response to that meaning. This keeps raw `Response`
-construction and cookie setup out of feature suites; `src/auth/api.test.ts`,
+construction and token setup out of feature suites; `src/auth/api.test.ts`,
 `src/pages/showcase.test.tsx` and `src/pages/accounts.test.tsx` are the patterns.
+A suite that renders the whole app over a stubbed `fetch` (`src/App.test.tsx`)
+wraps its stub in `stubFetchWithCsrf()` from `src/lib/http.testHelpers.ts`, which
+answers the token endpoint so the stub sees only the requests the test is about.
 A page that renders a `<Link>` needs a router in the test too — wrap it in
 `MemoryRouter`, as `accounts.test.tsx` does, or the link throws on a null router
 context.

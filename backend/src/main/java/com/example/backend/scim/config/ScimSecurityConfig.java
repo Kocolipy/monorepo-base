@@ -22,7 +22,8 @@ import org.springframework.security.web.header.HeaderWriterFilter;
  *
  * <p>A second chain rather than more rules in the first one, because the two
  * namespaces disagree about nearly everything a chain configures. The application
- * chain is session-backed with CSRF double-submit and an SPA fallback; the SCIM chain
+ * chain is session-backed with a session-bound CSRF synchronizer token and an SPA
+ * fallback; the SCIM chain
  * is a stateless API authenticated by a bearer credential on every request. Folding
  * the second into the first would mean every rule carrying a path condition, and the
  * SPA's session behaviour reaching an endpoint no browser calls.
@@ -120,7 +121,7 @@ public class ScimSecurityConfig {
         // credential is not ambient. A browser cannot make an authenticated SCIM
         // request on a user's behalf: there is no cookie or session this chain
         // accepts, and the token has to be placed in a header by the caller, which a
-        // cross-site form cannot do. The application chain's double-submit is
+        // cross-site form cannot do. The application chain's synchronizer token is
         // untouched and still guards every cookie-authenticated path — which is what
         // be-csrf-disabled is about, and why this is the one place it does not apply.
         // Written as its own statement so the suppression sits on the flagged line

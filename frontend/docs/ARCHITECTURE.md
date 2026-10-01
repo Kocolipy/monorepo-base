@@ -85,17 +85,21 @@ cannot opt out of the seam by calling `apiFetch` itself.
 
 ### Why every request goes through `lib/http.ts`
 
-The backend enforces CSRF double-submit (`/frontend/AGENTS.md`, "Backend contract"), so every
-unsafe request needs the `XSRF-TOKEN` cookie echoed in an `X-XSRF-TOKEN` header
-or it comes back `403`. `apiFetch()` is the single place that knows this: it
-reads the cookie **at call time**, adds the header on unsafe methods only, and
-on an unsafe request's `403` re-seeds the cookie with a safe `GET` and retries
-exactly once. A safe request's `403` cannot be CSRF, so it is not retried.
+The backend enforces a session-bound CSRF synchronizer token (`/frontend/AGENTS.md`,
+"Backend contract"), so every unsafe request needs the session's token, in the
+header `GET /api/auth/csrf` names, or it comes back `403`. `apiFetch()` is the
+single place that knows this: it holds the token **in memory only**, fetches it
+from that endpoint before the first unsafe request, adds the header on unsafe
+methods only, and on an unsafe request's `403` re-fetches the token and retries
+exactly once. A safe request's `403` cannot be CSRF, so it is not retried. Login,
+logout, a password change and an expired session all change the session, so
+each discards the held token (`discardCsrfToken()`), and the next unsafe request
+fetches the new session's before it is sent.
 
 Its interface returns an `ApiResult`: `ok` carries data from an explicit decoder,
 `unauthenticated` means the session ended, `forbidden` is an authorization
-refusal (a safe request's `403`, or a `403` that survived the re-seed),
-`csrf-expired` is a re-seed that itself failed, and `failed` covers every other
+refusal (a safe request's `403`, or a `403` that survived the re-fetch),
+`csrf-expired` is a token fetch that itself failed, and `failed` covers every other
 transport, HTTP, or decoding
 failure. Features retain their own human-facing copy while sharing status
 meaning. A no-content request omits the decoder, so its `ok` data is typed as

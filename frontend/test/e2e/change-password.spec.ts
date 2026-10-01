@@ -7,7 +7,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { adminRequest, submitLogin, submitLoginViaApi } from "./auth.helpers";
+import { adminRequest, csrfHeaderFor, submitLogin, submitLoginViaApi } from "./auth.helpers";
 
 /**
  * The `/change-password` route driven end to end: a forced change confined to
@@ -95,11 +95,10 @@ async function provision(adminPage: Page, label: string): Promise<Provisioned> {
   const api = await anonymousApi();
   try {
     expect((await submitLoginViaApi(api, userName, PROVISIONED)).status()).toBe(200);
-    const { cookies } = await api.storageState();
-    const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
+    // Fetched after the login: it rotated the session and discarded the pre-login token.
     const settled = await api.post("/api/auth/change-password", {
       data: { currentPassword: PROVISIONED, newPassword: OWN },
-      headers: { "X-XSRF-TOKEN": String(token) },
+      headers: await csrfHeaderFor(api),
     });
     expect(settled.status(), `${userName} settles on its own password`).toBe(204);
   } finally {

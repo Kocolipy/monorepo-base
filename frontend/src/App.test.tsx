@@ -1,22 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { stubFetchWithCsrf } from "./lib/http.testHelpers";
 
 describe("App", () => {
-  beforeEach(() => {
-    document.cookie = "XSRF-TOKEN=test-token; path=/";
-  });
-
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
-    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
   it("renders login at the home route for a guest", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
@@ -24,7 +20,7 @@ describe("App", () => {
 
   it("redirects a guest away from the showcase", async () => {
     window.history.replaceState(null, "", "/showcase");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
@@ -33,8 +29,7 @@ describe("App", () => {
 
   it("renders the showcase when the session is authenticated", async () => {
     window.history.replaceState(null, "", "/showcase");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ role: "USER", username: "ada" }), {
           headers: { "Content-Type": "application/json" },
@@ -50,8 +45,7 @@ describe("App", () => {
 
   it("returns to login when the showcase discovers an expired session", async () => {
     window.history.replaceState(null, "", "/showcase");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(Response.json({ role: "USER", username: "ada" }))
@@ -67,7 +61,7 @@ describe("App", () => {
   });
 
   it("does not claim a session ended for a visitor who never had one", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
@@ -85,7 +79,7 @@ describe("App", () => {
           status: 200,
         }),
       );
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchWithCsrf(fetchMock);
     const user = userEvent.setup();
     render(<App />);
 
@@ -98,14 +92,13 @@ describe("App", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/auth/login", {
       body: JSON.stringify({ username, password }),
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
+      headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "test-token" },
       method: "POST",
     });
   });
 
   it("shows invalid credential errors", async () => {
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(new Response(null, { status: 401 }))
@@ -125,10 +118,7 @@ describe("App", () => {
 
   it("redirects a USER away from account administration", async () => {
     window.history.replaceState(null, "", "/accounts");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(Response.json({ role: "USER", username: "ada" })),
-    );
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json({ role: "USER", username: "ada" })));
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
@@ -137,8 +127,7 @@ describe("App", () => {
 
   it("renders account administration for an ADMIN", async () => {
     window.history.replaceState(null, "", "/accounts");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi.fn((input: string) =>
         Promise.resolve(
           input === "/api/admin/accounts"
@@ -179,14 +168,9 @@ describe("App", () => {
 const CONFINED = { passwordChangeRequired: true, role: null, username: "ada" };
 
 describe("App with the change-required flag", () => {
-  beforeEach(() => {
-    document.cookie = "XSRF-TOKEN=test-token; path=/";
-  });
-
   afterEach(() => {
     vi.unstubAllGlobals();
     window.history.replaceState(null, "", "/");
-    document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
   const changePage = () => screen.findByRole("heading", { name: "Change your password" });
@@ -196,7 +180,7 @@ describe("App with the change-required flag", () => {
     async (path) => {
       window.history.replaceState(null, "", path);
       const fetchMock = vi.fn().mockResolvedValue(Response.json(CONFINED));
-      vi.stubGlobal("fetch", fetchMock);
+      stubFetchWithCsrf(fetchMock);
       render(<App />);
 
       expect(await changePage()).toBeInTheDocument();
@@ -208,8 +192,7 @@ describe("App with the change-required flag", () => {
 
   it("confines a flagged session straight after login, whatever destination was recorded", async () => {
     window.history.replaceState(null, "", "/accounts");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(new Response(null, { status: 401 }))
@@ -228,8 +211,7 @@ describe("App with the change-required flag", () => {
 
   it("renders the change for an unflagged User, and sends a Visitor to login", async () => {
     window.history.replaceState(null, "", "/change-password");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValue(
@@ -241,7 +223,7 @@ describe("App with the change-required flag", () => {
     expect(window.location.pathname).toBe("/change-password");
     unmount();
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    stubFetchWithCsrf(vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
@@ -258,7 +240,7 @@ describe("App with the change-required flag", () => {
         Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
       )
       .mockResolvedValue(Response.json({ count: 0 }));
-    vi.stubGlobal("fetch", fetchMock);
+    stubFetchWithCsrf(fetchMock);
     const user = userEvent.setup();
     render(<App />);
 
@@ -275,7 +257,7 @@ describe("App with the change-required flag", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/change-password", {
       body: JSON.stringify({ currentPassword: current, newPassword: next }),
       credentials: "include",
-      headers: { "Content-Type": "application/json", "X-XSRF-TOKEN": "test-token" },
+      headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "test-token" },
       method: "POST",
     });
 
@@ -290,8 +272,7 @@ describe("App with the change-required flag", () => {
 
   it("keeps the session on a wrong current password and stays on the change", async () => {
     window.history.replaceState(null, "", "/change-password");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(Response.json(CONFINED))
@@ -314,8 +295,7 @@ describe("App with the change-required flag", () => {
 
   it("shows a policy refusal by the rule the backend names", async () => {
     window.history.replaceState(null, "", "/change-password");
-    vi.stubGlobal(
-      "fetch",
+    stubFetchWithCsrf(
       vi
         .fn()
         .mockResolvedValueOnce(Response.json(CONFINED))

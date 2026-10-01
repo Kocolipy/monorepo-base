@@ -6,14 +6,15 @@
  * `Response` objects.
  */
 
-const CSRF_COOKIE = "XSRF-TOKEN";
-const CSRF_HEADER = "X-XSRF-TOKEN";
-
 /** Methods the backend exempts from the CSRF check. */
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/** A safe request whose response re-seeds the CSRF cookie. */
-const CSRF_SEED_PATH = "/api/auth/me";
+/**
+ * Where the session's CSRF token comes from: a public `GET` answering
+ * `{ headerName, token }` in its body. It creates a session for a guest, so a
+ * login form can obtain the token its own submission needs.
+ */
+const CSRF_TOKEN_PATH = "/api/auth/csrf";
 
 /** Plain-object headers only, so a request can be merged without a `Headers` copy. */
 export type ApiRequestInit = Omit<RequestInit, "headers"> & {
@@ -48,29 +49,77 @@ export const FORBIDDEN_MESSAGE = "You don't have permission to do this.";
 
 export type ApiDecoder<T> = (response: Response) => Promise<T> | T;
 
-/**
- * The current CSRF token, read from `document.cookie` at call time.
- *
- * Never cache this: login and logout both rotate the token, so a value captured
- * at start-up or held in React state goes stale on the next sign-in.
- */
-export function csrfToken(): string | undefined {
-  return document.cookie
-    .split("; ")
-    .find((entry) => entry.startsWith(`${CSRF_COOKIE}=`))
-    ?.split("=")[1];
+/** The token as the backend hands it out, with the header it is to be sent in. */
+interface CsrfGrant {
+  headerName: string;
+  token: string;
 }
+
+/**
+ * The current session's CSRF token, in memory only.
+ *
+ * Never in a cookie, `localStorage` or React state: the backend binds the token
+ * to the HTTP session, so it is worth exactly as long as that session, and the
+ * standard this follows forbids putting it where script-readable storage or a
+ * cookie would outlive it. `undefined` until the first unsafe request asks for
+ * one, and again whenever the session changes.
+ */
+let csrf: CsrfGrant | undefined;
 
 const isUnsafe = (method?: string): boolean => !SAFE_METHODS.has((method ?? "GET").toUpperCase());
 
-function withCsrf(init: ApiRequestInit): RequestInit {
-  if (!isUnsafe(init.method)) return { credentials: "include", ...init };
+/**
+ * Whether a token answer is well formed: both fields non-empty strings.
+ * `Object()` boxes a primitive and turns `null` into an empty object, so any
+ * answer that is not an object simply lacks the fields.
+ */
+const isCsrfGrant = (body: unknown): body is CsrfGrant => {
+  const { headerName, token } = Object(body) as Partial<CsrfGrant>;
+  return (
+    typeof headerName === "string" && headerName !== "" && typeof token === "string" && token !== ""
+  );
+};
 
-  const token = csrfToken();
+/**
+ * Forgets the token, because the session it belonged to has changed.
+ *
+ * Login rotates the session id and the backend drops the pre-login token;
+ * logout and a password change end the session outright. Either way the token
+ * held here is dead, and the next unsafe request fetches the new session's
+ * before it is sent rather than spending a `403` to find that out.
+ */
+export function discardCsrfToken(): void {
+  csrf = undefined;
+}
+
+/**
+ * Fetches the session's token into memory, and says whether one arrived.
+ *
+ * Anything but a `2xx` carrying a well-formed `{ headerName, token }` — or no
+ * response at all — leaves no token held, so a half-read answer can never be
+ * sent as if it were one.
+ */
+async function fetchCsrfToken(): Promise<boolean> {
+  discardCsrfToken();
+  try {
+    const response = await fetch(CSRF_TOKEN_PATH, { credentials: "include" });
+    if (!response.ok) return false;
+    const body: unknown = await response.json();
+    if (!isCsrfGrant(body)) return false;
+    csrf = { headerName: body.headerName, token: body.token };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The request as sent: credentials always, and the token on an unsafe method only. */
+function withCsrf(init: ApiRequestInit, grant: CsrfGrant | undefined): RequestInit {
+  if (grant === undefined) return { credentials: "include", ...init };
   return {
     credentials: "include",
     ...init,
-    headers: { ...init.headers, ...(token === undefined ? {} : { [CSRF_HEADER]: token }) },
+    headers: { ...init.headers, [grant.headerName]: grant.token },
   };
 }
 
@@ -84,23 +133,6 @@ async function readDetail<E>(response: Response, decode: ApiDecoder<E>): Promise
     return await decode(response);
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Asks the backend for a fresh CSRF cookie, and says whether it answered.
- *
- * A `401` counts as answered: a guest's `GET /api/auth/me` is refused but
- * still carries a freshly issued `XSRF-TOKEN`, and that is exactly the seed a
- * guest's first `POST /api/auth/login` needs. Any other unsuccessful status,
- * or no response at all, means no fresh token can be assumed.
- */
-async function reseedCsrf(): Promise<boolean> {
-  try {
-    const seed = await fetch(CSRF_SEED_PATH, { credentials: "include" });
-    return seed.ok || seed.status === 401;
-  } catch {
-    return false;
   }
 }
 
@@ -120,12 +152,13 @@ export function apiFetch<T, E>(
 /**
  * Performs an API request and returns its meaning rather than a raw response.
  *
- * A `403` is either a missing or stale CSRF token or an authorization refusal.
- * CSRF applies only to unsafe methods, so a safe request's `403` is `forbidden`
- * at once. An unsafe request re-seeds the token and retries exactly once; a
+ * An unsafe request carries the session's CSRF token, fetched first if none is
+ * held. A `403` is either a stale token or an authorization refusal. CSRF
+ * applies only to unsafe methods, so a safe request's `403` is `forbidden` at
+ * once. An unsafe request re-fetches the token and retries exactly once; a
  * `403` on the retry was sent with a token just issued, so it too is
- * `forbidden`. `csrf-expired` is left for the one case where the token could
- * not be re-seeded at all. Successful body decoding is explicit, so no-content
+ * `forbidden`. `csrf-expired` is left for the one case where no token could be
+ * obtained at all. Successful body decoding is explicit, so no-content
  * responses remain type-safe, and so is failure body decoding: only a caller
  * passing `decodeFailure` gets a `detail`.
  */
@@ -136,10 +169,15 @@ export async function apiFetch<T, E>(
   decodeFailure?: ApiDecoder<E>,
 ): Promise<ApiResult<T | void, E>> {
   try {
-    let response = await fetch(path, withCsrf(init));
-    if (response.status === 403 && isUnsafe(init.method)) {
-      if (!(await reseedCsrf())) return { kind: "csrf-expired" };
-      response = await fetch(path, withCsrf(init));
+    const unsafe = isUnsafe(init.method);
+    if (unsafe && csrf === undefined && !(await fetchCsrfToken())) {
+      return { kind: "csrf-expired" };
+    }
+
+    let response = await fetch(path, withCsrf(init, unsafe ? csrf : undefined));
+    if (response.status === 403 && unsafe) {
+      if (!(await fetchCsrfToken())) return { kind: "csrf-expired" };
+      response = await fetch(path, withCsrf(init, csrf));
     }
 
     if (response.status === 401) return { kind: "unauthenticated" };

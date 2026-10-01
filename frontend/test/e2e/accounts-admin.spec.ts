@@ -7,7 +7,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { adminRequest, submitLoginViaApi } from "./auth.helpers";
+import { adminRequest, csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
 
 /**
  * The Accounts page driven as an Admin uses it: both read-only projections,
@@ -84,11 +84,10 @@ async function settle(userName: string) {
   const api = await anonymousApi();
   try {
     expect((await submitLoginViaApi(api, userName, PROVISIONED_PASSWORD)).status()).toBe(200);
-    const { cookies } = await api.storageState();
-    const token = cookies.find((cookie) => cookie.name === "XSRF-TOKEN")?.value;
+    // Fetched after the login: it rotated the session and discarded the pre-login token.
     const changed = await api.post("/api/auth/change-password", {
       data: { currentPassword: PROVISIONED_PASSWORD, newPassword: OWN_PASSWORD },
-      headers: { "X-XSRF-TOKEN": String(token) },
+      headers: await csrfHeaderFor(api),
     });
     expect(changed.status(), `${userName} sets its own password`).toBe(204);
   } finally {

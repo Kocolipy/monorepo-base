@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.ContainerTestConfiguration;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
-import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,6 +16,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The internal-interface deployment: actuator moved to its own port with
@@ -96,19 +97,19 @@ class ManagementPortIntegrationTests {
         softly.assertAll();
     }
 
-    /** A password login through the real CSRF double-submit, as the SPA does it. */
+    /**
+     * A password login through the real CSRF handshake, as the SPA does it: fetch the
+     * session's token from {@code GET /api/auth/csrf}, then echo it in the header named there.
+     */
     private HttpClient adminSession() throws Exception {
         CookieManager jar = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
         HttpClient admin = HttpClient.newBuilder().cookieHandler(jar).build();
-        get(admin, applicationPort, "/api/auth/me");
-        String xsrf = jar.getCookieStore().getCookies().stream()
-                .filter(cookie -> cookie.getName().equals("XSRF-TOKEN"))
-                .map(HttpCookie::getValue)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("no XSRF-TOKEN cookie was issued"));
+        HttpResponse<String> issued = get(admin, applicationPort, "/api/auth/csrf");
+        assertThat(issued.statusCode()).as("the CSRF token fetch").isEqualTo(200);
+        JsonNode csrf = JsonMapper.builder().build().readTree(issued.body());
         HttpResponse<String> login = admin.send(request(applicationPort, "/api/auth/login")
                 .header("Content-Type", "application/json")
-                .header("X-XSRF-TOKEN", xsrf)
+                .header(csrf.get("headerName").asText(), csrf.get("token").asText())
                 .POST(HttpRequest.BodyPublishers.ofString(
                         "{\"username\":\"" + ADMIN + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}"))
                 .build(), HttpResponse.BodyHandlers.ofString());

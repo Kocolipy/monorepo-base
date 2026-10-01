@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.InactivityDeactivationService;
@@ -15,9 +16,11 @@ import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DormancyPolicy;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -32,12 +35,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.Session;
+import org.springframework.session.data.redis.RedisIndexedSessionRepository;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -91,9 +93,6 @@ class PasswordChangeLifecycleIntegrationTests {
 
     @Autowired
     private ConnectorAdministrationService connectors;
-
-    @Autowired
-    private CsrfTokenRepository csrfTokenRepository;
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -325,7 +324,7 @@ class PasswordChangeLifecycleIntegrationTests {
             Duration first = DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW.minusDays(30);
             clock.advanceBy(first);
             elapsed = elapsed.plus(first);
-            logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+            logInWhileTheClockIsAhead("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
             assertThat(lastAuthenticatedAt(userId))
                     .as("a confined login leaves the dormancy basis where it was")
                     .isNull();
@@ -333,7 +332,7 @@ class PasswordChangeLifecycleIntegrationTests {
             Duration second = Duration.ofDays(31);
             clock.advanceBy(second);
             elapsed = elapsed.plus(second);
-            logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+            logInWhileTheClockIsAhead("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
             assertThat(lastAuthenticatedAt(userId)).isNull();
 
             DormancyRun run = deactivation.deactivateDormantUsers();
@@ -382,7 +381,7 @@ class PasswordChangeLifecycleIntegrationTests {
                     "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
                     Boolean.class, userId)).isTrue();
 
-            logIn("lifecycle-settled", NEW_PASSWORD, "USER", false);
+            logInWhileTheClockIsAhead("lifecycle-settled", NEW_PASSWORD, "USER", false);
             assertThat(lastAuthenticatedAt(userId))
                     .as("an unconfined login moves the basis as before")
                     .isEqualTo(Timestamp.from(clock.instant()));
@@ -462,7 +461,40 @@ class PasswordChangeLifecycleIntegrationTests {
     /** Logs in for real, asserting the reported role and confinement, and returns the cookie. */
     private Cookie logIn(String userName, String password, String role, boolean confined)
             throws Exception {
-        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+        return logIn(withCsrf(post("/api/auth/login")), userName, password, role, confined);
+    }
+
+    /**
+     * {@link #logIn} for a moment after {@link #clock} has been advanced. The absolute session
+     * lifetime measures a session's creation time against the simulated clock, but the session
+     * store stamps it with the REAL one — so the guest session the token handshake opens would
+     * read as months old on the very next request and be invalidated, its token with it. (The
+     * same artifact is why {@link #theCompletedChangeMovesTheDormancyBasis} backdates the User
+     * rather than advancing before the change.) So the handshake is done by hand and the guest
+     * session re-stamped at the simulated instant in between: the Redis-backed counterpart of
+     * {@code AuditListingEndToEndIntegrationTests.ClockedSession}.
+     */
+    private Cookie logInWhileTheClockIsAhead(
+            String userName, String password, String role, boolean confined) throws Exception {
+        MvcResult fetched = mvc.perform(get(SessionCsrf.PATH)).andReturn();
+        assertThat(fetched.getResponse().getStatus()).isEqualTo(200);
+        Cookie issued = fetched.getResponse().getCookie(sessionCookieName);
+        assertThat(issued).as("the token fetch opened a guest session").isNotNull();
+        Cookie guest = new Cookie(issued.getName(), issued.getValue());
+        String sessionId = new String(
+                Base64.getDecoder().decode(guest.getValue()), StandardCharsets.UTF_8);
+        RedisIndexedSessionRepository store = (RedisIndexedSessionRepository) sessionRepository;
+        String key = ReflectionTestUtils.invokeMethod(store, "getSessionKey", sessionId);
+        store.getSessionRedisOperations().opsForHash().put(key, "creationTime", clock.millis());
+        JsonNode token = json.readTree(fetched.getResponse().getContentAsString());
+        return logIn(post("/api/auth/login").cookie(guest)
+                        .header(token.get("headerName").asText(), token.get("token").asText()),
+                userName, password, role, confined);
+    }
+
+    private Cookie logIn(MockHttpServletRequestBuilder request, String userName, String password,
+            String role, boolean confined) throws Exception {
+        MvcResult login = mvc.perform(request
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"%s\",\"password\":\"%s\"}"
                                 .formatted(userName, password)))
@@ -546,9 +578,6 @@ class PasswordChangeLifecycleIntegrationTests {
      * and a request carrying the session cookie is otherwise indistinguishable from a browser's.
      */
     private MockHttpServletRequestBuilder withCsrf(MockHttpServletRequestBuilder request) {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
-        return request
-                .cookie(new Cookie("XSRF-TOKEN", token.getToken()))
-                .header("X-XSRF-TOKEN", token.getToken());
+        return SessionCsrf.withCsrf(mvc, request);
     }
 }

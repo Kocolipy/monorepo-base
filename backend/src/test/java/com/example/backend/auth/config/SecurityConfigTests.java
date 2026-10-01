@@ -9,14 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.servlet.Filter;
-import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
@@ -26,10 +26,14 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
+import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -43,8 +47,8 @@ import org.springframework.web.bind.annotation.RestController;
 // rather than rebuilt per method — booting it once instead of eleven times.
 class SecurityConfigTests {
 
-    private static final String CSRF_COOKIE = "XSRF-TOKEN";
-    private static final String CSRF_HEADER = "X-XSRF-TOKEN";
+    /** The cookie the retired double-submit design wrote, which nothing may write now. */
+    private static final String LEGACY_CSRF_COOKIE = "XSRF-TOKEN";
 
     /**
      * The application chain by name. There are two {@link SecurityFilterChain}
@@ -119,31 +123,104 @@ class SecurityConfigTests {
     }
 
     /**
-     * The token the shared repository mints is the token the chain accepts: the
-     * raw cookie value is echoed back in the header, and the request gets as far
-     * as the authorization check, which turns it away with a 401 instead.
+     * The token the session holds is the token the chain accepts: the masked
+     * value the chain exposes for that session is echoed back in the header the
+     * token names, and the request gets as far as the authorization check, which
+     * turns it away with a 401 instead.
      */
     @Test
-    void unsafeRequestWithAMatchingCsrfTokenPassesCsrfAndReachesAuthorization() throws Exception {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
+    void unsafeRequestWithItsSessionsCsrfTokenPassesCsrfAndReachesAuthorization() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        MvcResult issued = mvc.perform(get(ProbeController.TOKEN).session(session))
+                .andExpect(status().isOk())
+                .andReturn();
+        String[] token = issued.getResponse().getContentAsString().split(":", 2);
 
-        mvc.perform(post("/api/session")
-                        .cookie(new Cookie(CSRF_COOKIE, token.getToken()))
-                        .header(CSRF_HEADER, token.getToken()))
+        mvc.perform(post("/api/session").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
     }
 
     /**
-     * A single-page application cannot read an HttpOnly cookie, and it has no
-     * server-rendered page to take a token from, so an anonymous GET has to be
-     * enough to obtain one.
+     * Bound to the session, so the session's token is the only one that passes —
+     * the raw stored value fails too, because the default handler only accepts
+     * the XOR-masked form it hands out.
      */
     @Test
-    void anonymousFrontendRequestIsHandedACsrfTokenCookie() throws Exception {
-        mvc.perform(get("/"))
+    void unsafeRequestWithTheUnmaskedSessionTokenIsForbidden() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        mvc.perform(get(ProbeController.TOKEN).session(session)).andExpect(status().isOk());
+        CsrfToken stored = (CsrfToken) session.getAttribute(
+                HttpSessionCsrfTokenRepository.class.getName().concat(".CSRF_TOKEN"));
+        assertThat(stored).as("the token the probe left in the session").isNotNull();
+
+        mvc.perform(post("/api/session").session(session)
+                        .header(stored.getHeaderName(), stored.getToken()))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * The token lives in the session, behind the default XOR-masking handler —
+     * asserted on the chain's own filter, because {@code csrf.spa()} would swap
+     * both for a cookie repository and a raw-token handler while every request
+     * above still passed. The shared bean is the instance the chain holds, so the
+     * login path drops the very token the chain would otherwise accept.
+     */
+    @Test
+    void theChainKeepsItsCsrfTokenInTheSessionBehindTheMaskingHandler() {
+        CsrfFilter filter = securityFilterChain.getFilters().stream()
+                .filter(CsrfFilter.class::isInstance)
+                .map(CsrfFilter.class::cast)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("no CsrfFilter in the chain"));
+
+        assertThat(csrfTokenRepository).isInstanceOf(HttpSessionCsrfTokenRepository.class);
+        assertThat(ReflectionTestUtils.getField(filter, "tokenRepository"))
+                .isSameAs(csrfTokenRepository);
+        assertThat(ReflectionTestUtils.getField(filter, "requestHandler"))
+                .isExactlyInstanceOf(XorCsrfTokenRequestAttributeHandler.class);
+    }
+
+    /**
+     * No CSRF token reaches a cookie, and a page view opens no session: the
+     * token is created only when the SPA asks {@code GET /api/auth/csrf} for one.
+     */
+    @Test
+    void anonymousFrontendRequestSetsNoCsrfCookieAndOpensNoSession() throws Exception {
+        MvcResult page = mvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(cookie().exists(CSRF_COOKIE))
-                .andExpect(cookie().httpOnly(CSRF_COOKIE, false));
+                .andExpect(cookie().doesNotExist(LEGACY_CSRF_COOKIE))
+                .andReturn();
+
+        assertThat(page.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).isEmpty();
+        assertThat(page.getRequest().getSession(false)).isNull();
+    }
+
+    /**
+     * The frontend allowance is a GET-only, non-API rule, and each half of that is load-bearing:
+     * an unsafe request to a frontend path (carrying its session's token, so CSRF is not what
+     * refuses it) is not admitted, and an unlisted API path is not a frontend path, so a GET of
+     * it still needs a session.
+     */
+    @Test
+    void onlyAGetOfANonApiPathIsAdmittedAsAFrontendRequest() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String[] token = mvc.perform(get(ProbeController.TOKEN).session(session))
+                .andReturn().getResponse().getContentAsString().split(":", 2);
+
+        mvc.perform(post("/").session(session).header(token[0], token[1]))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/session"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The path is read relative to the context path, so a deployment under one classifies
+     * {@code /app/api/...} as the API path it is rather than as a frontend route.
+     */
+    @Test
+    void theFrontendAllowanceReadsThePathBeneathTheContextPath() throws Exception {
+        mvc.perform(get("/app/api/session").contextPath("/app"))
+                .andExpect(status().isUnauthorized());
     }
 
     /**
@@ -180,11 +257,11 @@ class SecurityConfigTests {
      */
     @Test
     void aFrontendPathIsPublicForGetOnly() throws Exception {
-        CsrfToken token = csrfTokenRepository.generateToken(new MockHttpServletRequest());
+        MockHttpSession session = new MockHttpSession();
+        String[] token = mvc.perform(get(ProbeController.TOKEN).session(session))
+                .andReturn().getResponse().getContentAsString().split(":", 2);
 
-        mvc.perform(post("/")
-                        .cookie(new Cookie(CSRF_COOKIE, token.getToken()))
-                        .header(CSRF_HEADER, token.getToken()))
+        mvc.perform(post("/").session(session).header(token[0], token[1]))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -295,14 +372,23 @@ class SecurityConfigTests {
 
     /**
      * Gives the frontend path and the administration endpoint a handler, so the
-     * chain's own answer is what each assertion observes.
+     * chain's own answer is what each assertion observes, and exposes the masked
+     * token the chain publishes for the session as {@code header:token}.
      */
     @RestController
     static class ProbeController {
 
+        static final String TOKEN = "/probe/csrf-token";
+
         @GetMapping({"/", "/api/admin/accounts"})
         String index() {
             return "index";
+        }
+
+        @GetMapping(TOKEN)
+        String token(HttpServletRequest request) {
+            CsrfToken token = (CsrfToken) request.getAttribute(CsrfToken.class.getName());
+            return token.getHeaderName() + ":" + token.getToken();
         }
     }
 }

@@ -34,7 +34,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
@@ -48,6 +50,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.DefaultCsrfToken;
 import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.session.web.http.DefaultCookieSerializer;
 import org.springframework.test.web.servlet.MockMvc;
@@ -259,24 +262,45 @@ class AuthControllerTests {
 
     /**
      * A CSRF token obtained before logging in must not survive the privilege
-     * change, so login answers with a different one.
+     * change. Rotation alone would not do it: the session id changes but its
+     * attributes, the token among them, move to the new id with it.
      */
     @Test
-    void loginReplacesACsrfTokenMintedBeforeAuthentication() {
+    void loginDiscardsTheCsrfTokenOfThePreLoginSession() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(CSRF_COOKIE, "token-from-before-login"));
         MockHttpServletResponse response = new MockHttpServletResponse();
+        csrfTokenRepository.saveToken(
+                csrfTokenRepository.generateToken(request), request, response);
+        assertThat(csrfTokenRepository.loadToken(request)).as("the arranged token").isNotNull();
 
         controller.login(
                 new AuthController.LoginRequest("ada", "correct-password"),
                 request,
                 response);
 
-        Cookie issued = response.getCookie(CSRF_COOKIE);
-        assertThat(issued).isNotNull();
-        assertThat(issued.getValue())
-                .isNotBlank()
-                .isNotEqualTo("token-from-before-login");
+        assertThat(csrfTokenRepository.loadToken(request)).isNull();
+        assertThat(request.getSession(false).getAttribute(
+                        HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY))
+                .as("only the token is dropped, not the session it lived in")
+                .isNotNull();
+        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
+    }
+
+    /**
+     * The token travels in the body, never a cookie, under the header name the chain
+     * reads it from, and is marked uncacheable so no intermediary can hand it to
+     * another caller.
+     */
+    @Test
+    void theCsrfEndpointAnswersWithTheHeaderNameAndTokenAndForbidsCaching() {
+        ResponseEntity<AuthController.CsrfTokenResponse> answer = controller.csrfToken(
+                new DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "masked-token-value"));
+
+        assertThat(answer.getStatusCode().value()).isEqualTo(200);
+        assertThat(answer.getHeaders().getCacheControl()).isEqualTo("no-store");
+        assertThat(answer.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
+        assertThat(answer.getBody()).isEqualTo(
+                new AuthController.CsrfTokenResponse("X-CSRF-TOKEN", "masked-token-value"));
     }
 
     /**
@@ -386,26 +410,61 @@ class AuthControllerTests {
     }
 
     /**
-     * The token that belonged to the closed session is replaced rather than only
-     * deleted, so the next login can be submitted without first fetching one.
+     * The token belonged to the closed session and ended with it; logout writes no
+     * replacement anywhere, because the next login fetches one for the session it
+     * opens.
      */
     @Test
-    void logoutReplacesTheCsrfTokenOfTheClosedSession() {
+    void logoutEndsTheCsrfTokenWithTheSessionAndWritesNoCsrfCookie() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(CSRF_COOKIE, "token-from-the-session-being-closed"));
         controller.login(
                 new AuthController.LoginRequest("ada", "correct-password"),
                 request,
                 new MockHttpServletResponse());
+        MockHttpServletResponse arranged = new MockHttpServletResponse();
+        csrfTokenRepository.saveToken(
+                csrfTokenRepository.generateToken(request), request, arranged);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         controller.logout(request, response);
 
-        Cookie issued = response.getCookie(CSRF_COOKIE);
-        assertThat(issued).isNotNull();
-        assertThat(issued.getValue())
-                .isNotBlank()
-                .isNotEqualTo("token-from-the-session-being-closed");
+        assertThat(csrfTokenRepository.loadToken(request)).isNull();
+        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
+    }
+
+    /**
+     * A logout is audited against the account the session belongs to, named by the stable id the
+     * principal index holds — never by the username the security context carries.
+     */
+    @Test
+    void logoutRecordsTheLogoutAgainstTheSessionsStableId() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+        controller.logout(request, new MockHttpServletResponse());
+
+        UUID ada = users.require("ada").id();
+        assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT))
+                .containsExactly(new com.example.backend.audit.RecordingAuditTrail.Recorded(
+                        com.example.backend.audit.domain.AuditOperation.LOGOUT, ada, ada, null));
+    }
+
+    /**
+     * A session minted before anyone signed in to it has no principal index: nothing was logged
+     * out, so nothing is recorded, and the session still ends.
+     */
+    @Test
+    void logoutOfASessionNoOneSignedInToRecordsNothingAndStillEndsIt() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = (MockHttpSession) request.getSession(true);
+
+        assertThatNoException()
+                .isThrownBy(() -> controller.logout(request, new MockHttpServletResponse()));
+
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(session.isInvalid()).isTrue();
     }
 
     /**
@@ -433,13 +492,12 @@ class AuthControllerTests {
 
     /**
      * The User is the one the session's principal index names — which login writes as the stable
-     * id — and on success this session is ended here, directly, with its cookie expired and a
-     * fresh CSRF token issued for the login that must follow.
+     * id — and on success this session is ended here, directly, with its cookie expired. Its CSRF
+     * token ends with it, and no replacement is written: the login that must follow fetches one.
      */
     @Test
     void changingThePasswordReplacesTheCredentialOfTheSessionsUserAndEndsTheSession() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(CSRF_COOKIE, "token-from-the-confined-session"));
         controller.login(
                 new AuthController.LoginRequest("ada", "correct-password"),
                 request,
@@ -466,11 +524,7 @@ class AuthControllerTests {
         assertThat(cleared).isNotNull();
         assertThat(cleared.getValue()).isEmpty();
         assertThat(cleared.getMaxAge()).isZero();
-        Cookie issued = response.getCookie(CSRF_COOKIE);
-        assertThat(issued).isNotNull();
-        assertThat(issued.getValue())
-                .isNotBlank()
-                .isNotEqualTo("token-from-the-confined-session");
+        assertThat(response.getCookie(CSRF_COOKIE)).isNull();
     }
 
     @Test

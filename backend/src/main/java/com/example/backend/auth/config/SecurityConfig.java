@@ -29,8 +29,8 @@ import org.springframework.security.web.authentication.session.SessionAuthentica
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
+import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration
@@ -150,14 +150,19 @@ public class SecurityConfig {
     }
 
     /**
-     * Shared with AuthController for the same reason as the security context
-     * repository: the chain validates the token on every unsafe request, and the
-     * login and logout paths issue a fresh one, so both halves must read and
-     * write the same cookie through the same configuration.
+     * The Synchronizer Token Pattern: the token lives in the HTTP session and
+     * nowhere else, so it is bound to that session and ends with it. The SPA
+     * obtains it from {@code GET /api/auth/csrf} — never from a cookie, which the
+     * standard prohibits outright (see {@code /docs/adr/0009-csrf-synchronizer-token.md}).
+     *
+     * <p>Shared with AuthController for the same reason as the security context
+     * repository: the chain validates the token on every unsafe request and the
+     * login path discards the pre-login one, so both halves must read and write
+     * the same session attribute through the same configuration.
      */
     @Bean
     public CsrfTokenRepository csrfTokenRepository() {
-        return CookieCsrfTokenRepository.withHttpOnlyFalse();
+        return new HttpSessionCsrfTokenRepository();
     }
 
     /**
@@ -201,13 +206,12 @@ public class SecurityConfig {
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
         };
         return http
-                // spa() installs the request handler that reads the raw token
-                // value back from the X-XSRF-TOKEN header while still masking
-                // the value it writes into request attributes. It also creates
-                // its own cookie repository, so the shared bean has to be set
-                // afterwards to win.
+                // The default request handler: it XOR-masks the token it exposes
+                // (so GET /api/auth/csrf never returns the same bytes twice, which
+                // defeats BREACH) and unmasks the header value before comparing it
+                // with the session's. Deliberately not spa(), which swaps in a
+                // cookie repository and a handler that accepts the raw token.
                 .csrf(csrf -> csrf
-                        .spa()
                         .csrfTokenRepository(csrfTokenRepository))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
@@ -242,10 +246,14 @@ public class SecurityConfig {
                         .authenticationEntryPoint(unauthorized))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/login", "/actuator/health").permitAll()
+                        // Public because the login form needs a token before there is anyone
+                        // to authenticate: a guest's call creates the session the token is
+                        // bound to, and login then carries that session forward.
+                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                         // The whole of what a session confined by a required password change may
-                        // do: read its own standing (which also seeds the CSRF token the change
-                        // submission needs), submit the change, and log out. Any authenticated
-                        // session, flagged or not, may reach these three.
+                        // do: read its own standing, submit the change, and log out (the token
+                        // the latter two need comes from the public endpoint above). Any
+                        // authenticated session, flagged or not, may reach these three.
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/auth/change-password")
                                 .authenticated()

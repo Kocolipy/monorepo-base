@@ -146,7 +146,7 @@ The SPA is served by the Spring Boot backend and shares its session cookie.
 CSRF recovery and returns typed semantic results instead of raw responses:
 `unauthenticated` expires auth state and returns the user to login, while
 `forbidden` (an authorization refusal) and `csrf-expired` (a CSRF token that
-could not be re-seeded) preserve the session and let the feature show
+could not be fetched) preserve the session and let the feature show
 permission-denied or retry copy.
 
 In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
