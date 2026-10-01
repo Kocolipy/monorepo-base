@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import type { PasswordChangeOutcome } from "@/auth/api";
 import { useAuth } from "@/auth/auth-context-value";
+import { PASSWORD_LENGTH } from "@/auth/password-policy";
 import { DEFAULT_DESTINATION } from "@/auth/session-route";
 import { CSRF_EXPIRED_MESSAGE, FORBIDDEN_MESSAGE } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
@@ -124,14 +125,28 @@ export function ChangePassword() {
                 New password
               </label>
               <input
+                aria-describedby="newPasswordRequirements"
                 autoComplete="new-password"
                 className={inputClass}
                 disabled={locked}
                 id="newPassword"
+                maxLength={PASSWORD_LENGTH.max}
+                minLength={PASSWORD_LENGTH.min}
                 name="newPassword"
                 required
                 type="password"
               />
+              {/* The backend's rules, stated up front; it remains the authority. */}
+              <ul
+                className="list-disc space-y-1 pl-5 text-sm text-muted-foreground"
+                id="newPasswordRequirements"
+              >
+                <li>
+                  {PASSWORD_LENGTH.min} to {PASSWORD_LENGTH.max} characters long
+                </li>
+                <li>Must not contain your user name</li>
+                <li>Must not reuse your current or recent passwords</li>
+              </ul>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="confirmPassword">
@@ -142,6 +157,8 @@ export function ChangePassword() {
                 className={inputClass}
                 disabled={locked}
                 id="confirmPassword"
+                maxLength={PASSWORD_LENGTH.max}
+                minLength={PASSWORD_LENGTH.min}
                 name="confirmPassword"
                 required
                 type="password"
