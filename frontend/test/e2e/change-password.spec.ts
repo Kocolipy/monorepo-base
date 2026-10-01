@@ -211,9 +211,11 @@ test("an Admin's forced change confines the User to /change-password until it is
     await expect(own).toHaveURL(/\/change-password$/);
 
     // A policy-violating password is refused by the rule the backend names.
-    await submitChange(own, OWN, "short-1");
+    // Reuse, not length: the browser's `minLength` now holds back a short one
+    // before it is sent (see the policy test below).
+    await submitChange(own, OWN, OWN);
     await expect(own.getByRole("alert")).toHaveText(
-      "The new password must be at least 12 characters long",
+      /^The new password must differ from the current password and the \d+ most recent ones$/,
     );
     await expectFieldsCleared(own);
     expect(await own.content()).not.toContain(OWN);
@@ -250,6 +252,60 @@ test("an unflagged User changes its password voluntarily from the showcase", asy
 
     await submitChange(own, OWN, REPLACEMENT);
     await expectSignedOutThenSignIn(own, user.userName, REPLACEMENT);
+  } finally {
+    await context.close();
+    await deprovision(page, user);
+  }
+});
+
+test("the form states the policy, and the browser holds back a too-short password", async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(120_000);
+  let user: Provisioned | undefined;
+  const context = await freshBrowser(browser);
+  try {
+    user = await provision(page, "policy");
+
+    const own = await context.newPage();
+    await submitLogin(own, user.userName, OWN);
+    await expect(own).toHaveURL(/\/showcase$/);
+    await own.getByRole("link", { name: "Change password" }).click();
+    await expect(heading(own)).toBeVisible();
+
+    // The rules are stated before anything is typed, and are the new field's description.
+    const newPassword = own.getByLabel("New password", { exact: true });
+    await expect(newPassword).toHaveAccessibleDescription(
+      [
+        "12 to 256 characters long",
+        "Must not contain your user name",
+        "Must not reuse your current or recent passwords",
+      ].join(" "),
+    );
+
+    // Too short: the browser's own constraint validation stops the submit, so
+    // nothing reaches the backend and no refusal is rendered.
+    const changes: string[] = [];
+    own.on("request", (sent) => {
+      if (sent.url().endsWith("/api/auth/change-password")) changes.push(sent.method());
+    });
+    await submitChange(own, OWN, "short-1");
+    expect(await newPassword.evaluate((input: HTMLInputElement) => input.validity.tooShort)).toBe(
+      true,
+    );
+    await expect(own.getByRole("alert")).toHaveCount(0);
+    await expect(heading(own)).toBeVisible();
+    expect(changes).toEqual([]);
+
+    // Long enough but containing the user name: the browser lets it through,
+    // and the backend's rule — one the page stated — is shown verbatim.
+    await submitChange(own, OWN, `${user.userName}-Secret-5w`);
+    await expect(own.getByRole("alert")).toHaveText(
+      "The new password must not contain the user name",
+    );
+    expect(changes).toEqual(["POST"]);
+    await expectFieldsCleared(own);
   } finally {
     await context.close();
     await deprovision(page, user);
