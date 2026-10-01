@@ -574,6 +574,34 @@ class ScimGroupServiceTests {
                 .isEqualTo("theirs");
     }
 
+    /** A PATCH that does not name {@code externalId} keeps the caller's alias as it was. */
+    @Test
+    void a_patch_not_naming_the_alias_keeps_it() {
+        ScimGroupResource created = aliased();
+
+        ScimGroupResource renamed = service.patch(CONNECTOR, created.id(), current(created.id()),
+                List.of(new ScimGroupPatchOperation.SetDisplayName("Platform"))).orElseThrow();
+
+        assertThat(renamed.externalId()).isEqualTo("eng-1");
+        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("DISPLAY_NAME");
+    }
+
+    /**
+     * A Group deleted between an alias-only write and the version bump that follows it reports
+     * absence — the same 404 a delete a moment earlier would have produced.
+     */
+    @Test
+    void a_group_removed_before_an_alias_only_bump_reports_absence() {
+        ScimGroupResource created = aliased();
+        ScimVersionPrecondition precondition = current(created.id());
+        groups.vanishBeforeNextAdvance(created.id());
+
+        assertThat(service.patch(CONNECTOR, created.id(), precondition,
+                List.of(new ScimGroupPatchOperation.SetExternalId("eng-2")))).isEmpty();
+    }
+
     /**
      * The Admin group may not be renamed, but the calling connector's own alias for it is
      * writable: it is that connector's name for the Group, read by no other, and changing it

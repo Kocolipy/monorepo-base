@@ -406,6 +406,18 @@ class ScimUserServiceTests {
                 .containsExactly("EXTERNAL_ID", "EXTERNAL_ID");
     }
 
+    /** A write that moves no alias writes no alias — not even the stored value again. */
+    @Test
+    void a_write_that_leaves_the_alias_alone_does_not_write_it() {
+        int before = aliases.writes();
+
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+        put(minimal("ada", false), null, "ext-ada");
+
+        assertThat(aliases.writes()).isEqualTo(before);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+    }
+
     /**
      * The other connector's write reaches its own namespace: a connector with no alias for Ada
      * that sets one leaves the creating connector's alias unchanged.

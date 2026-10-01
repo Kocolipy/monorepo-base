@@ -14,8 +14,11 @@ public final class InMemoryScimExternalIdRepository implements ScimExternalIdRep
 
     private final List<Alias> aliases = new ArrayList<>();
 
+    private int writes;
+
     @Override
     public void put(UUID connectorId, UUID resourceId, String externalId) {
+        writes++;
         aliases.removeIf(alias -> alias.connectorId().equals(connectorId)
                 && alias.resourceId().equals(resourceId));
         aliases.add(new Alias(connectorId, resourceId, externalId));
@@ -23,6 +26,7 @@ public final class InMemoryScimExternalIdRepository implements ScimExternalIdRep
 
     @Override
     public void remove(UUID connectorId, UUID resourceId) {
+        writes++;
         aliases.removeIf(alias -> alias.connectorId().equals(connectorId)
                 && alias.resourceId().equals(resourceId));
     }
@@ -47,6 +51,11 @@ public final class InMemoryScimExternalIdRepository implements ScimExternalIdRep
 
     public void seed(UUID connectorId, String externalId) {
         aliases.add(new Alias(connectorId, UUID.randomUUID(), externalId));
+    }
+
+    /** How many puts and removes this store has taken. */
+    public int writes() {
+        return writes;
     }
 
     public List<Alias> all() {

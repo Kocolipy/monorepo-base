@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.scim.application.ScimGroupPatchOperation;
+import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveAllMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveMembers;
 import com.example.backend.scim.application.ScimGroupPatchOperation.SetDisplayName;
@@ -106,14 +107,19 @@ class ScimGroupRequestReaderTests {
                 "invalidValue");
         refused("[{\"op\":\"replace\",\"path\":\"externalId.value\",\"value\":\"x\"}]",
                 "invalidPath");
+        refused("[{\"op\":\"move\",\"path\":\"externalId\",\"value\":\"x\"}]",
+                "invalidValue");
     }
 
     /** A PUT body's {@code externalId} is carried to the use case, and an omitted one is null. */
     @Test
     void a_replacement_carries_the_external_id_or_null_when_omitted() {
+        UUID member = UUID.randomUUID();
         assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
-                 "displayName":"Eng","externalId":"e1"}""")).externalId()).isEqualTo("e1");
+                 "displayName":"Eng","externalId":"e1","members":[{"value":"%s"}]}"""
+                .formatted(member))))
+                .isEqualTo(new ScimGroupReplacement("Eng", List.of(member), "e1"));
         assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
                 {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
                  "displayName":"Eng"}""")).externalId()).isNull();
