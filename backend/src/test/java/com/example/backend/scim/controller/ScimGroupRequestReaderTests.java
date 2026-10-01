@@ -111,6 +111,15 @@ class ScimGroupRequestReaderTests {
                 "invalidValue");
     }
 
+    /** An unknown op on externalId is echoed sanitized: a control character cannot forge a log. */
+    @Test
+    void an_unknown_op_on_external_id_is_echoed_without_control_characters() {
+        assertThatThrownBy(() -> read(
+                "[{\"op\":\"mo\\u0007ve\",\"path\":\"externalId\",\"value\":\"x\"}]"))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
+                        assertThat(refusal.getMessage()).contains("move").doesNotContain("\u0007"));
+    }
+
     /** A PUT body's {@code externalId} is carried to the use case, and an omitted one is null. */
     @Test
     void a_replacement_carries_the_external_id_or_null_when_omitted() {
