@@ -46,8 +46,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
     }
 
     /**
-     * Writes the resource row and the User row, and reports the constraint violation as
-     * a duplicate {@code userName}.
+     * Writes the resource row and the User row, and reports a violation of the live-{@code userName}
+     * constraint as a duplicate {@code userName}.
      *
      * <p>Passes a literal {@code null} reservation rather than reading one off the
      * argument. That is what makes "a provisioned resource cannot protect itself from
@@ -62,11 +62,13 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      * {@code 409 uniqueness} — it would be a 500 from a transaction that failed after
      * the response was decided.
      *
-     * <p>The only unique constraint this INSERT can violate is the normalized
+     * <p>The only UNIQUE constraint this INSERT can violate is the normalized
      * {@code userName}: the resource id and the User's primary key are freshly
      * generated UUIDs, and the emails' uniqueness was resolved by
-     * {@link ScimEmail#canonical(List)} before the profile existed. So a violation here
-     * has exactly one cause, and translating it to one exception is not a guess.
+     * {@link ScimEmail#canonical(List)} before the profile existed. But a unique constraint is
+     * not the only thing an INSERT can violate — a value too long for its column fails with the
+     * same exception type — so the violation is translated only when it names that constraint,
+     * and anything else is rethrown as the fault it is.
      */
     @Override
     public ScimUser create(ScimUser user) {
@@ -80,9 +82,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      * reservation is unique too, so a second attempt to seed the same recovery identity
      * violates it. Seeding never expects either: it looks the reservation up first under
      * its lock, because against Postgres a violation aborts the transaction and cannot be
-     * caught and continued past. Both causes therefore mean "seeding cannot proceed" and
-     * arrive as the same exception rather than being distinguished by inspecting the
-     * constraint name — a string the database owns and could change.
+     * caught and continued past. A taken {@code userName} arrives as the duplicate it is; a
+     * taken reservation is rethrown as the integrity violation, and either one fails startup.
      */
     @Override
     public ScimUser createReserved(ScimUser user, ReservedResourceName reservedName) {
@@ -161,7 +162,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         try {
             users.saveAndFlush(entity);
         } catch (DataIntegrityViolationException violation) {
-            throw new DuplicateUserNameException(violation);
+            throw translated(violation);
         }
         resources.advanceVersions(List.of(user.id()), now);
         return findById(user.id());
@@ -291,8 +292,23 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         try {
             return toDomain(users.saveAndFlush(toEntity(user, reservedName)));
         } catch (DataIntegrityViolationException violation) {
-            throw new DuplicateUserNameException(violation);
+            throw translated(violation);
         }
+    }
+
+    /**
+     * A violation of the live-{@code userName} constraint as the domain's refusal; any other
+     * violation unchanged.
+     *
+     * <p>Only that one constraint means "the name is taken". Anything else reaching here — a value
+     * the application layer's length check let through, a NOT NULL or foreign-key violation — is
+     * a fault, and reporting it as a conflict would send a connector looking for an account that
+     * does not exist. So it is rethrown as the integrity violation it is, which the web adapter
+     * renders as a server error.
+     */
+    private static RuntimeException translated(DataIntegrityViolationException violation) {
+        return IntegrityViolations.translated(
+                violation, IntegrityViolations.USER_NAME_UNIQUE, DuplicateUserNameException::new);
     }
 
     private static ScimUserEntity toEntity(ScimUser user, ReservedResourceName reservedName) {

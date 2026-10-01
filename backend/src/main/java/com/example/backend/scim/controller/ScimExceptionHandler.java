@@ -1,5 +1,6 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
@@ -14,10 +15,14 @@ import com.example.backend.scim.domain.PreconditionRequiredException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
+import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -42,6 +47,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice(basePackages = "com.example.backend.scim.controller")
 class ScimExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ScimExceptionHandler.class);
 
     /** Every refusal this slice raises deliberately. */
     @ExceptionHandler(ScimErrorException.class)
@@ -151,6 +158,39 @@ class ScimExceptionHandler {
         return render(ScimErrorException.invalidValue(
                 "The password matches one of the User's " + PasswordHistoryPolicy.RETAINED
                         + " most recent passwords; a new value is required."));
+    }
+
+    /** A value longer than its stored limit. Names the attribute and the limit, never the value. */
+    @ExceptionHandler(ScimValueTooLongException.class)
+    ResponseEntity<Map<String, Object>> handle(ScimValueTooLongException tooLong) {
+        return render(ScimErrorException.invalidValue(
+                tooLong.attribute() + " must be at most " + tooLong.limit()
+                        + " characters long."));
+    }
+
+    /**
+     * An integrity violation no adapter translated into a refusal — the database turned down a
+     * write that the checks above it accepted.
+     *
+     * <p>That is a fault on this side, not the caller's, so it is a {@code 500} — but in the SCIM
+     * error document rather than the servlet container's own error body, which a connector cannot
+     * parse. The detail says nothing about the cause: the violation's message quotes the
+     * statement and, for a unique key, the conflicting value.
+     *
+     * <p>Handling it here takes it away from the container's own error logging, so it is logged
+     * here instead, as the cause's type alone for the same reason the message is not rendered.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ResponseEntity<Map<String, Object>> handle(DataIntegrityViolationException violation) {
+        log.atError()
+                .addKeyValue(LogEvent.ACTION, "scim.write")
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .addKeyValue(LogEvent.REASON,
+                        violation.getMostSpecificCause().getClass().getSimpleName())
+                .log("SCIM write refused by an unmapped integrity violation");
+        return render(ScimErrorException.serverError(
+                "The write could not be completed because of a server-side failure; it was not"
+                        + " applied."));
     }
 
     /** A PATCH operation the stored resource cannot accept. */

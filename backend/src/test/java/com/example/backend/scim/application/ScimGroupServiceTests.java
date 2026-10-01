@@ -24,6 +24,7 @@ import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Clock;
@@ -459,6 +460,73 @@ class ScimGroupServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE))
                 .singleElement()
                 .satisfies(recorded -> assertThat(recorded.subjectId()).isEqualTo(platform.id()));
+    }
+
+    // ---- stored-length limits ---------------------------------------------------------------
+
+    /**
+     * A {@code displayName} longer than its column is refused before anything is written and
+     * audited as an invalid value — not, as it once was, as a uniqueness conflict the database's
+     * refusal was mistaken for.
+     */
+    @Test
+    void an_over_length_display_name_on_create_is_an_invalid_value_and_nothing_is_stored() {
+        assertThatThrownBy(() -> service.create(CONNECTOR,
+                        new NewScimGroup("g".repeat(257), List.of(alice.id()), "eng-1")))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
+                    assertThat(refused.attribute()).isEqualTo("displayName");
+                    assertThat(refused.limit()).isEqualTo(256);
+                });
+
+        assertThat(groups.size()).isZero();
+        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
+                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+    }
+
+    @Test
+    void an_over_length_external_id_on_create_is_an_invalid_value_and_no_alias_is_stored() {
+        assertThatThrownBy(() -> service.create(CONNECTOR,
+                        new NewScimGroup("Engineering", List.of(), "x".repeat(257))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
+
+        assertThat(groups.size()).isZero();
+        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_CREATE))
+                .containsExactly(AuditScimRefusal.INVALID_VALUE.name());
+    }
+
+    @Test
+    void a_display_name_at_its_limit_is_stored() {
+        String longest = "g".repeat(256);
+
+        assertThat(service.create(CONNECTOR, new NewScimGroup(longest, List.of(), "x".repeat(256)))
+                .displayName()).isEqualTo(longest);
+    }
+
+    /** PUT and PATCH share the write path, so both are refused the same way and change nothing. */
+    @Test
+    void an_over_length_rename_by_put_or_patch_is_an_invalid_value_and_changes_nothing() {
+        ScimGroupResource engineering = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
+        ScimGroup before = groups.findById(engineering.id()).orElseThrow();
+        audit.reset();
+
+        assertThatThrownBy(() -> service.replace(CONNECTOR, engineering.id(),
+                        current(engineering.id()),
+                        new ScimGroupReplacement("g".repeat(257), List.of())))
+                .isInstanceOf(ScimValueTooLongException.class);
+        assertThatThrownBy(() -> service.patch(CONNECTOR, engineering.id(),
+                        current(engineering.id()),
+                        List.of(new ScimGroupPatchOperation.SetDisplayName("g".repeat(257)))))
+                .isInstanceOf(ScimValueTooLongException.class);
+
+        assertThat(groups.findById(engineering.id())).contains(before);
+        assertThat(refusalDetails(AuditOperation.SCIM_GROUP_REPLACE))
+                .containsExactly(AuditScimRefusal.INVALID_VALUE.name(),
+                        AuditScimRefusal.INVALID_VALUE.name());
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE))
+                .allSatisfy(recorded -> assertThat(recorded.subjectId())
+                        .isEqualTo(engineering.id()));
     }
 
     // ---- delete -------------------------------------------------------------------------------

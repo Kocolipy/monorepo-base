@@ -47,6 +47,23 @@ info:
     levels of nesting and 100 expressions (`400 invalidFilter`), 100 operations in one
     PatchOp and 200 resources in one page (`400 invalidValue` / a capped `count`).
 
+    **Stored lengths.** Every stored User and Group string has a maximum length,
+    given as `maxLength` on its schema property below because RFC 7643 has no such
+    schema characteristic (so `/Schemas` does not advertise it): 256 for `userName`,
+    `displayName`, `externalId`, every `name` sub-attribute and `emails.value`; 64 for
+    `preferredLanguage`, `locale` and `timezone`; 32 for `emails.type`. Lengths are
+    Unicode code points, as JSON Schema counts them, and `userName` and a Group's
+    `displayName` must also fit after NFKC normalization. A longer value is refused on
+    POST, PUT and PATCH before anything is written, with `400 invalidValue` and a
+    `detail` of the form `emails.type must be at most 32 characters long.` — the
+    attribute and the limit, never the value — and the refusal is audited as
+    `INVALID_VALUE`. Only a taken live name is `409 uniqueness`.
+
+    A write the database refuses for any other reason is a fault on this side, not a
+    refusal of the request: `500` with a `ScimError` body, no `scimType` and a
+    `detail` that names no cause. It is not listed on each operation, because no
+    well-formed request is meant to produce it.
+
     The contract is checked mechanically: `src/test/java/com/example/backend/contract/`
     holds every response its fixtures receive against this document — status,
     documented headers, media type and body schema — and fails for a status this
@@ -2170,8 +2187,9 @@ components:
         The request was not acceptable SCIM: an unparseable or non-object body, a
         schema other than this service's one User schema, a missing required
         attribute, an attribute or sub-attribute this service does not implement, a
-        value of the wrong JSON type, or a projection naming something that is not an
-        attribute. `scimType` is `invalidSyntax` or `invalidValue`; for a query also
+        value of the wrong JSON type, a value longer than its stored `maxLength`, or a
+        projection naming something that is not an attribute. `scimType` is
+        `invalidSyntax` or `invalidValue`; for a query also
         `invalidFilter`, and for a PATCH also `invalidPath`, `noTarget` or
         `mutability` — see the operation.
       content:
@@ -2874,7 +2892,8 @@ components:
         STRING, as RFC 7644 §3.12 defines it. `scimType` is present only where the RFC
         defines one for the condition, and is omitted rather than null where it does
         not. `detail` is written by this service and never echoes a submitted value —
-        an attribute path, yes; a userName or a password, never.
+        an attribute path, yes; a userName or a password, never. A server-side fault
+        is the same document with `status` `"500"` and no `scimType`.
       properties:
         schemas:
           type: array
@@ -2919,20 +2938,27 @@ components:
       description: |
         The `name` complex attribute. Every sub-attribute is optional, and the
         attribute is omitted entirely when all of them are absent — SCIM omits an
-        unassigned attribute rather than rendering an empty object.
+        unassigned attribute rather than rendering an empty object. Each is at most
+        256 characters.
       properties:
         formatted:
           type: string
+          maxLength: 256
         familyName:
           type: string
+          maxLength: 256
         givenName:
           type: string
+          maxLength: 256
         middleName:
           type: string
+          maxLength: 256
         honorificPrefix:
           type: string
+          maxLength: 256
         honorificSuffix:
           type: string
+          maxLength: 256
     ScimUserEmail:
       type: object
       required: [value]
@@ -2943,8 +2969,10 @@ components:
       properties:
         value:
           type: string
+          maxLength: 256
         type:
           type: string
+          maxLength: 32
           example: work
         primary:
           type: boolean
@@ -2977,22 +3005,29 @@ components:
           readOnly: true
         externalId:
           type: string
+          maxLength: 256
           description: The calling connector's alias for this resource, case-exact.
         userName:
           type: string
+          maxLength: 256
           description: |
             Unique among live Users, case-insensitively, after Unicode NFKC and case
-            folding. Mutable, and reusable once its User is deleted.
+            folding. Mutable, and reusable once its User is deleted. At most 256
+            characters both as sent and after normalization, which can lengthen it.
         name:
           $ref: "#/components/schemas/ScimUserName"
         displayName:
           type: string
+          maxLength: 256
         preferredLanguage:
           type: string
+          maxLength: 64
         locale:
           type: string
+          maxLength: 64
         timezone:
           type: string
+          maxLength: 64
         active:
           type: boolean
           description: Defaults to true on create. An inactive User cannot log in.
@@ -3038,12 +3073,15 @@ components:
           readOnly: true
         externalId:
           type: string
+          maxLength: 256
           description: The calling connector's alias for this resource, case-exact.
         displayName:
           type: string
+          maxLength: 256
           description: |
             Unique among live Groups, case-insensitively, after Unicode NFKC and case
-            folding — stricter than RFC 7643, which leaves it non-unique. Made unique
+            folding — stricter than RFC 7643, which leaves it non-unique. At most 256
+            characters both as sent and after normalization. Made unique
             because a Group's membership confers authority, and two Groups an
             administrator reads as the same name is how membership of the wrong one
             gets granted.

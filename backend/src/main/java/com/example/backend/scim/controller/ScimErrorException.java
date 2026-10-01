@@ -122,6 +122,14 @@ public class ScimErrorException extends RuntimeException {
         return new ScimErrorException(HttpStatus.NOT_IMPLEMENTED, null, detail);
     }
 
+    /**
+     * A failure on this side that the request could not have avoided. {@code 500} and no
+     * {@code scimType}, which RFC 7644 §3.12 defines none for.
+     */
+    public static ScimErrorException serverError(String detail) {
+        return new ScimErrorException(HttpStatus.INTERNAL_SERVER_ERROR, null, detail);
+    }
+
     public HttpStatus status() {
         return status;
     }
