@@ -7,6 +7,7 @@ import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimAttributeLimits;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -18,6 +19,7 @@ import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
+import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
@@ -101,6 +103,9 @@ public class ScimGroupService {
     /**
      * Creates a Group, its connector alias and its audit event in one transaction.
      *
+     * <p>A {@code displayName} or {@code externalId} longer than its column is refused first, as
+     * {@code invalidValue} naming the attribute and its limit, and audited as that.
+     *
      * <p>A {@code displayName} already taken arrives as {@link DuplicateDisplayNameException}
      * from the failed statement rather than from a prior read, and a member that is not a live
      * User as {@link UnknownGroupMemberException} from the failed membership insert. Both are
@@ -109,6 +114,14 @@ public class ScimGroupService {
      */
     @Transactional
     public ScimGroupResource create(AuthenticatedConnector connector, NewScimGroup command) {
+        try {
+            ScimAttributeLimits.requireGroupDisplayNameWithin(command.displayName());
+            ScimAttributeLimits.requireExternalIdWithin(command.externalId());
+        } catch (ScimValueTooLongException tooLong) {
+            audit.recordScimGroupCreateRejected(
+                    connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
+            throw tooLong;
+        }
         refuseFrozenMembershipChange(connector, List.of(), command.memberIds());
         ScimGroup group = ScimGroup.created(
                 UUID.randomUUID(),
@@ -320,6 +333,13 @@ public class ScimGroupService {
         String currentAlias = aliases.find(connectorId, id).orElse(null);
         GroupEdit edit = change.apply(new GroupEdit(current, currentAlias));
         ScimGroup desired = edit.group();
+        try {
+            ScimAttributeLimits.requireGroupDisplayNameWithin(desired.displayName());
+            ScimAttributeLimits.requireExternalIdWithin(edit.externalId());
+        } catch (ScimValueTooLongException tooLong) {
+            audit.recordScimGroupWriteRejected(connectorId, id, AuditScimRefusal.INVALID_VALUE);
+            throw tooLong;
+        }
 
         if (current.isProtectedFromWrites()
                 && !current.displayName().equals(desired.displayName())) {

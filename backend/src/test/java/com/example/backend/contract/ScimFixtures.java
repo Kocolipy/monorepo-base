@@ -433,6 +433,50 @@ final class ScimFixtures {
             t.assertUnchanged(kind, other);
         });
 
+        // -- 400 invalidValue: a value longer than its stored limit, never a 409 --
+        // The limits are this service's, documented in docs/openapi.yaml as maxLength since RFC
+        // 7643 has no such characteristic; the refusal names the attribute and the limit.
+        String overLong = "q".repeat(257);
+        String overLongDetail = kind.identifying + " must be at most 256 characters long.";
+        add(all, k + " 400 invalidValue: create with an over-length " + kind.identifying, t -> {
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, kind.collection()),
+                    kind.create(overLong)), 400, "invalidValue");
+            assertThat(error.get("detail").asText()).isEqualTo(overLongDetail);
+            assertThat(error.toString()).doesNotContain(overLong);
+        });
+        add(all, k + " 400 invalidValue: replace with an over-length " + kind.identifying, t -> {
+            Resource resource = t.create(kind);
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.PUT, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), kind.replace(overLong)),
+                    400, "invalidValue");
+            assertThat(error.get("detail").asText()).isEqualTo(overLongDetail);
+            t.assertUnchanged(kind, resource);
+        });
+        add(all, k + " 400 invalidValue: patch with an over-length " + kind.identifying, t -> {
+            Resource resource = t.create(kind);
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.PATCH, kind.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), Kind.patch("""
+                    {"op":"replace","path":"%s","value":"%s"}""".formatted(kind.identifying,
+                    overLong))), 400, "invalidValue");
+            assertThat(error.get("detail").asText()).isEqualTo(overLongDetail);
+            t.assertUnchanged(kind, resource);
+        });
+        add(all, k + " 400 invalidValue: create with an over-length externalId", t -> {
+            String body = kind.create(name());
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, kind.collection()),
+                    body.substring(0, body.length() - 1) + ",\"externalId\":\"" + overLong
+                            + "\"}"), 400, "invalidValue");
+            assertThat(error.get("detail").asText())
+                    .isEqualTo("externalId must be at most 256 characters long.");
+        });
+        add(all, k + " 201: a " + kind.identifying + " at its 256-character limit is stored", t -> {
+            String prefix = name();
+            String longest = prefix + "x".repeat(256 - prefix.length());
+            // The replacement body, which carries no displayName derived from the name.
+            Resource resource = t.create(kind, kind.replace(longest));
+            assertThat(resource.body().get(kind.identifying).asText()).isEqualTo(longest);
+        });
+
         // -- 400 invalidSyntax: not JSON, not a resource, the wrong schema, a missing required --
         Map<String, String> unreadable = ScimConformanceFixtureTests.map(
                 "malformed JSON", "{\"schemas\":",
@@ -946,6 +990,35 @@ final class ScimFixtures {
     static void userOnly(List<Fixture> all) {
         Kind user = Kind.USER;
 
+        // -- stored-length limits on attributes only a User has, including a sub-attribute --
+        add(all, "User 400 invalidValue: an over-length emails type, not a userName conflict", t -> {
+            String userName = name();
+            JsonNode error = t.expectError(body(t.scim(HttpMethod.POST, user.collection()), """
+                    {"schemas":["%s"],"userName":"%s",
+                     "emails":[{"value":"a@example.com","type":"%s"}]}"""
+                    .formatted(USER_SCHEMA, userName, "t".repeat(40))), 400, "invalidValue");
+            assertThat(error.get("detail").asText())
+                    .isEqualTo("emails.type must be at most 32 characters long.");
+            JsonNode found = json(t.expect(t.scim(HttpMethod.GET, user.collection())
+                    .param("filter", "userName eq \"" + userName + "\""), 200));
+            assertThat(found.get("totalResults").asInt()).as("nothing was created").isZero();
+        });
+        add(all, "User 400 invalidValue: an over-length locale on PUT and PATCH", t -> {
+            Resource resource = t.create(user);
+            String userName = resource.body().get("userName").asText();
+            String locale = "l".repeat(80);
+            JsonNode put = t.expectError(body(t.scim(HttpMethod.PUT, user.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), """
+                    {"schemas":["%s"],"userName":"%s","locale":"%s"}"""
+                    .formatted(USER_SCHEMA, userName, locale)), 400, "invalidValue");
+            JsonNode patch = t.expectError(body(t.scim(HttpMethod.PATCH, user.one(resource.id()))
+                    .header(HttpHeaders.IF_MATCH, resource.etag()), Kind.patch("""
+                    {"op":"replace","path":"locale","value":"%s"}""".formatted(locale))),
+                    400, "invalidValue");
+            assertThat(List.of(put.get("detail").asText(), patch.get("detail").asText()))
+                    .containsOnly("locale must be at most 64 characters long.");
+            t.assertUnchanged(user, resource);
+        });
         add(all, "User password: write-only — accepted on create, never returned", t -> {
             Resource resource = t.create(user, """
                     {"schemas":["%s"],"userName":"%s","password":"conformance-pass-1"}"""

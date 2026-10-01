@@ -583,6 +583,8 @@ Every SCIM error body has schema `urn:ietf:params:scim:api:messages:2.0:Error`, 
 | Unknown/deleted resource | `404` |
 | Duplicate live username | `409 uniqueness` |
 | Invalid body/schema/value | `400 invalidSyntax` or `400 invalidValue` |
+| Value longer than its stored limit (documented as `maxLength` in `backend/docs/openapi.yaml`) | `400 invalidValue` naming the attribute and limit, before persistence; audited `INVALID_VALUE` |
+| Any other database integrity violation | `500` SCIM error, no `scimType`; never reported as `409` |
 | Invalid filter or filter/operator pair | `400 invalidFilter` |
 | Invalid PATCH path | `400 invalidPath` |
 | PATCH target not found | `400 noTarget` |

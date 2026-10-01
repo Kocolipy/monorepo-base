@@ -156,6 +156,23 @@ class OpenApiContractTests {
                 .containsExactly("$: required property id is absent");
     }
 
+    /**
+     * A string's length is its code points, as JSON Schema defines it and as the SCIM columns
+     * count: three supplementary characters are six UTF-16 units and meet a maxLength of 3.
+     */
+    @Test
+    void string_lengths_are_counted_in_code_points() throws Exception {
+        JsonNode schema = JSON.readTree("""
+                {"type":"string","minLength":3,"maxLength":3}""");
+        String three = "\uD83D\uDE00".repeat(3);
+
+        assertThat(CONTRACT.validate(schema, JSON.valueToTree(three), "$")).isEmpty();
+        assertThat(CONTRACT.validate(schema, JSON.valueToTree(three + "x"), "$"))
+                .containsExactly("$: longer than maxLength 3");
+        assertThat(CONTRACT.validate(schema, JSON.valueToTree("\uD83D\uDE00"), "$"))
+                .containsExactly("$: shorter than minLength 3");
+    }
+
     @Test
     void the_validator_covers_every_keyword_the_document_uses() {
         assertThat(CONTRACT.unsupportedKeywords()).isEmpty();
