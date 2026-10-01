@@ -38,8 +38,8 @@ public interface ScimUserRepository {
      *
      * @throws DuplicateUserNameException when a live User already holds the normalized
      *                                    {@code userName}, or when the reservation is
-     *                                    already held — seeding treats either as "it is
-     *                                    already there"
+     *                                    already held — fatal to the calling transaction,
+     *                                    so seeding looks first rather than catching this
      */
     ScimUser createReserved(ScimUser user, ReservedResourceName reservedName);
 
@@ -68,6 +68,10 @@ public interface ScimUserRepository {
      * {@code now}. A replacement restating {@code active=true} over an active User resets
      * nothing, so a connector re-asserting {@code active} on every sync cannot hold a dormant
      * User open.
+     *
+     * <p>A reactivation of a User that holds a credential also requires a password change as of
+     * {@code now}: a credential that sat unused across a deactivation is not trusted on return.
+     * Re-dated even when the flag was already set, so the grace period runs from the reactivation.
      *
      * <p>Writes only what differs. The login path writes the failure run on this row on every
      * rejected attempt without taking the resource lock, so a full-row write carrying the failure
@@ -136,6 +140,9 @@ public interface ScimUserRepository {
      * dormancy window: {@code lastAuthenticatedAt} becomes {@code now}. Without that a
      * reactivated User would still be dormant by its old basis and the next inactivity run
      * would deactivate it again. Writing {@code true} over {@code true} resets nothing.
+     *
+     * <p>A reactivation of a User that holds a credential also requires a password change as of
+     * {@code now}, exactly as {@link #replace} does.
      *
      * @return the User as it now stands, or empty when no User has that id
      */

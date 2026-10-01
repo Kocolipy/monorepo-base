@@ -39,8 +39,8 @@ public interface ScimGroupRepository {
      *
      * @throws DuplicateDisplayNameException when a live Group already holds the normalized
      *                                       {@code displayName}, or when the reservation is
-     *                                       already held — seeding treats either as "it is
-     *                                       already there"
+     *                                       already held — fatal to the calling transaction,
+     *                                       so seeding looks first rather than catching this
      */
     ScimGroup createReserved(ScimGroup group, ReservedResourceName reservedName);
 

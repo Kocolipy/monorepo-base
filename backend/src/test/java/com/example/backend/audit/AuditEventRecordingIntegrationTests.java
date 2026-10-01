@@ -384,6 +384,8 @@ class AuditEventRecordingIntegrationTests {
             users.updateLoginState(
                     user.id(), ScimLoginState.of(user.login().passwordHash()));
             users.updateActive(user.id(), true, Instant.now());
+            // Reactivation requires a password change; the shared seeded baseline is unflagged.
+            users.completePasswordChange(user.id(), user.login().passwordHash(), Instant.now());
         });
     }
 

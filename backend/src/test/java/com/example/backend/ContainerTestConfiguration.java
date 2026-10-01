@@ -2,6 +2,7 @@ package com.example.backend;
 
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -22,7 +23,11 @@ import org.testcontainers.utility.DockerImageName;
  * reuses that context — container included — across every {@code @SpringBootTest}
  * class that imports this configuration with identical context configuration,
  * rather than paying a fresh container start per class.
+ *
+ * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
+ * database starts with the seeded Bootstrap Admin's first-login change already completed.
  */
+@Import(SeededBootstrapAdminTestConfiguration.class)
 public class ContainerTestConfiguration {
 
     private static final DockerImageName POSTGRES_IMAGE =

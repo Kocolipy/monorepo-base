@@ -12,6 +12,7 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimSeedLock;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
 import java.time.ZoneOffset;
@@ -45,8 +46,15 @@ class ScimSeedServiceTests {
 
     private final CountingPasswordEncoder passwordEncoder = new CountingPasswordEncoder();
 
+    private final RecordingSeedLock seedLock = new RecordingSeedLock();
+
     private final ScimSeedService seeding = new ScimSeedService(
-            users, groups, audit, passwordEncoder, Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC));
+            users,
+            groups,
+            seedLock,
+            audit,
+            passwordEncoder,
+            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC));
 
     @Test
     void a_fresh_database_gets_both_configured_identities() {
@@ -79,6 +87,7 @@ class ScimSeedServiceTests {
         ScimUser ordinary = users.require("user");
         assertThat(ordinary.isProtectedFromWrites()).isFalse();
         assertThat(groups.findGroupsOfUser(ordinary.id())).isEmpty();
+        assertThat(ordinary.login().isPasswordChangeRequired()).isFalse();
     }
 
     @Test
@@ -124,6 +133,66 @@ class ScimSeedServiceTests {
                         .isNull())
                 .extracting(RecordingAuditTrail.Recorded::detail)
                 .containsExactlyInAnyOrder("User", "Group");
+        // Each event names the resource it seeded, so the trail can be joined to the directory.
+        assertThat(audit.of(AuditOperation.SCIM_RESOURCE_SEED))
+                .extracting(RecordingAuditTrail.Recorded::subjectId)
+                .containsExactlyInAnyOrder(
+                        users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)
+                                .orElseThrow().id(),
+                        groups.findByReservedName(ReservedResourceName.ADMIN_GROUP)
+                                .orElseThrow().id());
+    }
+
+    /**
+     * Both identities are stamped with the seeding clock and carry their userName as their
+     * displayName, which is what the Accounts page lists them by.
+     */
+    @Test
+    void the_seeded_identities_are_created_now_and_displayed_by_their_user_name() {
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(List.of(users.require("user"), users.require("admin")))
+                .allSatisfy(seeded -> {
+                    assertThat(seeded.createdAt()).isEqualTo(ScimIdentities.NOW);
+                    assertThat(seeded.lastModifiedAt()).isEqualTo(ScimIdentities.NOW);
+                    assertThat(seeded.profile().displayName())
+                            .isEqualTo(seeded.profile().userName());
+                });
+    }
+
+    /**
+     * The Bootstrap Admin's password comes from deployment configuration, with working fallbacks
+     * on a public remote: a default credential, which IM8 ac-6 and the spec's
+     * "seeded with mustChangePassword set" both require be replaced on first use. Dated by the
+     * seeding clock, though the grace job never acts on it: the reserved User is exempt.
+     */
+    @Test
+    void the_bootstrap_admin_is_seeded_with_a_password_change_required() {
+        seeding.seed(ORDINARY, RECOVERY);
+
+        ScimUser bootstrapAdmin =
+                users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
+        assertThat(bootstrapAdmin.login().passwordChangeRequiredSince())
+                .isEqualTo(ScimIdentities.NOW);
+        assertThat(bootstrapAdmin.isExemptFromPasswordChangeGrace()).isTrue();
+    }
+
+    /**
+     * A restart does not re-impose the change on a Bootstrap Admin that already completed it:
+     * that would force a fresh credential on every boot.
+     */
+    @Test
+    void a_later_run_does_not_re_flag_a_bootstrap_admin_that_changed_its_password() {
+        seeding.seed(ORDINARY, RECOVERY);
+        ScimUser bootstrapAdmin =
+                users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
+        users.completePasswordChange(bootstrapAdmin.id(), "hashed:rotated", ScimIdentities.NOW);
+
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(users.findById(bootstrapAdmin.id()).orElseThrow()
+                        .login().isPasswordChangeRequired())
+                .isFalse();
     }
 
     /** The ordinary identity is not a reserved resource, so its creation records no seed event. */
@@ -137,6 +206,71 @@ class ScimSeedServiceTests {
     }
 
     // ---- idempotence --------------------------------------------------------------------------
+
+    /**
+     * Every run takes the seeding lock, and takes it before it creates anything: the reads decide
+     * what to write, so a read taken before the lock could see a state a concurrent seed is about
+     * to change. The integration test shows the lock really serializes; this one shows seeding
+     * asks for it.
+     */
+    @Test
+    void every_run_takes_the_seeding_lock_before_creating_anything() {
+        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(seedLock.usersSeenAtEachAcquire)
+                .as("one acquisition per run, each before that run created anything")
+                .containsExactly(0L, 2L);
+    }
+
+    /**
+     * The ordinary identity is a first-run convenience, not a recovery resource: once seeding has
+     * completed it is an ordinary provisionable User, and a restart that recreated it would undo a
+     * deliberate deletion.
+     */
+    @Test
+    void a_later_run_does_not_recreate_a_deleted_ordinary_identity() {
+        seeding.seed(ORDINARY, RECOVERY);
+        users.deleteById(users.require("user").id(), ScimIdentities.NOW);
+
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isEmpty();
+    }
+
+    /**
+     * A run that finds the recovery path already there does no hashing at all. Hashing is the
+     * expensive step, and a count that does not move shows neither identity was even prepared for
+     * a write on a restart.
+     */
+    @Test
+    void a_later_run_hashes_nothing() {
+        seeding.seed(ORDINARY, RECOVERY);
+        int afterFirst = passwordEncoder.encodes;
+
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(passwordEncoder.encodes).isEqualTo(afterFirst);
+    }
+
+    /**
+     * A database that already has a User under the ordinary name but no Bootstrap Admin — a User
+     * provisioned before seeding first ran — is seeded around it. The existing User is not
+     * replaced, and its presence is found by a lookup rather than by a failed INSERT, which against
+     * Postgres would abort the seed transaction.
+     */
+    @Test
+    void a_first_run_leaves_an_existing_user_under_the_ordinary_name_alone() {
+        ScimUser existing = users.create(ScimIdentities.user("user"));
+
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(users.require("user").id()).isEqualTo(existing.id());
+        assertThat(users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)).isPresent();
+        assertThat(passwordEncoder.encodes)
+                .as("only the Bootstrap Admin's password was hashed")
+                .isEqualTo(1);
+    }
 
     @Test
     void a_second_run_creates_nothing_and_records_nothing() {
@@ -268,6 +402,17 @@ class ScimSeedServiceTests {
         assertThat(passwordEncoder.encodes).isEqualTo(2);
         assertThat(users.require("admin").login().passwordHash()).isNotEqualTo("admin-password");
         assertThat(users.require("user").login().passwordHash()).isNotEqualTo("user-password");
+    }
+
+    /** Records how many Users existed at each acquisition, so a test can see WHEN it was taken. */
+    private final class RecordingSeedLock implements ScimSeedLock {
+
+        private final List<Long> usersSeenAtEachAcquire = new ArrayList<>();
+
+        @Override
+        public void acquire() {
+            usersSeenAtEachAcquire.add(users.size());
+        }
     }
 
     /**

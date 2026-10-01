@@ -64,12 +64,17 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     int updateActive(@Param("id") UUID id, @Param("active") boolean active);
 
     /**
-     * Reactivates an INACTIVE User and resets its dormancy basis to the reactivation instant, in
-     * one statement.
+     * Reactivates an INACTIVE User, resets its dormancy basis to the reactivation instant and —
+     * when it holds a credential — requires a password change as of that instant, in one
+     * statement.
      *
      * <p>The {@code active = false} condition is the point: it is what makes this a transition
      * rather than an assertion, so writing {@code true} over an active User matches no row and
      * resets nothing.
+     *
+     * <p>The change requirement follows the spec: a credential that sat unused across a
+     * deactivation should not be trusted on return. A credentialless User keeps whatever it had,
+     * which is no flag — the flag arrives with its first password.
      *
      * @return how many rows were written; zero when no inactive User has that id
      */
@@ -77,7 +82,10 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     @Query("""
             update ScimUserEntity u
                set u.active = true,
-                   u.login.lastAuthenticatedAt = :now
+                   u.login.lastAuthenticatedAt = :now,
+                   u.login.passwordChangeRequiredSince =
+                       case when u.login.passwordHash is not null then :now
+                            else u.login.passwordChangeRequiredSince end
              where u.resourceId = :id
                and u.active = false""")
     int reactivate(@Param("id") UUID id, @Param("now") Instant now);

@@ -143,7 +143,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 withActive(current.profile(), active),
                 // A stored false-to-true transition resets the dormancy basis, as the adapter's
                 // conditional statement does; true over true resets nothing.
-                reactivated ? withDormancyBasis(current.login(), now) : current.login(),
+                reactivated ? reactivatedLogin(current.login(), now) : current.login(),
                 current.reservedName(),
                 // `active` IS a SCIM attribute, so the version moves — unlike the login state.
                 current.version() + 1,
@@ -184,9 +184,11 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         current.login().failedLoginAttempts(),
                         current.login().lockedAt(),
                         reactivated ? now : current.login().lastAuthenticatedAt(),
-                        user.login().isPasswordChangeRequired()
-                                ? user.login().passwordChangeRequiredSince()
-                                : current.login().passwordChangeRequiredSince()),
+                        reactivated && user.login().passwordHash() != null
+                                ? now
+                                : user.login().isPasswordChangeRequired()
+                                        ? user.login().passwordChangeRequiredSince()
+                                        : current.login().passwordChangeRequiredSince()),
                 current.reservedName(),
                 current.version() + 1,
                 current.createdAt(),
@@ -306,6 +308,15 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 login.lockedAt(),
                 basis,
                 login.passwordChangeRequiredSince());
+    }
+
+    /**
+     * A reactivation, as the adapter's conditional statement writes it: the dormancy basis reset
+     * and, for a credentialed User, a password change required as of the same instant.
+     */
+    private static ScimLoginState reactivatedLogin(ScimLoginState login, Instant now) {
+        ScimLoginState reset = withDormancyBasis(login, now);
+        return login.passwordHash() == null ? reset : reset.withPasswordChangeRequired(now);
     }
 
     /** The flag alone, as the adapter's narrow statement writes it; the version is untouched. */

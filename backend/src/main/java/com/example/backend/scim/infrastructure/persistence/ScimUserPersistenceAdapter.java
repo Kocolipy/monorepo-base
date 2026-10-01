@@ -78,10 +78,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      *
      * <p>A violation here has one more possible cause than in {@link #create}: the
      * reservation is unique too, so a second attempt to seed the same recovery identity
-     * violates it. Both causes mean the same thing to seeding, which is idempotent and
-     * treats either as "it is already there", so both arrive as the same exception rather
-     * than being distinguished by inspecting the constraint name — a string the database
-     * owns and could change.
+     * violates it. Seeding never expects either: it looks the reservation up first under
+     * its lock, because against Postgres a violation aborts the transaction and cannot be
+     * caught and continued past. Both causes therefore mean "seeding cannot proceed" and
+     * arrive as the same exception rather than being distinguished by inspecting the
+     * constraint name — a string the database owns and could change.
      */
     @Override
     public ScimUser createReserved(ScimUser user, ReservedResourceName reservedName) {
@@ -151,6 +152,12 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         }
         if (reactivated) {
             entity.getLogin().resetDormancyBasis(now);
+            if (entity.getLogin().getPasswordHash() != null) {
+                // A credential that sat unused across a deactivation is not trusted on return.
+                // Re-dated, so the grace period runs from the reactivation rather than from a
+                // flag that may already be older than the grace period itself.
+                entity.getLogin().requirePasswordChange(now);
+            }
         }
         try {
             users.saveAndFlush(entity);
