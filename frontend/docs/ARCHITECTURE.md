@@ -13,6 +13,7 @@ src/
   vite-env.d.ts       /// <reference types="vite/client" />
   auth/               session state and the route guard
   pages/              one component per page, plus its own api.ts when it needs one
+  components/         shared non-primitive components (error-boundary.tsx)
   components/ui/      shadcn primitives (placeholder — see "Component library")
   lib/                framework-agnostic helpers; a leaf
 ```
@@ -289,6 +290,8 @@ to need it does not have to invent a convention.
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
 Already present, and where it lives: routing in `src/App.tsx`, authentication in
-`src/auth/`, and typed HTTP results in `src/lib/http.ts`. A feature module maps
+`src/auth/`, typed HTTP results in `src/lib/http.ts`, and the top-level error
+boundary in `src/components/error-boundary.tsx`, wrapped around the whole tree
+in `App.tsx` because there is no app shell for it to sit inside. A feature module maps
 results only when it adds feature behavior; a page consumes pass-through
 results directly.

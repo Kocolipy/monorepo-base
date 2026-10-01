@@ -74,12 +74,15 @@ them:
   `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and an
   `ADMIN`-restricted `ProtectedRoute` (`/accounts`). A session with the
   change-required flag is confined to `/change-password` by the guards' shared
-  transition table, whatever path it asks for.
-
-`@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
-`paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
-`test/.dependency-cruiser.cjs` — and all four have to agree, or a change breaks
-a different tool than the one being edited.
+  transition table, whatever path it asks for. The outermost element is
+  `ErrorBoundary` (`src/components/error-boundary.tsx`): a render error anywhere
+  below shows a generic "Something went wrong" fallback with a reload action,
+  logs to `console.error` only, and never puts the error's message or stack in
+  the DOM.
+  `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
+  `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
+  `test/.dependency-cruiser.cjs` — and all four have to agree, or a change breaks
+  a different tool than the one being edited.
 
 Four rules are review-blocking, and `npm run test:arch` enforces all four:
 
