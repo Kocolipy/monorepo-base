@@ -5,9 +5,12 @@ import { useAuth } from "@/auth/auth-context-value";
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { jsonDecoder } from "@/lib/decode";
 
 import {
-  decodeJson,
+  decodeGroupRows,
+  decodeUserRow,
+  decodeUserRows,
   formatDate,
   formatInstant,
   GROUPS_PATH,
@@ -297,14 +300,28 @@ function ProjectionCard({
   );
 }
 
-/** One listing read, reported into state: the rows, or a failure and its copy. */
-function useListing<T>(path: string, failureMessage: string, onFailure: (message: string) => void) {
+/** Module-level, so each is one stable function across renders and hook dependencies. */
+const readUserRows = jsonDecoder(decodeUserRows);
+const readGroupRows = jsonDecoder(decodeGroupRows);
+const readUserRow = jsonDecoder(decodeUserRow);
+
+/**
+ * One listing read, reported into state: the rows, or a failure and its copy.
+ * `decode` must be a stable reference (module-level), since the read reruns
+ * whenever it changes.
+ */
+function useListing<T>(
+  path: string,
+  decode: (response: Response) => Promise<T[]>,
+  failureMessage: string,
+  onFailure: (message: string) => void,
+) {
   const request = useSessionRequest();
   const [rows, setRows] = useState<T[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    void request(path, {}, decodeJson<T[]>).then((result) => {
+    void request(path, {}, decode).then((result) => {
       if (result.kind === "ok") {
         setRows(result.data);
         return;
@@ -313,7 +330,7 @@ function useListing<T>(path: string, failureMessage: string, onFailure: (message
       setFailed(true);
       onFailure(refusalMessage(result, failureMessage));
     });
-  }, [failureMessage, onFailure, path, request]);
+  }, [decode, failureMessage, onFailure, path, request]);
 
   return { failed, rows, setRows };
 }
@@ -328,13 +345,15 @@ function useDirectory() {
   const [pending, setPending] = useState(false);
 
   const report = useCallback((message: string) => setError(message), []);
-  const users = useListing<UserRow>(
+  const users = useListing(
     USERS_PATH,
+    readUserRows,
     "Unable to load the users. Please try again.",
     report,
   );
-  const groups = useListing<GroupRow>(
+  const groups = useListing(
     GROUPS_PATH,
+    readGroupRows,
     "Unable to load the groups. Please try again.",
     report,
   );
@@ -359,7 +378,7 @@ function useDirectory() {
       const result = await request(
         userActionPath(target.id, action),
         { method: "POST" },
-        decodeJson<UserRow>,
+        readUserRow,
       );
       if (result.kind === "ok") {
         const updated = result.data;

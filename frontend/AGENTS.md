@@ -40,10 +40,16 @@ them:
   for the in-house component library (see below). It may import `cn` from
   `src/lib/` and its own siblings, nothing else.
 - **`src/lib/`** — framework-agnostic helpers any layer may call, and a leaf:
-  it imports nothing from `src/`. Holds `cn()` and `http.ts`; `apiFetch` owns
-  credentials, CSRF recovery, status classification, and typed success decoding
-  behind one semantic result interface (see "Backend contract"). Shared hooks
-  belong here too — `components.json` points the shadcn CLI at `@/lib/hooks`.
+  it imports nothing from `src/`. Holds `cn()`, `http.ts` and `decode.ts`;
+  `apiFetch` owns credentials, CSRF recovery, status classification, and typed
+  success decoding behind one semantic result interface (see "Backend
+  contract"). `decode.ts` holds the primitives every response decoder is built
+  from: a body is never cast to its type (`as T`) but read by a hand-written
+  decoder that takes `unknown` and returns the value or throws `DecodeError`,
+  and `apiFetch` turns a success body that does not decode into `failed` with
+  no `status`. Each wire type's decoder lives beside the type, in the module
+  that owns it. Shared hooks belong here too — `components.json` points the
+  shadcn CLI at `@/lib/hooks`.
 - **`src/auth/`** — the session and role authorization. `api.ts` maps semantic HTTP results for the
   four `/api/auth/*` endpoints, `auth-context.tsx` holds the
   `checking | authenticated | guest` status, the expiry transition and the

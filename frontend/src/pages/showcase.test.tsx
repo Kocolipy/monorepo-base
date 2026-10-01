@@ -109,6 +109,21 @@ describe("Showcase", () => {
     await expect(decode?.(Response.json({ count: 7 }))).resolves.toBe(7);
   });
 
+  it.each([
+    ["a missing count", {}, "CountResponse.count is not an integer"],
+    ["a string count", { count: "7" }, "CountResponse.count is not an integer"],
+    ["a fractional count", { count: 1.5 }, "CountResponse.count is not an integer"],
+    ["a non-object body", [7], "CountResponse is not an object"],
+  ])("refuses a counter body with %s", async (_, body, message) => {
+    renderShowcase();
+    await screen.findByText("Clicked 0 times");
+
+    const decode = apiFetchMock.mock.calls[0]?.[2];
+    await expect(decode?.(Response.json(body))).rejects.toThrow(
+      expect.objectContaining({ name: "DecodeError", message }),
+    );
+  });
+
   it("disables counter actions while the initial count is loading", async () => {
     let finishLoading: ((result: object) => void) | undefined;
     apiFetchMock.mockReturnValueOnce(

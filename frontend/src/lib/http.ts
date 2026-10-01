@@ -47,6 +47,11 @@ export const CSRF_EXPIRED_MESSAGE = "Your security token expired. Please try aga
  */
 export const FORBIDDEN_MESSAGE = "You don't have permission to do this.";
 
+/**
+ * Reads a body into its type, throwing when it does not fit. Build one from a
+ * body decoder with `jsonDecoder` (`./decode`) rather than casting
+ * `response.json()`.
+ */
 export type ApiDecoder<T> = (response: Response) => Promise<T> | T;
 
 /** The token as the backend hands it out, with the header it is to be sent in. */
@@ -192,6 +197,19 @@ export async function apiFetch<T, E>(
     }
     if (decode === undefined) return { kind: "ok", data: undefined };
 
+    return await readData(response, decode);
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
+/**
+ * A success body is a contract, unlike a failure body: one that does not decode
+ * is a plain `failed` with **no** `status`, so a page shows its own failure copy
+ * instead of rendering partial data, and nothing reads the `2xx` as meaningful.
+ */
+async function readData<T>(response: Response, decode: ApiDecoder<T>): Promise<ApiResult<T>> {
+  try {
     return { kind: "ok", data: await decode(response) };
   } catch {
     return { kind: "failed" };

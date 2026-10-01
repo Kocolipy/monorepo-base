@@ -31,10 +31,13 @@ describe("App", () => {
     window.history.replaceState(null, "", "/showcase");
     stubFetchWithCsrf(
       vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ role: "USER", username: "ada" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 200,
-        }),
+        new Response(
+          JSON.stringify({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          },
+        ),
       ),
     );
     render(<App />);
@@ -48,7 +51,9 @@ describe("App", () => {
     stubFetchWithCsrf(
       vi
         .fn()
-        .mockResolvedValueOnce(Response.json({ role: "USER", username: "ada" }))
+        .mockResolvedValueOnce(
+          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        )
         .mockResolvedValueOnce(new Response(null, { status: 401 })),
     );
     render(<App />);
@@ -74,10 +79,13 @@ describe("App", () => {
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ role: "USER", username: "ada" }), {
-          headers: { "Content-Type": "application/json" },
-          status: 200,
-        }),
+        new Response(
+          JSON.stringify({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          {
+            headers: { "Content-Type": "application/json" },
+            status: 200,
+          },
+        ),
       );
     stubFetchWithCsrf(fetchMock);
     const user = userEvent.setup();
@@ -118,7 +126,13 @@ describe("App", () => {
 
   it("redirects a USER away from account administration", async () => {
     window.history.replaceState(null, "", "/accounts");
-    stubFetchWithCsrf(vi.fn().mockResolvedValue(Response.json({ role: "USER", username: "ada" })));
+    stubFetchWithCsrf(
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        ),
+    );
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
@@ -151,7 +165,7 @@ describe("App", () => {
               ? Response.json([])
               : // The /me response is UNCHANGED by the identity unification: it still
                 // reports `username` and a single `role`, derived from the authorities.
-                Response.json({ role: "ADMIN", username: "grace" }),
+                Response.json({ passwordChangeRequired: false, role: "ADMIN", username: "grace" }),
         ),
       ),
     );
