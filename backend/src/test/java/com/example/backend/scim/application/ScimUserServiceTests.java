@@ -40,6 +40,7 @@ import com.example.backend.scim.domain.ScimUserPatchOperation.TextAttribute;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimUserSessions.Cause;
+import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
@@ -426,6 +427,136 @@ class ScimUserServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
                 .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("UNIQUENESS");
         assertThat(revocations).isEmpty();
+    }
+
+    // ---- stored-length limits ---------------------------------------------------------------
+
+    /**
+     * A value longer than its column is refused before anything is written and audited as an
+     * invalid value, naming the attribute and its limit and not the value.
+     */
+    @Test
+    void an_over_length_value_on_create_is_an_invalid_value_and_nothing_is_written() {
+        String tooLong = "t".repeat(33);
+        ScimUserProfile profile = new ScimUserProfile("grace", ScimName.NONE, null, null, null,
+                null, true, List.of(new ScimEmail("grace@work.example", tooLong, true)));
+
+        assertThatThrownBy(() -> service.create(CONNECTOR,
+                        new NewScimUser(profile, "first-password-1", "ext-grace")))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
+                    assertThat(refused.attribute()).isEqualTo("emails.type");
+                    assertThat(refused.limit()).isEqualTo(32);
+                    assertThat(refused.getMessage()).doesNotContain(tooLong);
+                });
+
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(encoder.salt).as("nothing is hashed for a refused create").isEqualTo(1);
+        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
+                    assertThat(event.subjectId()).isNull();
+                });
+    }
+
+    @Test
+    void an_over_length_external_id_on_create_is_an_invalid_value() {
+        assertThatThrownBy(() -> service.create(CONNECTOR,
+                        new NewScimUser(minimal("grace", true), null, "x".repeat(257))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
+
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("INVALID_VALUE");
+    }
+
+    @Test
+    void an_over_length_value_on_put_is_an_invalid_value_and_changes_nothing() {
+        ScimUser before = stored();
+        ScimUserProfile tooLongLocale = new ScimUserProfile("ada", before.profile().name(), "Ada",
+                "en", "l".repeat(65), "Europe/London", true, before.profile().emails());
+
+        assertThatThrownBy(() -> put(tooLongLocale, null, "ext-ada"))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
+                    assertThat(refused.attribute()).isEqualTo("locale");
+                    assertThat(refused.limit()).isEqualTo(64);
+                });
+
+        assertLengthRefusedAndNothingChanged(before);
+    }
+
+    /**
+     * An over-length {@code externalId} on a PUT is named as too long, not as a change of the
+     * alias: the length is what the connector has to fix, whatever it is compared with.
+     */
+    @Test
+    void an_over_length_external_id_on_put_is_an_invalid_value_not_a_mutability_refusal() {
+        ScimUser before = stored();
+
+        assertThatThrownBy(() -> put(before.profile(), null, "x".repeat(257)))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class,
+                        refused -> assertThat(refused.attribute()).isEqualTo("externalId"));
+
+        assertLengthRefusedAndNothingChanged(before);
+        assertThat(aliases.find(CONNECTOR.connectorId(), ada.id())).contains("ext-ada");
+    }
+
+    @Test
+    void an_over_length_value_on_patch_is_an_invalid_value_and_changes_nothing() {
+        ScimUser before = stored();
+
+        assertThatThrownBy(() -> patch(
+                        new SetText(TextAttribute.DISPLAY_NAME, "Ada Lovelace"),
+                        new SetText(TextAttribute.USER_NAME, "u".repeat(257))))
+                .isInstanceOfSatisfying(ScimValueTooLongException.class, refused -> {
+                    assertThat(refused.attribute()).isEqualTo("userName");
+                    assertThat(refused.limit()).isEqualTo(256);
+                });
+
+        assertLengthRefusedAndNothingChanged(before);
+    }
+
+    /** The limit is checked before the password policy, so a refused write hashes nothing. */
+    @Test
+    void a_write_refused_for_length_never_reaches_the_password_policy() {
+        ScimUser before = stored();
+        int saltBefore = encoder.salt;
+
+        assertThatThrownBy(() -> patch(
+                        new SetPassword("a-new-valid-password"),
+                        new SetText(TextAttribute.TIMEZONE, "z".repeat(65))))
+                .isInstanceOf(ScimValueTooLongException.class);
+
+        assertThat(encoder.salt).isEqualTo(saltBefore);
+        assertThat(encoder.matches).isZero();
+        assertLengthRefusedAndNothingChanged(before);
+    }
+
+    @Test
+    void every_value_at_its_limit_is_written() {
+        ScimUser before = stored();
+        ScimUserProfile longest = new ScimUserProfile(
+                "u".repeat(256),
+                new ScimName("f".repeat(256), "k".repeat(256), "g".repeat(256), "m".repeat(256),
+                        "p".repeat(256), "s".repeat(256)),
+                "d".repeat(256), "l".repeat(64), "c".repeat(64), "z".repeat(64), true,
+                List.of(new ScimEmail("e".repeat(256), "t".repeat(32), true)));
+
+        assertThat(put(longest, null, "ext-ada").profile()).isEqualTo(longest);
+        assertThat(stored().profile()).isEqualTo(longest);
+        assertThat(stored().version()).isEqualTo(before.version() + 1);
+    }
+
+    private void assertLengthRefusedAndNothingChanged(ScimUser before) {
+        assertThat(stored()).isEqualTo(before);
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(revocations).isEmpty();
+        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.detail()).isEqualTo("INVALID_VALUE");
+                    assertThat(event.subjectId()).isEqualTo(ada.id());
+                });
     }
 
     // ---- partial update -------------------------------------------------------------------

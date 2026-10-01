@@ -289,12 +289,15 @@ public final class OpenApiContract {
     }
 
     private static void validateString(JsonNode schema, String value, String at, List<String> out) {
+        // JSON Schema measures a string in code points, not UTF-16 units; the document's SCIM
+        // maxLength values are stated in code points because that is what the columns count.
+        int length = value.codePointCount(0, value.length());
         JsonNode min = schema.get("minLength");
-        if (min != null && value.length() < min.intValue()) {
+        if (min != null && length < min.intValue()) {
             out.add(at + ": shorter than minLength " + min);
         }
         JsonNode max = schema.get("maxLength");
-        if (max != null && value.length() > max.intValue()) {
+        if (max != null && length > max.intValue()) {
             out.add(at + ": longer than maxLength " + max);
         }
         JsonNode pattern = schema.get("pattern");

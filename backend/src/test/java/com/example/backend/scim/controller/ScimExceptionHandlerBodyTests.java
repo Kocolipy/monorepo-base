@@ -2,10 +2,16 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
+import com.example.backend.scim.domain.ScimValueTooLongException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
@@ -13,6 +19,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -99,6 +107,77 @@ class ScimExceptionHandlerBodyTests {
                 .containsEntry("scimType", "invalidValue")
                 .containsEntry("detail", "The password does not satisfy the password policy ("
                         + rule.name() + "). " + rule.message() + ".");
+    }
+
+    @Test
+    void an_over_length_value_is_invalid_value_naming_the_attribute_and_its_limit() {
+        ResponseEntity<Map<String, Object>> rendered =
+                handler.handle(new ScimValueTooLongException("emails.type", 32));
+
+        assertThat(rendered.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rendered.getBody())
+                .containsEntry("schemas", List.of("urn:ietf:params:scim:api:messages:2.0:Error"))
+                .containsEntry("status", "400")
+                .containsEntry("scimType", "invalidValue")
+                .containsEntry("detail", "emails.type must be at most 32 characters long.");
+    }
+
+    /**
+     * An integrity violation no adapter translated is a server-side fault: {@code 500} in the SCIM
+     * error document, with no {@code scimType} and none of the violation's message, which quotes
+     * the statement and, for a unique key, the conflicting value.
+     */
+    @Test
+    void an_unmapped_integrity_violation_is_a_scim_500_that_echoes_nothing() {
+        String leaky = "duplicate key value violates unique constraint; Key (value)=(secret-value)";
+
+        ResponseEntity<Map<String, Object>> rendered =
+                handler.handle(new DataIntegrityViolationException(leaky));
+
+        assertThat(rendered.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(rendered.getHeaders().getFirst("Content-Type"))
+                .isEqualTo("application/scim+json");
+        assertThat(rendered.getBody())
+                .containsEntry("schemas", List.of("urn:ietf:params:scim:api:messages:2.0:Error"))
+                .containsEntry("status", "500")
+                .doesNotContainKey("scimType");
+        assertThat((String) rendered.getBody().get("detail"))
+                .isNotBlank()
+                .doesNotContain("secret-value")
+                .doesNotContain("constraint");
+    }
+
+    /**
+     * The handler takes the fault away from the container's error logging, so it logs it itself:
+     * one ERROR record of constant message, naming the most specific cause's type and nothing of
+     * its message.
+     */
+    @Test
+    void an_unmapped_integrity_violation_is_logged_as_its_cause_type_alone() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ScimExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            handler.handle(new DataIntegrityViolationException("Key (value)=(secret-value)",
+                    new java.sql.SQLException("violates check constraint; secret-value")));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage())
+                    .isEqualTo("SCIM write refused by an unmapped integrity violation");
+            assertThat(event.getKeyValuePairs())
+                    .extracting(pair -> pair.key, pair -> String.valueOf(pair.value))
+                    .containsExactly(
+                            tuple("event.action", "scim.write"),
+                            tuple("event.outcome", "failure"),
+                            tuple("event.reason", "SQLException"));
+            assertThat(event.getThrowableProxy()).as("no stack trace, which quotes the message")
+                    .isNull();
+        });
     }
 
     private static HttpMessageNotReadableException readThrough(InputStream body) {

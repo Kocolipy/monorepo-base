@@ -35,10 +35,11 @@ import org.springframework.stereotype.Repository;
  * <p>A Group write can violate two different constraints — the unique
  * {@code displayName}, and the membership's foreign key to the User table — and the two
  * must be reported differently: one is a {@code 409 uniqueness}, the other a
- * {@code 400 invalidValue} about a member that is not a live User. Telling them apart by
- * inspecting the violation's constraint NAME would tie this class to a string the database
- * owns. Instead the name and the membership are written in two flushes, so each violation
- * is attributable to the statement that caused it and the translation is not a guess.
+ * {@code 400 invalidValue} about a member that is not a live User. The name and the membership
+ * are written in two flushes, so each violation is attributable to the statement that caused it.
+ * The name's flush is attributed further, by constraint name: it can also fail on a value too
+ * long for its column, which is not a conflict, so only {@code uq_scim_groups_normalized_display_name}
+ * becomes the {@code 409} — see {@link IntegrityViolations}.
  *
  * <h2>Deletion goes through the resource row</h2>
  *
@@ -93,9 +94,8 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * reservation is unique too, so a second attempt to seed the same Admin group violates
      * it. Seeding never expects either: it looks the reservation up first under its lock,
      * because against Postgres a violation aborts the transaction and cannot be caught and
-     * continued past. Both causes therefore mean "seeding cannot proceed" and arrive as the
-     * same exception rather than being distinguished by inspecting the constraint name — a
-     * string the database owns.
+     * continued past. A taken {@code displayName} arrives as the duplicate it is; a taken
+     * reservation is rethrown as the integrity violation, and either one fails startup.
      */
     @Override
     public ScimGroup createReserved(ScimGroup group, ReservedResourceName reservedName) {
@@ -275,7 +275,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
                     group.displayName(),
                     group.normalizedDisplayName().value()));
         } catch (DataIntegrityViolationException violation) {
-            throw new DuplicateDisplayNameException(violation);
+            throw translated(violation);
         }
         List<UUID> memberIds = memberIds(group);
         writeMemberships(group.id(), memberIds);
@@ -295,8 +295,18 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
             groups.updateDisplayName(
                     group.id(), group.displayName(), group.normalizedDisplayName().value());
         } catch (DataIntegrityViolationException violation) {
-            throw new DuplicateDisplayNameException(violation);
+            throw translated(violation);
         }
+    }
+
+    /**
+     * A violation of the live-{@code displayName} constraint as the domain's refusal; any other
+     * violation unchanged, for the reason the User adapter gives: only that constraint means the
+     * name is taken, and anything else is a fault to be reported as one.
+     */
+    private static RuntimeException translated(DataIntegrityViolationException violation) {
+        return IntegrityViolations.translated(violation,
+                IntegrityViolations.DISPLAY_NAME_UNIQUE, DuplicateDisplayNameException::new);
     }
 
     /** Rewrites the membership wholesale and reports the new set. */
