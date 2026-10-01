@@ -203,3 +203,83 @@ EC2 deployment sets `LOG_FILE=/var/log/backend/backend.json` and its CloudWatch
 agent ships that file into a log group the stack creates with explicit retention;
 the service itself never sends a log over the network. `LogFileTests` starts the
 configuration in a child JVM, because logging is JVM-global.
+
+## Addendum (2026-10-01): request records and lifecycle records
+
+Issue #68. The standard (`Structured_Logging_Application_Standard.md` §2 #0 and #1,
+§3.1, §3.4) asks for a record per request and for startup and shutdown records; the
+service wrote neither.
+
+**One record per request, at its end.** `RequestIdFilter` writes it from the
+`finally` of the request dispatch, so a refusal by the security chain and an
+exception escaping a handler get one as surely as a success; the error dispatch,
+the same exchange's second pass, writes none. It carries `http.request.method`
+(from a fixed set of methods, `_OTHER` beyond it, because a client chooses the
+method), `http.route`, `http.response.status_code`, `event.duration_ms` and
+`event.outcome` (`success` below 400). The level follows the status: `INFO`
+below 400, `WARN` for a 4xx, `ERROR` for a 5xx. An exception escaping the chain
+is recorded as the `500` the container then answers.
+
+`http.route` is the template Spring's handler mapping matched
+(`/scim/v2/Users/{id}`), or `unmatched` when none did — which is every refusal
+the security chain makes before dispatch. Neither ECS nor `Log_Schema.md` has a
+template field, so the name is OpenTelemetry's. The raw path, the query string,
+headers, cookies, the body and the client address are never read into the record
+at all, so an id or a filter expression in the URL has no way into it.
+`/actuator/health` (and its probe sub-paths) and `/actuator/prometheus` get no
+record: they are infrastructure polling every few seconds, and their status and
+timing are already on `http.server.requests`.
+
+**No start record.** The standard says to log a request's start. The end record
+carries everything a start record would — method and route — plus the status,
+duration and outcome only the end can know, so a start record would add no field
+an investigation lacks while doubling the stream. One at `DEBUG` would satisfy
+the letter of the rule while being off in every deployment (§3.3: DEBUG is not
+for permanent production use), so this service writes none and treats the end
+record as satisfying "log the request's start". A request that never ends — a
+hung thread — is the case this gives up, and the thread dump and
+`http.server.requests`' active-request gauge are what find that.
+
+**Filter order.** For the request record to carry the `trace.id` every other
+record of its request carries, it must be written inside the request's span, so
+`RequestIdFilter` now runs at `HIGHEST_PRECEDENCE + 2`, immediately inside Boot's
+`ServerHttpObservationFilter` (`+ 1`) rather than ahead of it. It is still far
+ahead of the security chain, which is what the Decision above relies on.
+`EcsLogFormatTests` reads the three registrations' orders.
+
+**Startup and shutdown.** `ApplicationLifecycleLog` (in its own `lifecycle`
+slice, because it reads the SCIM, auth and audit slices' settings and each of
+those depends on `observability`) writes:
+
+- on `ApplicationReadyEvent`, `application-startup` with `host.name`, `host.ip`,
+  `spring.profiles.active`, and the effective value of each non-secret setting
+  that changes behaviour: `app.scim.enabled`, `app.session.idle_timeout`,
+  `app.session.absolute_lifetime`, `app.auth.lockout.max_attempts`,
+  `app.dormancy.deactivation.window`, `app.dormancy.authority_revocation.window`,
+  `app.audit.retention.period`. Effective rather than configured: a window whose
+  default belongs to a domain policy is read from that policy, so an unset
+  setting shows the default it resolved to. `service.*` comes from the formatter,
+  as on every record. No datasource, Redis, credential or identity setting is
+  read at all.
+- on `ContextClosedEvent`, `application-shutdown` with the context's uptime as
+  `event.duration_ms`.
+
+Each answers only for its own context, so a management child context closing does
+not log a second shutdown. A host that cannot resolve its own name gets no
+`host.*` fields rather than a placeholder.
+
+One tension with the standard, stated rather than resolved here: §2 #0 says not to
+log "timeout or retry values for authentication flows", and the session timeouts
+and the lockout threshold the ticket asks for are arguably exactly that. They are
+logged because the ticket names them and because they are what an operator checks
+first when sessions or lockouts misbehave after a deploy; if the standard's
+reading prevails, those three keys are what to remove.
+
+| Operation               | `event.action`         | `app.event.action` | `event.category` | `event.type`     |
+| ----------------------- | ---------------------- | ------------------ | ---------------- | ---------------- |
+| inbound HTTP request    | — (no action fits)     | `http.request`     | `network`        | `access`, `end`  |
+| application ready       | `application-startup`  | —                  | `process`        | `start`          |
+| application context closing | `application-shutdown` | —              | `process`        | `end`            |
+
+Both lifecycle records carry `event.outcome` `success` and `event.severity` `low`,
+as the standard's lifecycle recipe has them.

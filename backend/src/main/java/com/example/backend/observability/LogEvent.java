@@ -113,6 +113,26 @@ public final class LogEvent {
      */
     public static final String DORMANCY_SKIPPED = "dormancy.skipped";
 
+    /** An inbound request's method, from a closed set. ECS {@code http.request.method}. */
+    public static final String HTTP_METHOD = "http.request.method";
+
+    /**
+     * The route TEMPLATE an inbound request matched ({@code /scim/v2/Users/{id}}), never the
+     * path it arrived on, so no id or filter text a caller put in the URL reaches a record.
+     * Neither ECS nor {@code Log_Schema.md} names a template field; this is OpenTelemetry's
+     * {@code http.route}.
+     */
+    public static final String HTTP_ROUTE = "http.route";
+
+    /** The status an inbound request was answered with. ECS {@code http.response.status_code}. */
+    public static final String HTTP_STATUS_CODE = "http.response.status_code";
+
+    /** The machine's host name, on the startup record. ECS {@code host.name}. */
+    public static final String HOST_NAME = "host.name";
+
+    /** The machine's own address — never a client's — on the startup record. ECS {@code host.ip}. */
+    public static final String HOST_IP = "host.ip";
+
     private LogEvent() {
     }
 
@@ -158,7 +178,10 @@ public final class LogEvent {
         CONNECTOR_TOKEN_REVOKE(Action.ACCESS_CONTROL, "scim.connector.token.revoke"),
         SCIM_WRITE(Action.USER_PROVISIONING, "scim.write"),
         AUDIT_RETENTION(null, "audit.retention"),
-        AUDIT_APPEND(null, "audit.append");
+        AUDIT_APPEND(null, "audit.append"),
+        HTTP_REQUEST(null, "http.request"),
+        APPLICATION_STARTUP(Action.APPLICATION_STARTUP, null),
+        APPLICATION_SHUTDOWN(Action.APPLICATION_SHUTDOWN, null);
 
         private final Action action;
         private final String local;
@@ -185,7 +208,9 @@ public final class LogEvent {
         USER_ADMINISTRATION("user-administration"),
         USER_PROVISIONING("user-provisioning"),
         PASSWORD_CHANGE_ENFORCEMENT("password-change-enforcement"),
-        ACCESS_CONTROL("access-control");
+        ACCESS_CONTROL("access-control"),
+        APPLICATION_STARTUP("application-startup"),
+        APPLICATION_SHUTDOWN("application-shutdown");
 
         private final String value;
 
@@ -218,6 +243,7 @@ public final class LogEvent {
         CONFIGURATION("configuration"),
         DATABASE("database"),
         BATCH("batch"),
+        NETWORK("network"),
         PROCESS("process");
 
         private final String value;
@@ -233,15 +259,18 @@ public final class LogEvent {
 
     /** {@code event.type} values from {@code Log_Schema.md} §Event that this service uses. */
     public enum Type {
+        ACCESS("access"),
         ADMIN("admin"),
         ALLOWED("allowed"),
         CHANGE("change"),
         CREATION("creation"),
         DELETION("deletion"),
         DENIED("denied"),
+        END("end"),
         ERROR("error"),
         INFO("info"),
         JOB_END("job-end"),
+        START("start"),
         USER("user");
 
         private final String value;
@@ -257,6 +286,7 @@ public final class LogEvent {
 
     /** {@code event.severity} values from {@code Log_Schema.md} §Event that this service uses. */
     public enum Severity {
+        LOW("low"),
         HIGH("high");
 
         private final String value;
