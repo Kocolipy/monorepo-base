@@ -35,6 +35,20 @@ management:
         http.server.requests: 5ms
       maximum-expected-value:
         http.server.requests: 10s
+  tracing:
+    export:
+      # Tracing here exists for log correlation (`trace.id` / `span.id` on every
+      # record), not for export. Off, two things follow, both deliberate:
+      #
+      # - No span leaves the host. No exporter is on the classpath either; this
+      #   keeps it that way if one arrives transitively.
+      # - Boot installs no propagator, so an inbound `traceparent` is ignored and
+      #   every trace id is minted here. A caller-supplied id would let a client
+      #   merge unrelated requests in a log search, which is why RequestIdFilter
+      #   ignores `X-Request-Id` too (ADR 0003).
+      #
+      # Turning export on is a deliberate change to both properties.
+      enabled: false
 
 server:
   tomcat:

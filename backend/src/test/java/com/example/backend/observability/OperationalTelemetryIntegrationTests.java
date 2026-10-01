@@ -387,13 +387,10 @@ class OperationalTelemetryIntegrationTests {
     }
 
     /**
-     * Every selector in every HTTP rule matches a series the sample traffic produced, so
-     * a renamed metric or tag breaks the build rather than silently disarming an alert.
-     *
-     * <p>The inactivity rules cannot be matched the same way — that job is not scheduled
-     * yet, so its series do not exist — so for them the metric names and every label other
-     * than {@code job} are matched against the audit-retention job's series, which come
-     * from the same {@link ScheduledJobMetrics}.
+     * Every selector in every rule matches a series the sample traffic produced, so a
+     * renamed metric or tag breaks the build rather than silently disarming an alert. The
+     * inactivity rules are matched against the inactivity job's own series, which exist
+     * from the moment it is scheduled ({@link ScheduledJobMetrics}).
      */
     @Test
     void every_alert_selector_matches_a_series_in_the_scrape() throws IOException {
@@ -404,9 +401,7 @@ class OperationalTelemetryIntegrationTests {
             while (selectors.find()) {
                 found++;
                 String metric = selectors.group(1);
-                String matchers = rule.getKey().startsWith("Inactivity")
-                        ? selectors.group(2).replace("job=\"inactivity\"", "job=\"audit-retention\"")
-                        : selectors.group(2);
+                String matchers = selectors.group(2);
                 assertThat(matching(metric, matchers))
                         .as("%s: %s{%s}", rule.getKey(), metric, matchers)
                         .isNotEmpty();

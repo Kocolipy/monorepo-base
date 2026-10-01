@@ -6,6 +6,8 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.observability.ScheduledJobMetrics;
+import com.example.backend.observability.ServiceTimeZone;
 import com.example.backend.scim.domain.DormancyPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +29,11 @@ import org.springframework.scheduling.support.CronTrigger;
  *
  * <p>The schedules are fixed rather than configurable; the specification makes the windows a
  * deployment decision and says nothing of the time of day. They are staggered from each other and
- * from the audit retention job's 03:30.
+ * from the audit retention job's 03:30. All three are evaluated in {@link ServiceTimeZone#ZONE},
+ * the zone the log timestamps are written in.
+ *
+ * <p>Both run through {@link ScheduledJobMetrics#instrument}, as the retention job does, so a
+ * run is counted and is its own trace: every record a run emits carries one {@code trace.id}.
  */
 @Configuration
 @EnableScheduling
@@ -39,28 +45,42 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     /** Daily at 04:30. */
     public static final String AUTHORITY_REVOCATION_SCHEDULE = "0 30 4 * * *";
 
+    /**
+     * The {@code job} tag of the inactivity job's run metrics ({@link ScheduledJobMetrics}).
+     * {@code ops/prometheus/alerts.yaml}'s {@code InactivityJobFailed} and
+     * {@code InactivityJobNotRunning} select on exactly this value.
+     */
+    static final String DEACTIVATION_JOB = "inactivity";
+
+    /** The {@code job} tag of the dormant-authority job's run metrics. */
+    static final String AUTHORITY_REVOCATION_JOB = "dormant-authority-revocation";
+
     private static final Logger log = LoggerFactory.getLogger(DormancyScheduleConfig.class);
 
     private final InactivityDeactivationService deactivation;
     private final DormantAuthorityRevocationService authorityRevocation;
     private final DormancyPolicy policy;
+    private final ScheduledJobMetrics jobs;
 
     public DormancyScheduleConfig(
             InactivityDeactivationService deactivation,
             DormantAuthorityRevocationService authorityRevocation,
-            DormancyPolicy policy) {
+            DormancyPolicy policy,
+            ScheduledJobMetrics jobs) {
         this.deactivation = deactivation;
         this.authorityRevocation = authorityRevocation;
         this.policy = policy;
+        this.jobs = jobs;
     }
 
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
-                deactivation::deactivateDormantUsers, new CronTrigger(DEACTIVATION_SCHEDULE)));
+                jobs.instrument(DEACTIVATION_JOB, deactivation::deactivateDormantUsers),
+                new CronTrigger(DEACTIVATION_SCHEDULE, ServiceTimeZone.ZONE)));
         registrar.addCronTask(new CronTask(
-                authorityRevocation::revokeDormantAuthority,
-                new CronTrigger(AUTHORITY_REVOCATION_SCHEDULE)));
+                jobs.instrument(AUTHORITY_REVOCATION_JOB, authorityRevocation::revokeDormantAuthority),
+                new CronTrigger(AUTHORITY_REVOCATION_SCHEDULE, ServiceTimeZone.ZONE)));
         scheduled(InactivityDeactivationService.OPERATION, DEACTIVATION_SCHEDULE,
                 policy.deactivationWindow().toString());
         scheduled(DormantAuthorityRevocationService.OPERATION, AUTHORITY_REVOCATION_SCHEDULE,

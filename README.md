@@ -92,6 +92,10 @@ Copy `backend/.env.example` to `.env` before running. Requires a JDK 25 on
 checksum-verifies the pinned release. The build's Enforcer rules fail fast on a
 wrong JDK or an older Maven.
 
+Logs are ECS JSON on stdout; set `LOG_FILE` to also write a rolling JSON file
+(deployed at `/var/log/backend/backend.json`). See `backend/README.md` under
+"Logging" and `infra/README.md` under "View Logs".
+
 ## Frontend/backend integration
 
 ```
