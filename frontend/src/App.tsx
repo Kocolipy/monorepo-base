@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "@/auth/auth-context";
 import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Accounts } from "@/pages/accounts";
 import { ChangePassword } from "@/pages/change-password";
 import { Login } from "@/pages/login";
@@ -15,47 +16,54 @@ import { Showcase } from "@/pages/showcase";
  * share one transition table, so no page decides where a visitor goes — a
  * session with the change-required flag included, which that table confines to
  * the change-password route whatever path it asks for.
+ *
+ * `ErrorBoundary` is the outermost element, so a render error anywhere below it
+ * (a page, a guard, the router or `AuthProvider`) shows a generic fallback
+ * instead of a blank page. There is no app shell to keep alive around a failed
+ * page, because each page renders its own sign-out.
  */
 export function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route
-            path="/"
-            element={
-              <GuestRoute>
-                <Login />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/showcase"
-            element={
-              <ProtectedRoute>
-                <Showcase />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/accounts"
-            element={
-              <ProtectedRoute requiredRole="ADMIN">
-                <Accounts />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path={CREDENTIAL_CHANGE_PATH}
-            element={
-              <ProtectedRoute>
-                <ChangePassword />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<Navigate replace to="/" />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <GuestRoute>
+                  <Login />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/showcase"
+              element={
+                <ProtectedRoute>
+                  <Showcase />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/accounts"
+              element={
+                <ProtectedRoute requiredRole="ADMIN">
+                  <Accounts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path={CREDENTIAL_CHANGE_PATH}
+              element={
+                <ProtectedRoute>
+                  <ChangePassword />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate replace to="/" />} />
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
