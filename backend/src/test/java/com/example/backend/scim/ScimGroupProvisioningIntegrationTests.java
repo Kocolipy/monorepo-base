@@ -612,7 +612,7 @@ class ScimGroupProvisioningIntegrationTests {
                  "Operations":[{"op":"add","path":"members[value eq \\"%s\\"]"}]}"""
                 .formatted(PATCH_OP, UUID.randomUUID()));
 
-        assertRefusal(refused, 400, "invalidValue");
+        assertRefusal(refused, 400, "invalidPath");
         assertThat(body(refused).get("detail").asText()).contains("remove only");
     }
 
@@ -626,7 +626,7 @@ class ScimGroupProvisioningIntegrationTests {
                 {"schemas":["%s"],"Operations":[{"op":"remove","path":"displayName"}]}"""
                 .formatted(PATCH_OP));
 
-        assertRefusal(refused, 400, "invalidValue");
+        assertRefusal(refused, 400, "mutability");
         assertThat(body(refused).get("detail").asText()).contains("cannot be removed");
     }
 
@@ -659,7 +659,7 @@ class ScimGroupProvisioningIntegrationTests {
                  "Operations":[{"op":"replace","path":"ExternalId","value":"x"}]}"""
                 .formatted(PATCH_OP));
 
-        assertRefusal(refused, 400, "invalidValue");
+        assertRefusal(refused, 400, "invalidPath");
         assertThat(body(refused).get("detail").asText()).contains("externalid");
     }
 
@@ -677,7 +677,7 @@ class ScimGroupProvisioningIntegrationTests {
                  "Operations":[{"op":"replace","path":"External\\u0007Id","value":"x"}]}"""
                 .formatted(PATCH_OP));
 
-        assertRefusal(refused, 400, "invalidValue");
+        assertRefusal(refused, 400, "invalidPath");
         assertThat(body(refused).get("detail").asText())
                 .contains("externalid")
                 .doesNotContain("\u0007");

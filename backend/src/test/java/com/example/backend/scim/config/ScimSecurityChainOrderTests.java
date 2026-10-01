@@ -22,6 +22,7 @@ import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter;
 import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.header.HeaderWriterFilter;
 import org.springframework.security.web.savedrequest.RequestCacheAwareFilter;
 import org.springframework.security.web.session.DisableEncodeUrlFilter;
 
@@ -149,6 +150,22 @@ class ScimSecurityChainOrderTests {
 
         int bearer = filters.indexOf(ScimBearerAuthenticationFilter.class);
         int authorization = filters.indexOf(AuthorizationFilter.class);
+        int bodyLimit = filters.indexOf(ScimRequestBodyLimitFilter.class);
+        int dispatcherErrors = filters.indexOf(ScimDispatcherErrorFilter.class);
+        int headerWriter = filters.indexOf(HeaderWriterFilter.class);
+        softly.assertThat(bodyLimit)
+                .as("the body bound must be installed after the gate and before authentication, "
+                        + "so a declared oversized body is refused without being read")
+                .isGreaterThan(filters.indexOf(ScimReleaseGateFilter.class))
+                .isLessThan(bearer);
+        softly.assertThat(dispatcherErrors)
+                .as("the dispatcher-error renderer must wrap the header writer, or a sent error "
+                        + "would lose the security headers")
+                .isNotNegative()
+                .isLessThan(headerWriter);
+        softly.assertThat(bodyLimit)
+                .as("the body bound must run ahead of the header writer too")
+                .isLessThan(headerWriter);
         softly.assertThat(bearer)
                 .as("the SCIM chain must install the bearer authentication filter")
                 .isNotNegative();

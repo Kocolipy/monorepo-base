@@ -1,0 +1,119 @@
+package com.example.backend.scim.controller;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.example.backend.scim.application.ScimGroupPatchOperation;
+import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveAllMembers;
+import com.example.backend.scim.application.ScimGroupPatchOperation.RemoveMembers;
+import com.example.backend.scim.application.ScimGroupPatchOperation.SetDisplayName;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * A Group PatchOp read into operations, and the request-only refusals with the {@code scimType}
+ * RFC 7644 §3.12 names for each — the same type a User PATCH gets for the same mistake.
+ */
+class ScimGroupRequestReaderTests {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    private static final String PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
+
+    private static List<ScimGroupPatchOperation> read(String operations) {
+        return ScimGroupRequestReader.readPatch(JSON.readTree("""
+                {"schemas":["%s"],"Operations":%s}""".formatted(PATCH_OP, operations)));
+    }
+
+    private static void refused(String operations, String scimType) {
+        assertThatThrownBy(() -> read(operations))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.status().value()).isEqualTo(400);
+                    assertThat(refusal.scimType()).isEqualTo(scimType);
+                });
+    }
+
+    @Test
+    void a_path_this_service_does_not_implement_is_invalid_path() {
+        refused("[{\"op\":\"replace\",\"path\":\"nickName\",\"value\":\"x\"}]", "invalidPath");
+        refused("[{\"op\":\"replace\",\"path\":\"displayName[\",\"value\":\"x\"}]", "invalidPath");
+    }
+
+    @Test
+    void a_members_value_path_on_anything_but_remove_is_invalid_path() {
+        refused("[{\"op\":\"add\",\"path\":\"members[value eq \\\"" + UUID.randomUUID()
+                + "\\\"]\"}]", "invalidPath");
+        refused("[{\"op\":\"replace\",\"path\":\"members[value eq \\\"" + UUID.randomUUID()
+                + "\\\"]\"}]", "invalidPath");
+    }
+
+    @Test
+    void a_read_only_attribute_as_a_path_is_mutability() {
+        for (String path : List.of("id", "meta", "schemas", "ID", "Meta")) {
+            refused("[{\"op\":\"replace\",\"path\":\"" + path + "\",\"value\":\"x\"}]",
+                    "mutability");
+        }
+    }
+
+    @Test
+    void removing_the_required_display_name_is_mutability() {
+        refused("[{\"op\":\"remove\",\"path\":\"displayName\"}]", "mutability");
+    }
+
+    @Test
+    void a_remove_with_no_path_is_no_target_and_an_add_with_none_is_invalid_value() {
+        refused("[{\"op\":\"remove\"}]", "noTarget");
+        refused("[{\"op\":\"add\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue");
+        refused("[{\"op\":\"replace\",\"value\":{\"displayName\":\"x\"}}]", "invalidValue");
+    }
+
+    @Test
+    void a_schema_qualified_path_is_the_unqualified_one() {
+        assertThat(read("[{\"op\":\"replace\",\"path\":\"urn:ietf:params:scim:schemas:core:2.0:"
+                + "Group:displayName\",\"value\":\"Eng\"}]"))
+                .containsExactly(new SetDisplayName("Eng"));
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"URN:IETF:PARAMS:SCIM:SCHEMAS:CORE:2.0:"
+                + "GROUP:members\"}]"))
+                .containsExactly(new RemoveAllMembers());
+    }
+
+    @Test
+    void a_members_value_path_with_remove_names_one_member() {
+        UUID member = UUID.randomUUID();
+        assertThat(read("[{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member
+                + "\\\"]\"}]")).containsExactly(new RemoveMembers(List.of(member)));
+    }
+
+    @Test
+    void a_body_that_does_not_declare_the_patch_op_schema_is_invalid_syntax() {
+        for (String schemas : List.of(
+                "[\"urn:ietf:params:scim:schemas:core:2.0:Group\"]",
+                "[\"" + PATCH_OP + "\",\"" + PATCH_OP + "\"]",
+                "[]",
+                "{\"only\":\"" + PATCH_OP + "\"}",
+                "\"" + PATCH_OP + "\"")) {
+            assertThatThrownBy(() -> ScimGroupRequestReader.readPatch(JSON.readTree(
+                    "{\"schemas\":" + schemas + ",\"Operations\":[{\"op\":\"remove\","
+                            + "\"path\":\"members\"}]}")))
+                    .as(schemas)
+                    .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
+                            assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
+        }
+        assertThatThrownBy(() -> ScimGroupRequestReader.readPatch(JSON.readTree(
+                "{\"Operations\":[{\"op\":\"remove\",\"path\":\"members\"}]}")))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal ->
+                        assertThat(refusal.scimType()).isEqualTo("invalidSyntax"));
+    }
+
+    @Test
+    void a_patch_op_carries_at_most_one_hundred_operations() {
+        String operation = "{\"op\":\"replace\",\"path\":\"displayName\",\"value\":\"Eng\"}";
+        assertThat(read("[" + String.join(",", Collections.nCopies(100, operation)) + "]"))
+                .hasSize(100);
+        refused("[" + String.join(",", Collections.nCopies(101, operation)) + "]",
+                "invalidValue");
+    }
+}

@@ -103,3 +103,5 @@ The SPA depends on several of these at runtime: CSRF double-submit, the `401` ve
 ## API contract
 
 Before completing changes to controller routes, request or response bodies, status codes, authentication requirements, or validation constraints, update `docs/openapi.yaml`. Verify every affected operation and schema against the implementation.
+
+The baseline gate verifies it too: the tests in `src/test/java/com/example/backend/contract/` hold every response their fixtures receive against the document, fail for any documented status no fixture produces, and compare the mapped routes with the documented operations. A route or status you add therefore needs both its documentation and a fixture that produces it. `docs/api-contract-check.md` says what is checked and how to read a failure.

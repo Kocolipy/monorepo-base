@@ -2,6 +2,7 @@ package com.example.backend.auth.config;
 
 import com.example.backend.scim.domain.LockoutPolicy;
 import java.time.Clock;
+import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,8 +35,18 @@ public class LoginLockoutConfig {
         return new LockoutPolicy(maxAttempts);
     }
 
+    /**
+     * The system clock in UTC, ticking in whole microseconds.
+     *
+     * <p>Microseconds because that is what a PostgreSQL {@code timestamptz} stores. An instant with
+     * nanoseconds is rendered at full precision in the response that wrote it and then rounded by
+     * the database, so a SCIM resource's {@code meta.created} and {@code meta.lastModified} would
+     * read differently on the next {@code GET} with nothing having changed — and a client that
+     * compares them would see a modification that never happened. A clock that never produces
+     * more precision than the store keeps makes every persisted instant round-trip exactly.
+     */
     @Bean
     public Clock clock() {
-        return Clock.systemUTC();
+        return Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000));
     }
 }
