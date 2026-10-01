@@ -185,6 +185,32 @@ class ScimUserProvisioningIntegrationTests {
         assertThat(passwordEncoder.matches(PASSWORD, hash)).isTrue();
     }
 
+    /**
+     * {@code primary} is rendered on every email, false included, so a client comparing what it
+     * wrote with what it reads back sees the flag it sent — including one it left out, which
+     * RFC 7643 §2.4 makes false.
+     */
+    @Test
+    void every_email_renders_its_primary_flag_false_included() throws Exception {
+        MvcResult created = create("""
+                {"schemas":["%s"],"userName":"primary-flags",
+                 "emails":[{"value":"a@work.example","type":"work","primary":true},
+                           {"value":"b@home.example","type":"home","primary":false},
+                           {"value":"c@other.example","type":"other"}]}"""
+                .formatted(USER_SCHEMA));
+
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        JsonNode emails = body(created).get("emails");
+        assertThat(emails).hasSize(3);
+        assertThat(emails.get(0).get("primary").isBoolean()).isTrue();
+        assertThat(emails.get(0).get("primary").booleanValue()).isTrue();
+        for (int i = 1; i < 3; i++) {
+            assertThat(emails.get(i).get("primary")).as("email %d", i).isNotNull();
+            assertThat(emails.get(i).get("primary").isBoolean()).isTrue();
+            assertThat(emails.get(i).get("primary").booleanValue()).isFalse();
+        }
+    }
+
     /** A credentialless User is a supported state, not a rejected one. */
     @Test
     void a_user_is_created_without_a_password_and_stores_no_hash() throws Exception {
