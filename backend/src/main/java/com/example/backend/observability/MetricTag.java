@@ -31,6 +31,12 @@ public final class MetricTag {
     /** Non-secret id of the connector whose token authenticated the request. */
     public static final String SCIM_CONNECTOR = "scim.connector";
 
+    /**
+     * Whether a write against an existing resource carried {@code If-Match}: {@code if-match} or
+     * {@code unconditional}. {@link #NONE} on every other request.
+     */
+    public static final String SCIM_PRECONDITION = "scim.precondition";
+
     /** The value when the tag does not apply to this request. */
     public static final String NONE = "none";
 

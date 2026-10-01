@@ -52,7 +52,7 @@ The application must become an inbound SCIM 2.0 service provider without turning
 12. As a connector, I want standard PUT and atomic PATCH behavior, so that complete and partial synchronization both work.
 13. As a connector, I want standard filtering, sorting, projection and pagination, so that I can synchronize large directories efficiently.
 14. As a connector, I want POST search, so that filters containing personal information need not be placed in URLs.
-15. As one of several writers, I want strong ETags and mandatory conditional mutations, so that I cannot silently overwrite another connector's change.
+15. As one of several writers, I want strong ETags and exact conditional mutations whenever I send `If-Match`, so that I cannot silently overwrite another connector's change; and as a connector that does not send it, I want my writes applied rather than refused.
 16. As a connector, I want deleted resource ids to return `404` and disappear from queries, so that deletion has normal SCIM semantics.
 17. As a connector, I want former `userName` and connector-scoped `externalId` values to be reusable after deletion, so that reprovisioning follows RFC 7644 guidance.
 18. As an Admin, I want to see Users, Groups, credential presence, active state and lockout state, so that I can diagnose access without editing SCIM-owned identity.
@@ -429,14 +429,16 @@ It deliberately holds no hash of a former identifier. An unkeyed hash of a `user
 
 Each live User and Group has an independent monotonically increasing SCIM version. Render it as a strong opaque ETag and return the exact same value in `meta.version`.
 
-Every existing-resource PUT, PATCH and DELETE requires one exact `If-Match` ETag:
+`If-Match` is optional on every existing-resource PUT, PATCH and DELETE, as RFC 7644 §3.14 makes it for clients. The mainstream provisioning clients (Microsoft Entra ID, Okta) document no ETag preconditions, and refusing writes without one would make provisioning create-only (issue #56). When sent, it must be exactly one strong ETag:
 
-- absent header: `428 Precondition Required` with a SCIM error body explaining that the client must GET and retry with `If-Match`;
-- wildcard or malformed validator: `400 invalidValue`;
+- absent header: the mutation proceeds unconditionally, last writer wins;
+- wildcard, list or malformed validator: `400 invalidValue`;
 - non-current validator: `412 Precondition Failed`;
 - current validator: mutation proceeds atomically.
 
-Authorization and resource existence are checked before the precondition. A failed precondition changes no state and creates no success audit event.
+An unconditional mutation is applied exactly as a conditional one is: under the resource lock, with the row write and the version advance in one transaction, so concurrent unconditional writers serialize rather than interleave and each advances `meta.version`/ETag once. What it gives up is only the refusal of a write based on a stale read. Unconditional writes are counted per connector (see Operational telemetry), so an operator can see which integrations run without lost-update protection.
+
+Authorization and resource existence are checked before the precondition, with and without the header. A failed precondition changes no state and creates no success audit event.
 
 Increment the resource version only when its SCIM representation changes:
 
@@ -567,7 +569,7 @@ Publish metrics through the existing Spring Boot Actuator/Micrometer surface, ta
 - **Errors:** rate by status class and, for `4xx`, by `scimType`.
 - **Saturation:** database connection pool and Redis connection utilisation, plus rejected-request counts from the per-request safety limits.
 
-Alert on the signals that mean an integration is broken or hostile rather than merely busy: a sustained rise in `401` (dead or probing credentials), in `412` and `428` (writers colliding, or a client ignoring the precondition contract), in `409` (a connector re-creating identities it believes are missing), and on the inactivity job failing to run.
+Alert on the signals that mean an integration is broken or hostile rather than merely busy: a sustained rise in `401` (dead or probing credentials), in `412` (writers colliding), in `409` (a connector re-creating identities it believes are missing), and on the inactivity job failing to run. Record, without alerting, the rate of unconditional writes (PUT, PATCH or DELETE applied without `If-Match`) per connector id: an integration that never sends `If-Match` is legitimate, but it is the first place to look when a lost update is reported.
 
 The metrics endpoint is not public. It is bound to the deployment's internal surface, requires Admin authority if served over the application chain, and is never reachable through a connector bearer token.
 
@@ -589,7 +591,6 @@ Every SCIM error body has schema `urn:ietf:params:scim:api:messages:2.0:Error`, 
 | Invalid PATCH path | `400 invalidPath` |
 | PATCH target not found | `400 noTarget` |
 | Schema mutability violation | `400 mutability` |
-| Missing exact precondition | `428` with retry detail |
 | Stale ETag | `412` |
 | Request body too large | `413` |
 | Unsupported `/Me` | `501` |
@@ -633,9 +634,9 @@ Acceptance: credentialless and credentialed Users can be created; connector alia
 ### Slice 3 — User conditional PUT/PATCH/DELETE
 
 **Blocked by:** Slice 2.
-**Delivers:** exact `If-Match`, replacement semantics, atomic User PATCH, reusable identifiers, tombstones, post-commit session revocation, password history enforcement, `lastAuthenticatedAt` tracking and the configurable 90-day inactivity deactivation job with its priority over connector-asserted `active`.
+**Delivers:** exact optional `If-Match`, replacement semantics, atomic User PATCH, reusable identifiers, tombstones, post-commit session revocation, password history enforcement, `lastAuthenticatedAt` tracking and the configurable 90-day inactivity deactivation job with its priority over connector-asserted `active`.
 
-Acceptance: two-writer race yields one success and one `412`; missing precondition yields `428`; rename preserves application data and revokes sessions; deleted id yields `404`; former username can be recreated; a User past the inactivity window is deactivated with sessions revoked and an audit event, a never-authenticated User is measured from creation, and the Bootstrap Admin is never deactivated.
+Acceptance: two-writer race yields one success and one `412`; missing precondition is applied unconditionally; rename preserves application data and revokes sessions; deleted id yields `404`; former username can be recreated; a User past the inactivity window is deactivated with sessions revoked and an audit event, a never-authenticated User is measured from creation, and the Bootstrap Admin is never deactivated.
 
 ### Slice 4 — Groups and Admin authority
 

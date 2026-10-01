@@ -27,6 +27,9 @@ import org.springframework.stereotype.Component;
  *   <li>{@link MetricTag#SCIM_TYPE} — the RFC 7644 error type of a SCIM {@code 4xx}.
  *   <li>{@link MetricTag#SCIM_CONNECTOR} — the connector whose token authenticated the
  *       request: traffic per connector, by its non-secret id.
+ *   <li>{@link MetricTag#SCIM_PRECONDITION} — whether a PUT, PATCH or DELETE on an existing
+ *       resource carried {@code If-Match}, so the writes made without lost-update protection
+ *       can be counted per connector.
  * </ul>
  *
  * <p>Every key is emitted on every request, with {@link MetricTag#NONE} where it does not
@@ -49,13 +52,18 @@ public class ScimRequestObservationConvention extends DefaultServerRequestObserv
             "invalidFilter", "tooMany", "uniqueness", "mutability", "invalidSyntax",
             "invalidPath", "noTarget", "invalidValue", "invalidVers", "sensitive");
 
+    /** Whether a write against an existing resource sent {@code If-Match}. */
+    static final Set<String> PRECONDITIONS = Set.of("if-match", "unconditional");
+
     @Override
     public KeyValues getLowCardinalityKeyValues(ServerRequestObservationContext context) {
         return super.getLowCardinalityKeyValues(context).and(
                 KeyValue.of(MetricTag.SCIM_RESOURCE_TYPE, resourceType(path(context))),
                 KeyValue.of(MetricTag.SCIM_TYPE, scimType(recorded(context, MetricTag.SCIM_TYPE))),
                 KeyValue.of(MetricTag.SCIM_CONNECTOR,
-                        connector(recorded(context, MetricTag.SCIM_CONNECTOR))));
+                        connector(recorded(context, MetricTag.SCIM_CONNECTOR))),
+                KeyValue.of(MetricTag.SCIM_PRECONDITION,
+                        precondition(recorded(context, MetricTag.SCIM_PRECONDITION))));
     }
 
     /**
@@ -91,6 +99,13 @@ public class ScimRequestObservationConvention extends DefaultServerRequestObserv
             return MetricTag.NONE;
         }
         return SCIM_TYPES.contains(recorded) ? recorded : MetricTag.OTHER;
+    }
+
+    static String precondition(String recorded) {
+        if (absent(recorded)) {
+            return MetricTag.NONE;
+        }
+        return PRECONDITIONS.contains(recorded) ? recorded : MetricTag.OTHER;
     }
 
     /** A connector id is a UUID; nothing else a caller recorded may pass for one. */

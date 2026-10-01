@@ -308,9 +308,10 @@ public class ScimGroupService {
      * The shared shape of a Group write: read the stored Group, compute what it should become,
      * refuse what the reservations forbid, write it, audit what moved.
      *
-     * <p>The Group is read under its resource lock and the {@code If-Match} precondition checked
-     * against that version, so two writers holding the same precondition produce one success and
-     * one {@code 412} rather than a lost update.
+     * <p>The Group is read under its resource lock and the {@code If-Match} precondition, when one
+     * was sent, checked against that version, so two writers holding the same precondition produce
+     * one success and one {@code 412} rather than a lost update. A write without one is applied
+     * unconditionally under the same lock, last writer wins.
      *
      * <p>One method for PUT and PATCH because everything except the computation is identical,
      * and because the refusals must not be able to differ between the two verbs — a protection
@@ -326,7 +327,7 @@ public class ScimGroupService {
             return Optional.empty();
         }
         ScimGroup current = stored.get();
-        // After existence, before anything is computed: a missing or stale precondition changes
+        // After existence, before anything is computed: a malformed or stale precondition changes
         // nothing, and the lock above is what makes "stale" exact under concurrent writers.
         precondition.requireSatisfiedBy(current.version());
         UUID connectorId = connector.connectorId();

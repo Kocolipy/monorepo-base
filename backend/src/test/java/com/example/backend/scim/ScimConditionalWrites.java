@@ -10,10 +10,10 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
  * Test support for driving SCIM writes the way a well-behaved connector does: read the
  * resource's current version, then write with it in {@code If-Match}.
  *
- * <p>Exists so the tests of what a PUT, PATCH or DELETE DOES are not rewritten around the
- * precondition every such write now requires — they are about the write, and a conforming client
- * always sends the header. The tests of the precondition itself do not use this; they set, omit
- * and corrupt the header deliberately.
+ * <p>Exists so the tests of what a PUT, PATCH or DELETE DOES exercise the conditional path a
+ * well-behaved connector takes — they are about the write, not the precondition, which is
+ * optional. The tests of the precondition itself do not use this; they set, omit and corrupt
+ * the header deliberately.
  */
 public final class ScimConditionalWrites {
 

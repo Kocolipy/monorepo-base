@@ -19,7 +19,6 @@ import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
 import com.example.backend.scim.domain.PreconditionFailedException;
-import com.example.backend.scim.domain.PreconditionRequiredException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
@@ -467,13 +466,41 @@ class ScimUserServiceTests {
         assertThat(audit.recorded()).isEmpty();
     }
 
+    /** {@code If-Match} is optional: a write without one is applied and advances the version. */
     @Test
-    void a_missing_or_stale_precondition_changes_nothing_and_records_nothing() {
+    void a_write_without_a_precondition_is_applied_unconditionally() {
         ScimUser before = stored();
 
-        assertThatThrownBy(() -> service.patch(CONNECTOR, ada.id(),
+        ScimUserResource written = service.patch(CONNECTOR, ada.id(),
+                ScimVersionPrecondition.ofIfMatch(List.of()), List.of(new SetActive(false)))
+                .orElseThrow();
+
+        assertThat(written.version()).isEqualTo(before.version() + 1);
+        assertThat(stored().profile().active()).isFalse();
+        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("ACTIVE");
+    }
+
+    /** Nor does dropping the header get past the reservation the Bootstrap Admin carries. */
+    @Test
+    void the_bootstrap_admin_cannot_be_written_without_a_precondition_either() {
+        ScimUser reserved = users.createReserved(
+                ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
+
+        assertThatThrownBy(() -> service.patch(CONNECTOR, reserved.id(),
                 ScimVersionPrecondition.ofIfMatch(List.of()), List.of(new SetActive(false))))
-                .isInstanceOf(PreconditionRequiredException.class);
+                .isInstanceOf(ProtectedResourceException.class);
+        assertThatThrownBy(() -> service.delete(CONNECTOR, reserved.id(),
+                ScimVersionPrecondition.ofIfMatch(List.of())))
+                .isInstanceOf(ProtectedResourceException.class);
+
+        assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
+    }
+
+    @Test
+    void a_stale_precondition_changes_nothing_and_records_nothing() {
+        ScimUser before = stored();
+
         assertThatThrownBy(() -> service.replace(CONNECTOR, ada.id(),
                 ScimVersionPrecondition.ofIfMatch(List.of("\"" + (before.version() + 1) + "\"")),
                 new ScimUserReplacement(minimal("ada", false), "x-password-9", null)))

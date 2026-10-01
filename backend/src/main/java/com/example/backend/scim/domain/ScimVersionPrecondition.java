@@ -8,17 +8,22 @@ import java.util.regex.Pattern;
  * held unevaluated until the resource it names has been found.
  *
  * <p>Unevaluated on purpose. The specification plan orders the checks — authorization, then
- * existence, then the precondition — so a missing or malformed header against an id that names
- * nothing is a {@code 404}, not a {@code 428}: answering the precondition first would tell a
- * caller that an id exists by the shape of the refusal. So the adapter only captures what was
- * sent, and the use case calls {@link #requireSatisfiedBy(long)} once it holds the resource.
+ * existence, then the precondition — so a malformed or stale header against an id that names
+ * nothing is a {@code 404}, not a {@code 400} or {@code 412}: answering the precondition first
+ * would tell a caller that an id exists by the shape of the refusal. So the adapter only captures
+ * what was sent, and the use case calls {@link #requireSatisfiedBy(long)} once it holds the
+ * resource.
  *
- * <p>Exactly ONE strong entity tag is accepted, and it must be the resource's current one:
+ * <p>The precondition is OPTIONAL, as RFC 7644 §3.14 makes it for clients, because the
+ * mainstream provisioning clients do not send it and refusing them would make provisioning
+ * create-only. When it IS sent, exactly one strong entity tag is accepted, and it must be the
+ * resource's current one:
  *
  * <ul>
- *   <li>no header at all is {@link PreconditionRequiredException} ({@code 428}) — with several
- *       writers sharing one directory, a write without a validator is a lost update waiting to
- *       happen, so it is refused rather than applied unconditionally;
+ *   <li>no header at all is an unconditional write: it is applied, last writer wins. It is still
+ *       applied under the resource lock in one transaction with its version advance, so two
+ *       unconditional writers serialize rather than interleave — what they give up is only the
+ *       refusal of a write based on a stale read;
  *   <li>{@code *}, a list of tags, more than one header, and anything that is not an entity tag
  *       are {@link InvalidPreconditionException} ({@code 400 invalidValue}): {@code *} would
  *       turn the check off, and a list lets a client assert "any of these", which is not exact;
@@ -52,18 +57,22 @@ public record ScimVersionPrecondition(List<String> headerValues) {
         return new ScimVersionPrecondition(headerValues);
     }
 
+    /** Whether a validator was sent at all; a write without one is unconditional. */
+    public boolean isConditional() {
+        return !headerValues.isEmpty();
+    }
+
     /**
-     * Refuses the write unless the precondition names exactly this version.
+     * Refuses the write unless the precondition is absent or names exactly this version.
      *
-     * @throws PreconditionRequiredException when no {@code If-Match} was sent
      * @throws InvalidPreconditionException  when it was {@code *}, a list, repeated, or not an
      *                                       entity tag
      * @throws PreconditionFailedException   when it is one well-formed tag that is not this
      *                                       version's
      */
     public void requireSatisfiedBy(long currentVersion) {
-        if (headerValues.isEmpty()) {
-            throw new PreconditionRequiredException();
+        if (!isConditional()) {
+            return;
         }
         if (headerValues.size() != 1) {
             throw new InvalidPreconditionException();

@@ -147,13 +147,13 @@ class OperationalTelemetryIntegrationTests {
         assertThat(send(connector, scim("/Users?filter=" + encode(badFilter), token).GET())
                 .statusCode()).isEqualTo(400);
 
-        // 428 with no If-Match, 412 with a stale one.
+        // An unconditional write (no If-Match) is applied; a stale If-Match is a 412.
         String replace = """
                 {"schemas":["%s"],"userName":"%s","active":true}"""
                 .formatted(USER_SCHEMA, userName);
         assertThat(send(connector, scim("/Users/" + scimUserId, token)
                 .PUT(HttpRequest.BodyPublishers.ofString(replace))).statusCode())
-                .isEqualTo(428);
+                .isEqualTo(200);
         assertThat(send(connector, scim("/Users/" + scimUserId, token)
                 .header("If-Match", "\"999999\"")
                 .PUT(HttpRequest.BodyPublishers.ofString(replace))).statusCode())
@@ -320,6 +320,28 @@ class OperationalTelemetryIntegrationTests {
         }
     }
 
+    /**
+     * A write applied without {@code If-Match} is counted as unconditional, per connector, so an
+     * operator can see which integrations write without lost-update protection; a write that
+     * sent one is counted as such, and a request that is not such a write carries neither.
+     */
+    @Test
+    void writes_are_counted_by_whether_they_carried_if_match() {
+        assertThat(series(REQUESTS, Map.of(
+                "uri", "/scim/v2/Users/{id}", "method", "PUT", "status", "200",
+                "outcome", "SUCCESS", "scim_connector", connectorId.toString(),
+                "scim_precondition", "unconditional")))
+                .as("the unconditional replacement").hasSize(1);
+        assertThat(series(REQUESTS, Map.of(
+                "uri", "/scim/v2/Users/{id}", "method", "PUT", "status", "412",
+                "scim_connector", connectorId.toString(), "scim_precondition", "if-match")))
+                .as("the stale conditional replacement").hasSize(1);
+        assertThat(series(REQUESTS, Map.of("uri", "/scim/v2/Users", "method", "POST")))
+                .as("a create is not a write against an existing resource")
+                .isNotEmpty()
+                .allSatisfy(labels -> assertThat(labels.get("scim_precondition")).isEqualTo("none"));
+    }
+
     // ---- AC: access gating --------------------------------------------------------
 
     @Test
@@ -351,10 +373,14 @@ class OperationalTelemetryIntegrationTests {
                 "ScimPreconditionFailuresSustained",
                 "ScimUniquenessConflictsSustained",
                 "InactivityJobFailed",
-                "InactivityJobNotRunning");
+                "InactivityJobNotRunning",
+                "scim:unconditional_writes:rate1h");
         assertThat(rules.get("ScimAuthenticationFailuresSustained")).contains("status=\"401\"");
         assertThat(rules.get("LoginAuthenticationFailuresSustained")).contains("status=\"401\"");
-        assertThat(rules.get("ScimPreconditionFailuresSustained")).contains("412|428");
+        assertThat(rules.get("ScimPreconditionFailuresSustained"))
+                .contains("status=\"412\"").doesNotContain("428");
+        assertThat(rules.get("scim:unconditional_writes:rate1h"))
+                .contains("scim_precondition=\"unconditional\"").contains("scim_connector");
         assertThat(rules.get("ScimUniquenessConflictsSustained")).contains("status=\"409\"");
         assertThat(rules.get("InactivityJobFailed")).contains("job=\"inactivity\"");
         assertThat(rules.get("InactivityJobNotRunning")).contains("job=\"inactivity\"");
@@ -435,14 +461,18 @@ class OperationalTelemetryIntegrationTests {
         return found;
     }
 
-    /** Alert name to expression, from the deployed rule file itself. */
+    /**
+     * Rule name to expression, from the deployed rule file itself: an alerting rule by its
+     * {@code alert}, a recording rule by its {@code record}.
+     */
     @SuppressWarnings("unchecked")
     private static Map<String, String> alertRules() throws IOException {
         Map<String, Object> document = new Yaml().load(Files.readString(ALERT_RULES));
         Map<String, String> rules = new LinkedHashMap<>();
         for (Map<String, Object> group : (List<Map<String, Object>>) document.get("groups")) {
             for (Map<String, Object> rule : (List<Map<String, Object>>) group.get("rules")) {
-                rules.put((String) rule.get("alert"), (String) rule.get("expr"));
+                String name = (String) (rule.containsKey("alert") ? rule.get("alert") : rule.get("record"));
+                rules.put(name, (String) rule.get("expr"));
             }
         }
         return rules;
