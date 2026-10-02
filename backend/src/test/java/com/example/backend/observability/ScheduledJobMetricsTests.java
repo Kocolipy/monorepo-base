@@ -3,27 +3,52 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.observability.LogEvent.ErrorCategory;
+import com.example.backend.observability.LogEvent.Operation;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import tools.jackson.databind.JsonNode;
 
 /**
- * The run metrics a scheduled job publishes, read back from a registry: what each outcome
- * does to the counters and to the last-success time, and what they read before the job
- * has run at all — which is what the never-ran alert depends on.
+ * The one wrapper every scheduled job runs through, read back from what it publishes: the
+ * run metrics from a registry — what each outcome does to the counters and the last-success
+ * time, and what they read before the job has run at all, which is what the never-ran alert
+ * depends on — and the run's log records from the bytes the production ECS encoder writes.
  */
 class ScheduledJobMetricsTests {
 
     private static final Instant SCHEDULED = Instant.parse("2026-09-30T00:00:00Z");
+
+    /** A job with both an action and a local name, so the classification is visible in full. */
+    private static final Operation OPERATION = Operation.INACTIVITY_DEACTIVATION;
+
+    /** Records a job's body emits on its own, as a service's run summary does. */
+    private static final Logger body = LoggerFactory.getLogger("job-body");
+
+    /** The run's one record of its own, when a test's job has nothing else to do. */
+    private static final String INSIDE = "inside the job";
 
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
 
@@ -65,9 +90,25 @@ class ScheduledJobMetricsTests {
         }
     });
 
+    private EcsLogCapture logs;
+
+    @BeforeEach
+    void attachLogs() {
+        MDC.clear();
+        logs = EcsLogCapture.attach(new StandardEnvironment());
+    }
+
+    @AfterEach
+    void detachLogs() {
+        logs.close();
+        MDC.clear();
+    }
+
+    // ---- metrics ----------------------------------------------------------------------------
+
     @Test
     void before_any_run_both_outcomes_read_zero_and_last_success_reads_the_scheduling_time() {
-        jobs.instrument("probe", () -> { });
+        jobs.instrument("probe", OPERATION, () -> { });
 
         assertThat(runs("success")).isZero();
         assertThat(runs("failure")).isZero();
@@ -76,7 +117,7 @@ class ScheduledJobMetricsTests {
 
     @Test
     void a_successful_run_counts_a_success_and_moves_the_last_success_time() {
-        Runnable job = jobs.instrument("probe", () -> { });
+        Runnable job = jobs.instrument("probe", OPERATION, () -> { });
         now.set(SCHEDULED.plusSeconds(3600));
 
         job.run();
@@ -86,10 +127,20 @@ class ScheduledJobMetricsTests {
         assertThat(lastSuccessSeconds()).isEqualTo(SCHEDULED.plusSeconds(3600).getEpochSecond());
     }
 
+    /** The last-success time is when the run ENDED, not when it began. */
+    @Test
+    void the_last_success_time_is_the_end_of_the_run() {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> advance(Duration.ofSeconds(90)));
+
+        job.run();
+
+        assertThat(lastSuccessSeconds()).isEqualTo(SCHEDULED.plusSeconds(90).getEpochSecond());
+    }
+
     @Test
     void a_failed_run_counts_a_failure_rethrows_it_and_leaves_the_last_success_time() {
         IllegalStateException failure = new IllegalStateException("job failed");
-        Runnable job = jobs.instrument("probe", () -> {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> {
             throw failure;
         });
         now.set(SCHEDULED.plusSeconds(3600));
@@ -105,7 +156,7 @@ class ScheduledJobMetricsTests {
     @Test
     void the_job_itself_runs_once_per_run() {
         int[] ran = {0};
-        Runnable job = jobs.instrument("probe", () -> ran[0]++);
+        Runnable job = jobs.instrument("probe", OPERATION, () -> ran[0]++);
 
         job.run();
         job.run();
@@ -114,10 +165,19 @@ class ScheduledJobMetricsTests {
         assertThat(runs("success")).isEqualTo(2);
     }
 
+    /** A skip is not a failure: another run is doing the work. */
+    @Test
+    void a_skipped_run_counts_as_a_success() {
+        jobs.instrumentLocked("probe", OPERATION, () -> () -> true).run();
+
+        assertThat(runs("success")).isEqualTo(1);
+        assertThat(runs("failure")).isZero();
+    }
+
     @Test
     void jobs_are_told_apart_by_their_job_tag() {
-        jobs.instrument("probe", () -> { }).run();
-        jobs.instrument("other-job", () -> { });
+        jobs.instrument("probe", OPERATION, () -> { }).run();
+        jobs.instrument("other-job", OPERATION, () -> { });
 
         assertThat(registry.get("app.job.runs").tag("job", "other-job")
                 .tag("outcome", "success").counter().count()).isZero();
@@ -130,7 +190,7 @@ class ScheduledJobMetricsTests {
      */
     @Test
     void both_series_are_described_for_the_scrape() {
-        jobs.instrument("probe", () -> { });
+        jobs.instrument("probe", OPERATION, () -> { });
 
         assertThat(registry.get("app.job.runs").tag("job", "probe").tag("outcome", "success")
                 .counter().getId().getDescription()).isNotBlank();
@@ -140,6 +200,8 @@ class ScheduledJobMetricsTests {
                 .timeGauge().getId().getDescription()).isNotBlank();
     }
 
+    // ---- the observation --------------------------------------------------------------------
+
     /**
      * A run executes inside an observation of its own — the one Boot's tracing handler
      * turns into the run's trace — named for runs and tagged with the job, and the
@@ -148,7 +210,8 @@ class ScheduledJobMetricsTests {
     @Test
     void each_run_executes_inside_its_own_observation_tagged_with_the_job() {
         List<Observation> current = new ArrayList<>();
-        Runnable job = jobs.instrument("probe", () -> current.add(observations.getCurrentObservation()));
+        Runnable job = jobs.instrument("probe", OPERATION,
+                () -> current.add(observations.getCurrentObservation()));
 
         job.run();
         job.run();
@@ -169,7 +232,7 @@ class ScheduledJobMetricsTests {
     /** No observation is opened by scheduling a job, only by running it. */
     @Test
     void scheduling_a_job_opens_no_observation() {
-        jobs.instrument("probe", () -> { });
+        jobs.instrument("probe", OPERATION, () -> { });
 
         assertThat(stopped).isEmpty();
     }
@@ -178,7 +241,7 @@ class ScheduledJobMetricsTests {
     @Test
     void a_failed_run_ends_its_observation_with_the_failure() {
         IllegalStateException failure = new IllegalStateException("job failed");
-        Runnable job = jobs.instrument("probe", () -> {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> {
             throw failure;
         });
 
@@ -186,6 +249,247 @@ class ScheduledJobMetricsTests {
 
         assertThat(stopped).singleElement()
                 .satisfies(context -> assertThat(context.getError()).isSameAs(failure));
+    }
+
+    // ---- the run's records ------------------------------------------------------------------
+
+    /**
+     * One run is {@code job-start}, then whatever the job logs, then {@code job-end}, all
+     * under one fresh {@code batch.job.run.id} and the job's name and trigger. Both ends are
+     * classified as the job's operation, and the end says how long the run took.
+     */
+    @Test
+    void a_run_is_job_start_then_the_jobs_own_records_then_job_end_under_one_run_id() {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+            body.info(INSIDE);
+            advance(Duration.ofMillis(250));
+        });
+
+        job.run();
+
+        List<JsonNode> records = onThisThread();
+        assertThat(records).extracting(record -> record.at("/message").asText())
+                .containsExactly("Scheduled job started", INSIDE, "Scheduled job completed");
+        String runId = records.getFirst().at("/batch/job/run/id").asText();
+        assertThat(UUID.fromString(runId)).as("a UUID").isNotNull();
+        assertThat(records).allSatisfy(record -> {
+            assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId);
+            assertThat(record.at("/batch/job/name").asText()).isEqualTo("probe");
+            assertThat(record.at("/trigger/type").asText()).isEqualTo("scheduled");
+        });
+
+        JsonNode start = records.get(0);
+        assertThat(start.at("/log/level").asText()).isEqualTo("INFO");
+        assertThat(start.at("/event/kind").asText()).isEqualTo("event");
+        assertThat(texts(start.at("/event/category"))).containsExactly("batch");
+        assertThat(texts(start.at("/event/type"))).containsExactly("job-start");
+        assertThat(start.at("/event/action").asText()).isEqualTo("user-administration");
+        assertThat(start.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+        assertThat(start.at("/event/outcome").isMissingNode()).isTrue();
+
+        JsonNode end = records.get(2);
+        assertThat(end.at("/log/level").asText()).isEqualTo("INFO");
+        assertThat(texts(end.at("/event/category"))).containsExactly("batch");
+        assertThat(texts(end.at("/event/type"))).containsExactly("job-end");
+        assertThat(end.at("/event/action").asText()).isEqualTo("user-administration");
+        assertThat(end.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+        assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(end.at("/event/duration_ms").asLong()).isEqualTo(250);
+        assertThat(end.at("/event/reason").isMissingNode()).as("not a skip").isTrue();
+        assertThat(end.has("error_code")).isFalse();
+    }
+
+    @Test
+    void every_run_gets_a_run_id_of_its_own() {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> body.info(INSIDE));
+
+        job.run();
+        String first = onlyRecord(INSIDE).at("/batch/job/run/id").asText();
+        logs.reset();
+        job.run();
+        String second = onlyRecord(INSIDE).at("/batch/job/run/id").asText();
+
+        assertThat(first).isNotBlank();
+        assertThat(second).isNotBlank().isNotEqualTo(first);
+    }
+
+    /**
+     * A failed run ends in exactly one {@code job-end}, at {@code ERROR}: the failure outcome,
+     * how long the run took, the error fields, and the exception attached — which is where
+     * {@code error.type} comes from. The failure counter still moves, and the failure still
+     * escapes to the scheduler.
+     */
+    @Test
+    void a_failed_run_ends_in_one_error_job_end_with_the_error_fields_and_the_exception() {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+            advance(Duration.ofMillis(40));
+            throw new IllegalStateException("job failed");
+        });
+
+        assertThatThrownBy(job::run).isInstanceOf(IllegalStateException.class);
+
+        List<JsonNode> records = onThisThread();
+        assertThat(records).extracting(record -> record.at("/message").asText())
+                .containsExactly("Scheduled job started", "Scheduled job failed");
+        JsonNode end = records.get(1);
+        assertThat(end.at("/log/level").asText()).isEqualTo("ERROR");
+        assertThat(texts(end.at("/event/type"))).containsExactly("job-end");
+        assertThat(texts(end.at("/event/category"))).containsExactly("batch");
+        assertThat(end.at("/event/action").asText()).isEqualTo("user-administration");
+        assertThat(end.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(end.at("/event/severity").asText()).isEqualTo("high");
+        assertThat(end.at("/event/duration_ms").asLong()).isEqualTo(40);
+        assertThat(end.at("/error_code").asInt()).isEqualTo(500);
+        assertThat(end.at("/error_category").asText()).isEqualTo("application");
+        assertThat(end.at("/error_follow_up_action").asBoolean()).isTrue();
+        assertThat(end.at("/error/type").asText()).isEqualTo(IllegalStateException.class.getName());
+        assertThat(end.at("/error/stack_trace").asText()).isNotBlank();
+        assertThat(end.at("/batch/job/run/id").asText())
+                .isEqualTo(records.get(0).at("/batch/job/run/id").asText());
+        assertThat(runs("failure")).isEqualTo(1);
+    }
+
+    /** A database failure is categorised as one, so it routes to whoever owns the database. */
+    @Test
+    void a_database_failure_is_categorised_as_database() {
+        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+            throw new DataIntegrityViolationException("refused");
+        });
+
+        assertThatThrownBy(job::run).isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(onlyRecord("Scheduled job failed").at("/error_category").asText())
+                .isEqualTo("database");
+    }
+
+    @Test
+    void failures_are_categorised_by_where_they_came_from() {
+        assertThat(ScheduledJobMetrics.category(new DataIntegrityViolationException("refused")))
+                .isEqualTo(ErrorCategory.DATABASE);
+        assertThat(ScheduledJobMetrics.category(new CannotCreateTransactionException("down")))
+                .isEqualTo(ErrorCategory.DATABASE);
+        assertThat(ScheduledJobMetrics.category(new IllegalStateException("bug")))
+                .isEqualTo(ErrorCategory.APPLICATION);
+    }
+
+    /**
+     * A run that found its lock held ends in one INFO {@code job-end} that says so, and none
+     * that claims the work was done.
+     */
+    @Test
+    void a_run_that_found_its_lock_held_ends_in_one_lock_held_job_end() {
+        Runnable job = jobs.instrumentLocked("probe", OPERATION, () -> {
+            advance(Duration.ofMillis(5));
+            return () -> true;
+        });
+
+        job.run();
+
+        List<JsonNode> records = onThisThread();
+        assertThat(records).extracting(record -> record.at("/message").asText())
+                .containsExactly("Scheduled job started", "Scheduled job skipped: another run holds its lock");
+        JsonNode end = records.get(1);
+        assertThat(end.at("/log/level").asText()).isEqualTo("INFO");
+        assertThat(texts(end.at("/event/type"))).containsExactly("job-end");
+        assertThat(end.at("/event/action").asText()).isEqualTo("user-administration");
+        assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(end.at("/event/reason").asText()).isEqualTo("lock-held");
+        assertThat(end.at("/event/duration_ms").asLong()).isEqualTo(5);
+        assertThat(end.at("/batch/job/run/id").asText())
+                .isEqualTo(records.get(0).at("/batch/job/run/id").asText());
+    }
+
+    /** A locked job that did get its lock ends like any other run. */
+    @Test
+    void a_locked_job_that_ran_ends_as_completed() {
+        jobs.instrumentLocked("probe", OPERATION, () -> () -> false).run();
+
+        JsonNode end = onlyRecord("Scheduled job completed");
+        assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(end.at("/event/reason").isMissingNode()).isTrue();
+    }
+
+    /** Nothing of a run is left in the scheduler thread's context, however the run ended. */
+    @Test
+    void no_job_key_outlives_a_run_however_it_ends() {
+        jobs.instrument("probe", OPERATION, () -> { }).run();
+        assertThat(context()).isEmpty();
+
+        jobs.instrumentLocked("probe", OPERATION, () -> () -> true).run();
+        assertThat(context()).isEmpty();
+
+        Runnable failing = jobs.instrument("probe", OPERATION, () -> {
+            throw new IllegalStateException("job failed");
+        });
+        assertThatThrownBy(failing::run).isInstanceOf(IllegalStateException.class);
+        assertThat(context()).isEmpty();
+    }
+
+    /** The job keys are in the context while the job body runs, not only on the wrapper's records. */
+    @Test
+    void the_job_body_runs_with_the_run_identity_in_context() {
+        List<Map<String, String>> seen = new ArrayList<>();
+        jobs.instrument("probe", OPERATION, () -> seen.add(context())).run();
+
+        assertThat(seen).singleElement().satisfies(inside -> assertThat(inside)
+                .containsEntry(LogContext.JOB_NAME, "probe")
+                .containsEntry(LogContext.TRIGGER_TYPE, "scheduled")
+                .containsKey(LogContext.JOB_RUN_ID));
+    }
+
+    // ---- the schedule record ----------------------------------------------------------------
+
+    /**
+     * A job's startup record names the job, says what it does, and states its cron with the
+     * zone the cron is evaluated in, classified as the job's operation.
+     */
+    @Test
+    void the_schedule_record_names_the_job_its_description_cron_and_zone() {
+        ScheduledJobMetrics.scheduled(
+                        LoggerFactory.getLogger("schedule").atInfo(), OPERATION, "probe",
+                        "0 0 4 * * *", "Does the probe's work")
+                .log("Probe scheduled");
+
+        JsonNode record = onlyRecord("Probe scheduled");
+        assertThat(record.at("/batch/job/name").asText()).isEqualTo("probe");
+        assertThat(record.at("/app/job/description").asText()).isEqualTo("Does the probe's work");
+        assertThat(record.at("/trigger/cron/expression").asText()).isEqualTo("0 0 4 * * *");
+        assertThat(record.at("/trigger/cron/timezone").asText()).isEqualTo("Asia/Singapore");
+        assertThat(texts(record.at("/event/category"))).containsExactly("configuration");
+        assertThat(texts(record.at("/event/type"))).containsExactly("info");
+        assertThat(record.at("/event/action").asText()).isEqualTo("user-administration");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+    }
+
+    // ---- helpers ----------------------------------------------------------------------------
+
+    private void advance(Duration by) {
+        now.set(now.get().plus(by));
+    }
+
+    private static Map<String, String> context() {
+        return Optional.ofNullable(MDC.getCopyOfContextMap()).orElseGet(Map::of);
+    }
+
+    private List<JsonNode> onThisThread() {
+        String thread = Thread.currentThread().getName();
+        return logs.records().stream()
+                .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                .toList();
+    }
+
+    private JsonNode onlyRecord(String message) {
+        List<JsonNode> matching = onThisThread().stream()
+                .filter(record -> message.equals(record.at("/message").asText()))
+                .toList();
+        assertThat(matching).as(message).hasSize(1);
+        return matching.getFirst();
+    }
+
+    private static List<String> texts(JsonNode array) {
+        List<String> values = new ArrayList<>();
+        array.forEach(value -> values.add(value.asText()));
+        return values;
     }
 
     private double runs(String outcome) {

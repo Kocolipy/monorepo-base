@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogEvent.Action;
 import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Kind;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Severity;
@@ -46,6 +47,9 @@ class LogEventTests {
             "step-end", "step-start", "user");
     private static final Set<String> STANDARD_SEVERITIES =
             Set.of("low", "medium", "high", "critical");
+    /** {@code Log_Schema.md} §Error {@code error.category}. */
+    private static final Set<String> STANDARD_ERROR_CATEGORIES = Set.of(
+            "server", "network", "cert/auth", "database", "application", "data", "others");
 
     @Test
     void everyDeclaredValueIsAMemberOfTheStandardsEnum() {
@@ -54,6 +58,8 @@ class LogEventTests {
         assertThat(values(Category.values(), Category::value)).isSubsetOf(STANDARD_CATEGORIES);
         assertThat(values(Type.values(), Type::value)).isSubsetOf(STANDARD_TYPES);
         assertThat(values(Severity.values(), Severity::value)).isSubsetOf(STANDARD_SEVERITIES);
+        assertThat(values(ErrorCategory.values(), ErrorCategory::value))
+                .isSubsetOf(STANDARD_ERROR_CATEGORIES);
     }
 
     /** Pins each spelling, so a typo in one constant is a failure rather than a subset. */
@@ -79,8 +85,11 @@ class LogEventTests {
         assertThat(Type.START.value()).isEqualTo("start");
         assertThat(Type.END.value()).isEqualTo("end");
         assertThat(Type.JOB_END.value()).isEqualTo("job-end");
+        assertThat(Type.JOB_START.value()).isEqualTo("job-start");
         assertThat(Severity.LOW.value()).isEqualTo("low");
         assertThat(Severity.HIGH.value()).isEqualTo("high");
+        assertThat(ErrorCategory.APPLICATION.value()).isEqualTo("application");
+        assertThat(ErrorCategory.DATABASE.value()).isEqualTo("database");
     }
 
     /**

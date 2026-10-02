@@ -92,26 +92,54 @@ public final class LogEvent {
     /** The configured audit retention window, as an ISO-8601 duration. */
     public static final String RETENTION_PERIOD = "audit.retention.period";
 
-    /** The cron expression the retention job runs on. */
-    public static final String RETENTION_SCHEDULE = "audit.retention.schedule";
-
     /** How many aged-out events one retention run removed. */
     public static final String RETENTION_DELETED_ROWS = "audit.retention.deleted_rows";
 
     /** A dormancy job's configured window, as an ISO-8601 duration. */
     public static final String DORMANCY_WINDOW = "dormancy.window";
 
-    /** The cron expression a dormancy job runs on. */
-    public static final String DORMANCY_SCHEDULE = "dormancy.schedule";
-
     /** How many Users one dormancy run changed. */
     public static final String DORMANCY_PROCESSED = "dormancy.processed";
 
     /**
-     * Whether a dormancy run did the work ({@code false}) or found another run of the same job
-     * holding its lock and skipped ({@code true}).
+     * The cron expression a scheduled job runs on, on its startup record.
+     * {@code Log_Schema.md} §Trigger.
      */
-    public static final String DORMANCY_SKIPPED = "dormancy.skipped";
+    public static final String TRIGGER_CRON_EXPRESSION = "trigger.cron.expression";
+
+    /** The IANA zone that cron is evaluated in. {@code Log_Schema.md} §Trigger. */
+    public static final String TRIGGER_CRON_TIMEZONE = "trigger.cron.timezone";
+
+    /**
+     * What a scheduled job does, in a sentence an operator reads on its startup record. The
+     * schema has no field for it, so it is namespaced under {@code app.}, as
+     * {@link #LOCAL_ACTION} is.
+     */
+    public static final String JOB_DESCRIPTION = "app.job.description";
+
+    /**
+     * {@code Log_Schema.md} §Error {@code error.code}, spelled with an underscore: Boot's ECS
+     * formatter owns the {@code error} object (it writes {@code error.type},
+     * {@code error.message} and {@code error.stack_trace} from the attached throwable), so
+     * a dotted key of ours inside it would collide with that object. The standard's own
+     * recipes use this spelling for the same reason.
+     */
+    public static final String ERROR_CODE = "error_code";
+
+    /** {@code Log_Schema.md} §Error {@code error.category}, an {@link ErrorCategory}; see {@link #ERROR_CODE}. */
+    public static final String ERROR_CATEGORY = "error_category";
+
+    /**
+     * {@code Log_Schema.md} §Error {@code error.follow_up_action}: whether the error needs a
+     * person to act on it. See {@link #ERROR_CODE} for the spelling.
+     */
+    public static final String ERROR_FOLLOW_UP_ACTION = "error_follow_up_action";
+
+    /**
+     * The {@link #REASON} of a scheduled run that found another run of the same job holding
+     * the job's lock, and so did nothing.
+     */
+    public static final String REASON_LOCK_HELD = "lock-held";
 
     /** An inbound request's method, from a closed set. ECS {@code http.request.method}. */
     public static final String HTTP_METHOD = "http.request.method";
@@ -286,6 +314,7 @@ public final class LogEvent {
         ERROR("error"),
         INFO("info"),
         JOB_END("job-end"),
+        JOB_START("job-start"),
         START("start"),
         USER("user");
 
@@ -308,6 +337,22 @@ public final class LogEvent {
         private final String value;
 
         Severity(String value) {
+            this.value = value;
+        }
+
+        public String value() {
+            return value;
+        }
+    }
+
+    /** {@code error.category} values from {@code Log_Schema.md} §Error that this service uses. */
+    public enum ErrorCategory {
+        APPLICATION("application"),
+        DATABASE("database");
+
+        private final String value;
+
+        ErrorCategory(String value) {
             this.value = value;
         }
 

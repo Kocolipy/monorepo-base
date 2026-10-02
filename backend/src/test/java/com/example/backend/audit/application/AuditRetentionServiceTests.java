@@ -8,7 +8,11 @@ import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.auth.MutableClock;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.ScheduledJobMetrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +20,8 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
+import tools.jackson.databind.JsonNode;
 
 /**
  * What one retention run reports.
@@ -54,8 +60,14 @@ class AuditRetentionServiceTests {
         assertThat(retention.cutoff).isEqualTo(NOW.minus(Duration.ofDays(365)));
     }
 
+    /**
+     * The run's own record keeps what only the job knows — the rows it removed and the period
+     * it removed them by — and leaves the outcome and the duration to the run's
+     * {@code job-end}, which {@code ScheduledJobMetrics} writes around it. It is the run's
+     * summary, not its end, so it is classified {@code info}.
+     */
     @Test
-    void eachRunLogsItsDeletedRowCountAndDuration() {
+    void eachRunLogsItsDeletedRowCountAndPeriod() {
         CountingRetention retention =
                 new CountingRetention(7, Duration.ofMillis(250), clock);
         AuditRetentionService service = new AuditRetentionService(
@@ -65,9 +77,53 @@ class AuditRetentionServiceTests {
 
         Map<String, Object> fields = CapturedLog.fields(onlyRunRecord());
         assertThat(fields).containsEntry(LogEvent.RETENTION_DELETED_ROWS, 7L);
-        assertThat(fields).containsEntry(LogEvent.DURATION_MS, 250L);
         assertThat(fields).containsEntry(LogEvent.RETENTION_PERIOD, "PT2880H");
-        assertThat(fields).containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS);
+        assertThat(fields).containsEntry(LogEvent.CATEGORY, List.of("batch"));
+        assertThat(fields).containsEntry(LogEvent.TYPE, List.of("info"));
+        assertThat(fields).doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
+    }
+
+    /**
+     * Run as it is scheduled — through {@link ScheduledJobMetrics#instrument} — a run is
+     * {@code job-start}, this job's summary and {@code job-end}, all three under one
+     * {@code batch.job.run.id}; the next run has another. The end carries the duration the
+     * summary no longer does.
+     */
+    @Test
+    void aScheduledRunIsJobStartTheSummaryAndJobEndUnderOneRunId() {
+        AuditRetentionService service = new AuditRetentionService(
+                new CountingRetention(7, Duration.ofMillis(250), clock),
+                new AuditRetentionPolicy(Duration.ofDays(120), null), clock);
+        Runnable scheduled = new ScheduledJobMetrics(
+                        new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
+                .instrument("audit-retention", AuditRetentionService.OPERATION,
+                        service::deleteAgedOutEvents);
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled.run();
+            List<JsonNode> first = onThisThread(ecs);
+            ecs.reset();
+            scheduled.run();
+            List<JsonNode> second = onThisThread(ecs);
+
+            assertThat(first).extracting(record -> record.at("/message").asText()).containsExactly(
+                    "Scheduled job started", "Audit retention run complete", "Scheduled job completed");
+            assertThat(first).extracting(record -> record.at("/batch/job/run/id").asText())
+                    .doesNotContain("").containsOnly(first.getFirst().at("/batch/job/run/id").asText());
+            assertThat(first.get(1).at("/audit/retention/deleted_rows").asLong()).isEqualTo(7);
+            assertThat(first.get(2).at("/event/duration_ms").asLong()).isEqualTo(250);
+            assertThat(first.get(2).at("/app/event/action").asText()).isEqualTo("audit.retention");
+            assertThat(second.getFirst().at("/batch/job/run/id").asText())
+                    .isNotBlank()
+                    .isNotEqualTo(first.getFirst().at("/batch/job/run/id").asText());
+        }
+    }
+
+    private static List<JsonNode> onThisThread(EcsLogCapture ecs) {
+        String thread = Thread.currentThread().getName();
+        return ecs.records().stream()
+                .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                .toList();
     }
 
     /**

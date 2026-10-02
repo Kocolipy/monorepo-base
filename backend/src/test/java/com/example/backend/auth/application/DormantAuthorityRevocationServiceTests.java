@@ -13,7 +13,9 @@ import com.example.backend.auth.InMemoryScheduledJobLock;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.ScheduledJob;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -22,6 +24,8 @@ import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimUser;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
@@ -29,6 +33,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The dormant-authority job against the in-memory directory: whose Admin-group membership it
@@ -321,14 +327,18 @@ class DormantAuthorityRevocationServiceTests {
 
     // ---- the run log ----------------------------------------------------------------------
 
-    /** Every run reports itself, a skipped one included, with this job's window and count. */
+    /**
+     * A run that did the work reports itself, an empty one included, with this job's window and
+     * count. A skipped run writes no summary: its end is the wrapper's {@code lock-held} record.
+     */
     @Test
-    void everyRunIsLoggedWithItsWindowOutcomeAndCount() {
+    void everyRunThatDidTheWorkIsLoggedWithItsWindowAndCount() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         adminGroupOf(bootstrap, ada);
         clock.advanceBy(WINDOW.plusSeconds(1));
 
         try (CapturedLog captured = CapturedLog.attach()) {
+            job.revokeDormantAuthority();
             job.revokeDormantAuthority();
             lock.holdElsewhere(ScheduledJob.DORMANT_AUTHORITY_REVOCATION);
             job.revokeDormantAuthority();
@@ -337,14 +347,88 @@ class DormantAuthorityRevocationServiceTests {
                     Level.INFO, LogEvent.LOCAL_ACTION, DormantAuthorityRevocationService.OPERATION.local());
             assertThat(runs).hasSize(2);
             assertThat(CapturedLog.fields(runs.get(0)))
-                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .containsEntry(LogEvent.CATEGORY, List.of("batch"))
+                    .containsEntry(LogEvent.TYPE, List.of("info"))
                     .containsEntry(LogEvent.DORMANCY_WINDOW, WINDOW.toString())
-                    .containsEntry(LogEvent.DORMANCY_SKIPPED, false)
-                    .containsEntry(LogEvent.DORMANCY_PROCESSED, 1);
+                    .containsEntry(LogEvent.DORMANCY_PROCESSED, 1)
+                    .doesNotContainKey(LogEvent.OUTCOME);
             assertThat(CapturedLog.fields(runs.get(1)))
-                    .containsEntry(LogEvent.DORMANCY_SKIPPED, true)
                     .containsEntry(LogEvent.DORMANCY_PROCESSED, 0);
         }
+    }
+
+    /**
+     * Run as it is scheduled — through {@link ScheduledJobMetrics#instrumentLocked} — a run is
+     * {@code job-start}, this job's summary and {@code job-end}, all under one
+     * {@code batch.job.run.id}, and the next run has another.
+     */
+    @Test
+    void aScheduledRunIsJobStartTheSummaryAndJobEndUnderOneRunId() {
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        adminGroupOf(bootstrap, ada);
+        clock.advanceBy(WINDOW.plusSeconds(1));
+        Runnable scheduled = scheduled();
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled.run();
+            List<JsonNode> first = onThisThread(ecs);
+            ecs.reset();
+            scheduled.run();
+            List<JsonNode> second = onThisThread(ecs);
+
+            assertThat(first).extracting(record -> record.at("/message").asText()).containsExactly(
+                    "Scheduled job started", "Dormant authority revocation run complete",
+                    "Scheduled job completed");
+            String runId = first.getFirst().at("/batch/job/run/id").asText();
+            assertThat(runId).isNotBlank();
+            assertThat(first).allSatisfy(record -> {
+                assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId);
+                assertThat(record.at("/app/event/action").asText())
+                        .isEqualTo("identity.dormant_authority_revocation");
+            });
+            assertThat(first.get(1).at("/dormancy/processed").asInt()).isEqualTo(1);
+            assertThat(second.getFirst().at("/batch/job/run/id").asText())
+                    .isNotBlank().isNotEqualTo(runId);
+        }
+    }
+
+    /**
+     * Scheduled while another run holds the lock, a run ends in the one {@code lock-held}
+     * {@code job-end} and does nothing: the membership stays, no event, no summary.
+     */
+    @Test
+    void aScheduledRunThatFindsTheLockHeldLogsTheSkipAndDoesNoWork() {
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        adminGroupOf(bootstrap, ada);
+        clock.advanceBy(WINDOW.plusSeconds(1));
+        lock.holdElsewhere(ScheduledJob.DORMANT_AUTHORITY_REVOCATION);
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled().run();
+
+            List<JsonNode> records = onThisThread(ecs);
+            assertThat(records).extracting(record -> record.at("/message").asText()).containsExactly(
+                    "Scheduled job started", "Scheduled job skipped: another run holds its lock");
+            assertThat(records.get(1).at("/event/reason").asText()).isEqualTo("lock-held");
+            assertThat(records.get(1).at("/log/level").asText()).isEqualTo("INFO");
+        }
+        assertThat(groups.isMemberOfReservedGroup(ada.id(), ReservedResourceName.ADMIN_GROUP))
+                .isTrue();
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(lock.attempts()).containsExactly(ScheduledJob.DORMANT_AUTHORITY_REVOCATION);
+    }
+
+    private Runnable scheduled() {
+        return new ScheduledJobMetrics(new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
+                .instrumentLocked("dormant-authority-revocation",
+                        DormantAuthorityRevocationService.OPERATION, job::revokeDormantAuthority);
+    }
+
+    private static List<JsonNode> onThisThread(EcsLogCapture ecs) {
+        String thread = Thread.currentThread().getName();
+        return ecs.records().stream()
+                .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                .toList();
     }
 
     private ScimGroup adminGroupOf(ScimUser... members) {

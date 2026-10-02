@@ -232,7 +232,8 @@ rules:
     message: >-
       The logging context is written through
       com.example.backend.observability.LogContext and nowhere else. It exposes
-      four named setters — request id, user id, connector id, resource id — and no
+      five named setters — request id, user id, connector id, resource id, and a
+      scheduled job run's identity — and no
       general-purpose one, which is what makes "the permitted keys are the only
       keys" true of the whole service rather than of the call sites someone
       happened to review. ArchitectureTest holds the same line.

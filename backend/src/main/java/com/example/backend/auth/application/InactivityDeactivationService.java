@@ -96,7 +96,6 @@ public class InactivityDeactivationService {
     @Transactional
     public DormancyRun deactivateDormantUsers() {
         if (!lock.tryAcquire(ScheduledJob.INACTIVITY_DEACTIVATION)) {
-            logRun(true, 0);
             return DormancyRun.skippedRun();
         }
         Instant now = clock.instant();
@@ -113,7 +112,7 @@ public class InactivityDeactivationService {
                     null, candidate, EnumSet.of(ScimUserSessions.Cause.DEACTIVATED));
             deactivated.add(candidate);
         }
-        logRun(false, deactivated.size());
+        logRun(deactivated.size());
         return new DormancyRun(false, deactivated);
     }
 
@@ -126,15 +125,15 @@ public class InactivityDeactivationService {
     }
 
     /**
-     * Reports the run — including a skipped one and one that changed nothing, because "nobody was
-     * dormant" and "the job never ran" must be told apart, as the retention job's log does. Names
-     * no identity: the stable ids are the audit trail's to carry.
+     * Reports what a run that did the work did — including one that changed nothing, because
+     * "nobody was dormant" and "the job never ran" must be told apart, as the retention job's
+     * log does. Names no identity: the stable ids are the audit trail's to carry. A skipped run
+     * says nothing here: the run returns {@link DormancyRun#skipped()}, and
+     * {@code ScheduledJobMetrics.instrumentLocked} logs that run's end as {@code lock-held}.
      */
-    private void logRun(boolean skipped, int processed) {
-        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.JOB_END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+    private void logRun(int processed) {
+        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.INFO)
                 .addKeyValue(LogEvent.DORMANCY_WINDOW, policy.deactivationWindow().toString())
-                .addKeyValue(LogEvent.DORMANCY_SKIPPED, skipped)
                 .addKeyValue(LogEvent.DORMANCY_PROCESSED, processed)
                 .log("Inactivity deactivation run complete");
     }

@@ -3,8 +3,6 @@ package com.example.backend.audit.config;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ServiceTimeZone;
 import org.slf4j.Logger;
@@ -43,6 +41,10 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
     /** The {@code job} tag of this job's run metrics ({@link ScheduledJobMetrics}). */
     static final String RETENTION_JOB = "audit-retention";
 
+    /** What the job does, on its startup record. */
+    public static final String RETENTION_DESCRIPTION =
+            "Deletes every audit event recorded longer ago than the retention period";
+
     private final AuditRetentionService retention;
     private final AuditRetentionPolicy policy;
     private final ScheduledJobMetrics jobs;
@@ -59,11 +61,11 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
-                jobs.instrument(RETENTION_JOB, retention::deleteAgedOutEvents),
+                jobs.instrument(RETENTION_JOB, AuditRetentionService.OPERATION,
+                        retention::deleteAgedOutEvents),
                 new CronTrigger(policy.schedule(), ServiceTimeZone.ZONE)));
-        LogEvent.classify(log.atInfo(),
-                        AuditRetentionService.OPERATION, Category.CONFIGURATION, Type.INFO)
-                .addKeyValue(LogEvent.RETENTION_SCHEDULE, policy.schedule())
+        ScheduledJobMetrics.scheduled(log.atInfo(), AuditRetentionService.OPERATION,
+                        RETENTION_JOB, policy.schedule(), RETENTION_DESCRIPTION)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .log("Audit retention job scheduled");
     }

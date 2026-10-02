@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.observability.SkippableJobRun;
 import java.util.List;
 import java.util.UUID;
 
@@ -11,7 +12,7 @@ import java.util.UUID;
  * @param processed the Users this run changed, in the order it changed them; empty when it
  *                  skipped or found nobody dormant
  */
-public record DormancyRun(boolean skipped, List<UUID> processed) {
+public record DormancyRun(boolean skipped, List<UUID> processed) implements SkippableJobRun {
 
     public DormancyRun {
         processed = List.copyOf(processed);
