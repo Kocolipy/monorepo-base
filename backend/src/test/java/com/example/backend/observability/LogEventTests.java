@@ -51,6 +51,69 @@ class LogEventTests {
     private static final Set<String> STANDARD_ERROR_CATEGORIES = Set.of(
             "server", "network", "cert/auth", "database", "application", "data", "others");
 
+    /**
+     * Where ADR 0003 records each operation's exception to the schema's required
+     * {@code event.action}, with the reason no allowed value fits.
+     */
+    private static final String NO_ACTION_SECTION =
+            "docs/adr/0003 § Addendum (2026-10-02): user.id on the request record, and every"
+                    + " record's event.action — Operations with no event.action";
+
+    /**
+     * The operations that carry no {@code event.action}, each naming the ADR section that
+     * says why. An operation added with no action and no entry here fails
+     * {@link #everyOperationHasAnActionOrADocumentedException}; so does an entry left
+     * behind after its operation gains one.
+     */
+    private static final Map<Operation, String> NO_ACTION_EXCEPTIONS = Map.of(
+            Operation.HTTP_REQUEST, NO_ACTION_SECTION,
+            Operation.HTTP_REQUEST_REFUSAL, NO_ACTION_SECTION,
+            Operation.HTTP_REQUEST_FAULT, NO_ACTION_SECTION,
+            Operation.AUDIT_RETENTION, NO_ACTION_SECTION,
+            Operation.AUDIT_APPEND, NO_ACTION_SECTION);
+
+    /**
+     * Every operation either maps onto a standard action or is a documented exception —
+     * never both, and never neither. An exception still names its operation, by
+     * {@code app.event.action}.
+     */
+    @ParameterizedTest
+    @EnumSource(Operation.class)
+    void everyOperationHasAnActionOrADocumentedException(Operation operation) {
+        if (NO_ACTION_EXCEPTIONS.containsKey(operation)) {
+            assertThat(operation.action())
+                    .as("%s is listed as an exception but has an action", operation)
+                    .isNull();
+            assertThat(NO_ACTION_EXCEPTIONS.get(operation)).startsWith("docs/adr/0003 § ");
+            assertThat(operation.local()).isNotBlank();
+        } else {
+            assertThat(operation.action())
+                    .as("%s has no event.action and no documented exception", operation)
+                    .isNotNull();
+            assertThat(STANDARD_ACTIONS).contains(operation.action().value());
+        }
+    }
+
+    /**
+     * The mapping #95 changed: dormant-authority revocation is administration of a User's
+     * standing, and a connector and its tokens are the provisioning channel's lifecycle.
+     * {@code access-control} is left to the access decisions themselves.
+     */
+    @Test
+    void eachOperationCarriesItsNearestStandardAction() {
+        assertThat(Operation.DORMANT_AUTHORITY_REVOCATION.action())
+                .isEqualTo(Action.USER_ADMINISTRATION);
+        assertThat(List.of(Operation.CONNECTOR_CREATE, Operation.CONNECTOR_DELETE,
+                        Operation.CONNECTOR_TOKEN_ISSUE, Operation.CONNECTOR_TOKEN_ROTATE,
+                        Operation.CONNECTOR_TOKEN_REVOKE))
+                .extracting(Operation::action)
+                .containsOnly(Action.USER_PROVISIONING);
+        assertThat(Arrays.stream(Operation.values())
+                        .filter(operation -> operation.action() == Action.ACCESS_CONTROL))
+                .containsExactlyInAnyOrder(
+                        Operation.UNLOCK, Operation.ACCESS_DENIED, Operation.UNAUTHENTICATED);
+    }
+
     @Test
     void everyDeclaredValueIsAMemberOfTheStandardsEnum() {
         assertThat(values(Action.values(), Action::value)).isSubsetOf(STANDARD_ACTIONS);

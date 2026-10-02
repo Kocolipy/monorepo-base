@@ -10,6 +10,7 @@ import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.MetricTag;
+import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
@@ -26,6 +27,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -367,6 +369,49 @@ class ScimBearerAuthenticationFilterTests {
         assertThat(scope.getStatus()).isEqualTo(403);
         assertThat(scope.getHeader(HttpHeaders.WWW_AUTHENTICATE))
                 .isEqualTo("Bearer error=\"insufficient_scope\"");
+    }
+
+    // ---- the request record's actor (#95) -----------------------------------------------------
+
+    /**
+     * The request record, written outside the security chain after this filter's scope has
+     * closed, names the connector whose token authenticated the request: on an accepted
+     * request, and on one refused for scope, which did authenticate.
+     */
+    @Test
+    void the_request_record_names_the_authenticated_connector() throws Exception {
+        String write = mint(ConnectorTokenScope.READ_WRITE);
+        String readOnly = mint(ConnectorTokenScope.READ_ONLY);
+
+        assertThat(requestRecordContext("GET", write))
+                .containsEntry(LogContext.CONNECTOR_ID, connector.id().toString());
+        assertThat(requestRecordContext("POST", readOnly))
+                .containsEntry(LogContext.CONNECTOR_ID, connector.id().toString());
+    }
+
+    /** A token that was not accepted authenticated nobody, and its record names no connector. */
+    @Test
+    void the_request_record_of_a_refused_token_names_no_connector() throws Exception {
+        String value = mint(ConnectorTokenScope.READ_WRITE);
+        tokens.save(tokens.all().getFirst().revoked(NOW));
+
+        assertThat(requestRecordContext("GET", value)).doesNotContainKey(LogContext.CONNECTOR_ID);
+    }
+
+    /** The request record's logging context, with this filter running inside the request's. */
+    private Map<String, String> requestRecordContext(String method, String token)
+            throws Exception {
+        MockHttpServletRequest request = scimRequest(method, "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        try (CapturedLog captured = CapturedLog.attach()) {
+            new RequestIdFilter().doFilter(request, new MockHttpServletResponse(),
+                    (req, res) -> filter.doFilter(req, res, new MockFilterChain()));
+            List<ILoggingEvent> records =
+                    captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "http.request");
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getMDCPropertyMap().toString()).doesNotContain(token);
+            return records.getFirst().getMDCPropertyMap();
+        }
     }
 
     // ---- refusal records (#69) ---------------------------------------------------------------

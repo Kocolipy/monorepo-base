@@ -239,6 +239,12 @@ public final class LogEvent {
      * What this service logs, each mapped onto the standard's {@link Action} — or onto
      * none, where none fits — and carrying its own name wherever that action alone
      * would not say which operation it was.
+     *
+     * <p>An operation with no action is an exception to the schema's required
+     * {@code event.action}, and every one is recorded, with the reason no allowed value
+     * fits, in ADR 0003's "every record's {@code event.action}" addendum, which also
+     * carries this whole table. {@code LogEventTests} holds the two together: an operation
+     * added with no action and no ADR entry fails it.
      */
     public enum Operation {
         LOGIN(Action.USER_AUTHENTICATION, null),
@@ -247,12 +253,12 @@ public final class LogEvent {
         PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change"),
         INACTIVITY_DEACTIVATION(Action.USER_ADMINISTRATION, "identity.inactivity_deactivation"),
         DORMANT_AUTHORITY_REVOCATION(
-                Action.ACCESS_CONTROL, "identity.dormant_authority_revocation"),
-        CONNECTOR_CREATE(Action.ACCESS_CONTROL, "scim.connector.create"),
-        CONNECTOR_DELETE(Action.ACCESS_CONTROL, "scim.connector.delete"),
-        CONNECTOR_TOKEN_ISSUE(Action.ACCESS_CONTROL, "scim.connector.token.issue"),
-        CONNECTOR_TOKEN_ROTATE(Action.ACCESS_CONTROL, "scim.connector.token.rotate"),
-        CONNECTOR_TOKEN_REVOKE(Action.ACCESS_CONTROL, "scim.connector.token.revoke"),
+                Action.USER_ADMINISTRATION, "identity.dormant_authority_revocation"),
+        CONNECTOR_CREATE(Action.USER_PROVISIONING, "scim.connector.create"),
+        CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete"),
+        CONNECTOR_TOKEN_ISSUE(Action.USER_PROVISIONING, "scim.connector.token.issue"),
+        CONNECTOR_TOKEN_ROTATE(Action.USER_PROVISIONING, "scim.connector.token.rotate"),
+        CONNECTOR_TOKEN_REVOKE(Action.USER_PROVISIONING, "scim.connector.token.revoke"),
         SCIM_WRITE(Action.USER_PROVISIONING, "scim.write"),
         SCIM_REFUSAL(Action.USER_PROVISIONING, "scim.refusal"),
         ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied"),

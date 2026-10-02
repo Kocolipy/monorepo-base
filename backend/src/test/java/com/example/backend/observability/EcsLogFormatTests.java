@@ -379,12 +379,16 @@ class EcsLogFormatTests {
             assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-admin").toString());
             assertThat(record.at("/user").has("target")).isFalse();
         });
+        assertThatClassifiedAs(lifecycle.get(0),
+                "user-provisioning", "configuration", "admin", "creation");
         assertThatClassifiedAs(lifecycle.get(1),
-                "access-control", "configuration", "admin", "creation");
+                "user-provisioning", "configuration", "admin", "creation");
         assertThatClassifiedAs(lifecycle.get(2),
-                "access-control", "configuration", "admin", "change");
+                "user-provisioning", "configuration", "admin", "change");
         assertThatClassifiedAs(lifecycle.get(3),
-                "access-control", "configuration", "admin", "deletion");
+                "user-provisioning", "configuration", "admin", "deletion");
+        assertThatClassifiedAs(lifecycle.get(4),
+                "user-provisioning", "configuration", "admin", "deletion");
     }
 
     /**
@@ -602,6 +606,69 @@ class EcsLogFormatTests {
         assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
         assertThat(record.at("/http/request/id").asText()).isNotBlank();
         assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
+        // #95: the record says who made the request, though user.id's own scope closed
+        // inside the security chain before this record was written.
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
+        assertThat(record.has("scim")).isFalse();
+    }
+
+    /**
+     * An anonymous request that succeeds still gets its record, and the record names nobody:
+     * the absence below is of a field, on a record that exists.
+     */
+    @Test
+    void anAnonymousRequestsRecordCarriesNoUserId() throws Exception {
+        mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk());
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/http/route").asText()).isEqualTo("/api/auth/csrf");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(200);
+        assertThat(record.has("user")).isFalse();
+        assertThat(record.has("scim")).isFalse();
+    }
+
+    /**
+     * A SCIM bearer call's record names the connector whose token authenticated it, by its
+     * non-secret id, and carries no User and nothing of the token.
+     */
+    @Test
+    void aScimBearerRequestsRecordCarriesTheConnectorIdAndNoTokenMaterial() throws Exception {
+        UUID connectorId = connectors.create("ecs-actor-connector", "test-admin").id();
+        String token = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        logs.reset();
+
+        mvc.perform(get("/scim/v2/Users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/http/route").asText()).isEqualTo("/scim/v2/Users");
+        assertThat(record.at("/scim/connector/id").asText()).isEqualTo(connectorId.toString());
+        assertThat(record.has("user")).isFalse();
+        assertThat(requestRecordLines().getFirst())
+                .doesNotContain(token)
+                .doesNotContain(token.substring(0, 12));
+    }
+
+    /**
+     * A token the service does not accept is a refusal before authentication: one request
+     * record, naming no connector — the presented token named one, but it never authenticated.
+     */
+    @Test
+    void aRefusedBearerRequestsRecordCarriesNoConnectorId() throws Exception {
+        UUID connectorId = connectors.create("ecs-refused-connector", "test-admin").id();
+        String issued = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        String presented = issued.substring(0, issued.length() - 4) + "XXXX";
+        logs.reset();
+
+        mvc.perform(get("/scim/v2/Users").header(HttpHeaders.AUTHORIZATION, "Bearer " + presented))
+                .andExpect(status().isUnauthorized());
+
+        JsonNode record = onlyRequestRecord();
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(401);
+        assertThat(record.has("scim")).isFalse();
+        assertThat(record.has("user")).isFalse();
     }
 
     /**
@@ -656,7 +723,8 @@ class EcsLogFormatTests {
 
     /**
      * A {@code 401} the security chain answers before any handler is one record at
-     * {@code WARN}, filed under the unmatched bucket because no route was ever matched.
+     * {@code WARN}, filed under the unmatched bucket because no route was ever matched, and
+     * naming nobody: the request never authenticated.
      */
     @Test
     void aRefusalByTheSecurityChainIsOneWarnRecord() throws Exception {
@@ -668,6 +736,7 @@ class EcsLogFormatTests {
         assertThat(record.at("/http/route").asText()).isEqualTo("unmatched");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
         assertThat(record.at("/trace/id").asText()).matches(TRACE_ID);
+        assertThat(record.has("user")).isFalse();
     }
 
     /**
