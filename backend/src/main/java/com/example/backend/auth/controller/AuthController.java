@@ -135,7 +135,7 @@ public class AuthController {
         // before authentication is refused after it; the SPA fetches a new one.
         csrfTokenRepository.saveToken(null, request, response);
 
-        return userResponse(authentication);
+        return userResponse(authentication, request.getSession());
     }
 
     /**
@@ -155,9 +155,13 @@ public class AuthController {
                 .body(new CsrfTokenResponse(token.getHeaderName(), token.getToken()));
     }
 
+    /**
+     * The signed-in account, plus the idle bound its session is held to. Reading the session also
+     * renews that bound, so the SPA's "stay signed in" is this request.
+     */
     @GetMapping("/me")
-    public UserResponse currentUser(Authentication authentication) {
-        return userResponse(authentication);
+    public UserResponse currentUser(Authentication authentication, HttpSession session) {
+        return userResponse(authentication, session);
     }
 
     @DeleteMapping("/logout")
@@ -223,20 +227,26 @@ public class AuthController {
      * took the first authority would report an administrator as an ordinary user whenever the
      * ordering changed, which is the kind of defect that surfaces as "the admin screens vanished"
      * long after the commit that caused it.
+     *
+     * <p>The idle timeout is read off the session itself rather than out of configuration, so the
+     * figure the SPA signs out by is the one this session actually expires by and cannot drift
+     * from it.
      */
-    private UserResponse userResponse(Authentication authentication) {
+    private UserResponse userResponse(Authentication authentication, HttpSession session) {
+        int idleTimeoutSeconds = session.getMaxInactiveInterval();
         boolean changeRequired = authentication.getAuthorities().stream()
                 .anyMatch(authority -> LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY
                         .equals(authority.getAuthority()));
         if (changeRequired) {
             // Confined: the session holds no role at all until the credential is replaced, so it
             // reports none rather than one it cannot exercise.
-            return new UserResponse(authentication.getName(), null, true);
+            return new UserResponse(authentication.getName(), null, true, idleTimeoutSeconds);
         }
         boolean admin = authentication.getAuthorities().stream()
                 .anyMatch(authority -> ADMIN_AUTHORITY.equals(authority.getAuthority()));
         if (admin) {
-            return new UserResponse(authentication.getName(), ADMIN_ROLE, false);
+            return new UserResponse(
+                    authentication.getName(), ADMIN_ROLE, false, idleTimeoutSeconds);
         }
         String role = authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority())
@@ -245,7 +255,7 @@ public class AuthController {
                 .findFirst()
                 .orElseThrow(() ->
                         new IllegalStateException("Authenticated identity has no role"));
-        return new UserResponse(authentication.getName(), role, false);
+        return new UserResponse(authentication.getName(), role, false, idleTimeoutSeconds);
     }
 
     /**
@@ -338,7 +348,11 @@ public class AuthController {
      * @param role                   {@code USER} or {@code ADMIN}; {@code null} while a password
      *                               change is required, because the session holds neither
      * @param passwordChangeRequired whether the session is confined to the change flow
+     * @param idleTimeoutSeconds     the session's idle bound: how long it survives without a
+     *                               request ({@code server.servlet.session.timeout}). The SPA signs
+     *                               an inactive user out by this figure, so it never outlasts it
      */
-    public record UserResponse(String username, String role, boolean passwordChangeRequired) {
+    public record UserResponse(
+            String username, String role, boolean passwordChangeRequired, int idleTimeoutSeconds) {
     }
 }

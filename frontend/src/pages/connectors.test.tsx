@@ -22,8 +22,10 @@ const auth: AuthContextState = {
   logout: vi.fn(),
   passwordChanged: false,
   sessionExpired: false,
+  signOutForInactivity: vi.fn(),
+  signedOutForInactivity: false,
   status: "authenticated",
-  user: { passwordChangeRequired: false, role: "ADMIN", username: "ada" },
+  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "ADMIN", username: "ada" },
 };
 
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";

@@ -2457,7 +2457,7 @@ components:
             own maximum, so no password the policy accepted is refused here.
     UserResponse:
       type: object
-      required: [username, role, passwordChangeRequired]
+      required: [username, role, passwordChangeRequired, idleTimeoutSeconds]
       properties:
         username:
           type: string
@@ -2475,6 +2475,16 @@ components:
             session may call `GET /api/auth/me`, `POST /api/auth/change-password`
             and `DELETE /api/auth/logout`; every other endpoint, `/api/admin/**`
             included, answers 403.
+        idleTimeoutSeconds:
+          type: integer
+          minimum: 1
+          description: |
+            The idle bound this session is held to, in seconds: how long it
+            survives without a request (`server.servlet.session.timeout`, 15
+            minutes by default). Read off the session itself, so it is the
+            figure the session actually expires by. The SPA signs an inactive
+            user out by it, so its own idle limit can never outlast the
+            backend's.
     CsrfTokenResponse:
       type: object
       additionalProperties: false

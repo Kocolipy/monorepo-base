@@ -27,8 +27,10 @@ const auth: AuthContextState = {
   logout: vi.fn(),
   passwordChanged: false,
   sessionExpired: false,
+  signOutForInactivity: vi.fn(),
+  signedOutForInactivity: false,
   status: "authenticated",
-  user: { passwordChangeRequired: false, role: "ADMIN", username: "ada" },
+  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "ADMIN", username: "ada" },
 };
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
@@ -363,7 +365,12 @@ describe("Accounts", () => {
     });
     renderAccounts({
       ...auth,
-      user: { passwordChangeRequired: false, role: "ADMIN", username: "root" },
+      user: {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        role: "ADMIN",
+        username: "root",
+      },
     });
 
     expect(

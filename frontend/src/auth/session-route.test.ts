@@ -15,6 +15,7 @@ const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput =>
   pathname: "/showcase",
   requires: "authenticated",
   sessionExpired: false,
+  signedOutForInactivity: false,
   status: "authenticated",
   ...overrides,
 });
@@ -130,6 +131,11 @@ describe("resolveSessionRoute", () => {
       "marks the redirect as an expiry when the session ended",
       input({ pathname: "/showcase", sessionExpired: true, status: "guest" }),
       { kind: "redirect", state: { expired: true, from: "/showcase" }, to: LOGIN_PATH },
+    ],
+    [
+      "marks the redirect as an inactivity sign-out, replaying the page it left",
+      input({ pathname: "/accounts", signedOutForInactivity: true, status: "guest" }),
+      { kind: "redirect", state: { from: "/accounts", inactive: true }, to: LOGIN_PATH },
     ],
     [
       "renders a guest route for a guest",
