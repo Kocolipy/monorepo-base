@@ -1,14 +1,14 @@
-package com.example.backend.auth;
+package com.example.backend.scheduling;
 
-import com.example.backend.auth.domain.ScheduledJob;
-import com.example.backend.auth.domain.ScheduledJobLock;
+import com.example.backend.scheduling.domain.ScheduledJob;
+import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
 /**
- * The job lock, in memory, for a unit test of a dormancy job.
+ * The job lock, in memory, for a unit test of a scheduled job.
  *
  * <p>A test says which jobs another run is holding; every other job's lock is free. Keyed by job
  * rather than a single flag, so a test can show that one job's lock being held says nothing

@@ -21,7 +21,8 @@ job. A run opens its transaction, takes its own row with
 `SELECT … FOR UPDATE SKIP LOCKED`, and holds it until the transaction ends. An empty result
 means another run holds it, and the run skips rather than waits. A missing row fails the run
 loudly instead of reading as "someone else is running it" forever. The port is
-`ScheduledJobLock` (`auth.domain`), the adapter `ScheduledJobLockAdapter`.
+`ScheduledJobLock` (`scheduling.domain`), the adapter `ScheduledJobLockAdapter`
+(`scheduling.infrastructure.persistence`).
 
 Inside a run, each candidate User is re-read under its resource lock
 (`findByIdForUpdate`) and decided again, so a User is never processed twice even across the
@@ -38,6 +39,16 @@ window between the candidate query and the write.
   no `INSERT` or `DELETE`, so it cannot remove the row a job serializes on.
 - A new job that must not overlap itself needs a `ScheduledJob` member and a migration
   inserting its row.
+
+## Amendment (2026-10-02): the audit retention job
+
+The audit retention job takes the same lock, on its own `audit-retention` row (V15), so
+two instances on the same cron no longer both run the delete (issue #97). It takes the
+lock before assuming the retention role, as the application role, which holds the grant.
+
+The port and adapter moved from `auth` to a shared `scheduling` module for it: `audit`
+may depend on no business module (`ArchitectureTest.audit_depends_only_on_observability`),
+so it could not reach a port in `auth.domain`. The mechanism is unchanged.
 
 ## Alternatives considered
 

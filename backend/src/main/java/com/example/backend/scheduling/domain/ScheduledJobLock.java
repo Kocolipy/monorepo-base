@@ -1,4 +1,4 @@
-package com.example.backend.auth.domain;
+package com.example.backend.scheduling.domain;
 
 /**
  * Keeps two runs of the same scheduled job from overlapping — on this instance or any other —
