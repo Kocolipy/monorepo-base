@@ -29,12 +29,14 @@ export type SessionRequirement = "authenticated" | "guest" | AuthRole;
  *
  * `from` is the **return destination**: the protected path the visitor asked
  * for, replayed once they sign in. `expired` distinguishes an expired session
- * from a cold visit, and `passwordChanged` a session ended by the User's own
- * successful password change, so the login route can say which happened.
+ * from a cold visit, `passwordChanged` a session ended by the User's own
+ * successful password change, and `inactive` one the SPA signed out because it
+ * was left idle, so the login route can say which happened.
  */
 export interface SessionRouteState {
   from?: string;
   expired?: boolean;
+  inactive?: boolean;
   passwordChanged?: boolean;
 }
 
@@ -56,6 +58,8 @@ export interface SessionRouteInput {
   /** The authenticated account's role, when one is available. */
   role?: AuthRole | null;
   sessionExpired: boolean;
+  /** The current `guest` status came from the SPA's sign-out for inactivity. */
+  signedOutForInactivity: boolean;
   status: AuthStatus;
 }
 
@@ -67,6 +71,7 @@ export function resolveSessionRoute({
   returnTo,
   role,
   sessionExpired,
+  signedOutForInactivity,
   status,
 }: SessionRouteInput): SessionRoute {
   if (status === "checking") return { kind: "pending" };
@@ -78,9 +83,13 @@ export function resolveSessionRoute({
     if (passwordChanged) {
       return { kind: "redirect", state: { passwordChanged: true }, to: LOGIN_PATH };
     }
+    // An idle sign-out replays the page it left, as an expiry does: the user
+    // did not choose to leave it.
     return {
       kind: "redirect",
-      state: { expired: sessionExpired, from: pathname },
+      state: signedOutForInactivity
+        ? { from: pathname, inactive: true }
+        : { expired: sessionExpired, from: pathname },
       to: LOGIN_PATH,
     };
   }

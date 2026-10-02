@@ -25,8 +25,10 @@ const auth: AuthContextState = {
   logout: vi.fn(),
   passwordChanged: false,
   sessionExpired: false,
+  signOutForInactivity: vi.fn(),
+  signedOutForInactivity: false,
   status: "authenticated",
-  user: { passwordChangeRequired: false, role: "USER", username: "ada" },
+  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER", username: "ada" },
 };
 
 function resolveWith(result: object) {
@@ -66,7 +68,12 @@ describe("Showcase", () => {
 
     renderShowcase({
       ...auth,
-      user: { passwordChangeRequired: false, role: "ADMIN", username: "grace" },
+      user: {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        role: "ADMIN",
+        username: "grace",
+      },
     });
     expect(await screen.findByRole("link", { name: "Manage accounts" })).toHaveAttribute(
       "href",

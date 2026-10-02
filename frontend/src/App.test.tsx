@@ -32,7 +32,12 @@ describe("App", () => {
     stubFetchWithCsrf(
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          JSON.stringify({
+            idleTimeoutSeconds: 900,
+            passwordChangeRequired: false,
+            role: "USER",
+            username: "ada",
+          }),
           {
             headers: { "Content-Type": "application/json" },
             status: 200,
@@ -52,7 +57,12 @@ describe("App", () => {
       vi
         .fn()
         .mockResolvedValueOnce(
-          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          Response.json({
+            idleTimeoutSeconds: 900,
+            passwordChangeRequired: false,
+            role: "USER",
+            username: "ada",
+          }),
         )
         .mockResolvedValueOnce(new Response(null, { status: 401 })),
     );
@@ -80,7 +90,12 @@ describe("App", () => {
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       .mockResolvedValueOnce(
         new Response(
-          JSON.stringify({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          JSON.stringify({
+            idleTimeoutSeconds: 900,
+            passwordChangeRequired: false,
+            role: "USER",
+            username: "ada",
+          }),
           {
             headers: { "Content-Type": "application/json" },
             status: 200,
@@ -127,11 +142,14 @@ describe("App", () => {
   it("redirects a USER away from account administration", async () => {
     window.history.replaceState(null, "", "/accounts");
     stubFetchWithCsrf(
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          idleTimeoutSeconds: 900,
+          passwordChangeRequired: false,
+          role: "USER",
+          username: "ada",
+        }),
+      ),
     );
     render(<App />);
 
@@ -165,7 +183,12 @@ describe("App", () => {
               ? Response.json([])
               : // The /me response is UNCHANGED by the identity unification: it still
                 // reports `username` and a single `role`, derived from the authorities.
-                Response.json({ passwordChangeRequired: false, role: "ADMIN", username: "grace" }),
+                Response.json({
+                  idleTimeoutSeconds: 900,
+                  passwordChangeRequired: false,
+                  role: "ADMIN",
+                  username: "grace",
+                }),
         ),
       ),
     );
@@ -179,7 +202,12 @@ describe("App", () => {
 });
 
 /** A confined session exactly as `/api/auth/me` and login report one. */
-const CONFINED = { passwordChangeRequired: true, role: null, username: "ada" };
+const CONFINED = {
+  idleTimeoutSeconds: 900,
+  passwordChangeRequired: true,
+  role: null,
+  username: "ada",
+};
 
 describe("App with the change-required flag", () => {
   afterEach(() => {
@@ -226,11 +254,14 @@ describe("App with the change-required flag", () => {
   it("renders the change for an unflagged User, and sends a Visitor to login", async () => {
     window.history.replaceState(null, "", "/change-password");
     stubFetchWithCsrf(
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          idleTimeoutSeconds: 900,
+          passwordChangeRequired: false,
+          role: "USER",
+          username: "ada",
+        }),
+      ),
     );
     const { unmount } = render(<App />);
     expect(await changePage()).toBeInTheDocument();
@@ -251,7 +282,12 @@ describe("App with the change-required flag", () => {
       .mockResolvedValueOnce(Response.json(CONFINED))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(
-        Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+        Response.json({
+          idleTimeoutSeconds: 900,
+          passwordChangeRequired: false,
+          role: "USER",
+          username: "ada",
+        }),
       )
       .mockResolvedValue(Response.json({ count: 0 }));
     stubFetchWithCsrf(fetchMock);

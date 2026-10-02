@@ -13,8 +13,18 @@ vi.mock("@/lib/http");
 
 const api = vi.mocked(authApi);
 
-const CONFINED: authApi.AuthUser = { passwordChangeRequired: true, role: null, username: "ada" };
-const USER: authApi.AuthUser = { passwordChangeRequired: false, role: "USER", username: "ada" };
+const CONFINED: authApi.AuthUser = {
+  idleTimeoutSeconds: 900,
+  passwordChangeRequired: true,
+  role: null,
+  username: "ada",
+};
+const USER: authApi.AuthUser = {
+  idleTimeoutSeconds: 900,
+  passwordChangeRequired: false,
+  role: "USER",
+  username: "ada",
+};
 const CREDENTIALS = ["ada", "chosen-1"] as const;
 
 const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
@@ -208,4 +218,72 @@ describe("AuthProvider", () => {
     });
     expect(result.current.user).toBeNull();
   });
+
+  it("signs an idle session out: logs out, forgets the token and records why", async () => {
+    api.getCurrentUser.mockResolvedValue(USER);
+    api.logout.mockResolvedValue(undefined);
+    const { result } = await mounted();
+
+    await act(async () => {
+      await result.current.signOutForInactivity();
+    });
+
+    expect(api.logout).toHaveBeenCalledOnce();
+    expect(http.discardCsrfToken).toHaveBeenCalledOnce();
+    expect(idleProvenance(result.current)).toEqual({
+      passwordChanged: false,
+      sessionExpired: false,
+      signedOutForInactivity: true,
+      status: "guest",
+    });
+    expect(result.current.user).toBeNull();
+  });
+
+  it("clears an idle session even when its logout fails", async () => {
+    api.getCurrentUser.mockResolvedValue(USER);
+    api.logout.mockRejectedValue(new Error("Unable to sign out. Please try again."));
+    const { result } = await mounted();
+
+    await act(async () => {
+      await result.current.signOutForInactivity();
+    });
+
+    expect(http.discardCsrfToken).toHaveBeenCalledOnce();
+    expect(idleProvenance(result.current)).toMatchObject({
+      signedOutForInactivity: true,
+      status: "guest",
+    });
+    expect(result.current.user).toBeNull();
+  });
+
+  it("clears the inactivity provenance on the next login, and on a later expiry", async () => {
+    api.getCurrentUser.mockResolvedValue(USER);
+    api.logout.mockResolvedValue(undefined);
+    api.login.mockResolvedValue(USER);
+    const { result } = await mounted();
+
+    await act(async () => {
+      await result.current.signOutForInactivity();
+    });
+    await act(async () => {
+      await result.current.login(...CREDENTIALS);
+    });
+    expect(result.current.signedOutForInactivity).toBe(false);
+
+    await act(async () => {
+      await result.current.signOutForInactivity();
+    });
+    act(() => result.current.expireSession());
+    expect(idleProvenance(result.current)).toEqual({
+      passwordChanged: false,
+      sessionExpired: true,
+      signedOutForInactivity: false,
+      status: "guest",
+    });
+  });
+});
+
+const idleProvenance = (state: ReturnType<typeof useAuthState>) => ({
+  ...provenance(state),
+  signedOutForInactivity: state.signedOutForInactivity,
 });

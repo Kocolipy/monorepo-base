@@ -26,12 +26,20 @@ export interface AuthContextValue {
   status: AuthStatus;
   /** True while the current `guest` status came from an expired session rather than a cold visit. */
   sessionExpired: boolean;
+  /** True while the current `guest` status came from the SPA's own sign-out for inactivity. */
+  signedOutForInactivity: boolean;
   user: AuthUser | null;
 }
 
 /** The context value including the session controls only `src/auth` may drive. */
 export interface AuthContextState extends AuthContextValue {
   expireSession: () => void;
+  /**
+   * Ends an idle session: logs out on the backend, forgets the CSRF token and
+   * clears the auth state, recording why for the login page. Resolves once the
+   * state is cleared, whatever the logout request came to.
+   */
+  signOutForInactivity: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextState | null>(null);

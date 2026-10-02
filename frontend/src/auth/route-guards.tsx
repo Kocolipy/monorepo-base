@@ -25,7 +25,7 @@ function SessionRoute({
   children: ReactNode;
   requires: SessionRequirement;
 }) {
-  const { passwordChanged, sessionExpired, status, user } = useAuth();
+  const { passwordChanged, sessionExpired, signedOutForInactivity, status, user } = useAuth();
   const location = useLocation();
   const carried = location.state as SessionRouteState | null;
 
@@ -37,6 +37,7 @@ function SessionRoute({
     returnTo: carried?.from,
     role: user?.role,
     sessionExpired,
+    signedOutForInactivity,
     status,
   });
 

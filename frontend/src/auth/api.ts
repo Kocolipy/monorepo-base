@@ -20,6 +20,12 @@ export interface AuthUser {
   role: AuthRole | null;
   /** The change-required flag: this session may only change its password or log out. */
   passwordChangeRequired: boolean;
+  /**
+   * The backend's idle bound for this session, in seconds. The SPA signs an
+   * inactive user out by this figure rather than a copy of its own, so the two
+   * cannot drift apart.
+   */
+  idleTimeoutSeconds: number;
   username: string;
 }
 
@@ -33,6 +39,7 @@ export interface AuthUser {
 const decodeUser = jsonDecoder((body: unknown): AuthUser => {
   const user = readObject(body, "UserResponse");
   return {
+    idleTimeoutSeconds: user.integer("idleTimeoutSeconds"),
     passwordChangeRequired: user.boolean("passwordChangeRequired"),
     role: user.nullableOneOf("role", AUTH_ROLES),
     username: user.string("username"),

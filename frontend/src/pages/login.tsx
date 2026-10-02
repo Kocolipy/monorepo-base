@@ -9,6 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 /** Shown when the visitor arrives here because their session expired. */
 const EXPIRED_MESSAGE = "Your session ended. Please sign in again.";
 
+/** Shown when the visitor arrives here because the SPA signed them out for inactivity. */
+const INACTIVE_MESSAGE = "You were signed out because you were inactive. Please sign in again.";
+
 /** Shown when the visitor arrives here because their own password change ended the session. */
 const CHANGED_CREDENTIAL_MESSAGE = "Your password was changed. Sign in with your new password.";
 
@@ -24,9 +27,11 @@ export function Login() {
   const notice =
     carried?.passwordChanged === true
       ? CHANGED_CREDENTIAL_MESSAGE
-      : carried?.expired === true
-        ? EXPIRED_MESSAGE
-        : null;
+      : carried?.inactive === true
+        ? INACTIVE_MESSAGE
+        : carried?.expired === true
+          ? EXPIRED_MESSAGE
+          : null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

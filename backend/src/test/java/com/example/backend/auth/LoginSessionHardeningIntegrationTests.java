@@ -199,6 +199,44 @@ class LoginSessionHardeningIntegrationTests {
                 .isEmpty();
     }
 
+    // ---- the idle bound the SPA signs out by ---------------------------------------------------
+
+    /**
+     * Login and {@code /me} both report the idle timeout the session is actually held to in the
+     * Redis store, so the SPA's inactivity sign-out reads the backend's bound rather than a copy
+     * that could drift from it.
+     */
+    @Test
+    void loginAndMeReportTheStoredSessionsIdleTimeout() throws Exception {
+        create("idle-timeout-ada");
+        MvcResult login = mvc.perform(withCsrf(post("/api/auth/login"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody("idle-timeout-ada", PASSWORD)))
+                .andReturn();
+        assertThat(login.getResponse().getStatus()).isEqualTo(200);
+        Cookie issued = login.getResponse().getCookie(sessionCookieName);
+        assertThat(issued).as("the login issued a session cookie").isNotNull();
+        Cookie session = new Cookie(issued.getName(), issued.getValue());
+
+        Session stored = sessionRepository.findById(sessionId(session));
+        assertThat(stored).as("the login's session is in the store").isNotNull();
+        long storedSeconds = stored.getMaxInactiveInterval().toSeconds();
+        assertThat(storedSeconds).as("the store holds a real idle bound").isPositive();
+
+        String me = mvc.perform(withCsrf(get("/api/auth/me")).cookie(session)).andReturn()
+                .getResponse().getContentAsString();
+        assertThat(idleTimeoutSeconds(login.getResponse().getContentAsString()))
+                .isEqualTo(storedSeconds);
+        assertThat(idleTimeoutSeconds(me)).isEqualTo(storedSeconds);
+    }
+
+    private static long idleTimeoutSeconds(String body) {
+        java.util.regex.Matcher field =
+                java.util.regex.Pattern.compile("\"idleTimeoutSeconds\":(\\d+)").matcher(body);
+        assertThat(field.find()).as("the body carries idleTimeoutSeconds: %s", body).isTrue();
+        return Long.parseLong(field.group(1));
+    }
+
     /**
      * The sessionless refusal names the logout by method AND path, measured inside the context
      * path: a GET of the logout path and a DELETE of another path are ordinary {@code 401}s, while

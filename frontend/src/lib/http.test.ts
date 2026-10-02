@@ -457,7 +457,12 @@ describe("logout on an expired session", () => {
         }
         if (input === "/api/auth/me")
           return Promise.resolve(
-            Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+            Response.json({
+              idleTimeoutSeconds: 900,
+              passwordChangeRequired: false,
+              role: "USER",
+              username: "ada",
+            }),
           );
         return Promise.resolve(Response.json({ count: 0 }));
       });
@@ -498,11 +503,21 @@ describe("logout on an expired session", () => {
       }
       if (input === "/api/auth/login")
         return Promise.resolve(
-          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          Response.json({
+            idleTimeoutSeconds: 900,
+            passwordChangeRequired: false,
+            role: "USER",
+            username: "ada",
+          }),
         );
       if (input === "/api/auth/me")
         return Promise.resolve(
-          Response.json({ passwordChangeRequired: false, role: "USER", username: "ada" }),
+          Response.json({
+            idleTimeoutSeconds: 900,
+            passwordChangeRequired: false,
+            role: "USER",
+            username: "ada",
+          }),
         );
       return Promise.resolve(Response.json({ count: 0 }));
     });

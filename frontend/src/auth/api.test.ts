@@ -186,7 +186,12 @@ describe("the user decoder", () => {
     resolveWith({ kind: "ok", data: null });
   });
 
-  const confined = { passwordChangeRequired: true, role: null, username: "ada" };
+  const confined = {
+    idleTimeoutSeconds: 900,
+    passwordChangeRequired: true,
+    role: null,
+    username: "ada",
+  };
 
   it("reads the change-required flag from the session check", async () => {
     await getCurrentUser();
@@ -202,8 +207,18 @@ describe("the user decoder", () => {
   it("reads an unflagged session's role", async () => {
     await getCurrentUser();
     await expect(
-      decodeWithCall(0, 2, { passwordChangeRequired: false, role: "ADMIN", username: "grace" }),
-    ).resolves.toStrictEqual({ passwordChangeRequired: false, role: "ADMIN", username: "grace" });
+      decodeWithCall(0, 2, {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        role: "ADMIN",
+        username: "grace",
+      }),
+    ).resolves.toStrictEqual({
+      idleTimeoutSeconds: 900,
+      passwordChangeRequired: false,
+      role: "ADMIN",
+      username: "grace",
+    });
   });
 
   it("reads a body that is not JSON at all, such as a proxy's error page, as a decode failure", async () => {
@@ -217,29 +232,64 @@ describe("the user decoder", () => {
   it.each([
     [
       "a missing username",
-      { passwordChangeRequired: false, role: "USER" },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER" },
       "UserResponse.username",
     ],
-    ["a missing flag", { role: "USER", username: "ada" }, "UserResponse.passwordChangeRequired"],
-    ["a missing role", { passwordChangeRequired: false, username: "ada" }, "UserResponse.role"],
     [
-      "a non-boolean flag",
-      { passwordChangeRequired: NOT_A_BOOLEAN, role: "USER", username: "ada" },
+      "a missing flag",
+      { idleTimeoutSeconds: 900, role: "USER", username: "ada" },
       "UserResponse.passwordChangeRequired",
     ],
     [
+      "a missing role",
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, username: "ada" },
+      "UserResponse.role",
+    ],
+    [
+      "a non-boolean flag",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: NOT_A_BOOLEAN,
+        role: "USER",
+        username: "ada",
+      },
+      "UserResponse.passwordChangeRequired",
+    ],
+    // The idle sign-out is timed by this field, so a body without a whole
+    // number of seconds is refused rather than guessed at.
+    [
+      "a missing idle timeout",
+      { passwordChangeRequired: false, role: "USER", username: "ada" },
+      "UserResponse.idleTimeoutSeconds is not an integer",
+    ],
+    [
+      "a fractional idle timeout",
+      { idleTimeoutSeconds: 1.5, passwordChangeRequired: false, role: "USER", username: "ada" },
+      "UserResponse.idleTimeoutSeconds is not an integer",
+    ],
+    [
+      "an idle timeout sent as a string",
+      { idleTimeoutSeconds: "900", passwordChangeRequired: false, role: "USER", username: "ada" },
+      "UserResponse.idleTimeoutSeconds is not an integer",
+    ],
+    [
       "a non-string username",
-      { passwordChangeRequired: false, role: "USER", username: 7 },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER", username: 7 },
       "UserResponse.username",
     ],
     [
       "an unknown role, which the route guards would otherwise read",
-      { passwordChangeRequired: false, role: "SUPERUSER", username: "ada" },
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        role: "SUPERUSER",
+        username: "ada",
+      },
       "UserResponse.role is not USER | ADMIN",
     ],
     [
       "a role in the wrong case",
-      { passwordChangeRequired: false, role: "admin", username: "ada" },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "admin", username: "ada" },
       "UserResponse.role",
     ],
     ["a non-object body", ["ada"], "UserResponse is not an object"],

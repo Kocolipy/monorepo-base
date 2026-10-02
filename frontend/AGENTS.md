@@ -152,8 +152,16 @@ backend side moves. What the SPA has to honour:
   `resetCounterViaApi()` in `test/e2e/auth.helpers.ts` for an API call from a
   spec.
 - **Sessions expire after 15 minutes** of inactivity, the single default in
-  every environment. Nothing in the SPA hardcodes that today; a countdown or
-  expiry warning reads the 15 minutes from this contract.
+  every environment. The SPA never hardcodes that figure: `GET /api/auth/me`
+  and the login response carry `idleTimeoutSeconds`, read off the session
+  itself, and `src/auth/idle-sign-out.tsx` times its own sign-out by it. That
+  sign-out counts only user input (pointer, key, touch, wheel, scroll) as
+  activity, never a request, and shares it across tabs over a
+  `BroadcastChannel`. A minute before the limit an `alertdialog` offers to stay
+  signed in, which is a `GET /api/auth/me` and so renews the backend's idle
+  clock too; at the limit the SPA calls logout, discards the CSRF token and
+  sends the user to login marked `inactive`. A session the backend ended first
+  still takes the ordinary `401` path below.
 - **Sessions are also capped at 8 hours from creation**, independent of the
   15-minute idle bound above: a session kept continuously active is still
   ended once it has existed that long. Both bounds apply to every

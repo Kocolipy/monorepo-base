@@ -65,6 +65,9 @@ class AuthControllerTests {
 
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
 
+    /** An idle bound no default produces, so a response carrying it read it off the session. */
+    private static final int IDLE_TIMEOUT_SECONDS = 523;
+
     private AuthController controller;
 
     private CsrfTokenRepository csrfTokenRepository;
@@ -326,10 +329,48 @@ class AuthControllerTests {
     @Test
     void currentUserReportsThePrincipalAndRole() {
         AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("ada", null, "ROLE_USER"));
+                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session());
 
         assertThat(response.username()).isEqualTo("ada");
         assertThat(response.role()).isEqualTo("USER");
+    }
+
+    /**
+     * The SPA signs an inactive user out by this figure, so it is the session's own idle bound,
+     * not a configured copy of it: a session held to a different bound reports that one.
+     */
+    @Test
+    void currentUserReportsTheSessionsOwnIdleTimeout() {
+        MockHttpSession session = new MockHttpSession();
+        session.setMaxInactiveInterval(437);
+
+        AuthController.UserResponse response = controller.currentUser(
+                new TestingAuthenticationToken("ada", null, "ROLE_USER"), session);
+
+        assertThat(response.idleTimeoutSeconds()).isEqualTo(437);
+    }
+
+    /** Login answers with the same figure, read off the session the login continues in. */
+    @Test
+    void loginReportsTheSignedInSessionsIdleTimeout() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setMaxInactiveInterval(611);
+
+        AuthController.UserResponse response = controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+
+        assertThat(response.idleTimeoutSeconds())
+                .isEqualTo(611)
+                .isEqualTo(request.getSession(false).getMaxInactiveInterval());
+    }
+
+    /** A session with the idle bound the fixtures below expect in every response. */
+    private static MockHttpSession session() {
+        MockHttpSession session = new MockHttpSession();
+        session.setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
+        return session;
     }
 
     /**
@@ -340,7 +381,7 @@ class AuthControllerTests {
     @Test
     void currentUserReportsAdminForAnAdministratorHoldingBothAuthorities() {
         AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"));
+                new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"), session());
 
         assertThat(response.username()).isEqualTo("grace");
         assertThat(response.role()).isEqualTo("ADMIN");
@@ -351,7 +392,7 @@ class AuthControllerTests {
         var authentication = new TestingAuthenticationToken(
                 "ada", null, "FACTOR_PASSWORD");
 
-        assertThatThrownBy(() -> controller.currentUser(authentication))
+        assertThatThrownBy(() -> controller.currentUser(authentication, session()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Authenticated identity has no role");
     }
@@ -593,18 +634,23 @@ class AuthControllerTests {
     @Test
     void currentUserReportsAConfinedSessionWithNoRole() {
         AuthController.UserResponse response = controller.currentUser(new TestingAuthenticationToken(
-                "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY));
+                "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
-        assertThat(response).isEqualTo(new AuthController.UserResponse("ada", null, true));
+        assertThat(response).isEqualTo(
+                new AuthController.UserResponse("ada", null, true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
     void currentUserReportsAnUnconfinedSessionAsNotDue() {
-        assertThat(controller.currentUser(new TestingAuthenticationToken("ada", null, "ROLE_USER")))
-                .isEqualTo(new AuthController.UserResponse("ada", "USER", false));
         assertThat(controller.currentUser(
-                        new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN")))
-                .isEqualTo(new AuthController.UserResponse("grace", "ADMIN", false));
+                        new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
+                .isEqualTo(new AuthController.UserResponse(
+                        "ada", "USER", false, IDLE_TIMEOUT_SECONDS));
+        assertThat(controller.currentUser(
+                        new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"),
+                        session()))
+                .isEqualTo(new AuthController.UserResponse(
+                        "grace", "ADMIN", false, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
