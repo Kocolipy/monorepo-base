@@ -92,6 +92,21 @@ class ScheduledJobMetricsTests {
 
     private EcsLogCapture logs;
 
+    /** A run that took its lock and did the work: what every job body below reports. */
+    private static final SkippableJobRun RAN = () -> false;
+
+    /**
+     * Wraps {@code task} as a job that always takes its lock, so these tests can state a body
+     * as a plain statement. The skipped path has tests of its own, which pass a
+     * {@link SkippableJobRun} directly.
+     */
+    private Runnable instrument(String job, Operation operation, Runnable task) {
+        return jobs.instrumentLocked(job, operation, () -> {
+            task.run();
+            return RAN;
+        });
+    }
+
     @BeforeEach
     void attachLogs() {
         MDC.clear();
@@ -108,7 +123,7 @@ class ScheduledJobMetricsTests {
 
     @Test
     void before_any_run_both_outcomes_read_zero_and_last_success_reads_the_scheduling_time() {
-        jobs.instrument("probe", OPERATION, () -> { });
+        instrument("probe", OPERATION, () -> { });
 
         assertThat(runs("success")).isZero();
         assertThat(runs("failure")).isZero();
@@ -117,7 +132,7 @@ class ScheduledJobMetricsTests {
 
     @Test
     void a_successful_run_counts_a_success_and_moves_the_last_success_time() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> { });
+        Runnable job = instrument("probe", OPERATION, () -> { });
         now.set(SCHEDULED.plusSeconds(3600));
 
         job.run();
@@ -130,7 +145,7 @@ class ScheduledJobMetricsTests {
     /** The last-success time is when the run ENDED, not when it began. */
     @Test
     void the_last_success_time_is_the_end_of_the_run() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> advance(Duration.ofSeconds(90)));
+        Runnable job = instrument("probe", OPERATION, () -> advance(Duration.ofSeconds(90)));
 
         job.run();
 
@@ -140,7 +155,7 @@ class ScheduledJobMetricsTests {
     @Test
     void a_failed_run_counts_a_failure_rethrows_it_and_leaves_the_last_success_time() {
         IllegalStateException failure = new IllegalStateException("job failed");
-        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+        Runnable job = instrument("probe", OPERATION, () -> {
             throw failure;
         });
         now.set(SCHEDULED.plusSeconds(3600));
@@ -156,7 +171,7 @@ class ScheduledJobMetricsTests {
     @Test
     void the_job_itself_runs_once_per_run() {
         int[] ran = {0};
-        Runnable job = jobs.instrument("probe", OPERATION, () -> ran[0]++);
+        Runnable job = instrument("probe", OPERATION, () -> ran[0]++);
 
         job.run();
         job.run();
@@ -176,8 +191,8 @@ class ScheduledJobMetricsTests {
 
     @Test
     void jobs_are_told_apart_by_their_job_tag() {
-        jobs.instrument("probe", OPERATION, () -> { }).run();
-        jobs.instrument("other-job", OPERATION, () -> { });
+        instrument("probe", OPERATION, () -> { }).run();
+        instrument("other-job", OPERATION, () -> { });
 
         assertThat(registry.get("app.job.runs").tag("job", "other-job")
                 .tag("outcome", "success").counter().count()).isZero();
@@ -190,7 +205,7 @@ class ScheduledJobMetricsTests {
      */
     @Test
     void both_series_are_described_for_the_scrape() {
-        jobs.instrument("probe", OPERATION, () -> { });
+        instrument("probe", OPERATION, () -> { });
 
         assertThat(registry.get("app.job.runs").tag("job", "probe").tag("outcome", "success")
                 .counter().getId().getDescription()).isNotBlank();
@@ -210,7 +225,7 @@ class ScheduledJobMetricsTests {
     @Test
     void each_run_executes_inside_its_own_observation_tagged_with_the_job() {
         List<Observation> current = new ArrayList<>();
-        Runnable job = jobs.instrument("probe", OPERATION,
+        Runnable job = instrument("probe", OPERATION,
                 () -> current.add(observations.getCurrentObservation()));
 
         job.run();
@@ -232,7 +247,7 @@ class ScheduledJobMetricsTests {
     /** No observation is opened by scheduling a job, only by running it. */
     @Test
     void scheduling_a_job_opens_no_observation() {
-        jobs.instrument("probe", OPERATION, () -> { });
+        instrument("probe", OPERATION, () -> { });
 
         assertThat(stopped).isEmpty();
     }
@@ -241,7 +256,7 @@ class ScheduledJobMetricsTests {
     @Test
     void a_failed_run_ends_its_observation_with_the_failure() {
         IllegalStateException failure = new IllegalStateException("job failed");
-        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+        Runnable job = instrument("probe", OPERATION, () -> {
             throw failure;
         });
 
@@ -260,7 +275,7 @@ class ScheduledJobMetricsTests {
      */
     @Test
     void a_run_is_job_start_then_the_jobs_own_records_then_job_end_under_one_run_id() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+        Runnable job = instrument("probe", OPERATION, () -> {
             body.info(INSIDE);
             advance(Duration.ofMillis(250));
         });
@@ -301,7 +316,7 @@ class ScheduledJobMetricsTests {
 
     @Test
     void every_run_gets_a_run_id_of_its_own() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> body.info(INSIDE));
+        Runnable job = instrument("probe", OPERATION, () -> body.info(INSIDE));
 
         job.run();
         String first = onlyRecord(INSIDE).at("/batch/job/run/id").asText();
@@ -321,7 +336,7 @@ class ScheduledJobMetricsTests {
      */
     @Test
     void a_failed_run_ends_in_one_error_job_end_with_the_error_fields_and_the_exception() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+        Runnable job = instrument("probe", OPERATION, () -> {
             advance(Duration.ofMillis(40));
             throw new IllegalStateException("job failed");
         });
@@ -352,7 +367,7 @@ class ScheduledJobMetricsTests {
     /** A database failure is categorised as one, so it routes to whoever owns the database. */
     @Test
     void a_database_failure_is_categorised_as_database() {
-        Runnable job = jobs.instrument("probe", OPERATION, () -> {
+        Runnable job = instrument("probe", OPERATION, () -> {
             throw new DataIntegrityViolationException("refused");
         });
 
@@ -412,13 +427,13 @@ class ScheduledJobMetricsTests {
     /** Nothing of a run is left in the scheduler thread's context, however the run ended. */
     @Test
     void no_job_key_outlives_a_run_however_it_ends() {
-        jobs.instrument("probe", OPERATION, () -> { }).run();
+        instrument("probe", OPERATION, () -> { }).run();
         assertThat(context()).isEmpty();
 
         jobs.instrumentLocked("probe", OPERATION, () -> () -> true).run();
         assertThat(context()).isEmpty();
 
-        Runnable failing = jobs.instrument("probe", OPERATION, () -> {
+        Runnable failing = instrument("probe", OPERATION, () -> {
             throw new IllegalStateException("job failed");
         });
         assertThatThrownBy(failing::run).isInstanceOf(IllegalStateException.class);
@@ -429,7 +444,7 @@ class ScheduledJobMetricsTests {
     @Test
     void the_job_body_runs_with_the_run_identity_in_context() {
         List<Map<String, String>> seen = new ArrayList<>();
-        jobs.instrument("probe", OPERATION, () -> seen.add(context())).run();
+        instrument("probe", OPERATION, () -> seen.add(context())).run();
 
         assertThat(seen).singleElement().satisfies(inside -> assertThat(inside)
                 .containsEntry(LogContext.JOB_NAME, "probe")

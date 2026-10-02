@@ -242,7 +242,10 @@ default is one year" is a fact about the rule rather than about a config file.
 Each run logs its schedule at startup and, per run, the rows it deleted and how
 long it took (`event.action: audit.retention`). A run that deleted nothing is
 logged too — "nothing had aged out" and "the job has not run for a month" are
-different facts.
+different facts. The job is serialized on its own `audit-retention` row in
+`scheduled_job_locks`, as the dormancy jobs are (see below): with several instances
+on the same cron one run deletes, and the others end `job-end` with
+`event.reason: lock-held` and delete nothing.
 
 ### Operational telemetry
 

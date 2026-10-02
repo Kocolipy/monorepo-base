@@ -87,9 +87,6 @@ public class ScheduledJobMetrics {
      */
     static final int FAILED_RUN_ERROR_CODE = 500;
 
-    /** The result of a job that takes no lock, so it never skips. */
-    private static final SkippableJobRun RAN = () -> false;
-
     private static final Logger log = LoggerFactory.getLogger(ScheduledJobMetrics.class);
 
     private final MeterRegistry registry;
@@ -120,17 +117,6 @@ public class ScheduledJobMetrics {
                 .addKeyValue(LogEvent.JOB_DESCRIPTION, description)
                 .addKeyValue(LogEvent.TRIGGER_CRON_EXPRESSION, cron)
                 .addKeyValue(LogEvent.TRIGGER_CRON_TIMEZONE, ServiceTimeZone.ZONE.getId());
-    }
-
-    /**
-     * Wraps a job that takes no lock: every run that returns did the work. See
-     * {@link #instrumentLocked}.
-     */
-    public Runnable instrument(String job, Operation operation, Runnable task) {
-        return instrumentLocked(job, operation, () -> {
-            task.run();
-            return RAN;
-        });
     }
 
     /**

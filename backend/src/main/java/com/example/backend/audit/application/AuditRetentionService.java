@@ -6,6 +6,8 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scheduling.domain.ScheduledJob;
+import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.time.Clock;
 import java.time.Instant;
 import org.slf4j.Logger;
@@ -25,10 +27,19 @@ import org.springframework.transaction.annotation.Transactional;
  * this record; scheduled through it, this record carries the run's
  * {@code batch.job.run.id}.
  *
- * <p>{@code @Transactional} is load-bearing rather than incidental. The adapter
- * assumes the retention database role with {@code SET LOCAL ROLE}, which needs a
- * transaction to be local to; without one the delete would run as the
- * application's own role and be refused.
+ * <h2>Serialization</h2>
+ *
+ * <p>A run takes the job's own lock ({@link ScheduledJob#AUDIT_RETENTION}) first, so two
+ * instances on the same cron do not both delete: the second finds the lock held, does
+ * nothing, and reports it {@linkplain AuditRetentionRun#skipped skipped}, which
+ * {@code ScheduledJobMetrics.instrumentLocked} logs as the run's {@code lock-held} end. The
+ * lock is taken before the adapter assumes the retention role, as the application's own
+ * role, which is the one granted it.
+ *
+ * <p>{@code @Transactional} is load-bearing rather than incidental. The lock is held for
+ * the rest of the transaction, and the adapter assumes the retention database role with
+ * {@code SET LOCAL ROLE}, which needs a transaction to be local to; without one the delete
+ * would run as the application's own role and be refused.
  */
 @Service
 public class AuditRetentionService {
@@ -40,28 +51,37 @@ public class AuditRetentionService {
 
     private final AuditEventRetention retention;
     private final AuditRetentionPolicy policy;
+    private final ScheduledJobLock lock;
     private final Clock clock;
 
     public AuditRetentionService(
-            AuditEventRetention retention, AuditRetentionPolicy policy, Clock clock) {
+            AuditEventRetention retention,
+            AuditRetentionPolicy policy,
+            ScheduledJobLock lock,
+            Clock clock) {
         this.retention = retention;
         this.policy = policy;
+        this.lock = lock;
         this.clock = clock;
     }
 
     /**
-     * Removes every event recorded longer ago than the retention window.
+     * Removes every event recorded longer ago than the retention window, or skips when
+     * another run of this job holds its lock.
      *
-     * @return how many rows were removed, for a caller that drives this directly
+     * @return whether the run skipped, and how many rows it removed
      */
     @Transactional
-    public long deleteAgedOutEvents() {
+    public AuditRetentionRun deleteAgedOutEvents() {
+        if (!lock.tryAcquire(ScheduledJob.AUDIT_RETENTION)) {
+            return AuditRetentionRun.skippedRun();
+        }
         Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
         LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.INFO)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .addKeyValue(LogEvent.RETENTION_DELETED_ROWS, deleted)
                 .log("Audit retention run complete");
-        return deleted;
+        return new AuditRetentionRun(false, deleted);
     }
 }

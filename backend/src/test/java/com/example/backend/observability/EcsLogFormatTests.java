@@ -437,7 +437,7 @@ class EcsLogFormatTests {
 
     /**
      * A scheduled job runs off any request, so it gets a trace of its own from
-     * {@link ScheduledJobMetrics#instrument}: every record of one run shares a trace id,
+     * {@link ScheduledJobMetrics#instrumentLocked}: every record of one run shares a trace id,
      * and the next run's differs. Run through the task the scheduler actually holds, not
      * a re-wrapped copy of the job.
      */
@@ -984,7 +984,7 @@ class EcsLogFormatTests {
         logs.reset();
 
         RuntimeException jobFailure = new IllegalStateException("job failed");
-        assertThatThrownBy(() -> jobMetrics.instrument("ecs-error-fields-job",
+        assertThatThrownBy(() -> jobMetrics.instrumentLocked("ecs-error-fields-job",
                         LogEvent.Operation.AUDIT_RETENTION, () -> {
                             throw jobFailure;
                         }).run())

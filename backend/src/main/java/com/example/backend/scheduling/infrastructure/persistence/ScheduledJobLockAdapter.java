@@ -1,7 +1,7 @@
-package com.example.backend.auth.infrastructure.persistence;
+package com.example.backend.scheduling.infrastructure.persistence;
 
-import com.example.backend.auth.domain.ScheduledJob;
-import com.example.backend.auth.domain.ScheduledJobLock;
+import com.example.backend.scheduling.domain.ScheduledJob;
+import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;

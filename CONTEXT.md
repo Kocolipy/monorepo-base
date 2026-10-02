@@ -479,10 +479,10 @@ after commit, and an actorless `DORMANT_AUTHORITY_REVOCATION` event names the Us
 A connector may re-add the membership; while the User stays dormant the next run
 removes it again.
 
-**Scheduled job lock** — how the two dormancy jobs are serialized: each run takes
-its own job's row in `scheduled_job_locks` with `FOR UPDATE SKIP LOCKED` and holds
-it for the run's transaction. A second run of the same job, on any instance, skips;
-the other job holds a different row and never waits. Inside a run, each User is
+**Scheduled job lock** — how the two dormancy jobs and the audit retention job are
+serialized: each run takes its own job's row in `scheduled_job_locks` with
+`FOR UPDATE SKIP LOCKED` and holds it for the run's transaction. A second run of the
+same job, on any instance, skips; another job holds a different row and never waits. Inside a run, each User is
 re-read under its resource lock and decided again, so no User is processed twice.
 
 **Session revocation** — ending the sessions a User is already holding, so its

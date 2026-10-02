@@ -162,8 +162,8 @@ produce, and a durable local file for a forwarding agent.
 **Trace and span ids.** `micrometer-tracing-bridge-otel`, wired by Boot's
 `spring-boot-micrometer-tracing-opentelemetry` module, gives each observation a
 span: every HTTP request (Boot's `ServerHttpObservationFilter`) and, through an
-observation opened in `ScheduledJobMetrics.instrument`, every scheduled-job run.
-All three jobs now run through `instrument`, so every job record is correlated.
+observation opened in `ScheduledJobMetrics.instrumentLocked`, every scheduled-job run.
+All three jobs now run through `instrumentLocked`, so every job record is correlated.
 `TraceLogCorrelationConfig` replaces Boot's `Slf4JEventListener` with one writing
 the ECS keys `trace.id` and `span.id` — the defaults (`traceId`, `spanId`) would
 land as top-level fields no ECS query selects on. These are the first context keys
@@ -361,10 +361,10 @@ job identity and nothing of their own when a run failed (`Structured_Logging_App
 `job-end` only.
 
 **One wrapper owns it.** Every job already ran through `ScheduledJobMetrics`, so its job
-logging lives there and no job re-implements it. `instrument(job, operation, task)` wraps a
-job that takes no lock (retention); `instrumentLocked(job, operation, task)` wraps one that
-serializes on its lock row (ADR 0005) and returns a `SkippableJobRun` — the two dormancy
-jobs' `DormancyRun` — because only the job, which takes the lock inside its own
+logging lives there and no job re-implements it. `instrumentLocked(job, operation, task)` wraps a
+job that serializes on its lock row (ADR 0005) and returns a `SkippableJobRun` — the dormancy
+jobs' `DormancyRun`, the retention job's `AuditRetentionRun` (#97, which retired the lockless
+`instrument`) — because only the job, which takes the lock inside its own
 transaction, knows whether it ran. Each run, inside the observation that gives it its trace:
 
 - puts `batch.job.name` (the metric's `job` tag, so one name selects a job's metrics and

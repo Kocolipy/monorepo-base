@@ -61,7 +61,7 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
-                jobs.instrument(RETENTION_JOB, AuditRetentionService.OPERATION,
+                jobs.instrumentLocked(RETENTION_JOB, AuditRetentionService.OPERATION,
                         retention::deleteAgedOutEvents),
                 new CronTrigger(policy.schedule(), ServiceTimeZone.ZONE)));
         ScheduledJobMetrics.scheduled(log.atInfo(), AuditRetentionService.OPERATION,

@@ -401,7 +401,7 @@ class AuditAppendOnlyIntegrationTests {
         insertEventAt(agedOut, Instant.now().minus(Duration.ofDays(400)));
         insertEventAt(recent, Instant.now());
 
-        assertThat(retention.deleteAgedOutEvents()).isEqualTo(1);
+        assertThat(retention.deleteAgedOutEvents().deleted()).isEqualTo(1);
 
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, agedOut)).isZero();
         assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recent)).isEqualTo(1);

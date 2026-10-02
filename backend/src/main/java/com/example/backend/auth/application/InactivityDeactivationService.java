@@ -1,8 +1,8 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.auth.domain.ScheduledJob;
-import com.example.backend.auth.domain.ScheduledJobLock;
+import com.example.backend.scheduling.domain.ScheduledJob;
+import com.example.backend.scheduling.domain.ScheduledJobLock;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
