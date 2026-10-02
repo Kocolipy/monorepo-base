@@ -327,6 +327,19 @@ public class ArchitectureTest {
             .because("audit is shared by every business module, so it depends on none of them");
 
     @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule scheduling_depends_on_no_business_module =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.scheduling..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.audit..", "com.example.backend.auth..",
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.scim..", "com.example.backend.session..",
+                    "com.example.backend.web..")
+            .allowEmptyShould(true)
+            .because("the scheduled-job lock is shared by the auth and audit jobs (ADR 0005), so it"
+                    + " knows neither of them nor any other business module");
+
+    @com.tngtech.archunit.junit.ArchTest
     static final ArchRule web_depends_on_no_feature =
         noClasses()
             .that().resideInAPackage("com.example.backend.web..")
