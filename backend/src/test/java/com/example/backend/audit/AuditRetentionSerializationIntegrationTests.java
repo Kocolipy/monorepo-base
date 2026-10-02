@@ -8,7 +8,6 @@ import com.example.backend.observability.EcsLogCapture;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -47,6 +46,11 @@ import tools.jackson.databind.JsonNode;
  * starts only once Postgres reports the first one waiting. Releasing the row lets the first
  * run finish.
  *
+ * <p>Every event this class inserts has aged out, so the runs under test remove them and
+ * nothing is left to clean up. A test cleanup could not delete a row anyway: the table is
+ * append-only to every role but retention's, and only the retention adapter may assume that
+ * role. That the job keeps what has not aged out is {@code AuditAppendOnlyIntegrationTests}'.
+ *
  * <p>The annotations match {@code EcsLogFormatTests}', so the two share one cached context
  * and one Postgres container.
  */
@@ -73,11 +77,6 @@ class AuditRetentionSerializationIntegrationTests {
              WHERE wait_event_type = 'Lock'
                AND query LIKE 'DELETE FROM audit_events WHERE occurred_at < %'""";
 
-    private static final String DELETE_EVENT = "DELETE FROM audit_events WHERE id = ?";
-
-    private static final String ASSUME_RETENTION_ROLE =
-            "SET LOCAL ROLE backend_audit_retention";
-
     private static final String FIRST_RUN_THREAD = "retention-first-run";
 
     @Autowired
@@ -95,8 +94,6 @@ class AuditRetentionSerializationIntegrationTests {
     @Autowired
     private Environment environment;
 
-    private final List<UUID> inserted = new ArrayList<>();
-
     private EcsLogCapture logs;
 
     @BeforeEach
@@ -105,15 +102,8 @@ class AuditRetentionSerializationIntegrationTests {
     }
 
     @AfterEach
-    void cleanUp() {
+    void detachLogs() {
         logs.close();
-        // Only the rows this class inserted; recent ones would otherwise outlive the test.
-        // The table is append-only to every role but retention's, so the cleanup assumes it.
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            jdbc.execute(ASSUME_RETENTION_ROLE);
-            inserted.forEach(id -> jdbc.update(DELETE_EVENT, id));
-        });
-        inserted.clear();
     }
 
     @Test
@@ -122,7 +112,6 @@ class AuditRetentionSerializationIntegrationTests {
         Instant agedOutAt = Instant.now().minus(policy.period()).minus(Duration.ofDays(30));
         UUID held = insertEventAt(agedOutAt);
         UUID alsoAgedOut = insertEventAt(agedOutAt);
-        UUID recent = insertEventAt(Instant.now());
         Runnable retention = theScheduledRetentionTask();
 
         CountDownLatch rowLocked = new CountDownLatch(1);
@@ -177,7 +166,6 @@ class AuditRetentionSerializationIntegrationTests {
 
             assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, held)).isZero();
             assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, alsoAgedOut)).isZero();
-            assertThat(jdbc.queryForObject(COUNT_EVENT, Integer.class, recent)).isEqualTo(1);
         } finally {
             releaseRow.countDown();
             rowHolder.shutdownNow();
@@ -251,7 +239,6 @@ class AuditRetentionSerializationIntegrationTests {
     private UUID insertEventAt(Instant occurredAt) {
         UUID id = UUID.randomUUID();
         jdbc.update(INSERT_EVENT, id, Timestamp.from(occurredAt));
-        inserted.add(id);
         return id;
     }
 
