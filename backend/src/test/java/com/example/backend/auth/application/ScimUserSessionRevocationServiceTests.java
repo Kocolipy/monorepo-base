@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  * The ordering ADR 0002 settled, for a SCIM write: sessions end after the commit, never on a
  * rollback, and the outcome is recorded once it is known.
  */
-class ScimUserSessionRevocationTests {
+class ScimUserSessionRevocationServiceTests {
 
     private static final UUID CONNECTOR = UUID.randomUUID();
 
@@ -30,8 +30,8 @@ class ScimUserSessionRevocationTests {
 
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
-    private final ScimUserSessionRevocation revocation =
-            new ScimUserSessionRevocation(sessions, commit, audit);
+    private final ScimUserSessionRevocationService revocation =
+            new ScimUserSessionRevocationService(sessions, commit, audit);
 
     @Test
     void nothing_is_revoked_or_recorded_until_the_transaction_commits() {
@@ -94,7 +94,7 @@ class ScimUserSessionRevocationTests {
                 throw storeDown;
             }
         };
-        ScimUserSessionRevocation failing = new ScimUserSessionRevocation(broken, commit, audit);
+        ScimUserSessionRevocationService failing = new ScimUserSessionRevocationService(broken, commit, audit);
 
         failing.revokeAfterCommit(CONNECTOR, user, Set.of(Cause.USER_NAME_CHANGED));
 

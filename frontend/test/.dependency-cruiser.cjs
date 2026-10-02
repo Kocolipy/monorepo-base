@@ -47,6 +47,15 @@ module.exports = {
     },
 
     {
+      name: "styles-not-in-logic-files",
+      comment:
+        "The session layer and the *-api.ts request modules hold no markup, so they have no reason to import a stylesheet; style imports belong in component files and the composition root.",
+      severity: "error",
+      from: { path: "^src/(auth/|pages/[^/]+-api\\.ts$)" },
+      to: { path: "\\.(css|scss|sass|less)$" },
+    },
+
+    {
       name: "mb-transport-is-behind-the-session-seam",
       comment:
         "src/lib/http.ts classifies a 401 as `unauthenticated`, and responding to that is a session concern. Only src/auth/ may call it: features request through useSessionRequest, which handles the session outcome once and hands back a result with no unauthenticated case to forget. A page that imports apiFetch directly silently opts out of that.",
@@ -56,6 +65,45 @@ module.exports = {
         pathNot: ["^src/(auth|lib)/", "\\.(test|spec)\\.[tj]sx?$"],
       },
       to: { path: "^src/lib/http\\.ts$" },
+    },
+
+    {
+      name: "mb-auth-does-not-import-up",
+      comment:
+        "Imports point down the tree and may never point back up (docs/ARCHITECTURE.md). src/auth/ sits below the pages and the composition root, so it must not import either.",
+      severity: "error",
+      from: { path: "^src/auth/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/(pages/|App\\.tsx$|main\\.tsx$)" },
+    },
+
+    {
+      name: "mb-components-do-not-import-up",
+      comment:
+        "Shared components are reused by every page, so they may not import a page, the session layer in src/auth/, or the composition root (docs/ARCHITECTURE.md: imports never point back up).",
+      severity: "error",
+      from: { path: "^src/components/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/(pages/|auth/|App\\.tsx$|main\\.tsx$)" },
+    },
+
+    {
+      name: "mb-pages-do-not-import-the-root",
+      comment:
+        "App.tsx and main.tsx compose the pages; a page that imports either creates a loop through the composition root (docs/ARCHITECTURE.md).",
+      severity: "error",
+      from: { path: "^src/pages/", pathNot: "\\.(test|spec)\\.[tj]sx?$" },
+      to: { path: "^src/(App|main)\\.tsx$" },
+    },
+
+    {
+      name: "no-direct-http-in-components",
+      comment:
+        "Components and pages request through useSessionRequest. A third-party HTTP client would bypass the session seam the same way a direct apiFetch import does, so none may be imported here.",
+      severity: "error",
+      from: { path: "^src/(components|pages)/" },
+      to: {
+        dependencyTypes: ["npm"],
+        path: "^node_modules/(axios|ky|got|node-fetch|cross-fetch|superagent)/",
+      },
     },
 
     {

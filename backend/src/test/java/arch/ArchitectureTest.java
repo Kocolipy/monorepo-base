@@ -1,5 +1,7 @@
 package arch;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchCondition;
@@ -9,9 +11,7 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import com.tngtech.archunit.library.dependencies.SlicesRuleDefinition;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EntityManager;
 import jakarta.persistence.Table;
-import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Component;
@@ -24,6 +24,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.Architectures.onionArchitecture;
 
 @com.tngtech.archunit.junit.AnalyzeClasses(
@@ -33,7 +34,7 @@ import static com.tngtech.archunit.library.Architectures.onionArchitecture;
 public class ArchitectureTest {
 
     // Cycles
-    
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_cyclic_dependencies =
         SlicesRuleDefinition.slices()
@@ -43,22 +44,23 @@ public class ArchitectureTest {
             .because("Cyclic dependencies prevent independent module development and deployment");
 
     @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_package_cycles =
+        SlicesRuleDefinition.slices()
+            .matching("com.example.backend.(**)")
+            .should().beFreeOfCycles()
+            .allowEmptyShould(true)
+            .because("A cycle between two packages, even inside one module, means neither can be"
+                    + " understood or changed without the other");
+
+    // Naming Conventions
+
+    @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_classes_in_default_package =
         noClasses()
             .should().haveNameMatching("^[^.]+$")
             .allowEmptyShould(true)
             .as("No class should reside in the default (unnamed) package");
 
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_intra_layer_cycles =
-        SlicesRuleDefinition.slices()
-            .matching("..service.(*)..")
-            .should().beFreeOfCycles()
-            .allowEmptyShould(true)
-            .because("Cycles between classes inside a single layer make that layer impossible to reason about in isolation");
-
-    // Naming Conventions
-    
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule naming_conventions_controller =
         classes()
@@ -71,19 +73,48 @@ public class ArchitectureTest {
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule naming_conventions_service =
         classes()
-            .that().resideInAPackage("..service")
-            .and().areNotInterfaces()
+            .that().resideInAPackage("..application")
+            .and().areAnnotatedWith(Service.class)
             .and().areTopLevelClasses()
             .should().haveSimpleNameEndingWith("Service")
             .allowEmptyShould(true)
-            .because("Naming conventions aid discoverability");
+            .because("An application-layer bean is a use-case service and is named as one");
 
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule naming_conventions_repository =
+    static final ArchRule naming_conventions_adapter =
         classes()
-            .that().resideInAPackage("..repository")
+            .that().resideInAPackage("..infrastructure..")
             .and().areTopLevelClasses()
-            .should().haveSimpleNameEndingWith("Repository")
+            .and().areMetaAnnotatedWith(Component.class)
+            .should().haveSimpleNameEndingWith("Adapter")
+            .allowEmptyShould(true)
+            .because("An infrastructure bean implements a port for the layers inside it and is"
+                    + " named as an adapter");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule naming_conventions_jpa_repository =
+        classes()
+            .that().areInterfaces()
+            .and().areAssignableTo(org.springframework.data.repository.Repository.class)
+            .should().haveSimpleNameEndingWith("JpaRepository")
+            .allowEmptyShould(true)
+            .because("A Spring Data repository is told apart from the domain repository port it"
+                    + " backs by its name");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule naming_conventions_entity =
+        classes()
+            .that().areAnnotatedWith(Entity.class)
+            .should().haveSimpleNameEndingWith("Entity")
+            .allowEmptyShould(true)
+            .because("A persistence entity is told apart from the domain type it maps by its name");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule naming_conventions_configuration =
+        classes()
+            .that().areAnnotatedWith(Configuration.class)
+            .should().haveSimpleNameEndingWith("Config")
+            .orShould().haveSimpleNameEndingWith("Configuration")
             .allowEmptyShould(true)
             .because("Naming conventions aid discoverability");
 
@@ -95,8 +126,60 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Exception naming must be explicit");
 
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule exception_names_are_exceptions =
+        classes()
+            .that().haveSimpleNameEndingWith("Exception")
+            .should().beAssignableTo(Throwable.class)
+            .allowEmptyShould(true)
+            .because("A class named *Exception that cannot be thrown misleads every reader");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_generic_exception_throws =
+        noMethods()
+            .should().declareThrowableOfType(Exception.class)
+            .orShould().declareThrowableOfType(Throwable.class)
+            .allowEmptyShould(true)
+            .because("A method that throws Exception tells its caller nothing about what can go wrong");
+
     // Class Containment
-    
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule class_containment_controller =
+        classes()
+            .that().haveSimpleNameEndingWith("Controller")
+            .and().areTopLevelClasses()
+            .should().resideInAPackage("..controller")
+            .allowEmptyShould(true)
+            .because("Web adapters live in the module's controller package");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule class_containment_service =
+        classes()
+            .that().haveSimpleNameEndingWith("Service")
+            .and().areTopLevelClasses()
+            .should().resideInAPackage("..application")
+            .allowEmptyShould(true)
+            .because("Use-case services live in the module's application package");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule class_containment_adapter =
+        classes()
+            .that().haveSimpleNameEndingWith("Adapter")
+            .and().areTopLevelClasses()
+            .should().resideInAPackage("..infrastructure..")
+            .allowEmptyShould(true)
+            .because("Adapters live in the module's infrastructure packages");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule class_containment_jpa_repository =
+        classes()
+            .that().haveSimpleNameEndingWith("JpaRepository")
+            .and().areTopLevelClasses()
+            .should().resideInAPackage("..infrastructure.persistence")
+            .allowEmptyShould(true)
+            .because("Spring Data repositories are a persistence adapter detail");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule configuration_classes_in_config_package =
         classes()
@@ -109,19 +192,46 @@ public class ArchitectureTest {
     static final ArchRule entities_only_in_entity_packages =
         classes()
             .that().areAnnotatedWith(Entity.class)
-            .should().resideInAnyPackage("..entity..", "..domain..")
+            .should().resideInAPackage("..entity..")
             .allowEmptyShould(true)
-            .because("Entity classes must not leak into controller or service packages");
+            .because("Entity classes belong to the persistence adapter, never the framework-free domain");
 
-    // Domain Purity (Onion/Hexagonal)
-    
+    // Layer Boundaries
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule onion_architecture =
+        onionArchitecture()
+            .domainModels("com.example.backend..domain..")
+            .domainServices("com.example.backend..domain.service..")
+            .applicationServices("com.example.backend..application..")
+            .adapter("persistence", "com.example.backend..infrastructure.persistence..")
+            .adapter("session", "com.example.backend..infrastructure.session..")
+            .adapter("transaction", "com.example.backend..infrastructure.transaction..")
+            .adapter("request", "com.example.backend..infrastructure.request..")
+            .adapter("alert", "com.example.backend..infrastructure.alert..")
+            .adapter("web", "com.example.backend..controller..")
+            .adapter("config", "com.example.backend..config..")
+            .withOptionalLayers(true)
+            .because("Dependencies point inward: adapters depend on application, application on domain, domain on nothing");
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_domain_infrastructure_imports =
         noClasses()
             .that().resideInAnyPackage("..domain..", "..model..")
-            .should().dependOnClassesThat().resideInAnyPackage("..infrastructure..", "..adapter..", "..web..", "..controller..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..infrastructure..", "..adapter..", "..web..", "..controller..",
+                    "..config..", "..application..")
             .allowEmptyShould(true)
             .because("Domain must remain infrastructure-agnostic");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_domain_framework_imports =
+        noClasses()
+            .that().resideInAPackage("..domain..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "org.springframework..", "jakarta.persistence..", "jakarta.servlet..", "org.hibernate..")
+            .allowEmptyShould(true)
+            .because("The domain is plain Java, so it can be tested and reasoned about without a framework");
 
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_spring_annotations_in_domain =
@@ -136,8 +246,121 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Domain objects must not carry Spring stereotype annotations");
 
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_business_logic_in_controllers =
+        noClasses()
+            .that().resideInAPackage("..controller..")
+            .or().areAnnotatedWith(RestController.class)
+            .or().areAnnotatedWith(Controller.class)
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "..repository..", "..persistence..", "com.example.backend..dao..")
+            .allowEmptyShould(true)
+            .because("Controllers must delegate to services, not access repositories directly");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_transactional_outside_service =
+        noClasses()
+            .that().resideInAnyPackage("..controller..", "..domain..")
+            .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
+            .orShould().beAnnotatedWith("jakarta.transaction.Transactional")
+            .allowEmptyShould(true)
+            .because("Transaction management belongs at the use-case/service boundary");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_jpa_outside_persistence_adapters =
+        noClasses()
+            .that().resideOutsideOfPackage("..infrastructure.persistence..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "jakarta.persistence..", "org.springframework.data..", "org.hibernate..")
+            .allowEmptyShould(true)
+            .because("JPA, Spring Data and Hibernate are a persistence adapter's implementation detail");
+
+    // backend/AGENTS.md: role authorization lives in the filter chain only
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_method_level_role_checks =
+        noMethods()
+            .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
+            .orShould().beAnnotatedWith("org.springframework.security.access.prepost.PostAuthorize")
+            .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
+            .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
+            .allowEmptyShould(true)
+            .because("backend/AGENTS.md: role checks live in the security filter chain, where every"
+                    + " protected route is visible in one place");
+
+    // backend/AGENTS.md: role authorization lives in the filter chain only
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_method_security_enabled =
+        noClasses()
+            .should().beAnnotatedWith("org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity")
+            .orShould().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
+            .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
+            .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
+            .allowEmptyShould(true)
+            .because("backend/AGENTS.md: role checks live in the security filter chain, where every"
+                    + " protected route is visible in one place");
+
+    // Module Boundaries
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule observability_depends_on_no_module =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.observability..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.audit..", "com.example.backend.auth..",
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.scim..", "com.example.backend.session..",
+                    "com.example.backend.web..")
+            .allowEmptyShould(true)
+            .because("observability is the shared base every module logs through, so it knows none of them");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule audit_depends_only_on_observability =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.audit..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.auth..", "com.example.backend.counter..",
+                    "com.example.backend.lifecycle..", "com.example.backend.scim..",
+                    "com.example.backend.session..", "com.example.backend.web..")
+            .allowEmptyShould(true)
+            .because("audit is shared by every business module, so it depends on none of them");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule web_depends_on_no_feature =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.web..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.audit..", "com.example.backend.auth..",
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.scim..", "com.example.backend.session..")
+            .allowEmptyShould(true)
+            .because("SPA routing is shared plumbing and knows no business module");
+
+    // backend/AGENTS.md: nothing in scim mentions auth
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule scim_never_depends_on_auth =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.scim..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.auth..", "com.example.backend.counter..",
+                    "com.example.backend.lifecycle..", "com.example.backend.session..")
+            .allowEmptyShould(true)
+            .because("backend/AGENTS.md: auth reaches SCIM through scim.domain ports, and nothing in"
+                    + " scim mentions auth");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule leaf_modules_have_no_dependents =
+        noClasses()
+            .that().resideOutsideOfPackages(
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.session..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.session..")
+            .allowEmptyShould(true)
+            .because("counter, lifecycle and session are leaves: removing one must not break another module");
+
     // Dependency Injection
-    
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule no_field_injection =
         noFields()
@@ -146,8 +369,24 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("Constructor injection is required for testability and immutability");
 
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_new_inside_service =
+        noClasses()
+            .that().resideInAPackage("..application")
+            .and().areTopLevelClasses()
+            .should().callConstructorWhere(new DescribedPredicate<JavaConstructorCall>(
+                    "the target is a Service, Repository or Adapter") {
+                @Override
+                public boolean test(JavaConstructorCall call) {
+                    String name = call.getTargetOwner().getSimpleName();
+                    return name.endsWith("Service") || name.endsWith("Repository") || name.endsWith("Adapter");
+                }
+            })
+            .allowEmptyShould(true)
+            .because("Collaborators are injected, so a service can be tested with a stand-in for each");
+
     // Code Quality
-    
+
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule utility_classes_private_constructor =
         classes()
@@ -170,6 +409,58 @@ public class ArchitectureTest {
         GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS
             .allowEmptyShould(true);
 
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_dependency_on_deprecated =
+        noClasses()
+            .should().dependOnClassesThat().areAnnotatedWith(Deprecated.class)
+            .allowEmptyShould(true)
+            .because("Deprecated code is on its way out; new callers keep it alive");
+
+    // JPA / Persistence
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule entities_have_required_annotations =
+        classes()
+            .that().areAnnotatedWith(Entity.class)
+            .should().beAnnotatedWith(Table.class)
+            .allowEmptyShould(true)
+            .because("Explicit table mapping prevents runtime surprises");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_entity_in_controllers =
+        noClasses()
+            .that().areAnnotatedWith(RestController.class)
+            .or().areAnnotatedWith(Controller.class)
+            .should().dependOnClassesThat().areAnnotatedWith(Entity.class)
+            .allowEmptyShould(true)
+            .because("Controllers must use DTOs, not entities, to prevent lazy-loading issues and data exposure");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule repositories_must_be_interfaces =
+        classes()
+            .that().resideInAnyPackage("..domain", "..infrastructure.persistence")
+            .and().haveSimpleNameEndingWith("Repository")
+            .and().areTopLevelClasses()
+            .should().beInterfaces()
+            .allowEmptyShould(true)
+            .because("Domain repositories are ports and Spring Data repositories are generated;"
+                    + " both are interfaces");
+
+    // Spring Annotations
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule controllers_must_be_annotated =
+        classes()
+            .that().haveSimpleNameEndingWith("Controller")
+            .and().areTopLevelClasses()
+            .and().areNotInterfaces()
+            .should().beAnnotatedWith(RestController.class)
+            .orShould().beAnnotatedWith(Controller.class)
+            .allowEmptyShould(true)
+            .because("Controllers must be annotated for Spring component scanning");
+
+    // ADR-derived
+
     /**
      * The logging context is written through one class or not at all.
      *
@@ -188,6 +479,7 @@ public class ArchitectureTest {
      * implementation, so the pattern covers {@code LogContext} and its nested
      * classes and nothing else.
      */
+    // ADR 0003: ECS structured logging with redaction
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule mdc_is_only_touched_by_the_log_context =
         noClasses()
@@ -196,88 +488,6 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("LogContext is the only way anything writes to the logging context, so"
                     + " the three permitted keys are the only keys that exist");
-
-    // JPA / Persistence
-    
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule entities_have_required_annotations =
-        classes()
-            .that().areAnnotatedWith(Entity.class)
-            .should().beAnnotatedWith(Table.class)
-            .allowEmptyShould(true)
-            .because("Explicit table mapping prevents runtime surprises");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule repositories_must_be_interfaces =
-        classes()
-            .that().resideInAPackage("..repository")
-            .and().areTopLevelClasses()
-            .should().beInterfaces()
-            .allowEmptyShould(true)
-            .because("Spring Data repositories must be interfaces");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_entity_in_controllers =
-        noClasses()
-            .that().areAnnotatedWith(RestController.class)
-            .or().areAnnotatedWith(Controller.class)
-            .should().dependOnClassesThat().areAnnotatedWith(Entity.class)
-            .allowEmptyShould(true)
-            .because("Controllers must use DTOs, not entities, to prevent lazy-loading issues and data exposure");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule annotation_gated_access =
-        classes()
-            .that().areAssignableTo(EntityManager.class)
-            .should().onlyHaveDependentClassesThat()
-            .areAnnotatedWith("org.springframework.transaction.annotation.Transactional")
-            .allowEmptyShould(true)
-            .because("EntityManager must only be reached from a @Transactional caller");
-
-    // Spring Annotations
-    
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule controllers_must_be_annotated =
-        classes()
-            .that().haveSimpleNameEndingWith("Controller")
-            .and().areTopLevelClasses()
-            .and().areNotInterfaces()
-            .should().beAnnotatedWith(RestController.class)
-            .orShould().beAnnotatedWith(Controller.class)
-            .allowEmptyShould(true)
-            .because("Controllers must be annotated for Spring component scanning");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_transactional_outside_service =
-        noClasses()
-            .that().resideInAnyPackage("..controller..", "..domain..")
-            .should().beAnnotatedWith("org.springframework.transaction.annotation.Transactional")
-            .orShould().beAnnotatedWith("jakarta.transaction.Transactional")
-            .allowEmptyShould(true)
-            .because("Transaction management belongs at the use-case/service boundary");
-
-    // Layer Boundaries
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_business_logic_in_controllers =
-        noClasses()
-            .that().resideInAPackage("..controller..")
-            .or().areAnnotatedWith(RestController.class)
-            .or().areAnnotatedWith(Controller.class)
-            .should().dependOnClassesThat().resideInAnyPackage("..repository..", "..persistence..")
-            .allowEmptyShould(true)
-            .because("Controllers must delegate to services, not access repositories directly");
-
-    @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule interfaces_in_api_package =
-        classes()
-            .that().areInterfaces()
-            .and().arePublic()
-            .and().resideInAPackage("..port..")
-            .should().resideInAPackage("..api..")
-            .orShould().resideInAPackage("..port..")
-            .allowEmptyShould(true)
-            .because("Public-facing ports belong in an api or port package, never in an impl package");
 
     /**
      * The audit trail's boundary admits no free text.
@@ -366,14 +576,6 @@ public class ArchitectureTest {
                     + " that guarantee would be bypassed");
 
     /**
-     * A connector token's stored form does not reach the audit slice either.
-     *
-     * <p>The audit boundary already refuses a {@code String}, which is what a plaintext
-     * value is. This closes the other shape: an event body cannot be handed a digest or
-     * a token aggregate to render, so "no bearer value in an audit event" holds for the
-     * hash as well as for the value.
-     */
-    /**
      * A SCIM User's credential never reaches a web adapter.
      *
      * <p>{@link com.example.backend.scim.domain.ScimUser} is the one type a User's password
@@ -398,6 +600,14 @@ public class ArchitectureTest {
                     + " hash could be written into; reaching the aggregate directly is how"
                     + " that guarantee would be bypassed");
 
+    /**
+     * A connector token's stored form does not reach the audit slice either.
+     *
+     * <p>The audit boundary already refuses a {@code String}, which is what a plaintext
+     * value is. This closes the other shape: an event body cannot be handed a digest or
+     * a token aggregate to render, so "no bearer value in an audit event" holds for the
+     * hash as well as for the value.
+     */
     @com.tngtech.archunit.junit.ArchTest
     static final ArchRule the_audit_slice_never_sees_a_connector_token =
         noClasses()
@@ -472,19 +682,57 @@ public class ArchitectureTest {
             .because("The self-read resolves the User from the session alone, so no request value"
                     + " can name somebody else");
 
+    // ADR 0001: count login attempts on the login path
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule onion_architecture =
-        onionArchitecture()
-            .domainModels("com.example.backend..domain..")
-            .domainServices("com.example.backend..domain.service..")
-            .applicationServices("com.example.backend..application..")
-            .adapter("persistence", "com.example.backend..infrastructure.persistence..")
-            .adapter("session", "com.example.backend..infrastructure.session..")
-            .adapter("transaction", "com.example.backend..infrastructure.transaction..")
-            .adapter("request", "com.example.backend..infrastructure.request..")
-            .adapter("alert", "com.example.backend..infrastructure.alert..")
-            .adapter("web", "com.example.backend..controller..")
-            .adapter("config", "com.example.backend..config..")
-            .withOptionalLayers(true)
-            .because("Dependencies point inward: adapters depend on application, application on domain, domain on nothing");
+    static final ArchRule web_adapters_never_call_authentication_manager =
+        noClasses()
+            .that().resideInAnyPackage("..controller..", "..application..")
+            .and().haveNameNotMatching("com\\.example\\.backend\\.auth\\.application\\.LoginService(\\$.*)?")
+            .should().dependOnClassesThat().areAssignableTo(
+                    org.springframework.security.authentication.AuthenticationManager.class)
+            .allowEmptyShould(true)
+            .because("ADR 0001: submitted credentials are authenticated only through LoginService,"
+                    + " which is where every attempt is counted");
+
+    // backend/AGENTS.md: sessions end through the AccountSessions port
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule application_never_reaches_spring_session =
+        noClasses()
+            .that().resideInAPackage("..application..")
+            .should().dependOnClassesThat().resideInAPackage("org.springframework.session..")
+            .allowEmptyShould(true)
+            .because("backend/AGENTS.md: application services end sessions through the"
+                    + " AccountSessions port, never a session repository");
+
+    // ADR 0002: revoke sessions after commit
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule after_commit_only_through_the_port =
+        noClasses()
+            .that().resideOutsideOfPackage("..infrastructure.transaction..")
+            .should().dependOnClassesThat().haveFullyQualifiedName(
+                    "org.springframework.transaction.support.TransactionSynchronization")
+            .orShould().dependOnClassesThat().haveFullyQualifiedName(
+                    "org.springframework.transaction.support.TransactionSynchronizationManager")
+            .allowEmptyShould(true)
+            .because("ADR 0002: after-commit work is registered through the AfterCommit port, so"
+                    + " there is one place that decides what runs once a transaction commits");
+
+    // ADR 0002: revoke sessions after commit
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_transactional_event_listeners =
+        noMethods()
+            .should().beAnnotatedWith("org.springframework.transaction.event.TransactionalEventListener")
+            .allowEmptyShould(true)
+            .because("ADR 0002: after-commit work goes through the AfterCommit port, not an event"
+                    + " listener the publisher cannot see");
+
+    // ADR 0001: count login attempts on the login path
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_authentication_event_listeners =
+        noClasses()
+            .should().dependOnClassesThat().resideInAPackage(
+                    "org.springframework.security.authentication.event..")
+            .allowEmptyShould(true)
+            .because("ADR 0001: login attempts are recorded on the login path itself, never by"
+                    + " an authentication event listener");
 }

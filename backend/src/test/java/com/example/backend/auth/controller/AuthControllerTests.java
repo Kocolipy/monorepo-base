@@ -16,7 +16,7 @@ import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
-import com.example.backend.auth.application.ScimUserSessionRevocation;
+import com.example.backend.auth.application.ScimUserSessionRevocationService;
 import com.example.backend.auth.config.SecurityConfig;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -125,7 +125,7 @@ class AuthControllerTests {
                         new InMemoryScimPasswordHistoryRepository(),
                         passwordEncoder,
                         attempts,
-                        new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                        new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                         audit,
                         clock),
                 audit,

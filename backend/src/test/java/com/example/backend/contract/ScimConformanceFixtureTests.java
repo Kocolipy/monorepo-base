@@ -185,18 +185,18 @@ class ScimConformanceFixtureTests {
 
     static Stream<Arguments> fixtures() {
         List<Fixture> all = new ArrayList<>();
-        ScimFixtures.discovery(all);
+        ScimConformanceCases.discovery(all);
         for (Kind kind : Kind.values()) {
-            ScimFixtures.lifecycle(all, kind);
-            ScimFixtures.errors(all, kind);
-            ScimFixtures.mutability(all, kind);
-            ScimFixtures.pagination(all, kind);
-            ScimFixtures.patchGrammar(all, kind);
+            ScimConformanceCases.lifecycle(all, kind);
+            ScimConformanceCases.errors(all, kind);
+            ScimConformanceCases.mutability(all, kind);
+            ScimConformanceCases.pagination(all, kind);
+            ScimConformanceCases.patchGrammar(all, kind);
         }
-        ScimFixtures.userOnly(all);
-        ScimFixtures.groupOnly(all);
-        ScimFixtures.filterGrammar(all);
-        ScimFixtures.namespace(all);
+        ScimConformanceCases.userOnly(all);
+        ScimConformanceCases.groupOnly(all);
+        ScimConformanceCases.filterGrammar(all);
+        ScimConformanceCases.namespace(all);
         Set<String> names = new LinkedHashSet<>();
         for (Fixture fixture : all) {
             assertThat(names.add(fixture.name())).as("fixture names are unique").isTrue();

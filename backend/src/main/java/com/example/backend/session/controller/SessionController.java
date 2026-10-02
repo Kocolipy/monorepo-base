@@ -1,4 +1,4 @@
-package com.example.backend.session;
+package com.example.backend.session.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;

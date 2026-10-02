@@ -35,14 +35,15 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.JsonNode;
 
 /**
- * The fixtures {@link ScimConformanceFixtureTests} runs, grouped by what RFC 7643/7644 and the
+ * The conformance cases {@link ScimConformanceFixtureTests} runs, grouped by what RFC 7643/7644 and the
  * plan's error contract say: discovery, the resource lifecycle, every documented error condition,
- * attribute mutability, the filter and PATCH grammars, and pagination.
+ * attribute mutability, the filter and PATCH grammars, and pagination. Each case drives a request
+ * and asserts the response, so this is a library of checks rather than a fixture.
  *
  * <p>Each group takes a {@link Kind} where the claim is the same for Users and Groups, so both are
  * exercised by one definition.
  */
-final class ScimFixtures {
+final class ScimConformanceCases {
 
     private static final List<String> DISCOVERY = List.of(
             BASE + "/ServiceProviderConfig",
@@ -51,7 +52,7 @@ final class ScimFixtures {
             BASE + "/Schemas",
             BASE + "/Schemas/" + USER_SCHEMA);
 
-    private ScimFixtures() {
+    private ScimConformanceCases() {
     }
 
     private static void add(List<Fixture> all, String name, Step step) {

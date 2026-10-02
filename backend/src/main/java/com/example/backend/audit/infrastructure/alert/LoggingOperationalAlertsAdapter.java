@@ -26,9 +26,9 @@ import org.springframework.stereotype.Component;
  * careful not to record.
  */
 @Component
-class LoggingOperationalAlerts implements OperationalAlerts {
+class LoggingOperationalAlertsAdapter implements OperationalAlerts {
 
-    private static final Logger log = LoggerFactory.getLogger(LoggingOperationalAlerts.class);
+    private static final Logger log = LoggerFactory.getLogger(LoggingOperationalAlertsAdapter.class);
 
     @Override
     public void auditAppendFailed(AuditOperation operation, Class<? extends Throwable> failure) {

@@ -245,7 +245,7 @@ class AuditTrailServiceTests {
      * The route template reaches the event and the resolved path never does — the
      * context this test supplies returns a template, and the recorded value is it
      * verbatim. What guarantees the context cannot return a resolved path is
-     * {@code HttpAuditRequestContextTests}.
+     * {@code HttpAuditRequestContextAdapterTests}.
      */
     @Test
     void theRequestIsRecordedAsItsRouteTemplate() {

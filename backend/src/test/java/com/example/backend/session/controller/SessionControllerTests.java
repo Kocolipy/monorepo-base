@@ -1,4 +1,4 @@
-package com.example.backend.session;
+package com.example.backend.session.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
