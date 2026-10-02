@@ -30,6 +30,6 @@ app:
     secondary-username: test-admin
     secondary-password: test-admin-password
     lockout:
-      max-attempts: 5
+      max-attempts: 3
   session:
     absolute-lifetime: 8h

@@ -10,9 +10,9 @@ and #19, #21 and #46 build on that change.
 
 ## Context
 
-The plan's Slice 0 (#7) specified the standard values: 5 consecutive failures,
-then a lock that lifts automatically after 20 minutes. #7 shipped that, with a
-configurable duration (`app.auth.lockout.duration`).
+The plan's Slice 0 (#7) specified the standard values: a lock after 5 failed
+attempts in a row, lifted automatically after 20 minutes. #7 shipped that, with
+a configurable duration (`app.auth.lockout.duration`).
 
 A lock that lifts on a timer allows a slow guessing rate: one burst of attempts
 per window, indefinitely, and nobody is required to look. Once a lock instead
@@ -25,7 +25,7 @@ Unlock does to the credential (#19).
 
 ## Decision
 
-- 5 consecutive failures lock the User (`app.auth.lockout.max-attempts`). No
+- 3 consecutive failures lock the User (`app.auth.lockout.max-attempts`). No
   duration exists, no configuration key expresses one, and the passage of time
   never lifts the lock. `locked_at` records when the lock was imposed.
 - An Admin's Unlock is the only exit, and it clears the failure run. Every
@@ -48,3 +48,9 @@ Unlock does to the credential (#19).
   refusal timing and audited failures mitigate it, not a lock.
 - `LockoutHasNoDurationTests` proves that no deployed configuration file
   mentions a duration.
+
+## Amendments
+
+- 2026-10-02 (#98): the threshold is now 3 consecutive failures, down from the
+  plan's original 5. Only the default changed; it stays configurable through
+  `APP_LOCKOUT_MAX_ATTEMPTS`, and everything else above holds as written.

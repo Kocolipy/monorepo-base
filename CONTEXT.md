@@ -295,7 +295,7 @@ it, and so does a wrong current password on the self-service password change. An
 names no User.
 
 **Lockout** — the state a User enters once its failure run reaches the
-configured limit (`app.auth.lockout.max-attempts`, default 5), closing it to
+configured limit (`app.auth.lockout.max-attempts`, default 3), closing it to
 logins **permanently**: there is no duration, no configuration key expressing one,
 and no passage of time that lifts it. The only thing that ends it is an Admin
 performing Unlock (ADR 0007). The User's row records `locked_at`, the instant the lock was
