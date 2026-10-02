@@ -21,12 +21,12 @@ import org.springframework.web.servlet.HandlerMapping;
  * template is recorded" but "the URI is not", with a request whose URI and template
  * differ in exactly that way.
  */
-class HttpAuditRequestContextTests {
+class HttpAuditRequestContextAdapterTests {
 
     private static final String REQUEST_ID_ATTRIBUTE =
             "com.example.backend.observability.RequestIdFilter.requestId";
 
-    private final HttpAuditRequestContext requests = new HttpAuditRequestContext();
+    private final HttpAuditRequestContextAdapter requests = new HttpAuditRequestContextAdapter();
 
     @AfterEach
     void clearRequestContext() {

@@ -30,13 +30,13 @@ import org.springframework.stereotype.Service;
  * authenticate with what was changed, and repeating the write revokes again.
  */
 @Service
-public class ScimUserSessionRevocation implements ScimUserSessions {
+public class ScimUserSessionRevocationService implements ScimUserSessions {
 
     private final AccountSessions sessions;
     private final AfterCommit afterCommit;
     private final AuditTrail audit;
 
-    public ScimUserSessionRevocation(
+    public ScimUserSessionRevocationService(
             AccountSessions sessions, AfterCommit afterCommit, AuditTrail audit) {
         this.sessions = sessions;
         this.afterCommit = afterCommit;

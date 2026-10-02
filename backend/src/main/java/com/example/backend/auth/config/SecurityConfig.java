@@ -184,7 +184,7 @@ public class SecurityConfig {
             SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository,
             AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter,
-            AccessRefusalLog accessRefusalLog) throws Exception {
+            AccessRefusalLog accessRefusalLog) {
         // Both refusals record themselves before answering. The access-denied handler is the
         // chain's one handler, and the CSRF filter answers through the same one, so a missing
         // token and a missing role are each recorded once, under their own reason.

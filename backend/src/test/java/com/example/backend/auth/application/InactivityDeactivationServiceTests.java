@@ -57,7 +57,7 @@ class InactivityDeactivationServiceTests {
     void setUp() {
         job = new InactivityDeactivationService(
                 users,
-                new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                 lock,
                 DormancyPolicy.defaults(),
                 audit,
@@ -162,7 +162,7 @@ class InactivityDeactivationServiceTests {
     void aConfiguredWindowIsTheOneApplied() {
         job = new InactivityDeactivationService(
                 users,
-                new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                 lock,
                 new DormancyPolicy(Duration.ofDays(10), null),
                 audit,

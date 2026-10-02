@@ -27,7 +27,7 @@ import org.springframework.web.servlet.HandlerMapping;
  * MDC — which only {@code LogContext} is allowed to touch.
  */
 @Component
-class HttpAuditRequestContext implements AuditRequestContext {
+class HttpAuditRequestContextAdapter implements AuditRequestContext {
 
     /**
      * Where {@code RequestIdFilter} keeps the id it minted. Spelled out rather

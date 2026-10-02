@@ -65,7 +65,7 @@ class DormantAuthorityRevocationServiceTests {
         job = new DormantAuthorityRevocationService(
                 users,
                 groups,
-                new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                 lock,
                 DormancyPolicy.defaults(),
                 audit,
@@ -191,7 +191,7 @@ class DormantAuthorityRevocationServiceTests {
         job = new DormantAuthorityRevocationService(
                 users,
                 groups,
-                new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                 lock,
                 new DormancyPolicy(null, Duration.ofDays(10)),
                 audit,

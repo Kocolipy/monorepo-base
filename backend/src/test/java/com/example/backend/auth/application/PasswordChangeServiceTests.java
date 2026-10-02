@@ -59,7 +59,7 @@ class PasswordChangeServiceTests {
                 history,
                 encoder,
                 attempts,
-                new ScimUserSessionRevocation(accountSessions, transaction, audit),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
                 audit,
                 clock);
         ada = users.given(ScimIdentities.userWithLoginState("ada", new ScimLoginState(

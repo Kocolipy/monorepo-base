@@ -114,8 +114,7 @@ public class ScimSecurityConfig {
             HttpSecurity http,
             ConnectorAuthenticationService connectors,
             ScimReleaseGate releaseGate,
-            AccessRefusalLog accessRefusalLog)
-            throws Exception {
+            AccessRefusalLog accessRefusalLog) {
         AuthenticationEntryPoint challenge = new ScimBearerEntryPoint(accessRefusalLog);
 
         // A stateless bearer API has no CSRF exposure to protect, because the
