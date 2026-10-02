@@ -75,6 +75,11 @@ class LockoutHasNoDurationTests {
      * environment, because the test resources' own {@code application.yaml}
      * shadows it entirely: a duration left in the deployed file would be invisible
      * to every context-based assertion in this suite.
+     *
+     * <p>The {@code :3} default is pinned here and mirrored by the E2E suite's fallback
+     * ({@code frontend/test/e2e/lockoutThreshold.ts}, pinned by
+     * {@code frontend/test/lockoutThreshold.test.ts}); changing one without the other
+     * fails a test (#98).
      */
     @Test
     void theDeployedConfigurationHasNoDurationUnderTheLockoutBlock() throws IOException {
@@ -82,7 +87,7 @@ class LockoutHasNoDurationTests {
 
         assertThat(contents).contains("lockout:");
         assertThat(contents.lines().map(String::strip))
-                .contains("max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:5}")
+                .contains("max-attempts: ${APP_LOCKOUT_MAX_ATTEMPTS:3}")
                 .noneSatisfy(line -> assertThat(line).startsWith("duration:"));
     }
 

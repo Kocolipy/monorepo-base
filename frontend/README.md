@@ -155,7 +155,7 @@ environment variables; the SPA reads none of them:
 | Variable                   | Default                   | Used for                                                                                                                |
 | -------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `E2E_ADMIN_PASSWORD`       | `E2e-Bootstrap-Secret-4m` | the seeded Admin's password in the suite                                                                                |
-| `APP_LOCKOUT_MAX_ATTEMPTS` | `5`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
+| `APP_LOCKOUT_MAX_ATTEMPTS` | `3`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
 | `E2E_BACKEND_URL`          | `http://localhost:8080`   | SCIM calls that bypass the Vite proxy                                                                                   |
 
 ## Backend contract

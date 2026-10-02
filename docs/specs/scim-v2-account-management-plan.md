@@ -331,7 +331,7 @@ The existing 15-minute idle timeout is retained and an **8-hour absolute maximum
 
 ### Lockout policy
 
-Lockout is **permanent until an Admin lifts it**. **5 consecutive failed attempts** lock the User, and the only exit is Admin Unlock: there is no duration, no automatic lift, and no configuration key expressing one. The attempt threshold stays deployment-configurable with no enforced floor. The failure run is counted per User and never per source address, so rotating addresses cannot dilute it, and it resets to zero on a successful Login or on Unlock.
+Lockout is **permanent until an Admin lifts it**. **3 consecutive failed attempts** lock the User (lowered from 5 on 2026-10-02, #98), and the only exit is Admin Unlock: there is no duration, no automatic lift, and no configuration key expressing one. The attempt threshold stays deployment-configurable with no enforced floor. The failure run is counted per User and never per source address, so rotating addresses cannot dilute it, and it resets to zero on a successful Login or on Unlock.
 
 Imposing a lockout **revokes every live session** of that User, through the same after-commit revocation path as deactivation — a permanent lock that leaves an already-established session working protects nothing against an attacker who holds one.
 
@@ -707,7 +707,7 @@ Security-sensitive code requires mutation evidence. PIT targets all changed iden
 - A write whose audit insert cannot commit rolls the mutation back and returns an error; a failing failure-event append raises an alert without altering the request's own outcome.
 - SCIM-visible timestamps are UTC while log `@timestamp` is UTC+8, and neither is reconciled to the other.
 - The authorization matrix is loaded from configuration before traffic is served, fails fast on an unknown authority or malformed rule, denies unmatched requests, and cannot be mutated through any endpoint.
-- A second Login invalidates the User's earlier session; lockout applies at 5 failed attempts, never lifts on its own, revokes the User's sessions when imposed, ends only through Admin Unlock, and never applies to the Bootstrap Admin.
+- A second Login invalidates the User's earlier session; lockout applies at 3 failed attempts, never lifts on its own, revokes the User's sessions when imposed, ends only through Admin Unlock, and never applies to the Bootstrap Admin.
 - Login refusals for an unknown, inactive or credentialless User perform an equivalent password verification, so refusal timing does not reveal account state.
 - An Admin cannot Unlock or force a change on their own account, and the authenticated self-read returns only the caller's record resolved from the session id, with no lockout or failure-count field.
 - Audit events carry HTTP method, path and request id; a bulk read is audited once with its result count and filter shape and no literal filter value; the application database role cannot `UPDATE` or `DELETE` audit rows.

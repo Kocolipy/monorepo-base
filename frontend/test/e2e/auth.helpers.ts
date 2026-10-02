@@ -1,5 +1,7 @@
 import { expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 
+import { lockoutMaxAttempts } from "./lockoutThreshold";
+
 /** The seeded identities' configured password (`application.yaml`'s fallback). */
 export const SEED_PASSWORD = "P@ssw0rd";
 
@@ -25,18 +27,11 @@ const ADMIN_CREDENTIALS = [ADMIN_USERNAME, ADMIN_PASSWORD] as const;
  * `app.auth.lockout.max-attempts`, read from the same `APP_LOCKOUT_MAX_ATTEMPTS`
  * the backend reads. `make integration-test` exports `backend/.env` before it
  * runs this suite, so the two agree; against a backend started some other way,
- * export the value it runs with. Unset means the backend's own default.
+ * export the value it runs with. Unset means the backend's own default, whose
+ * authority is `backend/src/main/resources/application.yaml` (see
+ * `lockoutThreshold.ts`).
  */
 export const LOCKOUT_MAX_ATTEMPTS = lockoutMaxAttempts(process.env.APP_LOCKOUT_MAX_ATTEMPTS);
-
-function lockoutMaxAttempts(configured: string | undefined): number {
-  if (configured === undefined || configured.trim() === "") return 3;
-  const parsed = Number(configured);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(`APP_LOCKOUT_MAX_ATTEMPTS must be a positive integer, got "${configured}"`);
-  }
-  return parsed;
-}
 
 /**
  * The backend's session cookie (`server.servlet.session.cookie.name`).

@@ -45,8 +45,8 @@ Admin group additionally grants `ADMIN`. Authority is derived when a session is
 created, so a User added to or removed from the Admin group gains or loses `ADMIN`
 at their next login, never mid-session.
 
-Five consecutive refused logins lock an account, and the lock is **permanent**:
-it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
+Three consecutive refused logins lock an account (`APP_LOCKOUT_MAX_ATTEMPTS`,
+default 3), and the lock is **permanent**: it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
 Unlock is the only thing that ends it. Imposing it also revokes that account's
 live sessions, so a locked account stops acting immediately rather than when the
 session it already held expires. While the lockout holds the correct password is
