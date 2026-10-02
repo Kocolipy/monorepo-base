@@ -130,6 +130,7 @@ class LogEventTests {
     void theDeclaredSpellingsAreTheStandards() {
         assertThat(Action.USER_AUTHENTICATION.value()).isEqualTo("user-authentication");
         assertThat(Action.USER_LOGOUT.value()).isEqualTo("user-logout");
+        assertThat(Action.SESSION_START.value()).isEqualTo("session-start");
         assertThat(Action.SESSION_END.value()).isEqualTo("session-end");
         assertThat(Action.USER_ADMINISTRATION.value()).isEqualTo("user-administration");
         assertThat(Action.USER_PROVISIONING.value()).isEqualTo("user-provisioning");
@@ -264,6 +265,13 @@ class LogEventTests {
         assertThat(LogEvent.ERROR_FOLLOW_UP_ACTION).isEqualTo("error_follow_up_action");
         assertThat(LogEvent.ERROR_CAUSE_OMITTED).isEqualTo("app.error.cause_omitted");
         assertThat(ErrorCategory.DATA.value()).isEqualTo("data");
+    }
+
+    /** {@code Log_Schema.md} has no session field; the AuthN recipe's spelling is the one used. */
+    @Test
+    void theSessionStartFieldIsTheRecipesSpelling() {
+        assertThat(LogEvent.SESSION_MAX_INACTIVE_INTERVAL)
+                .isEqualTo("session.max_inactive_interval");
     }
 
     private static Map<String, Object> classified(

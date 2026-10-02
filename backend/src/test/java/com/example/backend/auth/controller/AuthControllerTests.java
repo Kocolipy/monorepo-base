@@ -836,6 +836,65 @@ class AuthControllerTests {
         }
     }
 
+    /**
+     * A login starts one session, and the operational stream gets one INFO {@code session-start}
+     * for it: the recipe's classification, the idle bound read off the session the login
+     * continues in, the User by stable id — and neither the pre-login id nor the rotated one.
+     */
+    @Test
+    void loginWritesOneSessionStartRecordCarryingTheSessionsIdleBound() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession().setMaxInactiveInterval(IDLE_TIMEOUT_SECONDS);
+        String preLoginId = request.getSession().getId();
+
+        try (com.example.backend.audit.CapturedLog captured =
+                com.example.backend.audit.CapturedLog.attach()) {
+            controller.login(
+                    new AuthController.LoginRequest("ada", "correct-password"),
+                    request,
+                    new MockHttpServletResponse());
+
+            java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> records = captured.withAction(
+                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "session-start");
+            assertThat(records).hasSize(1);
+            ch.qos.logback.classic.spi.ILoggingEvent record = records.getFirst();
+            assertThat(record.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+            assertThat(record.getFormattedMessage()).isEqualTo("Session started");
+            java.util.Map<String, Object> fields = com.example.backend.audit.CapturedLog.fields(record);
+            assertThat(fields)
+                    .containsEntry(LogEvent.KIND, "event")
+                    .containsEntry(LogEvent.CATEGORY, java.util.List.of("process"))
+                    .containsEntry(LogEvent.TYPE, java.util.List.of("start"))
+                    .containsEntry(LogEvent.OUTCOME, "success")
+                    .containsEntry(LogEvent.SEVERITY, "low")
+                    .containsEntry(LogEvent.SESSION_MAX_INACTIVE_INTERVAL, IDLE_TIMEOUT_SECONDS)
+                    .doesNotContainKey(LogEvent.LOCAL_ACTION);
+            assertThat(record.getMDCPropertyMap())
+                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
+            String postLoginId = request.getSession(false).getId();
+            assertThat(postLoginId).as("the login rotated the id").isNotEqualTo(preLoginId);
+            assertThat(fields.values()).extracting(String::valueOf)
+                    .noneMatch(value -> value.equals(preLoginId) || value.equals(postLoginId));
+        }
+        assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).as("the scope is closed").isNull();
+    }
+
+    /** A refused login started no session, so it writes no {@code session-start}. */
+    @Test
+    void aRefusedLoginWritesNoSessionStartRecord() {
+        try (com.example.backend.audit.CapturedLog captured =
+                com.example.backend.audit.CapturedLog.attach()) {
+            assertThatThrownBy(() -> controller.login(
+                    new AuthController.LoginRequest("ada", "wrong-password"),
+                    new MockHttpServletRequest(),
+                    new MockHttpServletResponse()))
+                    .isInstanceOf(BadCredentialsException.class);
+
+            assertThat(captured.withAction(
+                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "session-start")).isEmpty();
+        }
+    }
+
     /** Neither length validator judges a missing value: that is {@code @NotBlank}'s refusal. */
     @Test
     void theLengthValidatorsLeaveAMissingValueToNotBlank() {

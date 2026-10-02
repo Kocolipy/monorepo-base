@@ -173,6 +173,13 @@ public final class LogEvent {
     /** How many sessions one revocation ended. */
     public static final String SESSIONS_ENDED = "session.ended_count";
 
+    /**
+     * The idle bound a session started with, in seconds, as the session itself reports it.
+     * The logging standard's AuthN recipe names it on the {@code session-start} record. Never
+     * paired with the session's id, which is its bearer credential.
+     */
+    public static final String SESSION_MAX_INACTIVE_INTERVAL = "session.max_inactive_interval";
+
     /** The machine's host name, on the startup record. ECS {@code host.name}. */
     public static final String HOST_NAME = "host.name";
 
@@ -264,6 +271,7 @@ public final class LogEvent {
         ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied"),
         UNAUTHENTICATED(Action.ACCESS_CONTROL, "access.unauthenticated"),
         LOGOUT(Action.USER_LOGOUT, null),
+        SESSION_START(Action.SESSION_START, null),
         SESSION_END(Action.SESSION_END, null),
         AUDIT_RETENTION(null, "audit.retention"),
         AUDIT_APPEND(null, "audit.append"),
@@ -296,6 +304,7 @@ public final class LogEvent {
     public enum Action {
         USER_AUTHENTICATION("user-authentication"),
         USER_LOGOUT("user-logout"),
+        SESSION_START("session-start"),
         SESSION_END("session-end"),
         USER_ADMINISTRATION("user-administration"),
         USER_PROVISIONING("user-provisioning"),

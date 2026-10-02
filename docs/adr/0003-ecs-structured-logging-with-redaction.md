@@ -566,6 +566,7 @@ This table supersedes the per-addendum tables above for `event.action` and
 | `ACCESS_DENIED`                | `access-control`              | `access.denied`                         |
 | `UNAUTHENTICATED`              | `access-control`              | `access.unauthenticated`                |
 | `LOGOUT`                       | `user-logout`                 | —                                       |
+| `SESSION_START`                | `session-start`               | —                                       |
 | `SESSION_END`                  | `session-end`                 | —                                       |
 | `AUDIT_RETENTION`              | — (exception, above)          | `audit.retention`                       |
 | `AUDIT_APPEND`                 | — (exception, above)          | `audit.append`                          |
@@ -574,3 +575,38 @@ This table supersedes the per-addendum tables above for `event.action` and
 | `HTTP_REQUEST_FAULT`           | — (exception, above)          | `http.request.fault`                    |
 | `APPLICATION_STARTUP`          | `application-startup`         | —                                       |
 | `APPLICATION_SHUTDOWN`         | `application-shutdown`        | —                                       |
+
+## Addendum (2026-10-02): `session-start`
+
+Issue #96. Logout, absolute-lifetime expiry and revocation each wrote `session-end`, but nothing
+marked a session's start (`Recipes/Logging_AuthN_And_AuthZ_Events.md` §6.1, `Log_Schema.md`
+§Event `session-start`).
+
+**One record per signed-in session, written by the login.** `AuthController.login` writes one
+`INFO` `session-start` once the authentication is saved into the session — after the id has
+rotated — with `event.outcome` `success`, `event.severity` `low`,
+`session.max_inactive_interval` (the idle bound read off that session, in seconds, the same
+figure the login answers the SPA with), and `user.id` set for the record. A refused login creates
+no session and writes none.
+
+**Not on container session creation, unlike the recipe.** The recipe listens for
+`HttpSessionCreatedEvent`. Here the only session created before authentication is the anonymous
+one `GET /api/auth/csrf` mints to hold the token a login submits: it either becomes the
+signed-in session (renamed, not recreated) or idles out unused, so recording its creation would
+add a record per page load naming no one, and a `session-start` with no `session-end` for every
+abandoned one. The CSRF grant therefore writes no `session-start`. Writing at the login also lets
+the record carry `user.id`, which the recipe's creation-time record cannot; the recipe's note
+omits it only because no one has authenticated yet when that event fires.
+
+**Never the session id.** The record carries neither the id nor the cookie value (the id
+Base64-encoded), before or after rotation: the id is the session's bearer credential.
+`SessionStartLogIntegrationTests` searches the raw encoded stream of a real-socket CSRF grant and
+login for all four spellings.
+
+**Idle expiry stays unlogged.** Observing it needs Redis keyspace notifications, which
+`session.yaml` leaves off (`configure-action: none`) because ElastiCache disables `CONFIG`; the
+infrastructure is unchanged, as recorded under the #69 addendum above.
+
+| Operation                 | `event.action`  | `app.event.action` | `event.category` | `event.type` |
+| ------------------------- | --------------- | ------------------ | ---------------- | ------------ |
+| session started (login)   | `session-start` | —                  | `process`        | `start`      |

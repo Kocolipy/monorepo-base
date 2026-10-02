@@ -11,6 +11,7 @@ import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Severity;
 import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -135,7 +136,33 @@ public class AuthController {
         // before authentication is refused after it; the SPA fetches a new one.
         csrfTokenRepository.saveToken(null, request, response);
 
-        return userResponse(authentication, request.getSession());
+        HttpSession signedIn = request.getSession();
+        recordSessionStart(outcome.userId(), signedIn);
+        return userResponse(authentication, signedIn);
+    }
+
+    /**
+     * The operational stream's {@code session-start}: one per session a login signs in.
+     *
+     * <p>Written here, where the session becomes an authenticated one, rather than on container
+     * session creation. The anonymous session {@code GET /api/auth/csrf} mints exists only to
+     * hold the token a login submits; it either becomes this session (its id rotated) or idles
+     * out unused, so logging its creation would add a record per page load that names no one.
+     * Writing it here also means the record can carry the User's stable id, which no
+     * creation-time record could.
+     *
+     * <p>The record names the session by nothing: not its id, nor anything derived from it,
+     * because the id is the session's bearer credential.
+     */
+    private static void recordSessionStart(UUID userId, HttpSession session) {
+        try (LogContext.Scope scope = LogContext.userId(userId)) {
+            LogEvent.classify(log.atInfo(), Operation.SESSION_START, Category.PROCESS, Type.START)
+                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
+                    .addKeyValue(LogEvent.SESSION_MAX_INACTIVE_INTERVAL,
+                            session.getMaxInactiveInterval())
+                    .log("Session started");
+        }
     }
 
     /**
