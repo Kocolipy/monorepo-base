@@ -17,7 +17,10 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.PasswordAcceptance;
+import com.example.backend.scim.domain.PasswordHistoryPolicy;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
@@ -56,7 +59,7 @@ class PasswordChangeServiceTests {
                 users, accountSessions, transaction, new LockoutPolicy(MAX_ATTEMPTS), audit, clock);
         service = new PasswordChangeService(
                 users,
-                history,
+                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
                 encoder,
                 attempts,
                 new ScimUserSessionRevocationService(accountSessions, transaction, audit),
@@ -219,6 +222,45 @@ class PasswordChangeServiceTests {
                 .containsExactly("BAD_CURRENT_PASSWORD");
     }
 
+    /**
+     * A credentialless User is refused by its missing credential, not by the encoder's handling of
+     * a null hash: even an encoder that would verify anything against it never gets the chance to
+     * accept the change.
+     */
+    @Test
+    void aUserWithNoCredentialIsRefusedEvenByAnEncoderThatWouldVerifyAnything() {
+        PasswordEncoder verifiesAnything = new PasswordEncoder() {
+            @Override
+            public String encode(CharSequence rawPassword) {
+                return encoder.encode(rawPassword);
+            }
+
+            @Override
+            public boolean matches(CharSequence rawPassword, String encodedPassword) {
+                return true;
+            }
+        };
+        PasswordChangeService permissive = new PasswordChangeService(
+                users,
+                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
+                verifiesAnything,
+                new LoginAttemptService(users, accountSessions, transaction,
+                        new LockoutPolicy(MAX_ATTEMPTS), audit, clock),
+                new ScimUserSessionRevocationService(accountSessions, transaction, audit),
+                audit,
+                clock);
+        ScimUser carol = users.given(ScimIdentities.credentiallessUser("carol"));
+
+        assertThatThrownBy(() -> permissive.changePassword(carol.id(), "anything-at-all", NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(users.require("carol").login().hasPassword()).isFalse();
+        assertThat(history.findRecentHashes(carol.id())).isEmpty();
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .containsExactly("BAD_CURRENT_PASSWORD");
+    }
+
     @Test
     void aStandingRefusalIsAttributedToTheUser() {
         ScimUser bob = users.given(ScimIdentities.inactiveUser("bob"));
@@ -315,14 +357,25 @@ class PasswordChangeServiceTests {
     }
 
     private void assertPolicyRefusal(String candidate, PasswordPolicy.Rule rule, String reason) {
-        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, candidate))
-                .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused -> {
-                    assertThat(refused.ruleName()).isEqualTo(rule.name());
-                    assertThat(refused.getMessage())
-                            .isEqualTo(rule.message())
-                            .doesNotContain(candidate)
-                            .doesNotContain(CURRENT);
-                });
+        List<String> historyBefore = history.findRecentHashes(ada.id());
+        try (CapturedLog captured = CapturedLog.attach()) {
+            assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, candidate))
+                    .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused -> {
+                        assertThat(refused.ruleName()).isEqualTo(rule.name());
+                        assertThat(refused.getMessage())
+                                .isEqualTo(rule.message())
+                                .doesNotContain(candidate)
+                                .doesNotContain(CURRENT);
+                    });
+            assertThat(captured.withAction(
+                            Level.INFO, LogEvent.LOCAL_ACTION, "identity.password_change"))
+                    .as("the refusal is logged by its rule")
+                    .singleElement()
+                    .satisfies(record -> {
+                        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(CapturedLog.fields(record)).containsEntry(LogEvent.REASON, reason);
+                    });
+        }
 
         ScimUser after = users.require("ada");
         assertThat(after.login().passwordHash()).isEqualTo(ada.login().passwordHash());
@@ -333,9 +386,89 @@ class PasswordChangeServiceTests {
                 .isEqualTo(1);
         assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
                 .singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail)
-                .isEqualTo(reason);
+                .satisfies(event -> {
+                    assertThat(event.detail()).isEqualTo(reason);
+                    assertThat(event.subjectId()).isEqualTo(ada.id());
+                });
+        assertThat(history.findRecentHashes(ada.id()))
+                .as("a refused candidate advances no history")
+                .isEqualTo(historyBefore);
         transaction.commit();
         assertThat(accountSessions.sessionsOf(ada.id())).hasSize(2);
+    }
+
+    /**
+     * The accepted hash is remembered only after the credential write lands: a write that finds no
+     * User refuses the change, and the history, the audit trail and the sessions are untouched.
+     */
+    @Test
+    void anAcceptedPasswordWhoseCredentialWriteFindsNoUserIsNeitherRememberedNorAudited() {
+        List<String> historyBefore = history.findRecentHashes(ada.id());
+        users.vanishBeforeNextPasswordChange(ada.id());
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, NEXT))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(history.findRecentHashes(ada.id())).isEqualTo(historyBefore);
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE)).isEmpty();
+        transaction.commit();
+        assertThat(accountSessions.sessionsOf(ada.id())).hasSize(2);
+    }
+
+    /**
+     * A wrong current password is a credential failure and nothing else: it never reaches the new
+     * password's acceptance, so even a new value that would break a rule is not judged, named or
+     * hashed, and the history does not move.
+     */
+    @Test
+    void aWrongCurrentPasswordNeverReachesNewPasswordAcceptance() {
+        history.record(ada.id(), encoder.encode(CURRENT), ScimIdentities.NOW);
+        List<String> historyBefore = history.findRecentHashes(ada.id());
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), "not-the-password", "short"))
+                .isInstanceOf(CurrentPasswordRejectedException.class);
+
+        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
+        assertThat(history.findRecentHashes(ada.id())).isEqualTo(historyBefore);
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE))
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .containsExactly("BAD_CURRENT_PASSWORD");
+    }
+
+    /**
+     * The accepted hash is the stored credential and is remembered exactly once, as the newest of
+     * the retained three: the oldest ages out, and the replaced current password stays refused.
+     */
+    @Test
+    void anAcceptedChangeIsRememberedOnceAsTheNewestOfTheRetainedThree() {
+        String older = "an-older-passphrase";
+        String oldest = "the-oldest-passphrase";
+        history.record(ada.id(), encoder.encode(oldest), ScimIdentities.NOW);
+        history.record(ada.id(), encoder.encode(older), ScimIdentities.NOW);
+        history.record(ada.id(), ada.login().passwordHash(), ScimIdentities.NOW);
+
+        service.changePassword(ada.id(), CURRENT, NEXT);
+
+        String stored = users.require("ada").login().passwordHash();
+        assertThat(history.findRecentHashes(ada.id()))
+                .hasSize(PasswordHistoryPolicy.RETAINED)
+                .startsWith(stored, ada.login().passwordHash())
+                .doesNotHaveDuplicates();
+        assertThatThrownBy(() -> service.changePassword(ada.id(), NEXT, CURRENT))
+                .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused ->
+                        assertThat(refused.ruleName()).isEqualTo("REUSED"));
+        service.changePassword(ada.id(), NEXT, oldest);
+        assertThat(encoder.matches(oldest, users.require("ada").login().passwordHash())).isTrue();
+    }
+
+    /** "é" precomposed and decomposed are one password, so the second spelling is a reuse. */
+    @Test
+    void aCanonicallyEquivalentSpellingOfTheCurrentPasswordIsRefusedAsReused() {
+        String composed = "caf\u00e9-au-lait-2026";
+        service.changePassword(ada.id(), CURRENT, composed);
+
+        assertThatThrownBy(() -> service.changePassword(ada.id(), composed, "cafe\u0301-au-lait-2026"))
+                .isInstanceOfSatisfying(PasswordPolicyViolationException.class, refused ->
+                        assertThat(refused.ruleName()).isEqualTo("REUSED"));
     }
 }

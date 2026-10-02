@@ -11,8 +11,10 @@ import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ConnectorTokenScope;
+import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.ScimFilterParser;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimPageRequest;
@@ -57,10 +59,14 @@ class ScimSearchServiceTests {
     private final InMemoryScimQueryRepository defaultQueries =
             new InMemoryScimQueryRepository(users, groups);
 
+    /** Searching sets no password, so acceptance is wired without an encoder behind it. */
+    private static final PasswordAcceptance PASSWORDS_UNUSED = new PasswordAcceptance(
+            new InMemoryScimPasswordHistoryRepository(), ScimPasswordAcceptanceConfig.hasher(null));
+
     private final ScimUserService userService = new ScimUserService(
-            users, groups, aliases, new InMemoryScimPasswordHistoryRepository(),
+            users, groups, aliases, PASSWORDS_UNUSED,
             (connectorId, userId, causes) -> { }, new InMemoryScimTombstoneRepository(), audit,
-            null, clock, defaultQueries);
+            clock, defaultQueries);
 
     private final ScimGroupService groupService = new ScimGroupService(
             groups, users, aliases, (connectorId, userId, causes) -> { },
@@ -135,9 +141,9 @@ class ScimSearchServiceTests {
                         users.require("bea").id())));
 
         ScimUserService service = new ScimUserService(
-                users, groups, aliases, new InMemoryScimPasswordHistoryRepository(),
+                users, groups, aliases, PASSWORDS_UNUSED,
                 (connectorId, userId, causes) -> { }, new InMemoryScimTombstoneRepository(), audit,
-                null, clock, scripted);
+                clock, scripted);
         ScimUserListing listing = service.query(CONNECTOR, new ScimQuery(
                 usersOnly, ScimFilterParser.parse("userName eq \"bea\"", usersOnly), null, null),
                 "u");

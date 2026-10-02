@@ -59,6 +59,16 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         staleDormancyCandidates = List.copyOf(ids);
     }
 
+    private UUID vanishingAtPasswordChange;
+
+    /**
+     * Makes the next {@link #completePasswordChange} for this id find no User, as the row going
+     * between the locked read and the write would — the case the caller's own refusal covers.
+     */
+    public void vanishBeforeNextPasswordChange(UUID id) {
+        vanishingAtPasswordChange = id;
+    }
+
     @Override
     public ScimUser create(ScimUser user) {
         return insert(user, null);
@@ -330,7 +340,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     @Override
     public Optional<ScimUser> completePasswordChange(UUID id, String passwordHash, Instant now) {
         ScimUser current = stored.get(id);
-        if (current == null) {
+        if (current == null || id.equals(vanishingAtPasswordChange)) {
+            vanishingAtPasswordChange = null;
             return Optional.empty();
         }
         ScimLoginState login = current.login();

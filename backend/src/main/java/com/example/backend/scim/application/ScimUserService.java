@@ -5,6 +5,7 @@ import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
@@ -18,7 +19,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimPasswordChange;
-import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
 import com.example.backend.scim.domain.ScimPatchRefusedException;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimTombstoneRepository;
@@ -31,7 +31,6 @@ import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
@@ -39,7 +38,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -91,11 +89,10 @@ public class ScimUserService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final ScimExternalIdRepository aliases;
-    private final ScimPasswordHistoryRepository passwordHistory;
+    private final PasswordAcceptance passwordAcceptance;
     private final ScimUserSessions sessions;
     private final ScimTombstoneRepository tombstones;
     private final AuditTrail audit;
-    private final PasswordEncoder passwordEncoder;
     private final Clock clock;
     private final ScimQueryRepository queries;
 
@@ -103,22 +100,20 @@ public class ScimUserService {
             ScimUserRepository users,
             ScimGroupRepository groups,
             ScimExternalIdRepository aliases,
-            ScimPasswordHistoryRepository passwordHistory,
+            PasswordAcceptance passwordAcceptance,
             ScimUserSessions sessions,
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
-            PasswordEncoder passwordEncoder,
             Clock clock,
             ScimQueryRepository queries) {
         this.queries = queries;
         this.users = users;
         this.groups = groups;
         this.aliases = aliases;
-        this.passwordHistory = passwordHistory;
+        this.passwordAcceptance = passwordAcceptance;
         this.sessions = sessions;
         this.tombstones = tombstones;
         this.audit = audit;
-        this.passwordEncoder = passwordEncoder;
         this.clock = clock;
     }
 
@@ -153,21 +148,20 @@ public class ScimUserService {
             audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
             throw unacceptable;
         }
+        PasswordAcceptance.Accepted password = null;
         if (command.password() != null) {
             // A User being created has no credential and no history, so nothing can be reused;
             // the policy's own order still decides which rule a refusal names.
-            Optional<PasswordPolicy.Rule> violation = PasswordPolicy.violation(
-                    command.password(), command.profile().userName(), candidate -> false);
-            if (violation.isPresent()) {
-                audit.recordScimUserCreateRejected(
-                        connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
-                throw refusal(violation.get());
-            }
+            password = acceptedOrRefused(
+                    passwordAcceptance.acceptForNewUser(
+                            command.password(), command.profile().userName()),
+                    () -> audit.recordScimUserCreateRejected(
+                            connector.connectorId(), AuditScimRefusal.INVALID_VALUE));
         }
         Instant now = clock.instant();
-        String passwordHash = hashed(command.password());
+        String passwordHash = password == null ? null : password.passwordHash();
         ScimUser user = ScimUser.created(UUID.randomUUID(), command.profile(), passwordHash, now);
-        if (passwordHash != null) {
+        if (password != null) {
             // A credential chosen and transported by a connector is known outside the User, so
             // the User must replace it before using it for anything else. A User provisioned
             // without one is not flagged; the flag arrives with its first password.
@@ -180,8 +174,8 @@ public class ScimUserService {
             audit.recordScimUserCreateRejected(connector.connectorId(), AuditScimRefusal.UNIQUENESS);
             throw duplicate;
         }
-        if (passwordHash != null) {
-            passwordHistory.record(created.id(), passwordHash, now);
+        if (password != null) {
+            passwordAcceptance.remember(created.id(), password, now);
         }
         if (command.externalId() != null) {
             aliases.put(connector.connectorId(), created.id(), command.externalId());
@@ -351,13 +345,17 @@ public class ScimUserService {
         }
 
         ScimPasswordChange password = after.password();
+        PasswordAcceptance.Accepted accepted = password.kind() == ScimPasswordChange.Kind.SET
+                ? acceptedOrRefused(
+                        passwordAcceptance.acceptFor(
+                                current, password.plaintext(), after.profile().userName()),
+                        () -> audit.recordScimUserWriteRejected(
+                                connectorId, id, AuditScimRefusal.INVALID_VALUE))
+                : null;
         String passwordHash = switch (password.kind()) {
             case UNCHANGED -> current.login().passwordHash();
             case CLEAR -> null;
-            case SET -> {
-                refusePassword(connectorId, current, password.plaintext(), after.profile().userName());
-                yield passwordEncoder.encode(password.plaintext());
-            }
+            case SET -> accepted.passwordHash();
         };
         boolean passwordChanged = !Objects.equals(passwordHash, current.login().passwordHash());
         Set<AuditUserAttribute> changed = changedAttributes(before, after, passwordChanged);
@@ -373,14 +371,16 @@ public class ScimUserService {
         ScimUser written;
         try {
             written = users.replace(desired(current, after.profile(), passwordHash,
-                            password.kind() == ScimPasswordChange.Kind.SET ? now : null), now)
+                            accepted != null ? now : null), now)
                     .orElseThrow();
         } catch (DuplicateUserNameException duplicate) {
             audit.recordScimUserWriteRejected(connectorId, id, AuditScimRefusal.UNIQUENESS);
             throw duplicate;
         }
-        if (password.kind() == ScimPasswordChange.Kind.SET) {
-            passwordHistory.record(id, passwordHash, now);
+        if (accepted != null) {
+            // Remembered only now that the credential is written, in this transaction: a refusal
+            // above, or a rollback after this, leaves the history as it was.
+            passwordAcceptance.remember(id, accepted, now);
         }
         if (changed.contains(AuditUserAttribute.EXTERNAL_ID)) {
             writeAlias(connectorId, id, after.externalId());
@@ -395,37 +395,19 @@ public class ScimUserService {
     }
 
     /**
-     * Refuses a password the policy does not accept, in the policy's own order — the intrinsic
-     * rules, then reuse — which is the order the self-service change applies too.
-     *
-     * @param userName the {@code userName} the User holds once this write is applied, so a write
-     *                 renaming the User and setting its password is checked against the new name
+     * The accepted password, or — after recording the refusal fail-open — the refusal a connector
+     * receives for the rule it broke. The decision itself is {@link PasswordAcceptance}'s, in the
+     * policy's own order, which is the order the self-service change applies too.
      */
-    private void refusePassword(
-            UUID connectorId, ScimUser user, String candidate, String userName) {
-        Optional<PasswordPolicy.Rule> violation =
-                PasswordPolicy.violation(candidate, userName, reused -> isReused(user, reused));
-        if (violation.isPresent()) {
-            audit.recordScimUserWriteRejected(connectorId, user.id(), AuditScimRefusal.INVALID_VALUE);
-            throw refusal(violation.get());
-        }
-    }
-
-    /**
-     * Whether a password matches the current credential or any remembered one.
-     *
-     * <p>Matched through the encoder, one stored hash at a time, because a salted hash can only be
-     * compared that way; the encoder normalizes the candidate first, so a differently-composed
-     * spelling of an old password is caught too. The current credential is checked explicitly as
-     * well as through the history: a User whose credential predates the history — the seeded
-     * Bootstrap Admin — would otherwise be able to "change" to the password it already has.
-     */
-    private boolean isReused(ScimUser user, String candidate) {
-        List<String> remembered = new ArrayList<>(passwordHistory.findRecentHashes(user.id()));
-        if (user.login().hasPassword()) {
-            remembered.add(user.login().passwordHash());
-        }
-        return remembered.stream().anyMatch(hash -> passwordEncoder.matches(candidate, hash));
+    private static PasswordAcceptance.Accepted acceptedOrRefused(
+            PasswordAcceptance.Decision decision, Runnable recordRefusal) {
+        return switch (decision) {
+            case PasswordAcceptance.Accepted accepted -> accepted;
+            case PasswordAcceptance.Refused refused -> {
+                recordRefusal.run();
+                throw refusal(refused.rule());
+            }
+        };
     }
 
     /** The refusal a connector receives for an unmet password rule; it carries no value. */
@@ -559,16 +541,5 @@ public class ScimUserService {
                 user,
                 groups.findGroupsOfUser(user.id()),
                 aliases.find(connector.connectorId(), user.id()).orElse(null));
-    }
-
-    /**
-     * The stored form of a submitted password, or null when none was submitted.
-     *
-     * <p>A missing password is a supported state rather than an error, so this returns
-     * null instead of refusing: the User exists, cannot authenticate, and can be given
-     * a credential later.
-     */
-    private String hashed(String password) {
-        return password == null ? null : passwordEncoder.encode(password);
     }
 }
