@@ -156,6 +156,53 @@ class LogEventTests {
         assertThat(fields.get(LogEvent.LOCAL_ACTION)).isEqualTo(operation.local());
     }
 
+    /** {@code atError} opens an {@code ERROR} record already carrying all three error fields. */
+    @Test
+    void atErrorOpensAnErrorRecordCarryingTheErrorClassification() {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            LogEvent.classify(LogEvent.atError(log, 503, ErrorCategory.DATABASE, true),
+                            Operation.AUDIT_APPEND, Category.DATABASE, Type.ERROR)
+                    .log("failed");
+
+            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getLevel()).isEqualTo(Level.ERROR);
+            assertThat(CapturedLog.fields(records.getFirst()))
+                    .containsEntry(LogEvent.ERROR_CODE, 503)
+                    .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+                    .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
+        }
+    }
+
+    /** {@code withError} classifies a record below {@code ERROR} and leaves its level alone. */
+    @Test
+    void withErrorClassifiesARecordAtItsOwnLevel() {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            LogEvent.classify(LogEvent.withError(log.atWarn(), 400, ErrorCategory.DATA, false),
+                            Operation.HTTP_REQUEST_REFUSAL, Category.PROCESS, Type.DENIED)
+                    .log("refused");
+
+            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getLevel()).isEqualTo(Level.WARN);
+            assertThat(CapturedLog.fields(records.getFirst()))
+                    .containsEntry(LogEvent.ERROR_CODE, 400)
+                    .containsEntry(LogEvent.ERROR_CATEGORY, "data")
+                    .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
+                    .containsEntry(LogEvent.LOCAL_ACTION, "http.request.refusal");
+        }
+    }
+
+    /** The call-site spellings the encoder's customizer moves into {@code error}. */
+    @Test
+    void theErrorKeysAreTheUnderscoreSpellings() {
+        assertThat(LogEvent.ERROR_CODE).isEqualTo("error_code");
+        assertThat(LogEvent.ERROR_CATEGORY).isEqualTo("error_category");
+        assertThat(LogEvent.ERROR_FOLLOW_UP_ACTION).isEqualTo("error_follow_up_action");
+        assertThat(LogEvent.ERROR_CAUSE_OMITTED).isEqualTo("app.error.cause_omitted");
+        assertThat(ErrorCategory.DATA.value()).isEqualTo("data");
+    }
+
     private static Map<String, Object> classified(
             Operation operation, Category category, Type... types) {
         try (CapturedLog captured = CapturedLog.attach()) {

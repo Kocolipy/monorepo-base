@@ -38,9 +38,14 @@ logging:
         environment: ${APP_ENVIRONMENT:local}
     json:
       # Renders `@timestamp` in Singapore time (+08:00), as the logging standard
-      # requires, without moving the JVM's default zone. See the class, and the
-      # 2026-10-01 (#66) addendum to ADR 0003.
-      customizer: com.example.backend.observability.EcsTimestampCustomizer
+      # requires, without moving the JVM's default zone; and moves the
+      # `error_code`/`error_category`/`error_follow_up_action` keys the call sites
+      # write into the `error` object, where `Log_Schema.md` §Error defines them.
+      # See the classes, and the 2026-10-01 (#66) and 2026-10-02 (#94) addenda to
+      # ADR 0003.
+      customizer:
+        - com.example.backend.observability.EcsTimestampCustomizer
+        - com.example.backend.observability.EcsErrorFieldsCustomizer
   file:
     # A durable local copy for a forwarding agent (the deployment's CloudWatch
     # agent), alongside stdout rather than instead of it. Unset — the default,

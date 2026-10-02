@@ -8,11 +8,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
+import com.example.backend.audit.domain.OperationalAlerts;
+import com.example.backend.counter.controller.FaultInjectionController;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.config.ScimErrorDocumentRecords;
+import com.example.backend.scim.controller.ScimFaultRecords;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimAttributeLimits;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.web.ApiExceptionHandler;
 import jakarta.servlet.Filter;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -139,6 +146,15 @@ class EcsLogFormatTests {
     @Autowired
     private ConnectorAdministrationService connectors;
 
+    @Autowired
+    private ScheduledJobMetrics jobMetrics;
+
+    @Autowired
+    private OperationalAlerts alerts;
+
+    @Autowired
+    private ApiExceptionHandler apiExceptionHandler;
+
     private MockMvc mvc;
 
     private EcsLogCapture logs;
@@ -204,8 +220,10 @@ class EcsLogFormatTests {
         assertThat(deployed.getProperty("logging.structured.ecs.service.name")).isEqualTo("backend");
         assertThat(deployed.getProperty("logging.structured.ecs.service.version"))
                 .isEqualTo(builtProjectVersion());
-        assertThat(deployed.getProperty("logging.structured.json.customizer"))
+        assertThat(deployed.getProperty("logging.structured.json.customizer[0]"))
                 .isEqualTo(EcsTimestampCustomizer.class.getName());
+        assertThat(deployed.getProperty("logging.structured.json.customizer[1]"))
+                .isEqualTo(EcsErrorFieldsCustomizer.class.getName());
         // Resolved against this document alone, so neither LOG_FILE nor APP_ENVIRONMENT
         // on the machine running the test is seen: these are the committed defaults.
         assertThat(deployed.getProperty("logging.structured.ecs.service.environment"))
@@ -676,6 +694,7 @@ class EcsLogFormatTests {
         assertThat(record.at("/log/level").asText()).isEqualTo("ERROR");
         assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(500);
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThatCarriesNestedErrorFields(record, 500, "application", true);
     }
 
     /**
@@ -854,7 +873,214 @@ class EcsLogFormatTests {
         assertThat(recordsWithMessage("Request refused: authentication required")).isEmpty();
     }
 
+    // ---- the app-wide error handler and error.* (#94) ----------------------------------------
+
+    /**
+     * The ticket's oracle: a test-only route throwing {@code IllegalStateException} is exactly one
+     * {@code ERROR} — the exception attached, classified under {@code error}, under the request's
+     * own trace — and the client is told nothing about it.
+     */
+    @Test
+    void anUnexpectedExceptionIsOneClassifiedErrorAndAGeneric500() throws Exception {
+        MockMvc failing = applicationRouteFailing();
+        logs.reset();
+
+        MvcResult result = failing.perform(get(FaultInjectionController.PATH)).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(500);
+        String body = result.getResponse().getContentAsString();
+        assertThat(JSON.readTree(body).at("/code").asText()).isEqualTo("server-error");
+        assertThat(body).doesNotContain(
+                FaultInjectionController.FAILURE_MESSAGE, "IllegalStateException", "Exception",
+                "java.", "trace");
+
+        List<JsonNode> errors = errorRecords();
+        assertThat(errors).hasSize(1);
+        JsonNode record = errors.getFirst();
+        assertThatIsValidEcs(record);
+        assertThat(record.at("/message").asText())
+                .isEqualTo("Request failed with an unexpected exception");
+        assertThat(record.at("/error/type").asText()).isEqualTo(IllegalStateException.class.getName());
+        assertThat(record.at("/error/stack_trace").asText())
+                .contains("IllegalStateException", FaultInjectionController.class.getName());
+        assertThatCarriesNestedErrorFields(record, 500, "application", true);
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("http.request.fault");
+        assertThat(record.at("/http/request/id").asText()).isNotBlank();
+        assertThat(record.at("/trace/id").asText())
+                .matches(TRACE_ID)
+                .isEqualTo(onlyRequestRecord().at("/trace/id").asText());
+    }
+
+    /**
+     * And not two: the handler's record is the fault's one {@code ERROR}, so the request record
+     * that follows it is {@code WARN} — still the {@code 500}, still a failure, still there.
+     */
+    @Test
+    void oneUnexpectedExceptionIsOneErrorNotTwo() throws Exception {
+        MockMvc failing = applicationRouteFailing();
+        logs.reset();
+
+        failing.perform(get(FaultInjectionController.PATH));
+
+        assertThat(logs.records()).extracting(record -> record.at("/log/level").asText())
+                .containsOnlyOnce("ERROR");
+        JsonNode request = onlyRequestRecord();
+        assertThat(request.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(request.at("/http/response/status_code").asInt()).isEqualTo(500);
+        assertThat(request.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(request.has("error")).as("the request record classifies no second error").isFalse();
+    }
+
+    /**
+     * An over-length login is refused {@code 400} with the stable body rather than Boot's
+     * default {@code timestamp/status/error/path} one, logged as the caller's {@code data} error
+     * at {@code WARN} — and the value it refused appears in no record.
+     */
+    @Test
+    void anOversizedLoginIsA400WithTheStableBodyAndTheValueInNoRecord() throws Exception {
+        String marker = "oversized-login-marker-q8z";
+        String username = marker.repeat(
+                ScimAttributeLimits.USER_NAME / marker.length() + 1);
+        assertThat(username.length()).isGreaterThan(ScimAttributeLimits.USER_NAME);
+
+        MvcResult result = mvc.perform(withCsrf(post("/api/auth/login"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"%s\",\"password\":\"%s\"}".formatted(username, marker)))
+                .andExpect(status().isBadRequest())
+                .andReturn();
+
+        JsonNode body = JSON.readTree(result.getResponse().getContentAsString());
+        assertThat(body.at("/status").asInt()).isEqualTo(400);
+        assertThat(body.at("/code").asText()).isEqualTo("invalid-request");
+        assertThat(body.at("/detail").asText()).isNotBlank();
+        assertThat(body.has("timestamp")).isFalse();
+        assertThat(body.has("path")).isFalse();
+        assertThat(body.has("error")).isFalse();
+        assertThat(body.has("message")).isFalse();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain(marker);
+
+        JsonNode refusal = onlyRecordWithMessage("Request refused");
+        assertThatIsValidEcs(refusal);
+        assertThat(refusal.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(refusal.at("/event/reason").asText()).isEqualTo("MethodArgumentNotValidException");
+        assertThatCarriesNestedErrorFields(refusal, 400, "data", false);
+        assertThat(logs.records()).as("the exchange did log").hasSizeGreaterThanOrEqualTo(2);
+        assertThat(logs.lines()).doesNotContain(marker);
+    }
+
+    /**
+     * Every {@code ERROR} the service writes, on the encoded stream: the three error fields
+     * nested under {@code error}, and none of them left at the top level. Each of the records
+     * the ticket names is produced, and found, so the check is over all of them, not over
+     * whichever happened to appear.
+     */
+    @Test
+    void everyErrorRecordCarriesTheErrorFieldsNestedUnderError() throws Exception {
+        UUID connectorId = connectors.create("ecs-error-fields-connector", "test-admin").id();
+        String token = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        MockMvc failing = applicationRouteFailing();
+        logs.reset();
+
+        RuntimeException jobFailure = new IllegalStateException("job failed");
+        assertThatThrownBy(() -> jobMetrics.instrument("ecs-error-fields-job",
+                        LogEvent.Operation.AUDIT_RETENTION, () -> {
+                            throw jobFailure;
+                        }).run())
+                .isSameAs(jobFailure);
+        mvc.perform(get("/scim/v2/Me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotImplemented());
+        ScimFaultRecords.serverError();
+        ScimFaultRecords.integrityViolation();
+        ScimErrorDocumentRecords.serverError();
+        alerts.auditAppendFailed(AuditOperation.values()[0], IllegalStateException.class);
+        failing.perform(get(FaultInjectionController.PATH));
+
+        List<JsonNode> errors = errorRecords();
+        assertThat(errors).extracting(record -> record.at("/message").asText()).contains(
+                "Scheduled job failed",
+                "SCIM request refused",
+                "SCIM write refused by an unmapped integrity violation",
+                "Audit event could not be appended; the request was not altered",
+                "Request failed with an unexpected exception");
+        assertThat(errors.stream().filter(record ->
+                        "SCIM request refused".equals(record.at("/message").asText())))
+                .as("the /Me 501, the advice's 500 and the filter's 500").hasSize(3);
+        assertThat(errors).allSatisfy(record -> {
+            assertThat(record.at("/error/code").isIntegralNumber()).as(record.toString()).isTrue();
+            assertThat(record.at("/error/category").asText()).as(record.toString())
+                    .isIn("application", "database");
+            assertThat(record.at("/error/follow_up_action").asBoolean()).as(record.toString()).isTrue();
+            assertThat(record.has(LogEvent.ERROR_CODE)).isFalse();
+            assertThat(record.has(LogEvent.ERROR_CATEGORY)).isFalse();
+            assertThat(record.has(LogEvent.ERROR_FOLLOW_UP_ACTION)).isFalse();
+        });
+        assertThat(logs.lines()).doesNotContain(
+                "\"" + LogEvent.ERROR_CODE + "\"",
+                "\"" + LogEvent.ERROR_CATEGORY + "\"",
+                "\"" + LogEvent.ERROR_FOLLOW_UP_ACTION + "\"");
+        JsonNode integrity = onlyRecordWithMessage("SCIM write refused by an unmapped integrity violation");
+        assertThat(integrity.at("/error/type").asText()).isEqualTo(RedactedFaultException.class.getName());
+        assertThatCarriesNestedErrorFields(integrity, 500, "database", true);
+        JsonNode alert = onlyRecordWithMessage(
+                "Audit event could not be appended; the request was not altered");
+        assertThatCarriesNestedErrorFields(alert, 500, "database", true);
+        assertThat(alert.at("/app/error/cause_omitted").asText()).isNotBlank();
+        assertThatCarriesNestedErrorFields(onlyRecordWithMessage("Scheduled job failed"),
+                500, "application", true);
+    }
+
+    /** SCIM keeps its own error document: the app-wide handler never answers a SCIM route. */
+    @Test
+    void aScimRefusalIsStillTheScimErrorDocument() throws Exception {
+        UUID connectorId = connectors.create("ecs-scim-document-connector", "test-admin").id();
+        String token = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+
+        MvcResult result = mvc.perform(get("/scim/v2/Me")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotImplemented())
+                .andReturn();
+
+        JsonNode body = JSON.readTree(result.getResponse().getContentAsString());
+        assertThat(body.at("/schemas/0").asText())
+                .isEqualTo("urn:ietf:params:scim:api:messages:2.0:Error");
+        assertThat(body.at("/status").asText()).isEqualTo("501");
+        assertThat(body.has("code")).isFalse();
+        assertThat(onlyRequestRecord().at("/log/level").asText())
+                .as("the advice wrote the fault's ERROR").isEqualTo("WARN");
+    }
+
     // ---- helpers ------------------------------------------------------------------------------
+
+    /**
+     * The test-only route behind the deployed filters and the deployed app-wide handler, in a
+     * standalone MockMvc so the route exists in no other context.
+     */
+    private MockMvc applicationRouteFailing() {
+        return MockMvcBuilders.standaloneSetup(new FaultInjectionController())
+                .setControllerAdvice(apiExceptionHandler)
+                .addFilters(observationFilter.getFilter(), requestIdFilter)
+                .build();
+    }
+
+    private List<JsonNode> errorRecords() {
+        return logs.records().stream()
+                .filter(record -> "ERROR".equals(record.at("/log/level").asText()))
+                .toList();
+    }
+
+    private static void assertThatCarriesNestedErrorFields(
+            JsonNode record, int code, String category, boolean followUp) {
+        assertThat(record.at("/error/code").asInt()).isEqualTo(code);
+        assertThat(record.at("/error/category").asText()).isEqualTo(category);
+        assertThat(record.at("/error/follow_up_action").isBoolean()).isTrue();
+        assertThat(record.at("/error/follow_up_action").asBoolean()).isEqualTo(followUp);
+        assertThat(record.has(LogEvent.ERROR_CODE)).isFalse();
+        assertThat(record.has(LogEvent.ERROR_CATEGORY)).isFalse();
+        assertThat(record.has(LogEvent.ERROR_FOLLOW_UP_ACTION)).isFalse();
+    }
 
     /** The fields a collector indexes on. Absent any one of them, the record is not ECS. */
     private static void assertThatIsValidEcs(JsonNode record) {

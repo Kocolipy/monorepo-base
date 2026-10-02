@@ -2,8 +2,10 @@ package com.example.backend.scim.config;
 
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.observability.RequestFault;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -90,11 +92,17 @@ final class ScimErrorDocument {
 
     private static void record(int status) {
         boolean fault = status >= 500;
-        LogEvent.classify(fault ? log.atError() : log.atWarn(),
+        LogEvent.classify(
+                        fault
+                                ? LogEvent.atError(log, status, ErrorCategory.APPLICATION, true)
+                                : log.atWarn(),
                         Operation.SCIM_REFUSAL, Category.PROCESS, fault ? Type.ERROR : Type.DENIED)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON, reason(status))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
                 .log("SCIM request refused");
+        if (fault) {
+            RequestFault.recorded();
+        }
     }
 }

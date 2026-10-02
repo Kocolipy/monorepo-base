@@ -200,13 +200,13 @@ public class ScheduledJobMetrics {
      * copy here would hide nothing and would cost {@code error.type} its real class name.
      */
     private static void logFailure(Operation operation, RuntimeException failure, long durationMillis) {
-        LogEvent.classify(log.atError().setCause(failure), operation, Category.BATCH, Type.JOB_END)
+        LogEvent.classify(
+                        LogEvent.atError(log, FAILED_RUN_ERROR_CODE, category(failure), true)
+                                .setCause(failure),
+                        operation, Category.BATCH, Type.JOB_END)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
                 .addKeyValue(LogEvent.DURATION_MS, durationMillis)
-                .addKeyValue(LogEvent.ERROR_CODE, FAILED_RUN_ERROR_CODE)
-                .addKeyValue(LogEvent.ERROR_CATEGORY, category(failure).value())
-                .addKeyValue(LogEvent.ERROR_FOLLOW_UP_ACTION, true)
                 .log("Scheduled job failed");
     }
 

@@ -176,6 +176,9 @@ class ScimExceptionHandlerBodyTests {
             assertThat(event.getKeyValuePairs())
                     .extracting(pair -> pair.key, pair -> String.valueOf(pair.value))
                     .containsExactly(
+                            tuple("error_code", "500"),
+                            tuple("error_category", "database"),
+                            tuple("error_follow_up_action", "true"),
                             tuple("event.kind", "event"),
                             tuple("event.category", "[database]"),
                             tuple("event.type", "[error]"),
