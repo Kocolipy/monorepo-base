@@ -283,6 +283,35 @@ rules:
       - pattern: $RECORD.addKeyValue(ACTION, ...)
       - pattern: $RECORD.addKeyValue(LOCAL_ACTION, ...)
 
+  # Every ERROR record carries Log_Schema.md §Error's error.code, error.category and
+  # error.follow_up_action — the fields a platform alert on this service's errors
+  # selects on. LogEvent.atError(log, code, category, followUp) is the one way to open
+  # an ERROR record, and it writes all three, so a record that skipped them would have
+  # to open itself some other way: atError() on the logger, the classic error(...)
+  # methods, or atLevel(...), which can reach ERROR from a computed level. All three
+  # are therefore refused outside LogEvent. Tests are excluded: they emit records to
+  # exercise the capture, not to report a fault.
+  - id: be-log-error-without-error-fields
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Open an ERROR record with LogEvent.atError(log, code, category, followUp), so it
+      carries error.code, error.category and error.follow_up_action (Log_Schema.md
+      §Error). A record opened with atError(), error(...) or atLevel(...) here would reach
+      the stream unclassified, and an alert written against the schema would not see it.
+      For a level chosen at run time, branch to LogEvent.atError / atWarn / atInfo.
+    paths:
+      exclude:
+        - "**/LogEvent.java"
+        - "**/src/test/**"
+    pattern-either:
+      - pattern: (Logger $LOG).atError()
+      - pattern: (Logger $LOG).error(...)
+      - pattern: (Logger $LOG).atLevel(...)
+      - pattern: (org.slf4j.Logger $LOG).atError()
+      - pattern: (org.slf4j.Logger $LOG).error(...)
+      - pattern: (org.slf4j.Logger $LOG).atLevel(...)
+
   # ---------------------------------------------------------------------------
   # Audit trail redaction and the append-only arrangement. The audit trail is read
   # by an administrator investigating account activity and is retained for a year,

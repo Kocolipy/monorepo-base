@@ -1,5 +1,6 @@
 package arch;
 
+import com.example.backend.web.ApiExceptionHandler;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.stereotype.Repository;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
@@ -334,6 +336,34 @@ public class ArchitectureTest {
                     "com.example.backend.scim..", "com.example.backend.session..")
             .allowEmptyShould(true)
             .because("SPA routing is shared plumbing and knows no business module");
+
+    /**
+     * The app-wide error handler names the controller packages it answers for, rather than
+     * applying everywhere, so that it never answers for the SCIM namespace. The cost is that a
+     * new controller package would be silently uncovered; this is what makes it loud.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule every_application_controller_is_covered_by_the_api_exception_handler =
+        classes()
+            .that().areAnnotatedWith(RestController.class)
+            .and().resideOutsideOfPackage("com.example.backend.scim..")
+            .should().resideInAnyPackage(apiExceptionHandlerPackages())
+            .because("an application controller's unexpected failures must be logged and answered"
+                    + " by ApiExceptionHandler; add the package to its basePackages");
+
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule the_api_exception_handler_never_covers_the_scim_namespace =
+        classes()
+            .that().areAnnotatedWith(RestController.class)
+            .and().resideInAnyPackage(apiExceptionHandlerPackages())
+            .should().resideOutsideOfPackage("com.example.backend.scim..")
+            .allowEmptyShould(true)
+            .because("SCIM handlers' errors are SCIM error documents, rendered by"
+                    + " ScimExceptionHandler; a generic body there is one no connector can parse");
+
+    private static String[] apiExceptionHandlerPackages() {
+        return ApiExceptionHandler.class.getAnnotation(RestControllerAdvice.class).basePackages();
+    }
 
     // backend/AGENTS.md: nothing in scim mentions auth
     @com.tngtech.archunit.junit.ArchTest

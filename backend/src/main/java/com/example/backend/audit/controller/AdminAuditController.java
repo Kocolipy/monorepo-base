@@ -9,12 +9,11 @@ import com.example.backend.audit.domain.InvalidAuditQueryException;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Inbound HTTP adapter for the redacted administrative audit listing.
@@ -47,13 +46,14 @@ public class AdminAuditController {
             @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "" + AuditEventQuery.DEFAULT_SIZE) int size) {
-        return listing.list(new AuditEventQuery(
-                operation, outcome, actorId, resourceId, from, to, page, size));
-    }
-
-    /** A page or page size out of range: the request itself is malformed. */
-    @ExceptionHandler(InvalidAuditQueryException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public void invalidQuery() {
+        try {
+            return listing.list(new AuditEventQuery(
+                    operation, outcome, actorId, resourceId, from, to, page, size));
+        } catch (InvalidAuditQueryException outOfRange) {
+            // A page or page size out of range: the request itself is malformed. Answered by the
+            // app-wide handler, so it carries the same 400 body as a parameter that cannot be
+            // read at all (an operation this service does not know, an id that is not a UUID).
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, null, outOfRange);
+        }
     }
 }

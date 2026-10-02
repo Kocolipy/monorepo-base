@@ -51,7 +51,7 @@ public final class OpenApiContract {
 
     /** The keywords {@link #validate} understands, plus annotations that constrain nothing. */
     static final Set<String> UNDERSTOOD_SCHEMA_KEYWORDS = Set.of(
-            "$ref", "type", "properties", "required", "additionalProperties", "items", "enum",
+            "$ref", "type", "properties", "required", "additionalProperties", "items", "enum", "oneOf",
             "minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum", "pattern",
             "format", "readOnly", "writeOnly", "description", "example", "examples", "default");
 
@@ -249,6 +249,10 @@ public final class OpenApiContract {
 
     private void validateInto(JsonNode schema, JsonNode value, String at, List<String> out) {
         schema = resolve(schema);
+        JsonNode oneOf = schema.get("oneOf");
+        if (oneOf != null) {
+            validateOneOf(oneOf, value, at, out);
+        }
         JsonNode type = schema.get("type");
         if (type != null && !typeMatches(type, value)) {
             out.add(at + ": expected type " + type + " but was " + value.getNodeType());
@@ -269,6 +273,21 @@ public final class OpenApiContract {
         }
         if (value.isObject()) {
             validateObject(schema, value, at, out);
+        }
+    }
+
+    /** {@code oneOf}: the value conforms to exactly one branch, as JSON Schema defines it. */
+    private void validateOneOf(JsonNode branches, JsonNode value, String at, List<String> out) {
+        int matched = 0;
+        for (JsonNode branch : branches) {
+            List<String> departures = new ArrayList<>();
+            validateInto(branch, value, at, departures);
+            if (departures.isEmpty()) {
+                matched++;
+            }
+        }
+        if (matched != 1) {
+            out.add(at + ": matches " + matched + " oneOf branches, not exactly 1");
         }
     }
 
@@ -438,6 +457,12 @@ public final class OpenApiContract {
                 case "properties" -> collectUnsupported(keyword.getValue(), at + "/properties",
                         true, found);
                 case "items" -> collectUnsupported(keyword.getValue(), at + "/items", false, found);
+                case "oneOf" -> {
+                    for (int i = 0; i < keyword.getValue().size(); i++) {
+                        collectUnsupported(keyword.getValue().get(i), at + "/oneOf/" + i, false,
+                                found);
+                    }
+                }
                 case "additionalProperties" -> {
                     if (keyword.getValue().isObject()) {
                         collectUnsupported(keyword.getValue(), at + "/additionalProperties",

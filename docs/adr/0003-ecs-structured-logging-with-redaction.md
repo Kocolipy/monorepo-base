@@ -419,3 +419,75 @@ window and log.
 | `identity.inactivity_deactivation`, summary | `user-administration` | `identity.inactivity_deactivation`      | `batch`          | `info`                |
 | `identity.dormant_authority_revocation`, summary | `access-control` | `identity.dormant_authority_revocation` | `batch`          | `info`                |
 | `audit.retention`, summary                  | —                     | `audit.retention`                       | `batch`          | `info`                |
+
+## Addendum (2026-10-02): the app-wide error handler, and `error.*` on every ERROR
+
+Issue #94 (audit findings LOG-6, LOG-7, LOG-N3). An unexpected exception outside SCIM was never
+logged with its cause, most `ERROR` records carried no error classification, and the one that did
+wrote it under keys the schema does not define. This supersedes the #70 sentence above saying the
+error fields "are not remapped into `error.*`".
+
+**The remap.** Call sites still write `error_code`, `error_category` and `error_follow_up_action`
+— a dotted `error.code` would make the formatter write a second `error` object beside the one it
+writes from the attached throwable — and `EcsErrorFieldsCustomizer`, the second customizer in
+`logging.yaml`, moves them into the `error` object on the way out, as the standard's
+custom-encoder recipe prescribes. It drops the formatter's own `error` member and the three
+underscore keys, and writes one `error` object carrying `type`, `message` and `stack_trace` — from
+the same accessors, printer and converter the formatter uses, so a record with an exception and
+no classification encodes exactly as before — plus `code`, `category` and `follow_up_action`. A
+record with neither gets no `error` object. `EcsErrorFieldsCustomizerTests` encodes each record
+with and without it and compares.
+
+**Every `ERROR` is classified.** `LogEvent.atError(log, code, category, followUp)` is the one way
+to open an `ERROR` record, and `be-log-error-without-error-fields` refuses `atError()`,
+`error(...)` and `atLevel(...)` on a logger anywhere else in production code. `error.code` is the
+HTTP status a request fault was answered with, or `500` off any request; `error.category` is
+`database` or `application` (and `data` for a caller's refusal); `error.follow_up_action` is
+`true` on every `ERROR`. The records:
+
+| Record | `error.code` | `error.category` | cause attached |
+| ------ | ------------ | ---------------- | -------------- |
+| scheduled job failed | `500` | `database` / `application` | whole |
+| SCIM 5xx refusal (advice, and `ScimErrorDocument`) | the status | `application` | the refusal (advice); none (filter) |
+| SCIM unmapped integrity violation | `500` | `database` | redacted copy |
+| audit append failed | `500` | `database` | none — see below |
+| request record, 5xx no handler recorded | the status | `application` | none |
+| app-wide handler, unexpected exception | the status | `application` | whole; redacted for a data-access failure |
+
+The audit-append alert attaches no exception because it has none: the `OperationalAlerts` port
+carries the failure's type, deliberately, so the alert cannot leak what the event withheld. The
+record says so in `app.error.cause_omitted`, and `event.reason` names the type.
+
+`RedactedFaultException` (moved from `ScimExceptionHandler` to `observability`, unchanged) is the
+redacted copy: the original stack under a message that is only a type name, with no cause chain.
+
+**One app-wide handler.** `web.ApiExceptionHandler` answers for the application chain's
+controller packages, named in its `basePackages` — never `scim`'s, whose advice renders SCIM error
+documents. Two `ArchitectureTest` rules hold the list: every `@RestController` outside `scim` is in
+it, and none in it is in `scim`. A controller's own `@ExceptionHandler` still answers first, and a
+refusal made before a handler is chosen keeps the container's handling.
+
+- An exception nothing else answers is one `ERROR` `http.request.fault` record (`process`,
+  `error`) with the exception attached, `event.reason` its type, and the status; the client gets
+  a `500` `ApiError` that says nothing about it.
+- A refusal Spring MVC maps to a `4xx` — `MethodArgumentNotValidException`,
+  `HandlerMethodValidationException`, an unreadable body, an unbindable parameter — is one `WARN`
+  `http.request.refusal` record (`process`, `denied`) with `error.code` the status,
+  `error.category` `data` and `error.follow_up_action` `false`; `event.reason` is the exception's
+  type, never its message, which quotes the rejected value. A `5xx` Spring MVC maps is a fault.
+- The body is `ApiError` — `status`, `code` (`invalid-request`, `request-refused`,
+  `server-error`) and a fixed `detail` — with no member taken from the request or the failure,
+  and no `message`, which the SPA reads as a password rule. `AdminAuditController` now hands its
+  out-of-range page to the handler as a `ResponseStatusException` with the domain refusal as its
+  cause (which `event.reason` then names), so every `400` of that operation has the one body.
+
+**No double `ERROR`.** A handler that writes a request's fault `ERROR` marks the request
+(`RequestFault`), and `RequestIdFilter` then writes that request's record at `WARN` without an
+error classification: still the `5xx`, still `failure`, but not the same failure twice. The SCIM
+advice's and `ScimErrorDocument`'s `5xx` records mark it too. A `5xx` nobody recorded — an
+exception escaping the chain — keeps its `ERROR` request record, now classified.
+
+| Operation                     | `event.action`     | `app.event.action`     | `event.category` | `event.type` |
+| ----------------------------- | ------------------ | ---------------------- | ---------------- | ------------ |
+| request refused by the API    | — (no action fits) | `http.request.refusal` | `process`        | `denied`     |
+| request failed unexpectedly   | — (no action fits) | `http.request.fault`   | `process`        | `error`      |

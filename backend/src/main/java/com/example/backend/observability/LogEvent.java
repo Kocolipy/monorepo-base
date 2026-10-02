@@ -2,6 +2,7 @@ package com.example.backend.observability;
 
 import java.util.Arrays;
 import java.util.List;
+import org.slf4j.Logger;
 import org.slf4j.spi.LoggingEventBuilder;
 
 /**
@@ -118,11 +119,13 @@ public final class LogEvent {
     public static final String JOB_DESCRIPTION = "app.job.description";
 
     /**
-     * {@code Log_Schema.md} §Error {@code error.code}, spelled with an underscore: Boot's ECS
-     * formatter owns the {@code error} object (it writes {@code error.type},
-     * {@code error.message} and {@code error.stack_trace} from the attached throwable), so
-     * a dotted key of ours inside it would collide with that object. The standard's own
-     * recipes use this spelling for the same reason.
+     * {@code Log_Schema.md} §Error {@code error.code}, spelled with an underscore at the call
+     * site: Boot's ECS formatter owns the {@code error} object (it writes {@code error.type},
+     * {@code error.message} and {@code error.stack_trace} from the attached throwable), so a
+     * dotted key of ours would write a second {@code error} object beside it. The standard's
+     * recipes use this spelling for the same reason, and {@link EcsErrorFieldsCustomizer}
+     * moves it into the {@code error} object on the way out, so the emitted JSON carries
+     * {@code error.code}. Written through {@link #withError} only.
      */
     public static final String ERROR_CODE = "error_code";
 
@@ -134,6 +137,12 @@ public final class LogEvent {
      * person to act on it. See {@link #ERROR_CODE} for the spelling.
      */
     public static final String ERROR_FOLLOW_UP_ACTION = "error_follow_up_action";
+
+    /**
+     * Why a record that would carry its exception carries none. Namespaced under {@code app.},
+     * as {@link #LOCAL_ACTION} is: the schema has no field for it.
+     */
+    public static final String ERROR_CAUSE_OMITTED = "app.error.cause_omitted";
 
     /**
      * The {@link #REASON} of a scheduled run that found another run of the same job holding
@@ -196,6 +205,37 @@ public final class LogEvent {
     }
 
     /**
+     * An {@code ERROR} record, already carrying its {@code Log_Schema.md} §Error
+     * classification. The only way this service opens one —
+     * {@code be-log-error-without-error-fields} holds that — so no {@code ERROR} record can
+     * reach the stream without {@code error.code}, {@code error.category} and
+     * {@code error.follow_up_action}.
+     *
+     * @param code       the error's code: the HTTP status a request fault was answered with,
+     *                   or {@code 500} for a fault off any request
+     * @param category   what kind of failure it was
+     * @param followUp   whether a person needs to act on it
+     */
+    public static LoggingEventBuilder atError(
+            Logger log, int code, ErrorCategory category, boolean followUp) {
+        return withError(log.atError(), code, category, followUp);
+    }
+
+    /**
+     * Adds the {@code Log_Schema.md} §Error classification to a record below {@code ERROR} —
+     * a refusal that is the caller's error, with {@code followUp} {@code false}.
+     *
+     * @return {@code record}, for the rest of the fluent chain
+     */
+    public static LoggingEventBuilder withError(
+            LoggingEventBuilder record, int code, ErrorCategory category, boolean followUp) {
+        return record
+                .addKeyValue(ERROR_CODE, code)
+                .addKeyValue(ERROR_CATEGORY, category.value())
+                .addKeyValue(ERROR_FOLLOW_UP_ACTION, followUp);
+    }
+
+    /**
      * What this service logs, each mapped onto the standard's {@link Action} — or onto
      * none, where none fits — and carrying its own name wherever that action alone
      * would not say which operation it was.
@@ -222,6 +262,8 @@ public final class LogEvent {
         AUDIT_RETENTION(null, "audit.retention"),
         AUDIT_APPEND(null, "audit.append"),
         HTTP_REQUEST(null, "http.request"),
+        HTTP_REQUEST_REFUSAL(null, "http.request.refusal"),
+        HTTP_REQUEST_FAULT(null, "http.request.fault"),
         APPLICATION_STARTUP(Action.APPLICATION_STARTUP, null),
         APPLICATION_SHUTDOWN(Action.APPLICATION_SHUTDOWN, null);
 
@@ -348,7 +390,9 @@ public final class LogEvent {
     /** {@code error.category} values from {@code Log_Schema.md} §Error that this service uses. */
     public enum ErrorCategory {
         APPLICATION("application"),
-        DATABASE("database");
+        DATABASE("database"),
+        /** Input the service refused: the caller's error, not the service's. */
+        DATA("data");
 
         private final String value;
 

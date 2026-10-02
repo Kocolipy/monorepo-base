@@ -22,6 +22,8 @@ import org.slf4j.MDC;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.util.WebUtils;
 
@@ -190,6 +192,90 @@ class RequestIdFilterTests {
     }
 
     /**
+     * A {@code 5xx} record is an {@code ERROR}, so it carries the {@code Log_Schema.md} §Error
+     * classification: the status as the code, an {@code application} error, needing follow-up.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {500, 503})
+    void aFiveHundredRecordCarriesTheErrorClassification(int status) throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"),
+                matched("/api/self", status));
+
+        assertThat(CapturedLog.fields(onlyRequestRecord()))
+                .containsEntry(LogEvent.ERROR_CODE, status)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "application")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
+    }
+
+    /** Below {@code 500} the request record classifies no error: a refusal has its own record. */
+    @ParameterizedTest
+    @ValueSource(ints = {200, 400, 404, 499})
+    void aRecordBelowFiveHundredCarriesNoErrorClassification(int status) throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"),
+                matched("/api/self", status));
+
+        assertThat(CapturedLog.fields(onlyRequestRecord()))
+                .doesNotContainKeys(LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY,
+                        LogEvent.ERROR_FOLLOW_UP_ACTION);
+    }
+
+    /**
+     * A {@code 5xx} whose handler already wrote the fault's {@code ERROR} is not reported a second
+     * time: the request record is {@code WARN}, still a failure, and classifies no error.
+     */
+    @ParameterizedTest
+    @ValueSource(ints = {500, 503})
+    void aFaultTheHandlerRecordedEndsInAWarnRequestRecord(int status) throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"), (request, response) -> {
+            matched("/api/self", status).handle(request, response);
+            RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+            try {
+                RequestFault.recorded();
+            } finally {
+                RequestContextHolder.resetRequestAttributes();
+            }
+        });
+
+        ILoggingEvent record = onlyRequestRecord();
+        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.HTTP_STATUS_CODE, status)
+                .containsEntry(LogEvent.OUTCOME, "failure")
+                .doesNotContainKeys(LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY,
+                        LogEvent.ERROR_FOLLOW_UP_ACTION);
+    }
+
+    /** The mark says nothing about a status below {@code 500}. */
+    @ParameterizedTest
+    @CsvSource({"200, INFO", "404, WARN"})
+    void theFaultMarkLeavesAStatusBelowFiveHundredAlone(int status, String level) {
+        assertThat(RequestIdFilter.level(status, true)).isEqualTo(
+                org.slf4j.event.Level.valueOf(level));
+        assertThat(RequestIdFilter.level(status, false)).isEqualTo(
+                org.slf4j.event.Level.valueOf(level));
+    }
+
+    @Test
+    void aRequestWithNoMarkIsNotRecordedAsHandled() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        assertThat(RequestFault.isRecorded(request)).isFalse();
+        request.setAttribute(RequestFault.RECORDED_ATTRIBUTE, "true");
+        assertThat(RequestFault.isRecorded(request)).as("only the mark itself counts").isFalse();
+        request.setAttribute(RequestFault.RECORDED_ATTRIBUTE, Boolean.TRUE);
+        assertThat(RequestFault.isRecorded(request)).isTrue();
+    }
+
+    /** Off any request — a scheduled job's thread — marking is a no-op rather than a failure. */
+    @Test
+    void markingWithNoRequestInScopeDoesNothing() {
+        RequestContextHolder.resetRequestAttributes();
+
+        RequestFault.recorded();
+
+        assertThat(RequestContextHolder.getRequestAttributes()).isNull();
+    }
+
+    /**
      * An exception escaping the chain has set no status yet — the container answers
      * {@code 500} after this filter returns — so the record says {@code 500} at
      * {@code ERROR}, and the exception still propagates.
@@ -212,7 +298,10 @@ class RequestIdFilterTests {
         assertThat(CapturedLog.fields(record))
                 .containsEntry(LogEvent.HTTP_STATUS_CODE, 500)
                 .containsEntry(LogEvent.OUTCOME, "failure")
-                .containsEntry(LogEvent.HTTP_METHOD, "POST");
+                .containsEntry(LogEvent.HTTP_METHOD, "POST")
+                .containsEntry(LogEvent.ERROR_CODE, 500)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "application")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
     }
 
     /**

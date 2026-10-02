@@ -1,6 +1,7 @@
 package com.example.backend.observability;
 
 import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.DispatcherType;
@@ -15,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -53,7 +55,9 @@ import org.springframework.web.servlet.HandlerMapping;
  * second pass, and recording it would count one request twice. It carries the
  * method, the matched route TEMPLATE, the status, the duration and the outcome, at
  * {@code INFO} below {@code 400}, {@code WARN} for a {@code 4xx} and {@code ERROR} for a
- * {@code 5xx}.
+ * {@code 5xx} — a {@code 5xx} carrying the {@code error.*} classification, or at
+ * {@code WARN} when the handler that answered it already wrote its {@code ERROR}
+ * ({@link RequestFault}).
  *
  * <p>What it never carries is the request's own text: no raw path, query string,
  * header, cookie, body or client address. The route is the template Spring matched
@@ -143,10 +147,15 @@ public class RequestIdFilter extends OncePerRequestFilter {
      * Writes the request's record. An exception escaping the chain has not set a status
      * yet — the container answers {@code 500} after this returns — so it is recorded as
      * the {@code 500} the client receives.
+     *
+     * <p>A {@code 5xx} is the request's {@code ERROR}, classified as an {@code application}
+     * error needing follow-up — unless a handler already wrote the fault's {@code ERROR}
+     * record ({@link RequestFault}), when this one is {@code WARN} so the one failure is not
+     * reported twice.
      */
     private static void record(HttpServletRequest request, int status, long started) {
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        LogEvent.classify(log.atLevel(level(status)), Operation.HTTP_REQUEST,
+        LogEvent.classify(opened(status, RequestFault.isRecorded(request)), Operation.HTTP_REQUEST,
                         Category.NETWORK, Type.ACCESS, Type.END)
                 .addKeyValue(LogEvent.HTTP_METHOD, method(request))
                 .addKeyValue(LogEvent.HTTP_ROUTE, route(request))
@@ -156,8 +165,17 @@ public class RequestIdFilter extends OncePerRequestFilter {
                 .log("HTTP request completed");
     }
 
-    static Level level(int status) {
-        if (status >= 500) {
+    /** The record at the level {@link #level} gives, classified when that is {@code ERROR}. */
+    private static LoggingEventBuilder opened(int status, boolean faultRecorded) {
+        return switch (level(status, faultRecorded)) {
+            case ERROR -> LogEvent.atError(log, status, ErrorCategory.APPLICATION, true);
+            case WARN -> log.atWarn();
+            default -> log.atInfo();
+        };
+    }
+
+    static Level level(int status, boolean faultRecorded) {
+        if (status >= 500 && !faultRecorded) {
             return Level.ERROR;
         }
         return status >= 400 ? Level.WARN : Level.INFO;

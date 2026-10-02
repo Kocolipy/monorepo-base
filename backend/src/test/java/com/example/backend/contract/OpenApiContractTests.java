@@ -201,6 +201,20 @@ class OpenApiContractTests {
     }
 
     @Test
+    void one_of_requires_exactly_one_matching_branch() throws Exception {
+        JsonNode schema = JSON.readTree("""
+                {"oneOf":[{"type":"object","required":["a"]},
+                          {"type":"object","required":["b"]}]}""");
+
+        assertThat(CONTRACT.validate(schema, JSON.readTree("{\"a\":1}"), "$")).isEmpty();
+        assertThat(CONTRACT.validate(schema, JSON.readTree("{\"b\":1}"), "$")).isEmpty();
+        assertThat(CONTRACT.validate(schema, JSON.readTree("{}"), "$"))
+                .containsExactly("$: matches 0 oneOf branches, not exactly 1");
+        assertThat(CONTRACT.validate(schema, JSON.readTree("{\"a\":1,\"b\":1}"), "$"))
+                .containsExactly("$: matches 2 oneOf branches, not exactly 1");
+    }
+
+    @Test
     void the_validator_covers_every_keyword_the_document_uses() {
         assertThat(CONTRACT.unsupportedKeywords()).isEmpty();
     }

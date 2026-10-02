@@ -3,9 +3,12 @@ package com.example.backend.scim.controller;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.MetricTag;
+import com.example.backend.observability.RedactedFaultException;
+import com.example.backend.observability.RequestFault;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.InvalidPreconditionException;
@@ -195,19 +198,22 @@ class ScimExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<Map<String, Object>> handle(DataIntegrityViolationException violation) {
         String causeType = violation.getMostSpecificCause().getClass().getSimpleName();
+        ScimErrorException refusal = ScimErrorException.serverError(
+                "The write could not be completed because of a server-side failure; it was not"
+                        + " applied.");
         // The fault's one record. Attached as a redacted copy: the stack says where it failed,
         // and the message — which quotes the statement and the conflicting value — is replaced
         // by the cause's type, so no part of the refused row reaches the record.
         inResourceContext(resourceType -> withResourceType(LogEvent.classify(
-                                log.atError().setCause(
-                                        RedactedFaultException.of(violation, causeType)),
+                                LogEvent.atError(log, refusal.status().value(),
+                                                ErrorCategory.DATABASE, true)
+                                        .setCause(RedactedFaultException.of(violation, causeType)),
                                 Operation.SCIM_WRITE, Category.DATABASE, Type.ERROR)
                         .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                         .addKeyValue(LogEvent.REASON, causeType), resourceType)
                 .log("SCIM write refused by an unmapped integrity violation"));
-        return body(ScimErrorException.serverError(
-                "The write could not be completed because of a server-side failure; it was not"
-                        + " applied."));
+        RequestFault.recorded();
+        return body(refusal);
     }
 
     /** A PATCH operation the stored resource cannot accept. */
@@ -266,15 +272,22 @@ class ScimExceptionHandler {
      */
     private static ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {
         boolean fault = refusal.status().is5xxServerError();
+        int status = refusal.status().value();
         inResourceContext(resourceType -> withResourceType(LogEvent.classify(
-                                fault ? log.atError().setCause(refusal) : log.atWarn(),
+                                fault
+                                        ? LogEvent.atError(log, status, ErrorCategory.APPLICATION,
+                                                true).setCause(refusal)
+                                        : log.atWarn(),
                                 Operation.SCIM_REFUSAL, Category.PROCESS,
                                 fault ? Type.ERROR : Type.DENIED)
                         .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                         .addKeyValue(LogEvent.REASON, refusal.reason())
-                        .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status().value()),
+                        .addKeyValue(LogEvent.HTTP_STATUS_CODE, status),
                         resourceType)
                 .log("SCIM request refused"));
+        if (fault) {
+            RequestFault.recorded();
+        }
         return body(refusal);
     }
 
@@ -350,23 +363,5 @@ class ScimExceptionHandler {
         return ResponseEntity.status(refusal.status())
                 .header("Content-Type", ScimSchemas.MEDIA_TYPE)
                 .body(body);
-    }
-
-    /**
-     * A fault's stand-in for the log: the original's stack, under a message that is only the
-     * most specific cause's type, and no cause chain — every link of which would print its own
-     * message. What makes "the exception attached" compatible with "no value of the row".
-     */
-    static final class RedactedFaultException extends RuntimeException {
-
-        private RedactedFaultException(String causeType) {
-            super(causeType, null, false, true);
-        }
-
-        static RedactedFaultException of(Throwable fault, String causeType) {
-            RedactedFaultException redacted = new RedactedFaultException(causeType);
-            redacted.setStackTrace(fault.getStackTrace());
-            return redacted;
-        }
     }
 }

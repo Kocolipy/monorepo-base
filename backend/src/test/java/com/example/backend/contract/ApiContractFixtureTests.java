@@ -251,6 +251,14 @@ class ApiContractFixtureTests {
                     .content(change(CONNECTOR_PASSWORD, "short")), 400));
             assertThat(refused.toString()).doesNotContain("short\"");
         });
+        add(all, "change-password: 400 ApiError for a body that fails validation", t -> {
+            String userName = t.provision(true);
+            Cookie confined = t.logIn(userName, CONNECTOR_PASSWORD);
+            JsonNode refused = json(t.expect(t.csrf(t.post("/api/auth/change-password"))
+                    .cookie(confined).contentType(MediaType.APPLICATION_JSON)
+                    .content("{}"), 400));
+            assertThat(refused.path("code").asText()).isEqualTo("invalid-request");
+        });
         add(all, "change-password: 401 for a wrong current password, 403 without CSRF", t -> {
             String userName = t.provision(true);
             Cookie confined = t.logIn(userName, CONNECTOR_PASSWORD);

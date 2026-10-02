@@ -289,7 +289,7 @@ The application therefore contains no request-rate limiter. It still enforces pe
 - Login `username`: 256 characters, the stored `userName` bound, counted in code points;
 - Login `password` and change-password `currentPassword` / `newPassword`: 256 characters of the normalized form each, the password policy's own maximum, so no password the policy accepted is ever refused for its length.
 
-Limit failures use the closest standard SCIM/HTTP error (`413`, `400 invalidFilter`, or `400 invalidValue`) and never partially mutate a resource. An over-length Login or change-password field is a bodiless `400` raised by request validation, before authentication runs: it is not counted toward the failure run, not audited, and indistinguishable from any other malformed body, so it adds no enumeration signal.
+Limit failures use the closest standard SCIM/HTTP error (`413`, `400 invalidFilter`, or `400 invalidValue`) and never partially mutate a resource. An over-length Login or change-password field is a `400` raised by request validation, before authentication runs, carrying the application API's fixed `ApiError` body (#94): it is not counted toward the failure run, not audited, and indistinguishable from any other malformed body, so it adds no enumeration signal.
 
 ## Credential and cryptographic policy
 

@@ -9,14 +9,13 @@ import com.example.backend.audit.domain.AuditEventQuery;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.InvalidAuditQueryException;
-import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 class AdminAuditControllerTests {
 
@@ -50,17 +49,22 @@ class AdminAuditControllerTests {
     @Test
     void anOutOfRangePageSizeIsRefusedBeforeTheListingIsAsked() {
         assertThatThrownBy(() -> controller.list(null, null, null, null, null, null, 0, 0))
-                .isInstanceOf(InvalidAuditQueryException.class);
+                .isInstanceOf(ResponseStatusException.class);
         assertThat(asked).isEmpty();
     }
 
-    /** The refusal is a 400: the request itself is malformed, not forbidden or conflicting. */
+    /**
+     * The refusal is a 400 — the request itself is malformed, not forbidden or conflicting — and
+     * is handed to the app-wide handler as one, so it carries that handler's body. The domain's
+     * refusal rides along as the cause, which is what the record names.
+     */
     @Test
-    void anInvalidQueryIsABadRequest() throws Exception {
-        Method handler = AdminAuditController.class.getMethod("invalidQuery");
-
-        assertThat(handler.getAnnotation(ResponseStatus.class).value())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-        controller.invalidQuery();
+    void anInvalidQueryIsABadRequest() {
+        assertThatThrownBy(() -> controller.list(null, null, null, null, null, null, -1, 5))
+                .isInstanceOfSatisfying(ResponseStatusException.class, refused -> {
+                    assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(refused.getCause()).isInstanceOf(InvalidAuditQueryException.class);
+                    assertThat(refused.getReason()).isNull();
+                });
     }
 }
