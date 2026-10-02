@@ -491,3 +491,86 @@ exception escaping the chain — keeps its `ERROR` request record, now classifie
 | ----------------------------- | ------------------ | ---------------------- | ---------------- | ------------ |
 | request refused by the API    | — (no action fits) | `http.request.refusal` | `process`        | `denied`     |
 | request failed unexpectedly   | — (no action fits) | `http.request.fault`   | `process`        | `error`      |
+
+## Addendum (2026-10-02): user.id on the request record, and every record's event.action
+
+Issue #95, findings LOG-N1 and LOG-N4 of the App-Standards re-audit
+(`Structured_Logging_Application_Standard.md` §2 #1, §3.1; `Log_Schema.md` §Event).
+
+**Who made the request.** The request record is the record an investigation starts
+from, and it named nobody: `RequestIdFilter` writes it outside the security chain, and
+the `user.id` and `scim.connector.id` scopes are opened inside the chain, by
+`SessionUserLogContextFilter` and `ScimBearerAuthenticationFilter`, and closed as it
+unwinds. Each of those filters now also marks the id it resolved on the request
+(`RequestActor`), and `RequestIdFilter` puts the marks back in the logging context for
+the one record it writes, then restores the context. Moving the record inside the chain
+was rejected: a request the chain refuses before any inner filter runs would lose its
+record, which is exactly the record the request-record addendum above exists to keep.
+
+So the request record carries `user.id` when the request was authenticated by session,
+and `scim.connector.id` when it was authenticated by a SCIM bearer token. That includes
+a bearer call refused for scope, which did authenticate. Neither field appears on an
+anonymous request, or on one refused before it authenticated (a missing session, or a
+token that was not accepted). Only resolved ids are marked, never a userName or anything
+of a presented token. The record stays one per request, and the probes and the scrape
+still get none.
+
+**`event.action` on every record.** The schema requires `event.action`, from a closed
+list. Every `Operation` now maps onto its nearest allowed value, with
+`app.event.action` naming the precise operation wherever the action is shared. Two
+mappings changed. Dormant-authority revocation is now `user-administration`: it changes
+a User's standing, as inactivity deactivation does. A connector and its tokens are now
+`user-provisioning`, because they are the lifecycle of the provisioning channel. That
+leaves `access-control` to the access decisions themselves: unlock, access denied and
+unauthenticated.
+
+### Operations with no event.action
+
+Five operations have no defensible allowed value and are recorded here as exceptions.
+Each still carries a stable `app.event.action`. The allowed list names authentication,
+provisioning, administration, password, session, access-control and lifecycle actions,
+and all of them describe something done to or by an identity, or to the application.
+
+| `app.event.action`     | Why no allowed value fits                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `http.request`         | It is the access record for every request, whatever the request did. Any one action would mislabel most requests, and `access-control` would merge every request into the authorization decisions a security search on that value is for. |
+| `http.request.refusal` | It records the API refusing malformed input, not an identity operation or an access decision.                                                                                  |
+| `http.request.fault`   | It records an unexpected failure, which is not an operation of any kind.                                                                                                       |
+| `audit.retention`      | It deletes aged-out audit rows. No User, session or access is involved.                                                                                                        |
+| `audit.append`         | It records an audit write failing, which is an operational alert rather than an identity operation.                                                                            |
+
+`LogEventTests.everyOperationHasAnActionOrADocumentedException` holds this list to the
+code. An operation with no action that is not listed here fails the test, and so does a
+listed operation that has gained an action.
+
+### The full mapping
+
+This table supersedes the per-addendum tables above for `event.action` and
+`app.event.action`. Their category and type columns still stand.
+
+| `Operation`                    | `event.action`                | `app.event.action`                      |
+| ------------------------------ | ----------------------------- | --------------------------------------- |
+| `LOGIN`                        | `user-authentication`         | —                                       |
+| `UNLOCK`                       | `access-control`              | `identity.unlock`                       |
+| `FORCE_PASSWORD_CHANGE`        | `password-change-enforcement` | —                                       |
+| `PASSWORD_CHANGE`              | `user-administration`         | `identity.password_change`              |
+| `INACTIVITY_DEACTIVATION`      | `user-administration`         | `identity.inactivity_deactivation`      |
+| `DORMANT_AUTHORITY_REVOCATION` | `user-administration`         | `identity.dormant_authority_revocation` |
+| `CONNECTOR_CREATE`             | `user-provisioning`           | `scim.connector.create`                 |
+| `CONNECTOR_DELETE`             | `user-provisioning`           | `scim.connector.delete`                 |
+| `CONNECTOR_TOKEN_ISSUE`        | `user-provisioning`           | `scim.connector.token.issue`            |
+| `CONNECTOR_TOKEN_ROTATE`       | `user-provisioning`           | `scim.connector.token.rotate`           |
+| `CONNECTOR_TOKEN_REVOKE`       | `user-provisioning`           | `scim.connector.token.revoke`           |
+| `SCIM_WRITE`                   | `user-provisioning`           | `scim.write`                            |
+| `SCIM_REFUSAL`                 | `user-provisioning`           | `scim.refusal`                          |
+| `ACCESS_DENIED`                | `access-control`              | `access.denied`                         |
+| `UNAUTHENTICATED`              | `access-control`              | `access.unauthenticated`                |
+| `LOGOUT`                       | `user-logout`                 | —                                       |
+| `SESSION_END`                  | `session-end`                 | —                                       |
+| `AUDIT_RETENTION`              | — (exception, above)          | `audit.retention`                       |
+| `AUDIT_APPEND`                 | — (exception, above)          | `audit.append`                          |
+| `HTTP_REQUEST`                 | — (exception, above)          | `http.request`                          |
+| `HTTP_REQUEST_REFUSAL`         | — (exception, above)          | `http.request.refusal`                  |
+| `HTTP_REQUEST_FAULT`           | — (exception, above)          | `http.request.fault`                    |
+| `APPLICATION_STARTUP`          | `application-startup`         | —                                       |
+| `APPLICATION_SHUTDOWN`         | `application-shutdown`        | —                                       |

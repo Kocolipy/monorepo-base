@@ -2,10 +2,16 @@ package com.example.backend.auth.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.RequestIdFilter;
 import jakarta.servlet.FilterChain;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -81,6 +87,39 @@ class SessionUserLogContextFilterTests {
         authenticateAs("ada");
 
         assertThat(run(withIndex("ada"))).containsExactly((String) null);
+    }
+
+    /**
+     * The id outlives the filter's own scope on the request alone, so the request record
+     * {@link RequestIdFilter} writes outside the security chain names the same caller — and a
+     * request this filter resolved to nobody is recorded under nobody.
+     */
+    @Test
+    void theRequestRecordNamesTheSessionsUser() throws Exception {
+        authenticateAs("ada");
+
+        assertThat(requestRecordContext(withIndex(ADA.toString())))
+                .containsEntry(LogContext.USER_ID, ADA.toString());
+    }
+
+    @Test
+    void theRequestRecordOfAnUnresolvedSessionNamesNobody() throws Exception {
+        authenticateAs("ada");
+
+        assertThat(requestRecordContext(withIndex("ada"))).doesNotContainKey(LogContext.USER_ID);
+    }
+
+    /** The request record's logging context, with this filter running inside the request's. */
+    private Map<String, String> requestRecordContext(MockHttpServletRequest request)
+            throws Exception {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            new RequestIdFilter().doFilter(request, new MockHttpServletResponse(),
+                    (req, res) -> filter.doFilter(req, res, (inner, innerResponse) -> { }));
+            List<ILoggingEvent> records =
+                    captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "http.request");
+            assertThat(records).hasSize(1);
+            return records.getFirst().getMDCPropertyMap();
+        }
     }
 
     private static void authenticateAs(String name) {

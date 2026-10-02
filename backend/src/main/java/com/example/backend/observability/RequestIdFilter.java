@@ -59,6 +59,12 @@ import org.springframework.web.servlet.HandlerMapping;
  * {@code WARN} when the handler that answered it already wrote its {@code ERROR}
  * ({@link RequestFault}).
  *
+ * <p>It names who made the request: {@code user.id} for a session-authenticated caller and
+ * {@code scim.connector.id} for a SCIM bearer call, put back in scope from
+ * {@link RequestActor} because the filters that resolved them sit inside the security chain
+ * and their scopes have closed by the time this record is written. A request that was
+ * anonymous, or refused before it authenticated, carries neither.
+ *
  * <p>What it never carries is the request's own text: no raw path, query string,
  * header, cookie, body or client address. The route is the template Spring matched
  * ({@code /scim/v2/Users/{id}}) or {@link #UNMATCHED} when nothing did, so an id or
@@ -126,8 +132,12 @@ public class RequestIdFilter extends OncePerRequestFilter {
                 escaped = false;
             } finally {
                 if (recorded(request)) {
-                    record(request, escaped ? HttpServletResponse.SC_INTERNAL_SERVER_ERROR
-                            : response.getStatus(), started);
+                    // The caller's ids were in the context only inside the chain; the
+                    // filter that resolved them left them on the request for this record.
+                    try (RequestActor.Scope actor = RequestActor.inScope(request)) {
+                        record(request, escaped ? HttpServletResponse.SC_INTERNAL_SERVER_ERROR
+                                : response.getStatus(), started);
+                    }
                 }
             }
         }

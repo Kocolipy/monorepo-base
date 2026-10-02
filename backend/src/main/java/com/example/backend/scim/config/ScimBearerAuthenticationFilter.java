@@ -4,6 +4,7 @@ import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.MetricTag;
+import com.example.backend.observability.RequestActor;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ScimWriteScopeRule;
@@ -93,7 +94,8 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
         }
 
         // From here every record of the request names the connector, by its non-secret id —
-        // the refusal just below among them.
+        // the refusal just below among them, and the request record written outside the chain.
+        RequestActor.connector(request, connector.get().connectorId());
         try (LogContext.Scope scope =
                 LogContext.connectorId(connector.get().connectorId().toString())) {
             if (ScimWriteScopeRule.requiresWriteScope(request.getMethod(), path(request))

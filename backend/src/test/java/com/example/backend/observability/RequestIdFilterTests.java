@@ -12,6 +12,7 @@ import jakarta.servlet.ServletResponse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -367,6 +368,95 @@ class RequestIdFilterTests {
         idSeenDuringChain(underContext);
 
         assertThat(requestRecords()).hasSize(3);
+    }
+
+    // ---- the request's actor (#95) -----------------------------------------------------------
+
+    private static final UUID ADA = UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
+
+    private static final UUID OKTA = UUID.fromString("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
+    /**
+     * A caller the chain authenticated by session is named on the request record, though the
+     * inner filter's {@code user.id} scope closed before the record was written.
+     */
+    @Test
+    void aRequestTheChainAuthenticatedBySessionIsRecordedUnderItsUserId() throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"), (request, response) -> {
+            RequestActor.user(request, ADA);
+            matched("/api/self", 200).handle(request, response);
+        });
+
+        assertThat(onlyRequestRecord().getMDCPropertyMap())
+                .containsEntry(LogContext.USER_ID, ADA.toString())
+                .doesNotContainKey(LogContext.CONNECTOR_ID);
+    }
+
+    @Test
+    void aRequestTheChainAuthenticatedByBearerIsRecordedUnderItsConnectorId() throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/scim/v2/Users"), (request, response) -> {
+            RequestActor.connector(request, OKTA);
+            matched("/scim/v2/Users", 200).handle(request, response);
+        });
+
+        assertThat(onlyRequestRecord().getMDCPropertyMap())
+                .containsEntry(LogContext.CONNECTOR_ID, OKTA.toString())
+                .doesNotContainKey(LogContext.USER_ID);
+    }
+
+    /** No mark is no field: an anonymous request's record names nobody. */
+    @Test
+    void anAnonymousRequestIsRecordedUnderNoActor() throws Exception {
+        idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"), matched("/api/self", 401));
+
+        assertThat(onlyRequestRecord().getMDCPropertyMap())
+                .doesNotContainKeys(LogContext.USER_ID, LogContext.CONNECTOR_ID);
+    }
+
+    /** A null id leaves no mark — and clears one, so a request resolved to nobody names nobody. */
+    @Test
+    void aNullIdLeavesNoMark() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        RequestActor.user(request, ADA);
+        RequestActor.connector(request, OKTA);
+
+        RequestActor.user(request, null);
+        RequestActor.connector(request, null);
+
+        assertThat(request.getAttributeNames().hasMoreElements()).isFalse();
+    }
+
+    /** A mark of any other type is ignored rather than cast, as the request id's is. */
+    @Test
+    void anActorMarkOfTheWrongTypeIsIgnored() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/self");
+        request.setAttribute(RequestActor.USER_ATTRIBUTE, ADA.toString());
+        request.setAttribute(RequestActor.CONNECTOR_ATTRIBUTE, OKTA.toString());
+
+        idSeenDuringChain(request, matched("/api/self", 200));
+
+        assertThat(onlyRequestRecord().getMDCPropertyMap())
+                .doesNotContainKeys(LogContext.USER_ID, LogContext.CONNECTOR_ID);
+    }
+
+    /**
+     * The actor is in scope for the record alone: once the filter returns, neither id is
+     * left in the pooled thread's context, and an id the thread already held is restored.
+     */
+    @Test
+    void theActorDoesNotOutliveTheRecord() throws Exception {
+        UUID outer = UUID.fromString("00000000-0000-4000-8000-000000000001");
+        try (LogContext.Scope held = LogContext.userId(outer)) {
+            idSeenDuringChain(new MockHttpServletRequest("GET", "/api/self"),
+                    (request, response) -> {
+                        RequestActor.user(request, ADA);
+                        RequestActor.connector(request, OKTA);
+                        matched("/api/self", 200).handle(request, response);
+                    });
+
+            assertThat(MDC.get(LogContext.USER_ID)).isEqualTo(outer.toString());
+            assertThat(MDC.get(LogContext.CONNECTOR_ID)).isNull();
+        }
     }
 
     // ---- harness -----------------------------------------------------------------------------
