@@ -351,3 +351,71 @@ so `log-levels.yaml` turns that category `OFF`, as it does Hibernate's JDBC erro
 | logout                    | `user-logout`         | —                        | `process`        | `user`, `end`       |
 | session ended             | `session-end`         | —                        | `process`        | `end`               |
 | SCIM refusal, 4xx / 5xx   | `user-provisioning`   | `scim.refusal`           | `process`        | `denied` / `error`  |
+
+## Addendum (2026-10-02): scheduled job start, end, failure and run identity
+
+Issue #70. The three scheduled jobs logged one completion record each, with no start, no
+job identity and nothing of their own when a run failed (`Structured_Logging_Application_Standard.md`
+§2 #5, §3.1, §4; `Log_Schema.md` §Trigger, §Batch, §Error). This supersedes the three job
+"run" rows of the #67 table above and the sentence beneath it saying job records are
+`job-end` only.
+
+**One wrapper owns it.** Every job already ran through `ScheduledJobMetrics`, so its job
+logging lives there and no job re-implements it. `instrument(job, operation, task)` wraps a
+job that takes no lock (retention); `instrumentLocked(job, operation, task)` wraps one that
+serializes on its lock row (ADR 0005) and returns a `SkippableJobRun` — the two dormancy
+jobs' `DormancyRun` — because only the job, which takes the lock inside its own
+transaction, knows whether it ran. Each run, inside the observation that gives it its trace:
+
+- puts `batch.job.name` (the metric's `job` tag, so one name selects a job's metrics and
+  records alike), `batch.job.run.id` (a fresh UUID) and `trigger.type` `scheduled` in the
+  logging context through `LogContext.job`, the fifth setter;
+- writes `job-start`;
+- writes `job-end` at `INFO` with `event.outcome` `success` and `event.duration_ms` — with
+  `event.reason` `lock-held` when the job reports it skipped, and then no other record of
+  the job's;
+- or, when the job throws, writes `job-end` at `ERROR` with `event.outcome` `failure`,
+  `event.severity` `high`, `event.duration_ms`, `error_code` `500`, `error_category`
+  (`database` for Spring's data-access and transaction exceptions, `application` otherwise)
+  and `error_follow_up_action` `true`, the exception attached (so `error.type` is its
+  class), and rethrows — the failure counter and the scheduler's handling are unchanged;
+- closes the context scope however it ended, so no `batch.*`/`trigger.*` key is left on the
+  scheduler's thread.
+
+Both ends are classified as the job's own `Operation`, so a search on a job's action finds
+its start, its end and what it did between them. The run id sits beside the trace id rather
+than replacing it: `trace.id` stays the tracer's (#66), and the standard asks only that a
+run's records share both. `trigger.type` is an array in the schema; the logging context holds
+strings, so it is the one member. The issue asked for `trigger.type=cron`; the schema's enum
+is `scheduled`, `job-dependency`, `ad-hoc`, so it is `scheduled`.
+
+**The error fields are spelled with underscores** — `error_code`, `error_category`,
+`error_follow_up_action` — as `Log_Schema.md` and its recipes prescribe: Boot's ECS formatter
+owns the `error` object it writes from the attached throwable, and a dotted key of ours in it
+would collide. They are not remapped into `error.*`.
+
+**The exception is attached whole**, unlike the redacted copy the SCIM integrity-violation
+record attaches. The same exception goes on to Spring's scheduler error handler
+(`TaskUtils$LoggingErrorHandler`), which logs it whole regardless, so a redacted copy here
+would hide nothing and would cost `error.type` its real class.
+
+**The jobs' own records** keep what only the job knows — rows deleted, Users deactivated,
+memberships revoked, and the window — and inherit the run's context keys. They are the run's
+summary rather than its end, so they are `event.type` `info`; their `event.outcome` and the
+retention job's `event.duration_ms` moved to `job-end`, and `dormancy.skipped` is gone (a
+skipped run's record is the `lock-held` `job-end`).
+
+**The startup schedule records** state `batch.job.name`, `app.job.description` (what the job
+does, in a sentence — the schema has no field for it, so it is namespaced under `app.` as
+`app.event.action` is), `trigger.cron.expression` and `trigger.cron.timezone`
+(`Asia/Singapore`, `ServiceTimeZone.ZONE`, the zone #66 evaluates the crons and writes the
+timestamps in). They replace `audit.retention.schedule` and `dormancy.schedule`.
+`ScheduledJobMetrics.scheduled` builds them, so the configuration classes only add the job's
+window and log.
+
+| Operation                                   | `event.action`        | `app.event.action`                      | `event.category` | `event.type`          |
+| ------------------------------------------- | --------------------- | --------------------------------------- | ---------------- | --------------------- |
+| any job, run start / end                    | as the job's row      | as the job's row                        | `batch`          | `job-start` / `job-end` |
+| `identity.inactivity_deactivation`, summary | `user-administration` | `identity.inactivity_deactivation`      | `batch`          | `info`                |
+| `identity.dormant_authority_revocation`, summary | `access-control` | `identity.dormant_authority_revocation` | `batch`          | `info`                |
+| `audit.retention`, summary                  | —                     | `audit.retention`                       | `batch`          | `info`                |

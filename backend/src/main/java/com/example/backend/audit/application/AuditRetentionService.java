@@ -7,7 +7,6 @@ import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,12 +16,14 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Enforces the retention window: one pass that removes every event older than it.
  *
- * <p>Each run reports what it did — how many rows it removed and how long it took
- * — because a retention job is otherwise the one thing in the service whose
- * correct behaviour and total failure look identical from outside. A run that
- * deletes nothing is logged too: "nothing had aged out" and "the job has not run
- * for a month" are different facts and an operator needs to be able to tell them
- * apart.
+ * <p>Each run reports what it did — how many rows it removed — because a retention
+ * job is otherwise the one thing in the service whose correct behaviour and total
+ * failure look identical from outside. A run that deletes nothing is logged too:
+ * "nothing had aged out" and "the job has not run for a month" are different facts
+ * and an operator needs to be able to tell them apart. The run's start, its end, how
+ * long it took and whether it failed are {@code ScheduledJobMetrics}' to log, around
+ * this record; scheduled through it, this record carries the run's
+ * {@code batch.job.run.id}.
  *
  * <p>{@code @Transactional} is load-bearing rather than incidental. The adapter
  * assumes the retention database role with {@code SET LOCAL ROLE}, which needs a
@@ -55,15 +56,11 @@ public class AuditRetentionService {
      */
     @Transactional
     public long deleteAgedOutEvents() {
-        Instant startedAt = clock.instant();
-        Instant cutoff = startedAt.minus(policy.period());
+        Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
-        Duration took = Duration.between(startedAt, clock.instant());
-        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.JOB_END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.INFO)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .addKeyValue(LogEvent.RETENTION_DELETED_ROWS, deleted)
-                .addKeyValue(LogEvent.DURATION_MS, took.toMillis())
                 .log("Audit retention run complete");
         return deleted;
     }

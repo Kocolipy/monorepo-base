@@ -15,7 +15,10 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -129,9 +132,20 @@ class ScheduledJobScheduleTests {
             crons.forEach(ScheduledJobScheduleTests::assertEvaluatedInSingaporeTime);
 
             List<JsonNode> scheduled = records(logs, "Dormancy job scheduled");
-            assertThat(scheduled).extracting(record -> record.at("/dormancy/schedule").asText())
+            assertThat(scheduled).extracting(record -> record.at("/batch/job/name").asText())
+                    .containsExactly("inactivity", "dormant-authority-revocation");
+            assertThat(scheduled).extracting(record -> record.at("/trigger/cron/expression").asText())
                     .containsExactly(DormancyScheduleConfig.DEACTIVATION_SCHEDULE,
                             DormancyScheduleConfig.AUTHORITY_REVOCATION_SCHEDULE);
+            assertThat(scheduled).extracting(record -> record.at("/trigger/cron/timezone").asText())
+                    .containsOnly("Asia/Singapore");
+            assertThat(scheduled).extracting(record -> record.at("/app/job/description").asText())
+                    .containsExactly(DormancyScheduleConfig.DEACTIVATION_DESCRIPTION,
+                            DormancyScheduleConfig.AUTHORITY_REVOCATION_DESCRIPTION)
+                    .allSatisfy(description -> assertThat(description).isNotBlank());
+            assertThat(scheduled).extracting(record -> record.at("/app/event/action").asText())
+                    .containsExactly("identity.inactivity_deactivation",
+                            "identity.dormant_authority_revocation");
             assertThat(scheduled).extracting(record -> record.at("/dormancy/window").asText())
                     .containsExactly(dormancy.deactivationWindow().toString(),
                             dormancy.authorityRevocationWindow().toString());
@@ -139,8 +153,11 @@ class ScheduledJobScheduleTests {
             for (CronTask cron : crons) {
                 logs.reset();
                 cron.getRunnable().run();
-                assertThat(onThisThread(logs)).as(cron.getExpression()).isNotEmpty()
+                List<JsonNode> run = onThisThread(logs);
+                assertThat(run).as(cron.getExpression()).isNotEmpty()
                         .allSatisfy(record -> assertThat(record.at("/trace/id").asText()).isNotBlank());
+                assertJobStartThenJobEndUnderOneRunId(run);
+                assertNoJobKeyLeftInContext();
             }
         }
     }
@@ -156,16 +173,42 @@ class ScheduledJobScheduleTests {
             assertEvaluatedInSingaporeTime(crons.getFirst());
 
             assertThat(records(logs, "Audit retention job scheduled")).singleElement().satisfies(record -> {
-                assertThat(record.at("/audit/retention/schedule").asText()).isEqualTo(retention.schedule());
+                assertThat(record.at("/batch/job/name").asText()).isEqualTo("audit-retention");
+                assertThat(record.at("/trigger/cron/expression").asText()).isEqualTo(retention.schedule());
+                assertThat(record.at("/trigger/cron/timezone").asText()).isEqualTo("Asia/Singapore");
+                assertThat(record.at("/app/job/description").asText())
+                        .isEqualTo(AuditRetentionScheduleConfig.RETENTION_DESCRIPTION).isNotBlank();
+                assertThat(record.at("/app/event/action").asText()).isEqualTo("audit.retention");
                 assertThat(record.at("/audit/retention/period").asText())
                         .isEqualTo(retention.period().toString());
             });
 
             logs.reset();
             crons.getFirst().getRunnable().run();
-            assertThat(onThisThread(logs)).isNotEmpty()
+            List<JsonNode> run = onThisThread(logs);
+            assertThat(run).isNotEmpty()
                     .allSatisfy(record -> assertThat(record.at("/trace/id").asText()).isNotBlank());
+            assertJobStartThenJobEndUnderOneRunId(run);
+            assertNoJobKeyLeftInContext();
         }
+    }
+
+    /**
+     * The run's first record is its {@code job-start} and its last its {@code job-end}, and
+     * every record between them — the job's own — carries the same run id.
+     */
+    private static void assertJobStartThenJobEndUnderOneRunId(List<JsonNode> run) {
+        assertThat(run.getFirst().at("/event/type/0").asText()).isEqualTo("job-start");
+        assertThat(run.getLast().at("/event/type/0").asText()).isEqualTo("job-end");
+        String runId = run.getFirst().at("/batch/job/run/id").asText();
+        assertThat(runId).isNotBlank();
+        assertThat(run).allSatisfy(record ->
+                assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId));
+    }
+
+    private static void assertNoJobKeyLeftInContext() {
+        assertThat(Optional.ofNullable(MDC.getCopyOfContextMap()).orElseGet(Map::of).keySet())
+                .noneMatch(key -> key.startsWith("batch.") || key.startsWith("trigger."));
     }
 
     private static void assertEvaluatedInSingaporeTime(CronTask cron) {

@@ -3,9 +3,7 @@ package com.example.backend.auth.config;
 import com.example.backend.auth.application.DormantAuthorityRevocationService;
 import com.example.backend.auth.application.InactivityDeactivationService;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.observability.ServiceTimeZone;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -32,8 +30,10 @@ import org.springframework.scheduling.support.CronTrigger;
  * from the audit retention job's 03:30. All three are evaluated in {@link ServiceTimeZone#ZONE},
  * the zone the log timestamps are written in.
  *
- * <p>Both run through {@link ScheduledJobMetrics#instrument}, as the retention job does, so a
- * run is counted and is its own trace: every record a run emits carries one {@code trace.id}.
+ * <p>Both run through {@link ScheduledJobMetrics#instrumentLocked}, so a run is counted, is its
+ * own trace, and is logged from start to end under its own {@code batch.job.run.id} — a run
+ * that finds its lock held as {@code lock-held}. The startup record states each job's name,
+ * what it does, its cron and that cron's zone, and its window.
  */
 @Configuration
 @EnableScheduling
@@ -54,6 +54,15 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
 
     /** The {@code job} tag of the dormant-authority job's run metrics. */
     static final String AUTHORITY_REVOCATION_JOB = "dormant-authority-revocation";
+
+    /** What the inactivity job does, on its startup record. */
+    public static final String DEACTIVATION_DESCRIPTION =
+            "Deactivates every User that has not authenticated within the inactivity window";
+
+    /** What the dormant-authority job does, on its startup record. */
+    public static final String AUTHORITY_REVOCATION_DESCRIPTION =
+            "Removes the Admin-group membership of every User that has not authenticated within"
+                    + " the dormant-authority window";
 
     private static final Logger log = LoggerFactory.getLogger(DormancyScheduleConfig.class);
 
@@ -76,20 +85,24 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
     @Override
     public void configureTasks(ScheduledTaskRegistrar registrar) {
         registrar.addCronTask(new CronTask(
-                jobs.instrument(DEACTIVATION_JOB, deactivation::deactivateDormantUsers),
+                jobs.instrumentLocked(DEACTIVATION_JOB, InactivityDeactivationService.OPERATION,
+                        deactivation::deactivateDormantUsers),
                 new CronTrigger(DEACTIVATION_SCHEDULE, ServiceTimeZone.ZONE)));
         registrar.addCronTask(new CronTask(
-                jobs.instrument(AUTHORITY_REVOCATION_JOB, authorityRevocation::revokeDormantAuthority),
+                jobs.instrumentLocked(AUTHORITY_REVOCATION_JOB,
+                        DormantAuthorityRevocationService.OPERATION,
+                        authorityRevocation::revokeDormantAuthority),
                 new CronTrigger(AUTHORITY_REVOCATION_SCHEDULE, ServiceTimeZone.ZONE)));
-        scheduled(InactivityDeactivationService.OPERATION, DEACTIVATION_SCHEDULE,
-                policy.deactivationWindow().toString());
-        scheduled(DormantAuthorityRevocationService.OPERATION, AUTHORITY_REVOCATION_SCHEDULE,
+        scheduled(InactivityDeactivationService.OPERATION, DEACTIVATION_JOB, DEACTIVATION_SCHEDULE,
+                DEACTIVATION_DESCRIPTION, policy.deactivationWindow().toString());
+        scheduled(DormantAuthorityRevocationService.OPERATION, AUTHORITY_REVOCATION_JOB,
+                AUTHORITY_REVOCATION_SCHEDULE, AUTHORITY_REVOCATION_DESCRIPTION,
                 policy.authorityRevocationWindow().toString());
     }
 
-    private static void scheduled(Operation operation, String schedule, String window) {
-        LogEvent.classify(log.atInfo(), operation, Category.CONFIGURATION, Type.INFO)
-                .addKeyValue(LogEvent.DORMANCY_SCHEDULE, schedule)
+    private static void scheduled(
+            Operation operation, String job, String schedule, String description, String window) {
+        ScheduledJobMetrics.scheduled(log.atInfo(), operation, job, schedule, description)
                 .addKeyValue(LogEvent.DORMANCY_WINDOW, window)
                 .log("Dormancy job scheduled");
     }

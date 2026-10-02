@@ -91,7 +91,6 @@ public class DormantAuthorityRevocationService {
     @Transactional
     public DormancyRun revokeDormantAuthority() {
         if (!lock.tryAcquire(ScheduledJob.DORMANT_AUTHORITY_REVOCATION)) {
-            logRun(true, 0);
             return DormancyRun.skippedRun();
         }
         Instant now = clock.instant();
@@ -114,7 +113,7 @@ public class DormantAuthorityRevocationService {
                 revoked.add(candidate);
             }
         }
-        logRun(false, revoked.size());
+        logRun(revoked.size());
         return new DormancyRun(false, revoked);
     }
 
@@ -134,12 +133,14 @@ public class DormantAuthorityRevocationService {
         return !user.isExemptFromDormancy() && user.isDormantAt(cutoff);
     }
 
-    /** Reports the run, a skipped or empty one included; names no identity. */
-    private void logRun(boolean skipped, int processed) {
-        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.JOB_END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+    /**
+     * Reports what a run that did the work did, an empty one included; names no identity. A
+     * skipped run is logged by {@code ScheduledJobMetrics.instrumentLocked}, as the run's
+     * {@code lock-held} end.
+     */
+    private void logRun(int processed) {
+        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.INFO)
                 .addKeyValue(LogEvent.DORMANCY_WINDOW, policy.authorityRevocationWindow().toString())
-                .addKeyValue(LogEvent.DORMANCY_SKIPPED, skipped)
                 .addKeyValue(LogEvent.DORMANCY_PROCESSED, processed)
                 .log("Dormant authority revocation run complete");
     }

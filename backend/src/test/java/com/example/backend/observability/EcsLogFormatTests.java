@@ -437,6 +437,7 @@ class EcsLogFormatTests {
         String thread = Thread.currentThread().getName();
 
         List<String> runTraces = new ArrayList<>();
+        List<String> runIds = new ArrayList<>();
         for (int run = 0; run < 2; run++) {
             logs.reset();
             retention.run();
@@ -445,15 +446,25 @@ class EcsLogFormatTests {
                     .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
                     .toList();
             String trace = onlyRecordWithMessage("Audit retention run complete").at("/trace/id").asText();
+            String runId = onlyRecordWithMessage("Audit retention run complete")
+                    .at("/batch/job/run/id").asText();
             assertThat(trace).matches(TRACE_ID);
+            assertThat(runId).isNotBlank();
+            assertThat(runRecords).extracting(record -> record.at("/message").asText())
+                    .startsWith("Scheduled job started").endsWith("Scheduled job completed");
             assertThat(runRecords).allSatisfy(record -> {
                 assertThat(record.at("/trace/id").asText()).isEqualTo(trace);
                 assertThat(record.at("/span/id").asText()).matches(SPAN_ID);
+                assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId);
+                assertThat(record.at("/batch/job/name").asText()).isEqualTo("audit-retention");
+                assertThat(record.at("/trigger/type").asText()).isEqualTo("scheduled");
                 assertThat(record.has("http")).as("off-request").isFalse();
             });
             runTraces.add(trace);
+            runIds.add(runId);
         }
         assertThat(runTraces.get(0)).isNotEqualTo(runTraces.get(1));
+        assertThat(runIds.get(0)).isNotEqualTo(runIds.get(1));
     }
 
     /**

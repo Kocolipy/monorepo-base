@@ -13,18 +13,24 @@ import com.example.backend.auth.InMemoryScheduledJobLock;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.domain.ScheduledJob;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The inactivity job against the in-memory directory: who it deactivates, what each deactivation
@@ -267,15 +273,17 @@ class InactivityDeactivationServiceTests {
     // ---- the run log ----------------------------------------------------------------------
 
     /**
-     * Every run reports itself — a run that changed Users and a skipped one alike — so "nobody
-     * was dormant" and "the job never ran" can be told apart from the log stream.
+     * A run that did the work reports it — one that changed Users and one that found nobody
+     * alike — so "nobody was dormant" and "the job never ran" can be told apart. A skipped
+     * run writes no summary: its end is the wrapper's {@code lock-held} record (below).
      */
     @Test
-    void everyRunIsLoggedWithItsWindowOutcomeAndCount() {
+    void everyRunThatDidTheWorkIsLoggedWithItsWindowAndCount() {
         users.given(authenticatedAt("ada", CREATED));
         clock.advanceBy(WINDOW.plusSeconds(1));
 
         try (CapturedLog captured = CapturedLog.attach()) {
+            job.deactivateDormantUsers();
             job.deactivateDormantUsers();
             lock.holdElsewhere(ScheduledJob.INACTIVITY_DEACTIVATION);
             job.deactivateDormantUsers();
@@ -284,14 +292,85 @@ class InactivityDeactivationServiceTests {
                     Level.INFO, LogEvent.LOCAL_ACTION, InactivityDeactivationService.OPERATION.local());
             assertThat(runs).hasSize(2);
             assertThat(CapturedLog.fields(runs.get(0)))
-                    .containsEntry(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .containsEntry(LogEvent.CATEGORY, List.of("batch"))
+                    .containsEntry(LogEvent.TYPE, List.of("info"))
                     .containsEntry(LogEvent.DORMANCY_WINDOW, WINDOW.toString())
-                    .containsEntry(LogEvent.DORMANCY_SKIPPED, false)
-                    .containsEntry(LogEvent.DORMANCY_PROCESSED, 1);
+                    .containsEntry(LogEvent.DORMANCY_PROCESSED, 1)
+                    .doesNotContainKey(LogEvent.OUTCOME);
             assertThat(CapturedLog.fields(runs.get(1)))
-                    .containsEntry(LogEvent.DORMANCY_SKIPPED, true)
                     .containsEntry(LogEvent.DORMANCY_PROCESSED, 0);
         }
+    }
+
+    /**
+     * Run as it is scheduled — through {@link ScheduledJobMetrics#instrumentLocked} — a run is
+     * {@code job-start}, this job's summary and {@code job-end}, all under one
+     * {@code batch.job.run.id}, and the next run has another.
+     */
+    @Test
+    void aScheduledRunIsJobStartTheSummaryAndJobEndUnderOneRunId() {
+        users.given(authenticatedAt("ada", CREATED));
+        clock.advanceBy(WINDOW.plusSeconds(1));
+        Runnable scheduled = scheduled();
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled.run();
+            List<JsonNode> first = onThisThread(ecs);
+            ecs.reset();
+            scheduled.run();
+            List<JsonNode> second = onThisThread(ecs);
+
+            assertThat(first).extracting(record -> record.at("/message").asText()).containsExactly(
+                    "Scheduled job started", "Inactivity deactivation run complete",
+                    "Scheduled job completed");
+            String runId = first.getFirst().at("/batch/job/run/id").asText();
+            assertThat(runId).isNotBlank();
+            assertThat(first).allSatisfy(record -> {
+                assertThat(record.at("/batch/job/run/id").asText()).isEqualTo(runId);
+                assertThat(record.at("/app/event/action").asText())
+                        .isEqualTo("identity.inactivity_deactivation");
+            });
+            assertThat(first.get(1).at("/dormancy/processed").asInt()).isEqualTo(1);
+            assertThat(second.getFirst().at("/batch/job/run/id").asText())
+                    .isNotBlank().isNotEqualTo(runId);
+        }
+    }
+
+    /**
+     * Scheduled while another run holds the lock, a run ends in the one {@code lock-held}
+     * {@code job-end} and does nothing: no User changes, no event, no summary claiming work.
+     */
+    @Test
+    void aScheduledRunThatFindsTheLockHeldLogsTheSkipAndDoesNoWork() {
+        users.given(authenticatedAt("ada", CREATED));
+        clock.advanceBy(WINDOW.plusSeconds(1));
+        lock.holdElsewhere(ScheduledJob.INACTIVITY_DEACTIVATION);
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled().run();
+
+            List<JsonNode> records = onThisThread(ecs);
+            assertThat(records).extracting(record -> record.at("/message").asText()).containsExactly(
+                    "Scheduled job started", "Scheduled job skipped: another run holds its lock");
+            assertThat(records.get(1).at("/event/reason").asText()).isEqualTo("lock-held");
+            assertThat(records.get(1).at("/log/level").asText()).isEqualTo("INFO");
+        }
+        assertThat(users.require("ada").profile().active()).isTrue();
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(lock.attempts()).containsExactly(ScheduledJob.INACTIVITY_DEACTIVATION);
+    }
+
+    private Runnable scheduled() {
+        return new ScheduledJobMetrics(new SimpleMeterRegistry(), ObservationRegistry.NOOP, clock)
+                .instrumentLocked("inactivity", InactivityDeactivationService.OPERATION,
+                        job::deactivateDormantUsers);
+    }
+
+    private static List<JsonNode> onThisThread(EcsLogCapture ecs) {
+        String thread = Thread.currentThread().getName();
+        return ecs.records().stream()
+                .filter(record -> thread.equals(record.at("/process/thread/name").asText()))
+                .toList();
     }
 
     // ---- reactivation ---------------------------------------------------------------------

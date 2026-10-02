@@ -154,14 +154,67 @@ class LogContextTests {
     void clearRemovesEveryKeyThisClassOwnsAndNothingElse() {
         MDC.put("library.key", "left alone");
         LogContext.requestId("r-1");
+        LogContext.userId(java.util.UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e"));
         LogContext.connectorId("c-1");
         LogContext.resourceId("u-1");
+        LogContext.job("probe", java.util.UUID.fromString("6ba7b810-9dad-11d1-80b4-00c04fd430c8"));
 
         LogContext.clear();
 
-        assertThat(MDC.get(LogContext.REQUEST_ID)).isNull();
-        assertThat(MDC.get(LogContext.CONNECTOR_ID)).isNull();
-        assertThat(MDC.get(LogContext.RESOURCE_ID)).isNull();
+        assertThat(MDC.getCopyOfContextMap()).containsOnlyKeys("library.key");
         assertThat(MDC.get("library.key")).isEqualTo("left alone");
+    }
+
+    // ---- a scheduled job's run ------------------------------------------------------------
+
+    private static final java.util.UUID RUN = java.util.UUID.fromString("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+
+    /**
+     * A run's identity is three keys written as one: the job, the run, and that a schedule
+     * started it — under the {@code Log_Schema.md} names a search for them uses.
+     */
+    @Test
+    void aJobScopeWritesTheJobNameTheRunIdAndTheScheduledTrigger() {
+        try (LogContext.Scope run = LogContext.job("audit-retention", RUN)) {
+            assertThat(MDC.getCopyOfContextMap()).containsOnly(
+                    Map.entry("batch.job.name", "audit-retention"),
+                    Map.entry("batch.job.run.id", RUN.toString()),
+                    Map.entry("trigger.type", "scheduled"));
+        }
+    }
+
+    /** Nothing of a run outlives it on the thread that ran it — the scheduler's, reused next run. */
+    @Test
+    void closingAJobScopeRemovesAllThreeKeys() {
+        try (LogContext.Scope run = LogContext.job("audit-retention", RUN)) {
+            assertThat(MDC.get(LogContext.JOB_RUN_ID)).isEqualTo(RUN.toString());
+        }
+
+        assertThat(MDC.getCopyOfContextMap()).isNullOrEmpty();
+    }
+
+    /** Like every scope, a job scope restores what each of its keys held before it. */
+    @Test
+    void closingAJobScopeRestoresEachKeyItShadowed() {
+        MDC.put(LogContext.JOB_NAME, "outer-job");
+        MDC.put(LogContext.JOB_RUN_ID, "outer-run");
+        MDC.put(LogContext.TRIGGER_TYPE, "ad-hoc");
+
+        try (LogContext.Scope run = LogContext.job("audit-retention", RUN)) {
+            assertThat(MDC.get(LogContext.JOB_NAME)).isEqualTo("audit-retention");
+        }
+
+        assertThat(MDC.getCopyOfContextMap()).containsOnly(
+                Map.entry(LogContext.JOB_NAME, "outer-job"),
+                Map.entry(LogContext.JOB_RUN_ID, "outer-run"),
+                Map.entry(LogContext.TRIGGER_TYPE, "ad-hoc"));
+    }
+
+    /** The job name is sanitized like every other value. */
+    @Test
+    void aJobNameCannotEndTheRecord() {
+        try (LogContext.Scope run = LogContext.job("job\nforged", RUN)) {
+            assertThat(MDC.get(LogContext.JOB_NAME)).isEqualTo("job_forged");
+        }
     }
 }
