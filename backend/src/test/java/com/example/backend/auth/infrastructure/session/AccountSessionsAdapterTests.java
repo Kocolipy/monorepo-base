@@ -2,7 +2,12 @@ package com.example.backend.auth.infrastructure.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
+import com.example.backend.observability.LogEvent;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -99,6 +104,67 @@ class AccountSessionsAdapterTests {
         assertThat(adapter.revokeAllExcept(BOB, zoes)).isEqualTo(1);
 
         assertThat(sessions.principals()).containsExactly(ZOE.toString());
+    }
+
+    // ---- session-end records (#69) -----------------------------------------------------------
+
+    /**
+     * A revocation that ended sessions is one INFO {@code session-end} record: the cause, the
+     * account by stable id as the target, and how many ended — never a session id, which is
+     * the session's bearer credential.
+     */
+    @Test
+    void aRevocationIsOneSessionEndRecordNamingTheCauseAndTheAccount() {
+        String first = sessions.open(BOB);
+        String second = sessions.open(BOB);
+
+        ILoggingEvent record = onlyRecord(() -> adapter.revokeAll(BOB));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getFormattedMessage()).isEqualTo("Sessions ended");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ACTION, "session-end")
+                .containsEntry(LogEvent.TYPE, List.of("end"))
+                .containsEntry(LogEvent.OUTCOME, "success")
+                .containsEntry(LogEvent.REASON, "revoked")
+                .containsEntry(LogEvent.USER_TARGET_ID, BOB.toString())
+                .containsEntry(LogEvent.SESSIONS_ENDED, 2);
+        assertThat(CapturedLog.fields(record).toString() + record.getMDCPropertyMap())
+                .doesNotContain(first).doesNotContain(second);
+    }
+
+    @Test
+    void aLoginEndingTheOtherSessionsSaysSo() {
+        sessions.open(BOB);
+        String retained = sessions.open(BOB);
+
+        ILoggingEvent record = onlyRecord(() -> adapter.revokeAllExcept(BOB, retained));
+
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.REASON, "replaced-by-login")
+                .containsEntry(LogEvent.SESSIONS_ENDED, 1);
+    }
+
+    /** Nothing ended, nothing to record — for either operation. */
+    @Test
+    void aRevocationThatEndedNothingWritesNoRecord() {
+        String retained = sessions.open(BOB);
+
+        try (CapturedLog captured = CapturedLog.attach()) {
+            adapter.revokeAll(ZOE);
+            adapter.revokeAllExcept(BOB, retained);
+
+            assertThat(captured.withAction(Level.TRACE, LogEvent.KIND, "event")).isEmpty();
+        }
+    }
+
+    private static ILoggingEvent onlyRecord(Runnable action) {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            action.run();
+            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+            assertThat(records).hasSize(1);
+            return records.getFirst();
+        }
     }
 
     /** A session store that can be searched by principal, and nothing more. */

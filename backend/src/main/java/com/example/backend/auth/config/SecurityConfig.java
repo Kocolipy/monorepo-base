@@ -1,10 +1,10 @@
 package com.example.backend.auth.config;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
+import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.scim.domain.PasswordNormalization;
 import com.example.backend.web.SpaRoutes;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
@@ -24,6 +24,7 @@ import org.springframework.security.crypto.password.DelegatingPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -67,18 +68,6 @@ public class SecurityConfig {
             "microphone=()",
             "payment=()",
             "usb=()");
-
-    /** The logout route, as the chain matches it for the sessionless refusal below. */
-    private static final String LOGOUT_PATH = "/api/auth/logout";
-
-    /**
-     * What a logout asks the browser to clear. {@code AuthController} sends the same value on the
-     * logout it handles; this chain sends it on the logout it refuses for want of a session, and
-     * each side's tests pin the exact value, so the two cannot drift apart unnoticed.
-     */
-    private static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
-
-    private static final String CLEAR_SITE_DATA_ON_LOGOUT = "\"cache\",\"cookies\",\"storage\"";
 
     /**
      * Argon2id as the only encoder, at the parameters this ticket specifies
@@ -194,17 +183,13 @@ public class SecurityConfig {
             HttpSecurity http,
             SecurityContextRepository securityContextRepository,
             CsrfTokenRepository csrfTokenRepository,
-            AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter) throws Exception {
-        AuthenticationEntryPoint unauthorized = (request, response, exception) -> {
-            // A logout that arrives with no live session — expired, revoked, or never there — is
-            // answered here rather than by AuthController, and is still a browser being signed
-            // out: it gets the same Clear-Site-Data the handler sends, so what a dead session left
-            // behind is cleared either way.
-            if (isLogout(request)) {
-                response.setHeader(CLEAR_SITE_DATA_HEADER, CLEAR_SITE_DATA_ON_LOGOUT);
-            }
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED);
-        };
+            AbsoluteSessionLifetimeFilter absoluteSessionLifetimeFilter,
+            AccessRefusalLog accessRefusalLog) throws Exception {
+        // Both refusals record themselves before answering. The access-denied handler is the
+        // chain's one handler, and the CSRF filter answers through the same one, so a missing
+        // token and a missing role are each recorded once, under their own reason.
+        AuthenticationEntryPoint unauthorized = new SessionAuthenticationEntryPoint(accessRefusalLog);
+        AccessDeniedHandler forbidden = new RefusalLoggingAccessDeniedHandler(accessRefusalLog);
         return http
                 // The default request handler: it XOR-masks the token it exposes
                 // (so GET /api/auth/csrf never returns the same bytes twice, which
@@ -243,7 +228,8 @@ public class SecurityConfig {
                         .permissionsPolicyHeader(permissions -> permissions
                                 .policy(PERMISSIONS_POLICY)))
                 .exceptionHandling(exceptions -> exceptions
-                        .authenticationEntryPoint(unauthorized))
+                        .authenticationEntryPoint(unauthorized)
+                        .accessDeniedHandler(forbidden))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/login", "/actuator/health").permitAll()
                         // Public because the login form needs a token before there is anyone
@@ -274,12 +260,6 @@ public class SecurityConfig {
                         // it too. Every active User without the flag holds ROLE_USER.
                         .anyRequest().hasRole("USER"))
                 .build();
-    }
-
-    /** The logout operation, which the chain refuses with 401 when no session is live. */
-    private static boolean isLogout(HttpServletRequest request) {
-        String path = request.getRequestURI().substring(request.getContextPath().length());
-        return HttpMethod.DELETE.matches(request.getMethod()) && LOGOUT_PATH.equals(path);
     }
 
     /**

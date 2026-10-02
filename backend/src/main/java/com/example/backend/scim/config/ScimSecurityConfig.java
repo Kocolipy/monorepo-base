@@ -1,5 +1,6 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import java.security.SecureRandom;
 import org.springframework.beans.factory.annotation.Value;
@@ -112,10 +113,10 @@ public class ScimSecurityConfig {
     public SecurityFilterChain scimSecurityFilterChain(
             HttpSecurity http,
             ConnectorAuthenticationService connectors,
-            ScimReleaseGate releaseGate)
+            ScimReleaseGate releaseGate,
+            AccessRefusalLog accessRefusalLog)
             throws Exception {
-        AuthenticationEntryPoint challenge =
-                (request, response, exception) -> ScimBearerChallenge.missingCredential(response);
+        AuthenticationEntryPoint challenge = new ScimBearerEntryPoint(accessRefusalLog);
 
         // A stateless bearer API has no CSRF exposure to protect, because the
         // credential is not ambient. A browser cannot make an authenticated SCIM
@@ -163,7 +164,8 @@ public class ScimSecurityConfig {
                 .addFilterBefore(new ScimRequestBodyLimitFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(new ScimDispatcherErrorFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(
-                        new ScimBearerAuthenticationFilter(connectors), AuthorizationFilter.class)
+                        new ScimBearerAuthenticationFilter(connectors, accessRefusalLog),
+                        AuthorizationFilter.class)
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(challenge))
                 .authorizeHttpRequests(authorize -> authorize

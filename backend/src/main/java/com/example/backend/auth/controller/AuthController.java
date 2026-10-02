@@ -7,12 +7,19 @@ import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -54,6 +61,8 @@ public class AuthController {
 
     /** Every data type a signed-out session may have left in the browser. */
     static final String CLEAR_SITE_DATA_ON_LOGOUT = "\"cache\",\"cookies\",\"storage\"";
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final LoginService login;
     private final PasswordChangeService passwordChanges;
@@ -190,8 +199,17 @@ public class AuthController {
      */
     private void recordLogout(HttpSession session) {
         if (session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
-                instanceof String userId) {
-            audit.recordLogout(UUID.fromString(userId));
+                instanceof String indexed) {
+            UUID userId = UUID.fromString(indexed);
+            audit.recordLogout(userId);
+            // Beside the audit append, after it succeeded: the trail is the record of who
+            // logged out, and this is the operational stream's line for the same moment.
+            try (LogContext.Scope scope = LogContext.userId(userId)) {
+                LogEvent.classify(log.atInfo(), Operation.LOGOUT, Category.PROCESS,
+                                Type.USER, Type.END)
+                        .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                        .log("Logout completed");
+            }
         }
     }
 

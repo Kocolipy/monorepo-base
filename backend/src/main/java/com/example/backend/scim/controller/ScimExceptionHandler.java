@@ -1,5 +1,6 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
@@ -20,16 +21,23 @@ import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimValueControlCharacterException;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * Renders every refusal this slice's handlers produce as the one SCIM error document.
@@ -52,6 +60,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 class ScimExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ScimExceptionHandler.class);
+
+    private static final String USERS_ROUTE = "/scim/v2/Users";
+
+    private static final String GROUPS_ROUTE = "/scim/v2/Groups";
 
     /** Every refusal this slice raises deliberately. */
     @ExceptionHandler(ScimErrorException.class)
@@ -182,12 +194,18 @@ class ScimExceptionHandler {
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
     ResponseEntity<Map<String, Object>> handle(DataIntegrityViolationException violation) {
-        LogEvent.classify(log.atError(), Operation.SCIM_WRITE, Category.DATABASE, Type.ERROR)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                .addKeyValue(LogEvent.REASON,
-                        violation.getMostSpecificCause().getClass().getSimpleName())
-                .log("SCIM write refused by an unmapped integrity violation");
-        return render(ScimErrorException.serverError(
+        String causeType = violation.getMostSpecificCause().getClass().getSimpleName();
+        // The fault's one record. Attached as a redacted copy: the stack says where it failed,
+        // and the message — which quotes the statement and the conflicting value — is replaced
+        // by the cause's type, so no part of the refused row reaches the record.
+        inResourceContext(resourceType -> withResourceType(LogEvent.classify(
+                                log.atError().setCause(
+                                        RedactedFaultException.of(violation, causeType)),
+                                Operation.SCIM_WRITE, Category.DATABASE, Type.ERROR)
+                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                        .addKeyValue(LogEvent.REASON, causeType), resourceType)
+                .log("SCIM write refused by an unmapped integrity violation"));
+        return body(ScimErrorException.serverError(
                 "The write could not be completed because of a server-side failure; it was not"
                         + " applied."));
     }
@@ -238,7 +256,86 @@ class ScimExceptionHandler {
                 }));
     }
 
+    /**
+     * Records the refusal, then renders it. Every handler but the integrity-violation one comes
+     * through here, so each refusal gets exactly one record: {@code WARN} for the caller's
+     * error, {@code ERROR} with the exception attached for a fault on this side. The record
+     * carries the refusal's {@link ScimErrorException#reason() reason}, its status, and the
+     * resource the request addressed where the route names one — never the detail, which
+     * may name an attribute, and never anything the caller submitted.
+     */
     private static ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {
+        boolean fault = refusal.status().is5xxServerError();
+        inResourceContext(resourceType -> withResourceType(LogEvent.classify(
+                                fault ? log.atError().setCause(refusal) : log.atWarn(),
+                                Operation.SCIM_REFUSAL, Category.PROCESS,
+                                fault ? Type.ERROR : Type.DENIED)
+                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                        .addKeyValue(LogEvent.REASON, refusal.reason())
+                        .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status().value()),
+                        resourceType)
+                .log("SCIM request refused"));
+        return body(refusal);
+    }
+
+    /**
+     * Runs {@code write} with the addressed resource's id in the logging context, handing it
+     * the resource's type. Both come from the route the dispatcher matched — the template
+     * and its {@code {id}} variable — and the id only when it is one this service could have
+     * issued: a path segment that is not a UUID names no resource and is whatever the caller
+     * typed, so it is not recorded.
+     */
+    private static void inResourceContext(Consumer<String> write) {
+        HttpServletRequest request = currentRequest();
+        String resourceId = request == null ? null : resourceId(request);
+        try (LogContext.Scope scope = LogContext.resourceId(resourceId)) {
+            write.accept(request == null ? null : resourceType(request));
+        }
+    }
+
+    private static LoggingEventBuilder withResourceType(
+            LoggingEventBuilder record, String resourceType) {
+        return resourceType == null
+                ? record
+                : record.addKeyValue(LogEvent.SCIM_RESOURCE_TYPE, resourceType);
+    }
+
+    private static HttpServletRequest currentRequest() {
+        return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes current
+                ? current.getRequest()
+                : null;
+    }
+
+    /** {@code User} or {@code Group}, from the matched template; {@code null} for any other. */
+    static String resourceType(HttpServletRequest request) {
+        if (!(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)
+                instanceof String route)) {
+            return null;
+        }
+        if (isUnder(route, USERS_ROUTE)) {
+            return "User";
+        }
+        return isUnder(route, GROUPS_ROUTE) ? "Group" : null;
+    }
+
+    static String resourceId(HttpServletRequest request) {
+        if (!(request.getAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE)
+                instanceof Map<?, ?> variables)
+                || !(variables.get("id") instanceof String id)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(id).toString();
+        } catch (IllegalArgumentException notAnId) {
+            return null;
+        }
+    }
+
+    private static boolean isUnder(String route, String prefix) {
+        return route.equals(prefix) || route.startsWith(prefix + "/");
+    }
+
+    private static ResponseEntity<Map<String, Object>> body(ScimErrorException refusal) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("schemas", List.of(ScimSchemas.ERROR));
         // A string, not a number: RFC 7644 §3.12 defines status as a string, and a
@@ -253,5 +350,23 @@ class ScimExceptionHandler {
         return ResponseEntity.status(refusal.status())
                 .header("Content-Type", ScimSchemas.MEDIA_TYPE)
                 .body(body);
+    }
+
+    /**
+     * A fault's stand-in for the log: the original's stack, under a message that is only the
+     * most specific cause's type, and no cause chain — every link of which would print its own
+     * message. What makes "the exception attached" compatible with "no value of the row".
+     */
+    static final class RedactedFaultException extends RuntimeException {
+
+        private RedactedFaultException(String causeType) {
+            super(causeType, null, false, true);
+        }
+
+        static RedactedFaultException of(Throwable fault, String causeType) {
+            RedactedFaultException redacted = new RedactedFaultException(causeType);
+            redacted.setStackTrace(fault.getStackTrace());
+            return redacted;
+        }
     }
 }

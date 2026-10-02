@@ -158,9 +158,13 @@ class ScimExceptionHandlerBodyTests {
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);
+        DataIntegrityViolationException violation = new DataIntegrityViolationException(
+                "Key (value)=(secret-value)",
+                new java.sql.SQLException("violates check constraint; secret-value"));
+        StackTraceElement origin = new StackTraceElement("FaultOrigin", "write", "FaultOrigin.java", 7);
+        violation.setStackTrace(new StackTraceElement[] {origin});
         try {
-            handler.handle(new DataIntegrityViolationException("Key (value)=(secret-value)",
-                    new java.sql.SQLException("violates check constraint; secret-value")));
+            handler.handle(violation);
         } finally {
             logger.detachAppender(appender);
         }
@@ -179,8 +183,14 @@ class ScimExceptionHandlerBodyTests {
                             tuple("app.event.action", "scim.write"),
                             tuple("event.outcome", "failure"),
                             tuple("event.reason", "SQLException"));
-            assertThat(event.getThrowableProxy()).as("no stack trace, which quotes the message")
-                    .isNull();
+            assertThat(event.getThrowableProxy()).as("the fault, redacted to its cause's type")
+                    .isNotNull();
+            assertThat(event.getThrowableProxy().getMessage()).isEqualTo("SQLException");
+            assertThat(event.getThrowableProxy().getCause()).as("no cause chain").isNull();
+            assertThat(event.getThrowableProxy().getStackTraceElementProxyArray())
+                    .as("the stack is the fault's own, saying where it failed")
+                    .extracting(element -> element.getStackTraceElement())
+                    .containsExactly(origin);
         });
     }
 

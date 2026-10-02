@@ -60,6 +60,8 @@ class LogEventTests {
     @Test
     void theDeclaredSpellingsAreTheStandards() {
         assertThat(Action.USER_AUTHENTICATION.value()).isEqualTo("user-authentication");
+        assertThat(Action.USER_LOGOUT.value()).isEqualTo("user-logout");
+        assertThat(Action.SESSION_END.value()).isEqualTo("session-end");
         assertThat(Action.USER_ADMINISTRATION.value()).isEqualTo("user-administration");
         assertThat(Action.USER_PROVISIONING.value()).isEqualTo("user-provisioning");
         assertThat(Action.PASSWORD_CHANGE_ENFORCEMENT.value())

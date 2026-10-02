@@ -682,6 +682,169 @@ class EcsLogFormatTests {
         assertThat(requestRecords()).hasSize(1);
     }
 
+    // ---- refusal, logout and session-end records (#69) ----------------------------------------
+
+    /**
+     * The ticket's oracle: a non-Admin reading the administrative interface is one WARN
+     * {@code access-control} failure naming the caller by stable id and the route by template,
+     * and nothing in it says which role the route wanted.
+     */
+    @Test
+    void aNonAdminAdminReadIsOneAccessControlFailureNamingNoRole() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        logs.reset();
+
+        mvc.perform(get("/api/admin/accounts").session(user)).andExpect(status().isForbidden());
+
+        JsonNode record = onlyRecordWithMessage("Request refused: access denied");
+        assertThatIsValidEcs(record);
+        assertThatClassifiedAs(record, "access-control", "process", "access", "denied");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("access.denied");
+        assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("access-denied");
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
+        assertThat(record.at("/http/request/method").asText()).isEqualTo("GET");
+        assertThat(record.at("/http/route").asText()).isEqualTo("/api/admin/accounts");
+        assertThat(record.at("/http/response/status_code").asInt()).isEqualTo(403);
+        assertThat(record.at("/http/request/id").asText()).isNotBlank();
+        assertThat(record.toString()).doesNotContain("ROLE_", "ADMIN", "hasRole", "authorit");
+    }
+
+    /** The route is a template: an id in the path does not reach the record. */
+    @Test
+    void aRefusedRequestIsNamedByItsTemplateNotItsPath() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        String subject = userId("test-admin").toString();
+        logs.reset();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", subject)).session(user))
+                .andExpect(status().isForbidden());
+
+        JsonNode record = onlyRecordWithMessage("Request refused: access denied");
+        assertThat(record.at("/http/route").asText()).isEqualTo("/api/admin/accounts/{id}/unlock");
+        assertThat(record.toString()).doesNotContain(subject);
+    }
+
+    /** A missing CSRF token is its own refusal, never also an authorization one. */
+    @Test
+    void aMissingCsrfTokenIsOneRefusalWithReasonCsrf() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        logs.reset();
+
+        mvc.perform(post("/api/count/increment").session(user)).andExpect(status().isForbidden());
+
+        JsonNode record = onlyRecordWithMessage("Request refused: access denied");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("csrf");
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
+    }
+
+    @Test
+    void anAnonymousSelfReadIsOneUnauthenticatedWarnRecord() throws Exception {
+        mvc.perform(get("/api/self")).andExpect(status().isUnauthorized());
+
+        JsonNode record = onlyRecordWithMessage("Request refused: authentication required");
+        assertThatIsValidEcs(record);
+        assertThatClassifiedAs(record, "access-control", "process", "access", "denied");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("access.unauthenticated");
+        assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("no-session");
+        assertThat(record.at("/http/route").asText()).isEqualTo("/api/self");
+        assertThat(record.has("user")).isFalse();
+    }
+
+    /**
+     * A SCIM call with a bad bearer, and one with none: one WARN record each, and the presented
+     * value appears in no record — whole or in part.
+     */
+    @Test
+    void aScimCallWithABadOrMissingBearerIsOneWarnRecordCarryingNoTokenValue() throws Exception {
+        UUID connectorId = connectors.create("ecs-refusal-connector", "test-admin").id();
+        String issued = connectors.issueToken(
+                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+        // A real token with its secret half altered: the lookup half still names a token, so
+        // the refusal is the "presented and not accepted" path, and the prefix a leak would show
+        // is a real one.
+        String presented = issued.substring(0, issued.length() - 4) + "XXXX";
+        logs.reset();
+
+        mvc.perform(get("/scim/v2/Users").header(HttpHeaders.AUTHORIZATION, "Bearer " + presented))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/scim/v2/Users")).andExpect(status().isUnauthorized());
+
+        List<JsonNode> refusals = recordsWithMessage("Request refused: authentication required");
+        assertThat(refusals).extracting(record -> record.at("/event/reason").asText())
+                .containsExactly("bearer-invalid", "bearer-missing");
+        assertThat(refusals).allSatisfy(record ->
+                assertThat(record.at("/log/level").asText()).isEqualTo("WARN"));
+        assertThat(logs.lines())
+                .doesNotContain(presented)
+                .doesNotContain(issued)
+                .doesNotContain(issued.substring(0, 12));
+    }
+
+    /** Logout is one INFO {@code user-logout} record naming who logged out. */
+    @Test
+    void aLogoutIsOneUserLogoutRecordWithTheUsersId() throws Exception {
+        MockHttpSession user = loggedInSession("test-user", "test-password");
+        logs.reset();
+
+        mvc.perform(withCsrf(delete("/api/auth/logout")).session(user))
+                .andExpect(status().isNoContent());
+
+        JsonNode record = onlyRecordWithMessage("Logout completed");
+        assertThatIsValidEcs(record);
+        assertThatClassifiedAs(record, "user-logout", "process", "user", "end");
+        assertThat(record.has("app")).as("an exact action keeps no local name").isFalse();
+        assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
+        assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
+        assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
+    }
+
+    /** A logout from a session that was never signed in to logged nobody out: no record. */
+    @Test
+    void aLogoutOfAGuestSessionWritesNoLogoutRecord() throws Exception {
+        mvc.perform(withCsrf(delete("/api/auth/logout")));
+
+        assertThat(recordsWithMessage("Logout completed")).isEmpty();
+    }
+
+    /**
+     * The once-per-exchange guard, through the real chain: an error dispatch the chain refuses
+     * again — the second pass a {@code sendError} refusal may get — is answered as before but
+     * writes no record. MockMvc performs no error dispatch of its own, so the dispatch is
+     * stated here; over a real socket it is {@code RefusalLogIntegrationTests} that observes
+     * one record per refusal.
+     */
+    @Test
+    void anErrorDispatchTheChainRefusesAgainWritesNoSecondRefusalRecord() throws Exception {
+        mvc.perform(get("/api/self").with(request -> {
+                    request.setDispatcherType(jakarta.servlet.DispatcherType.ERROR);
+                    return request;
+                }))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(recordsWithMessage("Request refused: authentication required")).isEmpty();
+    }
+
+    /**
+     * And a refusal on an exchange that already has its record — a second refusal of the same
+     * request dispatch — writes none either, while it is still answered.
+     */
+    @Test
+    void aSecondRefusalOfAnAlreadyRecordedExchangeWritesNoRecord() throws Exception {
+        mvc.perform(get("/api/self").requestAttr(AccessRefusalLog.RECORDED_ATTRIBUTE,
+                        AccessRefusalLog.Refusal.NO_SESSION))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/scim/v2/Users").requestAttr(AccessRefusalLog.RECORDED_ATTRIBUTE,
+                        AccessRefusalLog.Refusal.BEARER_MISSING))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(recordsWithMessage("Request refused: authentication required")).isEmpty();
+    }
+
+    // ---- helpers ------------------------------------------------------------------------------
+
     /** The fields a collector indexes on. Absent any one of them, the record is not ECS. */
     private static void assertThatIsValidEcs(JsonNode record) {
         assertThat(record.at("/@timestamp").asText()).isNotBlank();

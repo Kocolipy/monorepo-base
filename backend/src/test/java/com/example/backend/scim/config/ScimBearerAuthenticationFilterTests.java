@@ -2,7 +2,15 @@ package com.example.backend.scim.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
 import com.example.backend.auth.MutableClock;
+import com.example.backend.observability.AccessRefusalLog;
+import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.MetricTag;
+import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
@@ -17,17 +25,21 @@ import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.ServerHttpObservationFilter;
 
 /**
  * The SCIM bearer filter, driven with servlet mocks.
@@ -62,7 +74,8 @@ class ScimBearerAuthenticationFilterTests {
     @BeforeEach
     void setUp() {
         filter = new ScimBearerAuthenticationFilter(
-                new ConnectorAuthenticationService(connectors, tokens, clock));
+                new ConnectorAuthenticationService(connectors, tokens, clock),
+                new AccessRefusalLog(new RouteTemplates(() -> null)));
         connector = connectors.seed("Okta", NOW);
         response = new MockHttpServletResponse();
         chain = new MockFilterChain();
@@ -354,6 +367,154 @@ class ScimBearerAuthenticationFilterTests {
         assertThat(scope.getStatus()).isEqualTo(403);
         assertThat(scope.getHeader(HttpHeaders.WWW_AUTHENTICATE))
                 .isEqualTo("Bearer error=\"insufficient_scope\"");
+    }
+
+    // ---- refusal records (#69) ---------------------------------------------------------------
+
+    /**
+     * A refused credential is one WARN record whose reason is a fixed word, and no record
+     * carries the presented value or any prefix of it — the token's lookup id included.
+     */
+    @Test
+    void an_invalid_token_is_one_warn_record_carrying_nothing_of_the_value() throws Exception {
+        String value = mint(ConnectorTokenScope.READ_WRITE);
+        tokens.save(tokens.all().getFirst().revoked(NOW));
+        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+
+        List<ILoggingEvent> records;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(request, response, chain);
+            records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+        }
+
+        assertInvalidToken();
+        assertThat(records).singleElement().satisfies(record -> {
+            assertThat(record.getLevel()).isEqualTo(Level.WARN);
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.REASON, "bearer-invalid")
+                    .containsEntry(LogEvent.HTTP_STATUS_CODE, 401)
+                    .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE);
+            assertThat(record.getMDCPropertyMap()).doesNotContainKey(LogContext.CONNECTOR_ID);
+            assertThat(record.toString() + CapturedLog.fields(record) + record.getMDCPropertyMap())
+                    .doesNotContain(value)
+                    .doesNotContain(value.substring(0, 8));
+        });
+    }
+
+    /** A read-only token's refused write names the connector — by id — and its reason. */
+    @Test
+    void insufficient_scope_is_one_warn_record_naming_the_connector() throws Exception {
+        String value = mint(ConnectorTokenScope.READ_ONLY);
+        MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+
+        List<ILoggingEvent> records;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(request, response, chain);
+            records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+        }
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(records).singleElement().satisfies(record -> {
+            assertThat(record.getLevel()).isEqualTo(Level.WARN);
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.REASON, "insufficient-scope")
+                    .containsEntry(LogEvent.HTTP_STATUS_CODE, 403);
+            assertThat(record.getMDCPropertyMap())
+                    .containsEntry(LogContext.CONNECTOR_ID, connector.id().toString());
+            assertThat(record.getFormattedMessage()).doesNotContain(value);
+        });
+        assertThat(MDC.get(LogContext.CONNECTOR_ID)).as("the scope closes").isNull();
+    }
+
+    /**
+     * An accepted request runs with its connector's id in the logging context, so every record
+     * the handler writes names the connector; the scope closes with the request. Nothing is
+     * recorded for an accepted credential.
+     */
+    @Test
+    void an_accepted_request_carries_its_connector_id_and_is_not_recorded() throws Exception {
+        String value = mint(ConnectorTokenScope.READ_WRITE);
+        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+        String[] seen = new String[1];
+        chain = new MockFilterChain() {
+            @Override
+            public void doFilter(
+                    jakarta.servlet.ServletRequest servletRequest,
+                    jakarta.servlet.ServletResponse servletResponse)
+                    throws IOException, ServletException {
+                seen[0] = MDC.get(LogContext.CONNECTOR_ID);
+                super.doFilter(servletRequest, servletResponse);
+            }
+        };
+
+        List<ILoggingEvent> records;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(request, response, chain);
+            records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+        }
+
+        assertThat(seen[0]).isEqualTo(connector.id().toString());
+        assertThat(MDC.get(LogContext.CONNECTOR_ID)).isNull();
+        assertThat(records).isEmpty();
+    }
+
+    /**
+     * An accepted request is tagged on the request metric with its connector's id — the one
+     * place that knows it, since the security context is cleared before the metric is taken.
+     */
+    @Test
+    void an_accepted_request_tags_the_request_metric_with_its_connector() throws Exception {
+        String value = mint(ConnectorTokenScope.READ_WRITE);
+        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+        ServerRequestObservationContext observation =
+                new ServerRequestObservationContext(request, response);
+        request.setAttribute(
+                ServerHttpObservationFilter.CURRENT_OBSERVATION_CONTEXT_ATTRIBUTE, observation);
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(observation.getLowCardinalityKeyValue(MetricTag.SCIM_CONNECTOR))
+                .isNotNull();
+        assertThat(observation.getLowCardinalityKeyValue(MetricTag.SCIM_CONNECTOR).getValue())
+                .isEqualTo(connector.id().toString());
+    }
+
+    /** A request with no credential is the entry point's to record, not this filter's. */
+    @Test
+    void a_missing_credential_is_not_recorded_by_the_filter() throws Exception {
+        List<ILoggingEvent> records;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(scimRequest("GET", "/scim/v2/Users"), response, chain);
+            records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+        }
+
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(records).isEmpty();
+    }
+
+    /** The entry point: the bare challenge, and one WARN {@code bearer-missing} record. */
+    @Test
+    void the_entry_point_challenges_and_records_a_missing_credential() throws Exception {
+        MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
+
+        List<ILoggingEvent> records;
+        try (CapturedLog captured = CapturedLog.attach()) {
+            new ScimBearerEntryPoint(new AccessRefusalLog(new RouteTemplates(() -> null)))
+                    .commence(request, response, null);
+            records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
+        }
+
+        assertThat(response.getStatus()).isEqualTo(401);
+        assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Bearer");
+        assertThat(records).singleElement().satisfies(record -> {
+            assertThat(record.getLevel()).isEqualTo(Level.WARN);
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.REASON, "bearer-missing");
+        });
     }
 
     private void assertInvalidToken() {

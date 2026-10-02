@@ -25,10 +25,17 @@ public class ScimErrorException extends RuntimeException {
 
     private final String scimType;
 
+    private final String reason;
+
     private ScimErrorException(HttpStatus status, String scimType, String detail) {
+        this(status, scimType, scimType, detail);
+    }
+
+    private ScimErrorException(HttpStatus status, String scimType, String reason, String detail) {
         super(detail);
         this.status = status;
         this.scimType = scimType;
+        this.reason = reason;
     }
 
     /** The body was not valid SCIM: unparseable, or missing something required. */
@@ -80,12 +87,12 @@ public class ScimErrorException extends RuntimeException {
 
     /** A write's {@code If-Match} named a version that is no longer current. */
     public static ScimErrorException preconditionFailed(String detail) {
-        return new ScimErrorException(HttpStatus.PRECONDITION_FAILED, null, detail);
+        return new ScimErrorException(HttpStatus.PRECONDITION_FAILED, null, "preconditionFailed", detail);
     }
 
     /** No live resource has this id, or no such discovery document exists. */
     public static ScimErrorException notFound(String detail) {
-        return new ScimErrorException(HttpStatus.NOT_FOUND, null, detail);
+        return new ScimErrorException(HttpStatus.NOT_FOUND, null, "notFound", detail);
     }
 
     /**
@@ -98,12 +105,12 @@ public class ScimErrorException extends RuntimeException {
      * consistent with what discovery advertises.
      */
     public static ScimErrorException unsupportedQuery(String detail) {
-        return new ScimErrorException(HttpStatus.FORBIDDEN, null, detail);
+        return new ScimErrorException(HttpStatus.FORBIDDEN, null, "unsupportedQuery", detail);
     }
 
     /** The request body ran past the namespace's size bound while it was being read. */
     public static ScimErrorException payloadTooLarge(String detail) {
-        return new ScimErrorException(HttpStatus.CONTENT_TOO_LARGE, null, detail);
+        return new ScimErrorException(HttpStatus.CONTENT_TOO_LARGE, null, "payloadTooLarge", detail);
     }
 
     /**
@@ -114,7 +121,7 @@ public class ScimErrorException extends RuntimeException {
      * {@code 501}'s meaning, rather than that it named a resource that does not exist.
      */
     public static ScimErrorException notImplemented(String detail) {
-        return new ScimErrorException(HttpStatus.NOT_IMPLEMENTED, null, detail);
+        return new ScimErrorException(HttpStatus.NOT_IMPLEMENTED, null, "notImplemented", detail);
     }
 
     /**
@@ -122,7 +129,7 @@ public class ScimErrorException extends RuntimeException {
      * {@code scimType}, which RFC 7644 §3.12 defines none for.
      */
     public static ScimErrorException serverError(String detail) {
-        return new ScimErrorException(HttpStatus.INTERNAL_SERVER_ERROR, null, detail);
+        return new ScimErrorException(HttpStatus.INTERNAL_SERVER_ERROR, null, "serverError", detail);
     }
 
     public HttpStatus status() {
@@ -132,6 +139,16 @@ public class ScimErrorException extends RuntimeException {
     /** The standard {@code scimType}, or {@code null} where the RFC defines none. */
     public String scimType() {
         return scimType;
+    }
+
+    /**
+     * Why the request was refused, in one word from this class's fixed set: the
+     * {@code scimType} where the RFC defines one, and otherwise the refusal's own name
+     * ({@code notFound}, {@code preconditionFailed}, ...). What a refusal's log record carries
+     * as {@code event.reason}; never anything the caller sent.
+     */
+    public String reason() {
+        return reason;
     }
 
     /** The human-readable detail, safe by construction: never a submitted value. */
