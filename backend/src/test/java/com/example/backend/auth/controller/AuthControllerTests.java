@@ -24,7 +24,9 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.LockoutPolicy;
+import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUser;
@@ -125,7 +127,8 @@ class AuthControllerTests {
                 // PasswordChangeLifecycleIntegrationTests; this pins the adapter's own work.
                 new PasswordChangeService(
                         users,
-                        new InMemoryScimPasswordHistoryRepository(),
+                        new PasswordAcceptance(new InMemoryScimPasswordHistoryRepository(),
+                                ScimPasswordAcceptanceConfig.hasher(passwordEncoder)),
                         passwordEncoder,
                         attempts,
                         new ScimUserSessionRevocationService(accountSessions, transaction, audit),

@@ -12,9 +12,11 @@ import com.example.backend.scim.InMemoryScimQueryRepository;
 import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.PasswordPolicyRefusedException;
 import com.example.backend.scim.domain.PasswordReusedException;
@@ -123,7 +125,9 @@ class ScimUserServiceTests {
             new InMemoryScimTombstoneRepository();
 
     private final ScimUserService service = new ScimUserService(
-            users, groups, aliases, history, sessions, tombstones, audit, encoder, clock,
+            users, groups, aliases,
+            new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
+            sessions, tombstones, audit, clock,
             new InMemoryScimQueryRepository(users, groups));
 
     private ScimUserResource ada;
@@ -177,12 +181,94 @@ class ScimUserServiceTests {
         assertThat(history.findRecentHashes(ada.id())).containsExactly(stored().login().passwordHash());
     }
 
+    /**
+     * The create is recorded against the connector and the new User, and returns the User as the
+     * connector sees it: its alias, and no Group — a create cannot put a User in one.
+     */
+    @Test
+    void a_create_is_recorded_and_returns_the_connectors_alias_and_no_group() {
+        ScimUserResource grace = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), "a-valid-new-password", "ext-grace"));
+
+        assertThat(grace.externalId()).isEqualTo("ext-grace");
+        assertThat(grace.groups()).isEmpty();
+        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
+                    assertThat(event.subjectId()).isEqualTo(grace.id());
+                    assertThat(event.detail()).isNull();
+                });
+    }
+
+    /**
+     * A taken userName fails the create at the store, after the password was accepted: the refusal
+     * is recorded as uniqueness against the connector, and no history is remembered for anyone.
+     */
+    @Test
+    void a_create_with_a_taken_user_name_is_refused_and_remembers_no_password() {
+        List<String> adaHistory = history.findRecentHashes(ada.id());
+
+        assertThatThrownBy(() -> service.create(
+                CONNECTOR, new NewScimUser(minimal("ADA", true), "a-valid-new-password", null)))
+                .isInstanceOf(DuplicateUserNameException.class);
+
+        assertThat(writesSinceSetUp()).isZero();
+        assertThat(history.findRecentHashes(ada.id())).isEqualTo(adaHistory);
+        assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
+                    assertThat(event.detail()).isEqualTo("UNIQUENESS");
+                });
+    }
+
     @Test
     void a_credentialless_create_records_no_history() {
         ScimUserResource grace = service.create(
                 CONNECTOR, new NewScimUser(minimal("grace", true), null, null));
 
         assertThat(history.findRecentHashes(grace.id())).isEmpty();
+    }
+
+    /** A User provisioned without a credential can be given its first one later, on either verb. */
+    @Test
+    void a_credentialless_user_is_given_its_first_password_later_and_it_starts_the_history() {
+        UUID grace = service.create(
+                CONNECTOR, new NewScimUser(minimal("grace", true), null, null)).id();
+        UUID hopper = service.create(
+                CONNECTOR, new NewScimUser(minimal("hopper", true), null, null)).id();
+
+        service.replace(CONNECTOR, grace, versionOf(grace),
+                new ScimUserReplacement(minimal("grace", true), "a-first-put-password", null, true));
+        service.patch(CONNECTOR, hopper, versionOf(hopper),
+                List.of(new SetPassword("a-first-patch-password")));
+
+        assertThat(users.findById(grace).orElseThrow().login().passwordHash())
+                .endsWith(":a-first-put-password");
+        assertThat(history.findRecentHashes(grace))
+                .containsExactly(users.findById(grace).orElseThrow().login().passwordHash());
+        assertThat(history.findRecentHashes(hopper))
+                .containsExactly(users.findById(hopper).orElseThrow().login().passwordHash());
+    }
+
+    /**
+     * Only a write that sets a password remembers one. Omitting it keeps the credential, removing
+     * it clears the credential but not the history — so a removed password is still refused when
+     * set again — and neither adds an entry.
+     */
+    @Test
+    void omitting_keeping_or_removing_the_password_adds_no_history_entry() {
+        List<String> before = history.findRecentHashes(ada.id());
+
+        put(minimal("ada", true), null, "ext-ada");
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+        patch(new RemovePassword());
+        patch(new RemovePassword());
+
+        assertThat(stored().login().hasPassword()).isFalse();
+        assertThat(history.findRecentHashes(ada.id())).isEqualTo(before);
+        assertThatThrownBy(() -> patch(new SetPassword("first-password-1")))
+                .isInstanceOf(PasswordReusedException.class);
+        assertThat(history.findRecentHashes(ada.id())).isEqualTo(before);
     }
 
     // ---- a connector-set password requires a change ----------------------------------------
@@ -510,6 +596,28 @@ class ScimUserServiceTests {
         assertThat(writesSinceSetUp()).isZero();
         assertThat(audit.recorded()).isEmpty();
         assertThat(revocations).isEmpty();
+        assertThat(history.findRecentHashes(ada.id()))
+                .as("the stale write's password was never remembered")
+                .containsExactly(before.login().passwordHash());
+    }
+
+    /** A protected User's credential and history are untouched by a write that sets a password. */
+    @Test
+    void a_password_write_to_the_bootstrap_admin_changes_neither_credential_nor_history() {
+        ScimUser reserved = users.createReserved(
+                ScimIdentities.user("root"), ReservedResourceName.BOOTSTRAP_ADMIN);
+
+        assertThatThrownBy(() -> service.patch(CONNECTOR, reserved.id(), versionOf(reserved.id()),
+                List.of(new SetPassword("a-valid-new-password"))))
+                .isInstanceOf(ProtectedResourceException.class);
+        assertThatThrownBy(() -> service.replace(CONNECTOR, reserved.id(), versionOf(reserved.id()),
+                new ScimUserReplacement(reserved.profile(), "a-valid-new-password", null, true)))
+                .isInstanceOf(ProtectedResourceException.class);
+
+        assertThat(users.findById(reserved.id()).orElseThrow()).isEqualTo(reserved);
+        assertThat(history.findRecentHashes(reserved.id())).isEmpty();
+        assertThat(revocations).isEmpty();
+        assertThat(encoder.matches).as("acceptance was never reached").isZero();
     }
 
     @Test
@@ -568,6 +676,7 @@ class ScimUserServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
                 .satisfies(event -> {
                     assertThat(event.detail()).isEqualTo("INVALID_VALUE");
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
                     assertThat(event.subjectId()).isNull();
                 });
     }
@@ -826,9 +935,11 @@ class ScimUserServiceTests {
                 minimal("ada-lovelace", true), candidate, "ext-new")), candidate, rule);
 
         assertThat(writesSinceSetUp()).isZero();
+        assertThat(history.findRecentHashes(ada.id())).hasSize(1);
         assertThat(audit.of(AuditOperation.SCIM_USER_CREATE)).singleElement()
                 .satisfies(event -> {
                     assertThat(event.detail()).isEqualTo("INVALID_VALUE");
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
                     assertThat(event.subjectId()).isNull();
                 });
     }
@@ -884,6 +995,23 @@ class ScimUserServiceTests {
                         new SetPassword(candidate)),
                 candidate, PasswordPolicy.Rule.CONTAINS_USER_NAME);
         assertThat(stored().profile().userName()).isEqualTo("ada");
+    }
+
+    /**
+     * And the other way: a password containing the name the User is leaving is accepted with the
+     * rename, because the excluded name is the resulting one.
+     */
+    @Test
+    void a_write_renaming_the_user_accepts_a_password_containing_only_the_old_user_name() {
+        put(minimal("grace", true), "ada-was-my-name-once", "ext-ada");
+        assertThat(stored().profile().userName()).isEqualTo("grace");
+        assertThat(stored().login().passwordHash()).endsWith(":ada-was-my-name-once");
+
+        patch(new SetText(TextAttribute.USER_NAME, "hopper"), new SetPassword("grace-was-my-name"));
+        assertThat(stored().profile().userName()).isEqualTo("hopper");
+        assertThat(history.findRecentHashes(ada.id())).hasSize(3);
+        assertThat(revocations).extracting(Revocation::causes).containsOnly(
+                Set.of(Cause.PASSWORD_CHANGED, Cause.USER_NAME_CHANGED));
     }
 
     /**
@@ -1043,5 +1171,70 @@ class ScimUserServiceTests {
                 minimal("ADA", true), null, "ext-ada"));
 
         assertThat(again.id()).isNotEqualTo(ada.id());
+    }
+
+    // ---- what a write returns and leaves alone ---------------------------------------------
+
+    /** A write returns the User as the connector sees it, its computed Group memberships included. */
+    @Test
+    void a_write_returns_the_users_group_memberships() {
+        com.example.backend.scim.domain.ScimGroup engineers =
+                groups.create(ScimIdentities.group("Engineers", stored()));
+
+        ScimUserResource written = patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+
+        assertThat(written.groups()).extracting(
+                        com.example.backend.scim.domain.ScimGroupReference::id)
+                .containsExactly(engineers.id());
+    }
+
+    /** Only the transition from active to inactive is a deactivation; staying inactive is not. */
+    @Test
+    void a_write_to_an_already_inactive_user_that_keeps_it_inactive_ends_no_session() {
+        patch(new SetActive(false));
+        revocations.clear();
+
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
+        put(minimal("ada", false), null, "ext-ada");
+
+        assertThat(revocations).isEmpty();
+    }
+
+    /** A PUT that does not assert {@code active} keeps the stored value rather than reactivating. */
+    @Test
+    void a_put_without_active_keeps_the_stored_value() {
+        patch(new SetActive(false));
+
+        service.replace(CONNECTOR, ada.id(), current(),
+                new ScimUserReplacement(minimal("ada", true), null, "ext-ada", false));
+
+        assertThat(stored().profile().active()).isFalse();
+    }
+
+    /** A query is run for the calling connector, whose aliases it renders, and keeps its page. */
+    @Test
+    void a_query_runs_for_the_calling_connector_and_returns_the_requested_page() {
+        List<UUID> askedFor = new ArrayList<>();
+        ScimUserService querying = new ScimUserService(
+                users, groups, aliases,
+                new PasswordAcceptance(history, ScimPasswordAcceptanceConfig.hasher(encoder)),
+                sessions, tombstones, audit, clock,
+                (query, connectorId, baseUri) -> {
+                    askedFor.add(connectorId);
+                    return new com.example.backend.scim.domain.ScimQuery.Result(
+                            1, List.of(new com.example.backend.scim.domain.ScimQuery.Hit(
+                                    com.example.backend.scim.domain.ScimResourceType.USER,
+                                    ada.id())));
+                });
+        com.example.backend.scim.domain.ScimPageRequest page =
+                new com.example.backend.scim.domain.ScimPageRequest(1, 10);
+
+        ScimUserListing listing = querying.query(CONNECTOR, new com.example.backend.scim.domain.ScimQuery(
+                Set.of(com.example.backend.scim.domain.ScimResourceType.USER), null, null, page), "u");
+
+        assertThat(askedFor).containsExactly(CONNECTOR.connectorId());
+        assertThat(listing.page()).isEqualTo(page);
+        assertThat(listing.resources()).extracting(ScimUserResource::externalId)
+                .containsExactly("ext-ada");
     }
 }

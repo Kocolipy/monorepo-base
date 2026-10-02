@@ -572,6 +572,26 @@ public class ArchitectureTest {
                     + " boundary that records events admits none");
 
     /**
+     * Password acceptance has one owner: {@link com.example.backend.scim.domain.PasswordAcceptance}
+     * reads a User's password history to refuse reuse and records the accepted hash, and nothing
+     * else in the service does either. A caller that reached the history port itself would be
+     * writing its own reuse predicate or remembering a hash outside the acceptance sequence; the
+     * persistence adapter that implements the port is the one other class that may name it.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_password_acceptance_uses_the_password_history =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName("com.example.backend.scim.domain.PasswordAcceptance")
+            .and().resideOutsideOfPackage("com.example.backend.scim.infrastructure.persistence..")
+            .should().callMethodWhere(com.tngtech.archunit.core.domain.JavaCall.Predicates.target(
+                    com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.With.owner(
+                            com.tngtech.archunit.core.domain.JavaClass.Predicates.assignableTo(
+                                    "com.example.backend.scim.domain.ScimPasswordHistoryRepository"))))
+            .allowEmptyShould(true)
+            .because("callers decide on a new password through PasswordAcceptance, so reuse and"
+                    + " remembering an accepted hash have one implementation (issue #103)");
+
+    /**
      * An audit event is constructed inside the audit slice and nowhere else.
      *
      * <p>The boundary rule above is only worth having while

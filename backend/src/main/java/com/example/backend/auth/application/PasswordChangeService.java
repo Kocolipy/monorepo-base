@@ -6,17 +6,15 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
 import com.example.backend.scim.domain.ScimLoginState;
-import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimUserSessions;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,9 +35,11 @@ import org.springframework.transaction.annotation.Transactional;
  *       rejected Login ({@link LoginAttemptService#recordPasswordChangeFailure}), so at the
  *       threshold the User locks and every session it holds ends.
  *   <li>The new password must satisfy {@link PasswordPolicy} and must not match the current
- *       password or one of the retained previous ones. A refusal names the rule, never a value.
- *   <li>Accepted: the new password is hashed, the flag is cleared, the version advances, the
- *       history records the new hash, a {@code PASSWORD_CHANGE} event is committed with the write,
+ *       password or one of the retained previous ones — decided by {@link PasswordAcceptance}, the
+ *       same owner SCIM writes use. A refusal names the rule, never a value.
+ *   <li>Accepted: the new password is stored as the hash acceptance produced, the flag is cleared,
+ *       the version advances, acceptance remembers the new hash, a {@code PASSWORD_CHANGE} event is
+ *       committed with the write,
  *       and every session of the User — the one that submitted this included — ends after the
  *       commit.
  * </ol>
@@ -57,23 +57,27 @@ public class PasswordChangeService {
     private static final Logger log = LoggerFactory.getLogger(PasswordChangeService.class);
 
     private final ScimUserRepository users;
-    private final ScimPasswordHistoryRepository passwordHistory;
+    private final PasswordAcceptance passwordAcceptance;
     private final PasswordEncoder passwordEncoder;
     private final LoginAttemptService attempts;
     private final ScimUserSessions sessions;
     private final AuditTrail audit;
     private final Clock clock;
 
+    /**
+     * @param passwordAcceptance decides on, encodes and remembers the new password
+     * @param passwordEncoder    verifies the current password; this flow's own concern
+     */
     public PasswordChangeService(
             ScimUserRepository users,
-            ScimPasswordHistoryRepository passwordHistory,
+            PasswordAcceptance passwordAcceptance,
             PasswordEncoder passwordEncoder,
             LoginAttemptService attempts,
             ScimUserSessions sessions,
             AuditTrail audit,
             Clock clock) {
         this.users = users;
-        this.passwordHistory = passwordHistory;
+        this.passwordAcceptance = passwordAcceptance;
         this.passwordEncoder = passwordEncoder;
         this.attempts = attempts;
         this.sessions = sessions;
@@ -101,12 +105,14 @@ public class PasswordChangeService {
             refused(AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
             throw new CurrentPasswordRejectedException();
         }
-        PasswordPolicy.violation(newPassword, user.profile().userName(),
-                        candidate -> isReused(user, candidate))
-                .ifPresent(rule -> refusePolicy(user, rule));
+        PasswordAcceptance.Accepted accepted =
+                switch (passwordAcceptance.acceptFor(user, newPassword, user.profile().userName())) {
+                    case PasswordAcceptance.Accepted password -> password;
+                    case PasswordAcceptance.Refused refused -> throw refusePolicy(user, refused.rule());
+                };
 
         Instant now = clock.instant();
-        String passwordHash = passwordEncoder.encode(newPassword);
+        String passwordHash = accepted.passwordHash();
         // The current password verified, which ends a failure run as an accepted login does.
         ScimLoginState cleared = user.login().withFailureRunCleared();
         if (cleared != user.login()) {
@@ -118,7 +124,7 @@ public class PasswordChangeService {
         // owed the change it is the first: its confined logins did not move the dormancy basis
         // (LoginAttemptService#recordSuccess), so the change does.
         users.recordAuthentication(userId, now);
-        passwordHistory.record(userId, passwordHash, now);
+        passwordAcceptance.remember(userId, accepted, now);
         audit.recordPasswordChanged(userId);
         sessions.revokeAfterCommit(
                 null, userId, EnumSet.of(ScimUserSessions.Cause.PASSWORD_CHANGED));
@@ -142,17 +148,8 @@ public class PasswordChangeService {
         }
     }
 
-    /**
-     * Whether the candidate matches the current credential or a remembered one — matched through
-     * the encoder, one hash at a time, because a salted hash can only be compared that way.
-     */
-    private boolean isReused(ScimUser user, String candidate) {
-        List<String> remembered = new ArrayList<>(passwordHistory.findRecentHashes(user.id()));
-        remembered.add(user.login().passwordHash());
-        return remembered.stream().anyMatch(hash -> passwordEncoder.matches(candidate, hash));
-    }
-
-    private void refusePolicy(ScimUser user, PasswordPolicy.Rule rule) {
+    /** Records and logs a policy refusal, and returns what the caller throws for it. */
+    private PasswordPolicyViolationException refusePolicy(ScimUser user, PasswordPolicy.Rule rule) {
         AuditPasswordChangeRefusal reason = switch (rule) {
             case TOO_SHORT -> AuditPasswordChangeRefusal.TOO_SHORT;
             case TOO_LONG -> AuditPasswordChangeRefusal.TOO_LONG;
@@ -161,7 +158,7 @@ public class PasswordChangeService {
         };
         audit.recordPasswordChangeRefused(user.id(), reason);
         refused(reason);
-        throw new PasswordPolicyViolationException(rule);
+        return new PasswordPolicyViolationException(rule);
     }
 
     /** Logs a refusal by its closed-set reason; no identity and no value is written. */

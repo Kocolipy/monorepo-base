@@ -4,16 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.InactivityDeactivationService;
+import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.application.ScimUserService;
+import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
+import com.example.backend.scim.domain.ScimUserPatchOperation;
+import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +51,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -61,6 +70,8 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>The Admin-forced equivalent, and Unlock requiring a change.
  *   <li>The dormancy basis under a simulated clock: confined logins do not move it, the completed
  *       change does.
+ *   <li>One password acceptance behind both entry paths: reuse refused across them against one
+ *       history, and an accepted password remembered only by a write that commits.
  * </ol>
  *
  * <p>Sessions travel as the session cookie between requests, exactly as a browser holds them: the
@@ -124,6 +135,20 @@ class PasswordChangeLifecycleIntegrationTests {
 
     private String writeToken;
 
+    private UUID connectorId;
+
+    @Autowired
+    private ScimUserService scimUsers;
+
+    @Autowired
+    private PasswordChangeService passwordChanges;
+
+    @Autowired
+    private ScimPasswordHistoryRepository passwordHistory;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
     private final List<UUID> created = new ArrayList<>();
 
     @BeforeEach
@@ -132,6 +157,7 @@ class PasswordChangeLifecycleIntegrationTests {
                 .addFilters(requestIdFilter, springSessionRepositoryFilter, springSecurityFilterChain)
                 .build();
         UUID connectorId = connectors.create("lifecycle-connector", BOOTSTRAP_ADMIN).id();
+        this.connectorId = connectorId;
         writeToken = connectors
                 .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, BOOTSTRAP_ADMIN)
                 .presentedValue();
@@ -390,8 +416,183 @@ class PasswordChangeLifecycleIntegrationTests {
         }
     }
 
+    // ---- 4. one password acceptance behind both entry paths ---------------------------------
+
+    /**
+     * The ticket's demonstration: a connector-set password, replaced by the User, then refused reuse
+     * through both entry paths — the connector's of the password the User chose, the User's of the
+     * passwords the connector set — against one history, with the flag, audit and session outcome
+     * each path owns.
+     */
+    @Test
+    void theConnectorAndTheSelfServiceChangeShareOnePasswordAcceptanceAndHistory() throws Exception {
+        String second = "connector-second-2";
+        String userId = provision("lifecycle-shared", CONNECTOR_PASSWORD);
+        assertThat(historyOf(userId)).containsExactly(storedHash(userId));
+        assertThat(changeRequired(userId)).isTrue();
+
+        // Self-service replacement: flag cleared, remembered once, every session ended.
+        Cookie confined = logIn("lifecycle-shared", CONNECTOR_PASSWORD, null, true);
+        assertThat(changePassword(confined, CONNECTOR_PASSWORD, NEW_PASSWORD)
+                .getResponse().getStatus()).isEqualTo(204);
+        assertThat(changeRequired(userId)).isFalse();
+        assertThat(historyOf(userId)).hasSize(2).contains(storedHash(userId));
+        assertThat(status(get("/api/auth/me"), confined)).isEqualTo(401);
+
+        // The connector is refused the current password, which the User set, and the retained
+        // one, which it set itself; a stale conditional write is refused before either is judged.
+        Cookie settled = logIn("lifecycle-shared", NEW_PASSWORD, "USER", false);
+        String hash = storedHash(userId);
+        long version = scimVersion(userId);
+        List<String> history = historyOf(userId);
+        assertConnectorRefusedReuse(scimPatchPassword(userId, NEW_PASSWORD, null), NEW_PASSWORD);
+        assertConnectorRefusedReuse(
+                scimPutPassword(userId, "lifecycle-shared", CONNECTOR_PASSWORD), CONNECTOR_PASSWORD);
+        assertThat(scimPatchPassword(userId, "a-stale-write-pass", "\"" + (version - 1) + "\"")
+                .getResponse().getStatus()).isEqualTo(412);
+        assertThat(storedHash(userId)).isEqualTo(hash);
+        assertThat(scimVersion(userId)).isEqualTo(version);
+        assertThat(historyOf(userId)).isEqualTo(history);
+        assertThat(changeRequired(userId)).isFalse();
+        assertThat(status(get("/api/auth/me"), settled))
+                .as("no refused write ends a session")
+                .isEqualTo(200);
+        assertThat(auditCodes("SCIM_USER_REPLACE", userId))
+                .containsExactlyInAnyOrder("INVALID_VALUE", "INVALID_VALUE");
+
+        // An accepted connector write: flagged again, remembered once, sessions ended.
+        assertThat(scimPatchPassword(userId, second, null).getResponse().getStatus())
+                .isEqualTo(200);
+        assertThat(changeRequired(userId)).isTrue();
+        assertThat(historyOf(userId)).hasSize(3).contains(storedHash(userId));
+        assertThat(status(get("/api/auth/me"), settled)).isEqualTo(401);
+
+        // The User is refused both earlier passwords, whichever path set them.
+        List<String> afterConnectorWrite = historyOf(userId);
+        Cookie again = logIn("lifecycle-shared", second, null, true);
+        for (String reused : List.of(NEW_PASSWORD, CONNECTOR_PASSWORD)) {
+            MvcResult refused = changePassword(again, second, reused);
+            assertThat(refused.getResponse().getStatus()).isEqualTo(400);
+            assertThat(json.readTree(refused.getResponse().getContentAsString())
+                    .get("rule").asText()).isEqualTo("REUSED");
+        }
+        assertThat(historyOf(userId)).isEqualTo(afterConnectorWrite);
+        assertThat(changeRequired(userId)).isTrue();
+        assertThat(status(get("/api/auth/me"), again)).isEqualTo(200);
+        assertThat(auditCodes("PASSWORD_CHANGE", userId))
+                .containsExactlyInAnyOrder(null, "REUSED", "REUSED");
+
+        String audited = jdbc.queryForList(
+                "SELECT * FROM audit_events WHERE subject_id = ?::uuid", userId).toString();
+        for (String secret : List.of(CONNECTOR_PASSWORD, NEW_PASSWORD, second, storedHash(userId))) {
+            assertThat(audited).doesNotContain(secret);
+        }
+        assertThat(audited).doesNotContain("argon2");
+    }
+
+    /**
+     * An accepted password is remembered inside the write's transaction, so a write that does not
+     * commit takes its history entry with it, leaves the credential and flag as they were, and
+     * ends no session — on both paths.
+     */
+    @Test
+    void anAcceptedPasswordWhoseWriteRollsBackLeavesCredentialHistoryAndSessionsAlone()
+            throws Exception {
+        String userId = provisionAndSettle("lifecycle-rolled-back", CONNECTOR_PASSWORD, NEW_PASSWORD);
+        UUID id = UUID.fromString(userId);
+        Cookie session = logIn("lifecycle-rolled-back", NEW_PASSWORD, "USER", false);
+        String hash = storedHash(userId);
+        List<String> history = historyOf(userId);
+        Timestamp basis = lastAuthenticatedAt(userId);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        transaction.executeWithoutResult(status -> {
+            scimUsers.patch(new AuthenticatedConnector(
+                            connectorId, UUID.randomUUID(), ConnectorTokenScope.READ_WRITE),
+                    id, ScimVersionPrecondition.ofIfMatch(List.of()),
+                    List.of(new ScimUserPatchOperation.SetPassword("rolled-back-connector-1")));
+            assertThat(passwordHistory.findRecentHashes(id))
+                    .as("remembered within the connector's write")
+                    .hasSize(history.size() + 1);
+            status.setRollbackOnly();
+        });
+        transaction.executeWithoutResult(status -> {
+            passwordChanges.changePassword(id, NEW_PASSWORD, "rolled-back-self-chosen");
+            assertThat(passwordHistory.findRecentHashes(id))
+                    .as("remembered within the self-service change")
+                    .hasSize(history.size() + 1);
+            status.setRollbackOnly();
+        });
+
+        assertThat(storedHash(userId)).isEqualTo(hash);
+        assertThat(historyOf(userId)).isEqualTo(history);
+        assertThat(changeRequired(userId)).isFalse();
+        assertThat(lastAuthenticatedAt(userId)).isEqualTo(basis);
+        assertThat(status(get("/api/auth/me"), session))
+                .as("revocation waits for a commit that never came")
+                .isEqualTo(200);
+        assertThat(sessionRepository.findByPrincipalName(userId)).isNotEmpty();
+        assertThat(logInStatus("lifecycle-rolled-back", "rolled-back-self-chosen")).isEqualTo(401);
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
+    private void assertConnectorRefusedReuse(MvcResult result, String candidate) throws Exception {
+        assertThat(result.getResponse().getStatus()).isEqualTo(400);
+        String body = result.getResponse().getContentAsString();
+        assertThat(json.readTree(body).get("scimType").asText()).isEqualTo("invalidValue");
+        assertThat(body).doesNotContain(candidate).doesNotContain("argon2");
+    }
+
+    private MvcResult scimPatchPassword(String userId, String password, String ifMatch)
+            throws Exception {
+        MockHttpServletRequestBuilder request = patch(BASE + "/Users/" + userId)
+                .contentType(SCIM_JSON)
+                .content("""
+                        {"schemas":["%s"],
+                         "Operations":[{"op":"replace","path":"password","value":"%s"}]}"""
+                        .formatted(PATCH_SCHEMA, password));
+        if (ifMatch != null) {
+            request.header(HttpHeaders.IF_MATCH, ifMatch);
+        }
+        return mvc.perform(asConnector(request)).andReturn();
+    }
+
+    private MvcResult scimPutPassword(String userId, String userName, String password)
+            throws Exception {
+        return mvc.perform(asConnector(put(BASE + "/Users/" + userId))
+                        .contentType(SCIM_JSON)
+                        .content("""
+                                {"schemas":["%s"],"userName":"%s","password":"%s"}"""
+                                .formatted(USER_SCHEMA, userName, password)))
+                .andReturn();
+    }
+
+    /** The User's remembered hashes, newest first, as the database holds them. */
+    private List<String> historyOf(String userId) {
+        return jdbc.queryForList("""
+                SELECT password_hash FROM scim_user_password_history WHERE user_id = ?::uuid
+                ORDER BY set_at DESC, id""", String.class, userId);
+    }
+
+    private String storedHash(String userId) {
+        return jdbc.queryForObject(
+                "SELECT password_hash FROM scim_users WHERE resource_id = ?::uuid",
+                String.class, userId);
+    }
+
+    private boolean changeRequired(String userId) {
+        return jdbc.queryForObject("""
+                SELECT password_change_required_since IS NOT NULL FROM scim_users
+                WHERE resource_id = ?::uuid""", Boolean.class, userId);
+    }
+
+    /** The error codes of this operation's events about the User, in no particular order. */
+    private List<String> auditCodes(String operation, String userId) {
+        return jdbc.queryForList("""
+                SELECT error_code FROM audit_events WHERE operation = ? AND subject_id = ?::uuid""",
+                String.class, operation, userId);
+    }
     /**
      * Every route but the three the confined session holds is refused with 403 — the user
      * endpoints, the administrative interface, and the operational scrape — while the session
