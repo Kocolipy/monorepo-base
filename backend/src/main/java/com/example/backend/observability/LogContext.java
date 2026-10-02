@@ -37,7 +37,7 @@ import org.slf4j.MDC;
  * </ul>
  *
  * <p>The fifth setter, {@link #job}, is the scheduled-job run's identity, written as one
- * unit by {@link ScheduledJobMetrics#instrument} for the run's lifetime:
+ * unit by {@link ScheduledJobMetrics#instrumentLocked} for the run's lifetime:
  * {@link #JOB_NAME} (a constant from code), {@link #JOB_RUN_ID} (a UUID minted per run)
  * and {@link #TRIGGER_TYPE} (always {@value #TRIGGER_SCHEDULED}). None of the three is a
  * value anything outside the service supplies.

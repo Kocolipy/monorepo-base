@@ -146,7 +146,7 @@ class AuditRetentionServiceTests {
     }
 
     /**
-     * Run as it is scheduled — through {@link ScheduledJobMetrics#instrument} — a run is
+     * Run as it is scheduled — through {@link ScheduledJobMetrics#instrumentLocked} — a run is
      * {@code job-start}, this job's summary and {@code job-end}, all three under one
      * {@code batch.job.run.id}; the next run has another. The end carries the duration the
      * summary no longer does.

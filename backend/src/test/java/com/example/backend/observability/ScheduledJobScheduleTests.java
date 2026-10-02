@@ -34,7 +34,7 @@ import tools.jackson.databind.JsonNode;
 /**
  * The scheduled jobs as the scheduler holds them: each cron is evaluated in Singapore time,
  * the zone the log timestamps are written in, and each job runs through
- * {@link ScheduledJobMetrics#instrument} — which is what gives a run its own trace.
+ * {@link ScheduledJobMetrics#instrumentLocked} — which is what gives a run its own trace.
  */
 @SpringBootTest
 @Import(com.example.backend.ContainerTestConfiguration.class)
@@ -93,7 +93,7 @@ class ScheduledJobScheduleTests {
     /**
      * Each job is registered with the run metrics — and so with the observation around each
      * run — under its own name. Series exist from scheduling, so their presence proves the
-     * job went through {@link ScheduledJobMetrics#instrument}.
+     * job went through {@link ScheduledJobMetrics#instrumentLocked}.
      */
     @Test
     void everyJobRunsThroughTheInstrumentedWrapper() {
