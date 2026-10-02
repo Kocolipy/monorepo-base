@@ -984,7 +984,7 @@ class EcsLogFormatTests {
         logs.reset();
 
         RuntimeException jobFailure = new IllegalStateException("job failed");
-        assertThatThrownBy(() -> jobMetrics.instrument("ecs-error-fields-job",
+        assertThatThrownBy(() -> jobMetrics.instrumentLocked("ecs-error-fields-job",
                         LogEvent.Operation.AUDIT_RETENTION, () -> {
                             throw jobFailure;
                         }).run())
