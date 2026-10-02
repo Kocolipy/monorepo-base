@@ -19,6 +19,7 @@ import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimTombstoneRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
@@ -71,6 +72,16 @@ import org.springframework.transaction.annotation.Transactional;
  * of a test's luck. Each is audited, and the audit append is deliberately the fail-open kind:
  * the refusal rolls this transaction back, so an append that joined it would be rolled back
  * with it, and an attempt to provision the recovery authority away would leave no trace.
+ *
+ * <h2>Removing authority ends the sessions it was issued with</h2>
+ *
+ * <p>A session carries the role it was issued with, so a User removed from the Admin group would
+ * otherwise keep {@code ROLE_ADMIN} for the rest of its lifetime. Every write that drops a direct
+ * member of the Admin group — a PATCH {@code remove}, a PATCH {@code replace} of the members, or
+ * a PUT whose member list leaves the User out — therefore ends that User's sessions through
+ * {@link ScimUserSessions}, which does so only once the write commits. A refused, stale or
+ * rolled-back write revokes nothing, and neither does a removal from an ordinary Group, which
+ * confers no authority.
  */
 @Service
 public class ScimGroupService {
@@ -82,11 +93,13 @@ public class ScimGroupService {
     private final AuditTrail audit;
     private final Clock clock;
     private final ScimQueryRepository queries;
+    private final ScimUserSessions sessions;
 
     public ScimGroupService(
             ScimGroupRepository groups,
             ScimUserRepository users,
             ScimExternalIdRepository aliases,
+            ScimUserSessions sessions,
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
             Clock clock,
@@ -95,6 +108,7 @@ public class ScimGroupService {
         this.groups = groups;
         this.users = users;
         this.aliases = aliases;
+        this.sessions = sessions;
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
@@ -381,7 +395,28 @@ public class ScimGroupService {
             changed.add(AuditGroupAttribute.EXTERNAL_ID);
         }
         audit.recordScimGroupReplaced(connectorId, id, changed);
+        revokeRemovedAdminSessions(connectorId, current, written);
         return Optional.of(projection(connector, written));
+    }
+
+    /**
+     * Ends, after the commit, the sessions of every User this write removed from the Admin group.
+     *
+     * <p>Decided from the stored membership before and after rather than from the request, so PUT
+     * and every PATCH shape are one rule, a User the write removed and added back keeps its
+     * sessions, and a {@code remove} naming a User who was not a member revokes nothing. Only the
+     * Admin group confers authority, so a removal from any other Group is not a revocation.
+     */
+    private void revokeRemovedAdminSessions(UUID connectorId, ScimGroup before, ScimGroup after) {
+        if (before.reservedName() != ReservedResourceName.ADMIN_GROUP) {
+            return;
+        }
+        Set<UUID> removed = memberIdSet(before);
+        removed.removeAll(memberIdSet(after));
+        for (UUID userId : removed) {
+            sessions.revokeAfterCommit(
+                    connectorId, userId, EnumSet.of(ScimUserSessions.Cause.ADMIN_MEMBERSHIP_REMOVED));
+        }
     }
 
     /**

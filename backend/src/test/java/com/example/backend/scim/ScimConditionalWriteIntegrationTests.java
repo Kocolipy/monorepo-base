@@ -13,6 +13,8 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
+import com.example.backend.scim.application.ScimGroupPatchOperation;
+import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ConnectorTokenScope;
@@ -28,6 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +92,9 @@ class ScimConditionalWriteIntegrationTests {
 
     @Autowired
     private ScimUserService userService;
+
+    @Autowired
+    private ScimGroupService groupService;
 
     @Autowired
     private LoginService login;
@@ -747,7 +753,131 @@ class ScimConditionalWriteIntegrationTests {
                 """, String.class, user)).isEqualTo("displayName,emails");
     }
 
+    // ---- removal from the Admin group ends the removed User's sessions ---------------------
+
+    /**
+     * Each write shape that drops a direct member of the Admin group — PATCH {@code remove} by a
+     * value path, PATCH {@code replace} of the members, and a PUT whose member list leaves the User
+     * out — ends that User's sessions after commit and records the revocation against
+     * {@code groups}; the member the write kept keeps its session.
+     */
+    @Test
+    void every_write_shape_removing_an_admin_member_revokes_only_the_removed_users_sessions()
+            throws Exception {
+        UUID adminGroup = reserved("admin-group");
+        UUID bootstrapAdmin = reserved("bootstrap-admin");
+        UUID byRemove = createUser("admin-removed-by-remove");
+        UUID byReplace = createUser("admin-removed-by-replace");
+        UUID byPut = createUser("admin-removed-by-put");
+        UUID kept = createUser("admin-kept");
+        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+                "{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"" + byRemove
+                        + "\"},{\"value\":\"" + byReplace + "\"},{\"value\":\"" + byPut
+                        + "\"},{\"value\":\"" + kept + "\"}]}")), adminGroup))).isEqualTo(200);
+        Session removeSession = openSessionFor(byRemove);
+        Session replaceSession = openSessionFor(byReplace);
+        Session putSession = openSessionFor(byPut);
+        Session keptSession = openSessionFor(kept);
+
+        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+                "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + byRemove + "\\\"]\"}")),
+                adminGroup))).isEqualTo(200);
+        assertThat(sessionRepository.findById(removeSession.getId())).as("PATCH remove").isNull();
+        assertThat(sessionRepository.findById(replaceSession.getId())).isNotNull();
+
+        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+                "{\"op\":\"replace\",\"path\":\"members\",\"value\":"
+                        + memberValues(adminMembersExcept(adminGroup, byReplace)) + "}")),
+                adminGroup))).isEqualTo(200);
+        assertThat(sessionRepository.findById(replaceSession.getId())).as("PATCH replace").isNull();
+        assertThat(sessionRepository.findById(putSession.getId())).isNotNull();
+
+        assertThat(status(conditional(tokenA, withBody(put(GROUPS + "/" + adminGroup),
+                "{\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:Group\"],"
+                        + "\"displayName\":\"" + groupDisplayName(adminGroup) + "\","
+                        + "\"members\":" + memberValues(adminMembersExcept(adminGroup, byPut)) + "}"),
+                adminGroup))).isEqualTo(200);
+        assertThat(sessionRepository.findById(putSession.getId())).as("PUT").isNull();
+
+        assertThat(sessionRepository.findById(keptSession.getId())).as("kept member").isNotNull();
+        assertThat(auditCount("USER_SESSIONS_REVOKE", kept, "SUCCESS")).isZero();
+        assertThat(adminMembersExcept(adminGroup)).contains(kept, bootstrapAdmin)
+                .doesNotContain(byRemove, byReplace, byPut);
+        for (UUID removed : List.of(byRemove, byReplace, byPut)) {
+            assertThat(jdbc.queryForMap("""
+                    SELECT outcome, actor_id, changed_paths FROM audit_events
+                     WHERE operation = 'USER_SESSIONS_REVOKE' AND subject_id = ?""", removed))
+                    .containsEntry("outcome", "SUCCESS")
+                    .containsEntry("actor_id", connectorA)
+                    .containsEntry("changed_paths", "groups");
+        }
+    }
+
+    /**
+     * A removal that does not commit revokes nothing: a stale {@code If-Match} is a {@code 412}
+     * before anything is written, and a removal inside a transaction that then rolls back never
+     * reaches its after-commit revocation. Either way the User stays an Admin member, and keeps
+     * its session.
+     */
+    @Test
+    void a_stale_or_rolled_back_admin_removal_revokes_nothing() throws Exception {
+        UUID adminGroup = reserved("admin-group");
+        UUID member = createUser("admin-not-removed");
+        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+                "{\"op\":\"add\",\"path\":\"members\",\"value\":[{\"value\":\"" + member
+                        + "\"}]}")), adminGroup))).isEqualTo(200);
+        Session session = openSessionFor(member);
+        long version = versionColumn(adminGroup);
+
+        assertThat(status(as(tokenA, withBody(patch(GROUPS + "/" + adminGroup), patchOp(
+                "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member + "\\\"]\"}"))
+                .header(HttpHeaders.IF_MATCH, "\"" + (version - 1) + "\"")))).isEqualTo(412);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            groupService.patch(
+                    new AuthenticatedConnector(connectorA, UUID.randomUUID(),
+                            ConnectorTokenScope.READ_WRITE),
+                    adminGroup,
+                    ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\"")),
+                    List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(member))));
+            status.setRollbackOnly();
+        });
+
+        assertThat(sessionRepository.findById(session.getId())).isNotNull();
+        assertThat(adminMembersExcept(adminGroup)).contains(member);
+        assertThat(versionColumn(adminGroup)).isEqualTo(version);
+        assertThat(auditCount("USER_SESSIONS_REVOKE", member, "SUCCESS")).isZero();
+    }
+
+    /** An ordinary Group confers no authority, so removing a member of one revokes nothing. */
+    @Test
+    void removal_from_an_ordinary_group_revokes_nothing() throws Exception {
+        UUID member = createUser("ordinary-removed");
+        UUID group = createGroupWith("Ordinary Revocation Group", member);
+        Session session = openSessionFor(member);
+
+        assertThat(status(conditional(tokenA, withBody(patch(GROUPS + "/" + group), patchOp(
+                "{\"op\":\"remove\",\"path\":\"members[value eq \\\"" + member + "\\\"]\"}")),
+                group))).isEqualTo(200);
+
+        assertThat(sessionRepository.findById(session.getId())).isNotNull();
+        assertThat(auditCount("USER_SESSIONS_REVOKE", member, "SUCCESS")).isZero();
+    }
+
     // ---- helpers --------------------------------------------------------------------------
+
+    /** The Admin group's stored direct members, less the ones named. */
+    private List<UUID> adminMembersExcept(UUID adminGroup, UUID... excluded) {
+        List<UUID> members = new ArrayList<>(jdbc.queryForList(
+                "SELECT user_id FROM scim_group_members WHERE group_id = ?", UUID.class, adminGroup));
+        members.removeAll(List.of(excluded));
+        return members;
+    }
+
+    private static String memberValues(List<UUID> members) {
+        return members.stream().map(id -> "{\"value\":\"" + id + "\"}")
+                .collect(Collectors.joining(",", "[", "]"));
+    }
 
     private void assertPatchRefused(UUID user, String scimType, String... operations)
             throws Exception {
