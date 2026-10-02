@@ -166,11 +166,6 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
   browser,
   page: adminPage,
 }) => {
-  // Known defect: the backend does not yet revoke on this path, and the
-  // session keeps the ADMIN role (#86). `test.fail` keeps the suite green while
-  // it is open and turns red the moment the fix lands, so the marker cannot
-  // outlive the bug. Remove it with the fix.
-  test.fail(true, "#86: SCIM Admin-group removal does not revoke sessions");
   test.setTimeout(90_000);
   const groups = (await (await adminPage.request.get("/api/admin/groups")).json()) as Array<{
     adminGroup: boolean;

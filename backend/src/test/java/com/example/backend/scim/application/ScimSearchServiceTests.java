@@ -63,7 +63,8 @@ class ScimSearchServiceTests {
             null, clock, defaultQueries);
 
     private final ScimGroupService groupService = new ScimGroupService(
-            groups, users, aliases, new InMemoryScimTombstoneRepository(), audit, clock,
+            groups, users, aliases, (connectorId, userId, causes) -> { },
+            new InMemoryScimTombstoneRepository(), audit, clock,
             defaultQueries);
 
     private ScimSearchService search(ScimQueryRepository queries) {

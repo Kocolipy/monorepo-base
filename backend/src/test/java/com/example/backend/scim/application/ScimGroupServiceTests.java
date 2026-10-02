@@ -16,6 +16,7 @@ import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
+import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -24,11 +25,13 @@ import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
+import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Clock;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -61,10 +64,20 @@ class ScimGroupServiceTests {
     private final InMemoryScimTombstoneRepository tombstones =
             new InMemoryScimTombstoneRepository();
 
+    /** One after-commit revocation the service asked for. */
+    private record Revocation(UUID connectorId, UUID userId, Set<ScimUserSessions.Cause> causes) {
+    }
+
+    private final List<Revocation> revocations = new ArrayList<>();
+
+    private final ScimUserSessions sessions = (connectorId, userId, causes) ->
+            revocations.add(new Revocation(connectorId, userId, Set.copyOf(causes)));
+
     private final ScimGroupService service = new ScimGroupService(
             groups,
             users,
             aliases,
+            sessions,
             tombstones,
             audit,
             Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
@@ -620,6 +633,102 @@ class ScimGroupServiceTests {
         assertThat(set.displayName()).isEqualTo("Admins");
         assertThat(set.version()).isEqualTo(adminGroup.version() + 1);
         assertThat(aliases.find(CONNECTOR.connectorId(), adminGroup.id())).contains("admins-1");
+    }
+
+    // ---- removing Admin membership ends the removed Users' sessions --------------------------
+
+    /** The revocation a removal from the Admin group asks for, on behalf of this connector. */
+    private Revocation adminRemoval(ScimUser user) {
+        return new Revocation(CONNECTOR.connectorId(), user.id(),
+                Set.of(ScimUserSessions.Cause.ADMIN_MEMBERSHIP_REMOVED));
+    }
+
+    /** The Admin group with alice and bob added as ordinary members beside the Bootstrap Admin. */
+    private ScimGroup adminGroupWithAliceAndBob() {
+        ScimGroup adminGroup = seedAdminGroup();
+        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id(), bob.id()))));
+        assertThat(revocations).as("adding authority revokes nothing").isEmpty();
+        return groups.findById(adminGroup.id()).orElseThrow();
+    }
+
+    @Test
+    void a_patch_removing_an_admin_member_revokes_only_that_users_sessions() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+
+        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
+
+        assertThat(revocations).containsExactly(adminRemoval(alice));
+    }
+
+    @Test
+    void a_patch_replacing_the_admin_members_revokes_every_user_it_dropped() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+
+        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                List.of(new ScimGroupPatchOperation.ReplaceMembers(
+                        List.of(bootstrapAdmin().id(), bob.id()))));
+
+        assertThat(revocations).containsExactly(adminRemoval(alice));
+    }
+
+    @Test
+    void a_put_whose_member_list_leaves_users_out_of_the_admin_group_revokes_them() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+
+        service.replace(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                new ScimGroupReplacement("Admins", List.of(bootstrapAdmin().id()), null));
+
+        assertThat(revocations).containsExactlyInAnyOrder(adminRemoval(alice), adminRemoval(bob));
+    }
+
+    /**
+     * Decided from the stored membership, not the operations: a User removed and added back in one
+     * PATCH still holds the authority, and a removal naming a non-member removed nobody.
+     */
+    @Test
+    void a_patch_that_leaves_the_admin_membership_as_it_was_revokes_nothing() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+        ScimUser carol = users.create(ScimIdentities.user("carol"));
+
+        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()), List.of(
+                new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id(), carol.id())),
+                new ScimGroupPatchOperation.AddMembers(List.of(alice.id()))));
+
+        assertThat(revocations).isEmpty();
+    }
+
+    @Test
+    void removal_from_an_ordinary_group_revokes_nothing() {
+        ScimGroupResource ordinary = service.create(CONNECTOR,
+                new NewScimGroup("Engineering", List.of(alice.id(), bob.id()), null));
+
+        service.patch(CONNECTOR, ordinary.id(), current(ordinary.id()),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
+        service.replace(CONNECTOR, ordinary.id(), current(ordinary.id()),
+                new ScimGroupReplacement("Engineering", List.of(), null));
+
+        assertThat(revocations).isEmpty();
+    }
+
+    /** A stale or refused write is raised before anything is written, so it revokes nothing. */
+    @Test
+    void a_stale_or_refused_admin_write_revokes_nothing() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+        ScimVersionPrecondition stale = ScimVersionPrecondition.ofIfMatch(
+                List.of("\"" + (adminGroup.version() - 1) + "\""));
+
+        assertThatThrownBy(() -> service.patch(CONNECTOR, adminGroup.id(), stale,
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id())))))
+                .isInstanceOf(PreconditionFailedException.class);
+        assertThatThrownBy(() -> service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id())),
+                        new ScimGroupPatchOperation.SetDisplayName("Not Admins"))))
+                .isInstanceOf(ProtectedResourceException.class);
+
+        assertThat(revocations).isEmpty();
+        assertThat(groups.findById(adminGroup.id()).orElseThrow().hasMember(alice.id())).isTrue();
     }
 
     // ---- stored-length limits ---------------------------------------------------------------
