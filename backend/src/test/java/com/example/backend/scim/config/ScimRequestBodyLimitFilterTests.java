@@ -6,6 +6,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.domain.ScimRequestBodyTooLargeException;
 import com.example.backend.scim.domain.ScimRequestLimits;
 import jakarta.servlet.ReadListener;
@@ -15,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -50,6 +55,34 @@ class ScimRequestBodyLimitFilterTests {
         assertThat(error.get("status").asText()).isEqualTo("413");
         assertThat(error.has("scimType")).isFalse();
         assertThat(error.get("detail").asText()).contains("1 MiB");
+    }
+
+    /**
+     * The declared-length refusal is one {@code payloadTooLarge} record, as the advice writes for
+     * a chunked body that crosses the bound; a body at the bound writes none.
+     */
+    @Test
+    void a_declared_length_over_the_bound_is_one_refusal_record() throws Exception {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(request(new byte[LIMIT + 1]), new MockHttpServletResponse(),
+                    (req, res) -> { });
+
+            List<ILoggingEvent> records =
+                    captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal");
+            assertThat(records).hasSize(1);
+            assertThat(records.getFirst().getLevel()).isEqualTo(Level.WARN);
+            assertThat(CapturedLog.fields(records.getFirst()))
+                    .containsEntry(LogEvent.OUTCOME, "failure")
+                    .containsEntry(LogEvent.REASON, "payloadTooLarge")
+                    .containsEntry(LogEvent.HTTP_STATUS_CODE, 413);
+
+            captured.reset();
+            filter.doFilter(request(new byte[LIMIT]), new MockHttpServletResponse(),
+                    (req, res) -> { });
+
+            assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal"))
+                    .as("a body at the bound is not refused").isEmpty();
+        }
     }
 
     @Test

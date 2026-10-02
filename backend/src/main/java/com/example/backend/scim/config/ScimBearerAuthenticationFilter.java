@@ -1,5 +1,8 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.observability.AccessRefusalLog;
+import com.example.backend.observability.AccessRefusalLog.Refusal;
+import com.example.backend.observability.LogContext;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
@@ -59,8 +62,12 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
 
     private final ConnectorAuthenticationService connectors;
 
-    ScimBearerAuthenticationFilter(ConnectorAuthenticationService connectors) {
+    private final AccessRefusalLog refusals;
+
+    ScimBearerAuthenticationFilter(
+            ConnectorAuthenticationService connectors, AccessRefusalLog refusals) {
         this.connectors = connectors;
+        this.refusals = refusals;
     }
 
     @Override
@@ -78,22 +85,38 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
 
         Optional<AuthenticatedConnector> connector = connectors.authenticate(presented.get());
         if (connector.isEmpty()) {
+            // The reason is a fixed word. Nothing of the presented value — not even a prefix,
+            // which is how a token is recognised in a leak — reaches the record.
+            refusals.record(request, Refusal.BEARER_INVALID);
             ScimBearerChallenge.invalidToken(response);
             return;
         }
 
-        if (ScimWriteScopeRule.requiresWriteScope(request.getMethod(), path(request))
-                && !connector.get().scope().permitsWrite()) {
-            ScimBearerChallenge.insufficientScope(response);
-            return;
+        // From here every record of the request names the connector, by its non-secret id —
+        // the refusal just below among them.
+        try (LogContext.Scope scope =
+                LogContext.connectorId(connector.get().connectorId().toString())) {
+            if (ScimWriteScopeRule.requiresWriteScope(request.getMethod(), path(request))
+                    && !connector.get().scope().permitsWrite()) {
+                refusals.record(request, Refusal.INSUFFICIENT_SCOPE);
+                ScimBearerChallenge.insufficientScope(response);
+                return;
+            }
+            proceedAs(connector.get(), request, response, chain);
         }
+    }
 
-        authenticate(connector.get());
+    private static void proceedAs(
+            AuthenticatedConnector connector,
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain chain) throws ServletException, IOException {
+        authenticate(connector);
         // Traffic per connector, by its non-secret id. Recorded here because this is
         // the only place that knows it: the security context is cleared below, before
         // the request metric is taken.
         MetricTag.record(
-                request, MetricTag.SCIM_CONNECTOR, connector.get().connectorId().toString());
+                request, MetricTag.SCIM_CONNECTOR, connector.connectorId().toString());
         try {
             chain.doFilter(request, response);
         } finally {

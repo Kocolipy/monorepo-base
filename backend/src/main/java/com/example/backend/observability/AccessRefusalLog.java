@@ -1,0 +1,109 @@
+package com.example.backend.observability;
+
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * The one record a request refused for want of authentication ({@code 401}) or of
+ * authorization ({@code 403}) gets, from either security chain.
+ *
+ * <p>The record says THAT access was refused, to whom and to which operation — the caller's
+ * {@code user.id} or {@code scim.connector.id} from the logging context, the method, the route
+ * template — and why only in a word from {@link Refusal}'s closed set. It never says which
+ * rule refused it: no role, no matcher, no authority. A record naming the role a route needs
+ * is a map of the authorization rules for whoever reads the log stream. It never carries a
+ * credential either, nor any part of one: the reasons are fixed strings, so nothing a caller
+ * sent can reach the record through them.
+ *
+ * <h2>Once per request</h2>
+ *
+ * <p>Only on the request dispatch, and only the first time. A refusal answered with
+ * {@code sendError} is dispatched again to the error page; should that dispatch ever be refused
+ * by a chain too — a filter registered for error dispatches, a rule the error page does not
+ * pass — it is the same exchange, not a second refusal, and gets no second record.
+ * {@code RefusalLogIntegrationTests} observes one record per refusal over a real socket today;
+ * this guard keeps it so if the error dispatch's handling changes.
+ * {@code #68}'s request record exists beside this one and is a different record: that one
+ * says a request ended, this one says why it was turned away.
+ */
+public class AccessRefusalLog {
+
+    /** Marks a request already recorded, so a second refusal of the same exchange is not. */
+    static final String RECORDED_ATTRIBUTE = AccessRefusalLog.class.getName() + ".recorded";
+
+    private static final Logger log = LoggerFactory.getLogger(AccessRefusalLog.class);
+
+    private final RouteTemplates routes;
+
+    public AccessRefusalLog(RouteTemplates routes) {
+        this.routes = routes;
+    }
+
+    /** Writes the refusal's record, at {@code WARN}, unless this exchange already has one. */
+    public void record(HttpServletRequest request, Refusal refusal) {
+        if (request.getDispatcherType() != DispatcherType.REQUEST
+                || request.getAttribute(RECORDED_ATTRIBUTE) != null) {
+            return;
+        }
+        request.setAttribute(RECORDED_ATTRIBUTE, refusal);
+        // The published method — one of a fixed set — computed first: it is what the request
+        // record names it as, so the two records of one exchange agree.
+        String method = RequestIdFilter.method(request);
+        LogEvent.classify(log.atWarn(), refusal.operation(),
+                        Category.PROCESS, Type.ACCESS, Type.DENIED)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .addKeyValue(LogEvent.REASON, refusal.reason())
+                .addKeyValue(LogEvent.HTTP_METHOD, method)
+                .addKeyValue(LogEvent.HTTP_ROUTE, routes.of(request))
+                .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status())
+                .log(refusal.message());
+    }
+
+    /** Why a request was refused, as generic as the answer the caller itself received. */
+    public enum Refusal {
+        /** A request without a session, or with one that holds no authentication. */
+        NO_SESSION(401, "no-session"),
+        /** A request carrying a session that has ended — idle, or past its absolute lifetime. */
+        SESSION_EXPIRED(401, "session-expired"),
+        /** A SCIM request with no {@code Authorization: Bearer} credential. */
+        BEARER_MISSING(401, "bearer-missing"),
+        /** A SCIM request whose bearer credential is not accepted, for whatever reason. */
+        BEARER_INVALID(401, "bearer-invalid"),
+        /** An authenticated caller the authorization rules do not admit to the route. */
+        ACCESS_DENIED(403, "access-denied"),
+        /** An unsafe request without the session's CSRF token. Not an authorization decision. */
+        CSRF(403, "csrf"),
+        /** A read-only SCIM credential attempting a write. */
+        INSUFFICIENT_SCOPE(403, "insufficient-scope");
+
+        private final int status;
+        private final String reason;
+
+        Refusal(int status, String reason) {
+            this.status = status;
+            this.reason = reason;
+        }
+
+        public int status() {
+            return status;
+        }
+
+        public String reason() {
+            return reason;
+        }
+
+        Operation operation() {
+            return status == 401 ? Operation.UNAUTHENTICATED : Operation.ACCESS_DENIED;
+        }
+
+        String message() {
+            return status == 401 ? "Request refused: authentication required"
+                    : "Request refused: access denied";
+        }
+    }
+}

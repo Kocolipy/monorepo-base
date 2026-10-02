@@ -127,6 +127,15 @@ public final class LogEvent {
     /** The status an inbound request was answered with. ECS {@code http.response.status_code}. */
     public static final String HTTP_STATUS_CODE = "http.response.status_code";
 
+    /**
+     * The SCIM resource type a refused request addressed ({@code User}, {@code Group}), read
+     * from the route it matched. Never anything from the request body.
+     */
+    public static final String SCIM_RESOURCE_TYPE = "scim.resource.type";
+
+    /** How many sessions one revocation ended. */
+    public static final String SESSIONS_ENDED = "session.ended_count";
+
     /** The machine's host name, on the startup record. ECS {@code host.name}. */
     public static final String HOST_NAME = "host.name";
 
@@ -177,6 +186,11 @@ public final class LogEvent {
         CONNECTOR_TOKEN_ROTATE(Action.ACCESS_CONTROL, "scim.connector.token.rotate"),
         CONNECTOR_TOKEN_REVOKE(Action.ACCESS_CONTROL, "scim.connector.token.revoke"),
         SCIM_WRITE(Action.USER_PROVISIONING, "scim.write"),
+        SCIM_REFUSAL(Action.USER_PROVISIONING, "scim.refusal"),
+        ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied"),
+        UNAUTHENTICATED(Action.ACCESS_CONTROL, "access.unauthenticated"),
+        LOGOUT(Action.USER_LOGOUT, null),
+        SESSION_END(Action.SESSION_END, null),
         AUDIT_RETENTION(null, "audit.retention"),
         AUDIT_APPEND(null, "audit.append"),
         HTTP_REQUEST(null, "http.request"),
@@ -205,6 +219,8 @@ public final class LogEvent {
     /** {@code event.action} values from {@code Log_Schema.md} §Event that this service uses. */
     public enum Action {
         USER_AUTHENTICATION("user-authentication"),
+        USER_LOGOUT("user-logout"),
+        SESSION_END("session-end"),
         USER_ADMINISTRATION("user-administration"),
         USER_PROVISIONING("user-provisioning"),
         PASSWORD_CHANGE_ENFORCEMENT("password-change-enforcement"),

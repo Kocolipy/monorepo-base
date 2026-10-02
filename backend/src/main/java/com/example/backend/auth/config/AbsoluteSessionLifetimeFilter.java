@@ -1,6 +1,11 @@
 package com.example.backend.auth.config;
 
 import com.example.backend.auth.domain.AbsoluteSessionLifetimePolicy;
+import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,7 +14,11 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -30,6 +39,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
 
+    /**
+     * Set on a request whose session this filter ended, so the entry point that answers it can
+     * say the session expired rather than that there never was one.
+     */
+    static final String ENDED_ATTRIBUTE = AbsoluteSessionLifetimeFilter.class.getName() + ".ended";
+
+    /** The cause a session-end record names for a session ended here. */
+    static final String CAUSE = "absolute-lifetime";
+
+    private static final Logger log = LoggerFactory.getLogger(AbsoluteSessionLifetimeFilter.class);
+
     private final AbsoluteSessionLifetimePolicy policy;
     private final Clock clock;
 
@@ -46,10 +66,41 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
         if (session != null) {
             Instant createdAt = Instant.ofEpochMilli(session.getCreationTime());
             if (policy.isExpired(createdAt, clock.instant())) {
+                // Read before the session is gone: the principal index is the only place the
+                // account's stable id is, and the logging context does not have it yet — this
+                // filter runs ahead of the one that puts it there.
+                UUID owner = owner(session);
                 session.invalidate();
                 SecurityContextHolder.clearContext();
+                request.setAttribute(ENDED_ATTRIBUTE, Boolean.TRUE);
+                recordEnded(owner);
             }
         }
         chain.doFilter(request, response);
+    }
+
+    /**
+     * One {@code session-end} record, naming whose session it was by stable id — absent for a
+     * session that was never signed in to, which belonged to nobody.
+     */
+    private static void recordEnded(UUID owner) {
+        try (LogContext.Scope scope = LogContext.userId(owner)) {
+            LogEvent.classify(log.atInfo(), Operation.SESSION_END, Category.PROCESS, Type.END)
+                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                    .addKeyValue(LogEvent.REASON, CAUSE)
+                    .log("Session ended");
+        }
+    }
+
+    private static UUID owner(HttpSession session) {
+        if (!(session.getAttribute(FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME)
+                instanceof String indexed)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(indexed);
+        } catch (IllegalArgumentException notAnId) {
+            return null;
+        }
     }
 }

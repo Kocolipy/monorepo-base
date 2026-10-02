@@ -283,3 +283,71 @@ the keys stay off the record.
 
 Both lifecycle records carry `event.outcome` `success` and `event.severity` `low`,
 as the standard's lifecycle recipe has them.
+
+## Addendum (2026-10-01): refusals, logout and session end
+
+Issue #69. Authorization and authentication refusals, logout, the end of a session and every
+SCIM business refusal reached the caller with no record of their own
+(`Structured_Logging_Application_Standard.md` §2 #2, Failure Paths #1, §3.4; User standard
+§3.4).
+
+**401 and 403.** Both chains record through `AccessRefusalLog`: one `WARN` record carrying
+`event.reason` from a closed set, `http.request.method`, `http.route`, the status, and the
+caller from the logging context (`user.id`, or `scim.connector.id` — the bearer filter now
+puts the connector's id in the context for the rest of an authenticated SCIM request). The
+reasons are `no-session` and `session-expired` (application chain, `401`), `bearer-missing`
+and `bearer-invalid` (SCIM, `401`), `access-denied` (any authorization rule, the
+forced-password-change confinement included), `csrf` (a missing or invalid token — recorded
+apart from an authorization refusal) and `insufficient-scope` (a read-only token writing).
+No reason names a role, a matcher or an authority, and no part of a presented token — not a
+prefix, not the lookup id — reaches a record.
+
+The route is the template the request would have matched. The chain refuses before the
+dispatcher runs, so `RouteTemplates` asks the application's `requestMappingHandlerMapping`
+which of its mappings match, without dispatching and without leaving the match on the request:
+the #68 request record still files a refused request under `unmatched`.
+
+A refusal is recorded once per exchange: only on the request dispatch, and only the first time
+(`AccessRefusalLog` marks the request). The request record is a separate record and is not a
+second refusal record; `RefusalLogIntegrationTests` checks the count over a real socket, where
+the container's error dispatch exists.
+
+**Logout and session end.** A logout of a signed-in session writes `user-logout` at `INFO`
+with `user.id`, after the audit append it accompanies. A session ended by its absolute lifetime
+writes `session-end` with `event.reason` `absolute-lifetime` and the session's own `user.id`,
+read from its principal index before it is invalidated. A revocation through `AccountSessions`
+that ended at least one session writes `session-end` with `event.reason` `revoked`
+(`revokeAll`) or `replaced-by-login` (`revokeAllExcept`), the account as `user.target.id`,
+the actor left as the request carries it, and `session.ended_count` — never a session id, which
+is the session's bearer credential. A session that simply idles out in Redis is not observed by
+the service and gets no record.
+
+**SCIM refusals.** `ScimExceptionHandler` writes one record per refusal: `WARN` for a 4xx,
+`ERROR` with the exception attached for a 5xx. `event.reason` is the `scimType`, or where
+SCIM defines none the refusal's own name (`notFound`, `preconditionFailed`,
+`unsupportedQuery`, `payloadTooLarge`, `notImplemented`, `serverError`) —
+`ScimErrorException.reason()`. The record adds `scim.resource.type` (`User`/`Group`, from the
+matched route) and `scim.resource.id` (the route's `{id}`, only when it is a UUID), and never
+the detail or any submitted value. The unmapped-integrity-violation path keeps its own
+`scim.write` record as the single `ERROR`; its exception is attached as a redacted copy — the
+original stack under a message that is only the cause's type, with no cause chain — because
+the driver's message quotes the refused row. Refusals made by `ScimRequestBodyLimitFilter` (a
+declared body over the bound) and `ScimDispatcherErrorFilter` (the dispatcher's own `404`,
+`405`, `406`, `415`) before any handler runs get the same `scim.refusal` record, written by
+`ScimErrorDocument` as it writes the error document: `event.reason` is fixed by the status
+(`notFound`, `methodNotAllowed`, `notAcceptable`, `payloadTooLarge`, `unsupportedMediaType`;
+`serverError` for a 5xx, at `ERROR`; `requestRefused` for any other 4xx) and spelled as the
+handler spells the same refusal, and there is no `scim.resource.type`, since no handler was
+matched. The release gate's `404` while the namespace is closed is deliberately not a refusal
+record: the closed namespace is meant to look like no namespace at all. Spring MVC's
+`DefaultHandlerExceptionResolver` would otherwise add an unstructured `WARN` of its own for
+those same dispatcher refusals, quoting the method, `Content-Type` or `Accept` the caller sent,
+so `log-levels.yaml` turns that category `OFF`, as it does Hibernate's JDBC error logger.
+
+| Operation                 | `event.action`        | `app.event.action`       | `event.category` | `event.type`        |
+| ------------------------- | --------------------- | ------------------------ | ---------------- | ------------------- |
+| request refused, `403`    | `access-control`      | `access.denied`          | `process`        | `access`, `denied`  |
+| request refused, `401`    | `access-control`      | `access.unauthenticated` | `process`        | `access`, `denied`  |
+| logout                    | `user-logout`         | —                        | `process`        | `user`, `end`       |
+| session ended             | `session-end`         | —                        | `process`        | `end`               |
+| SCIM refusal, 4xx / 5xx   | `user-provisioning`   | `scim.refusal`           | `process`        | `denied` / `error`  |

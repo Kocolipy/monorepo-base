@@ -22,3 +22,15 @@ logging:
     # the application's own structured records — `ScimExceptionHandler` for an
     # unmapped violation, the refusal audit and metrics for a conflict.
     org.hibernate.orm.jdbc.error: "OFF"
+    # Spring MVC's DefaultHandlerExceptionResolver writes one unstructured WARN,
+    # "Resolved [<exception>: <message>]", for every refusal the dispatcher makes
+    # itself — 405, 406, 415, a missing parameter, a type mismatch. The message
+    # quotes the request: the method, the Content-Type or Accept the caller sent,
+    # the parameter value that failed to convert. That is caller input in the log
+    # stream, outside any structured field, and in the SCIM namespace it is also a
+    # second record beside the `scim.refusal` one `ScimErrorDocument` writes (#69).
+    #
+    # OFF for the same reason as above: the category carries nothing but that
+    # text. Every such refusal still has its request record (status and route),
+    # and in the SCIM namespace its `scim.refusal` record.
+    org.springframework.web.servlet.mvc.support.DefaultHandlerExceptionResolver: "OFF"

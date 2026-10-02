@@ -18,6 +18,8 @@ import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
 import com.example.backend.auth.application.ScimUserSessionRevocation;
 import com.example.backend.auth.config.SecurityConfig;
+import com.example.backend.observability.LogContext;
+import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
@@ -735,6 +737,57 @@ class AuthControllerTests {
         controller.logout(request, new MockHttpServletResponse());
 
         assertThat(audit.of(com.example.backend.audit.domain.AuditOperation.LOGOUT)).isEmpty();
+    }
+
+    /**
+     * The operational stream's line for a logout: one INFO {@code user-logout} record, after the
+     * audit append, naming the account by the stable id in the logging context — and that id is
+     * gone from the context once the record is written.
+     */
+    @Test
+    void logoutWritesOneUserLogoutRecordNamingTheSessionsUser() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+
+        try (com.example.backend.audit.CapturedLog captured =
+                com.example.backend.audit.CapturedLog.attach()) {
+            controller.logout(request, new MockHttpServletResponse());
+
+            java.util.List<ch.qos.logback.classic.spi.ILoggingEvent> records = captured.withAction(
+                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "user-logout");
+            assertThat(records).hasSize(1);
+            ch.qos.logback.classic.spi.ILoggingEvent record = records.getFirst();
+            assertThat(record.getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+            assertThat(record.getFormattedMessage()).isEqualTo("Logout completed");
+            assertThat(com.example.backend.audit.CapturedLog.fields(record))
+                    .containsEntry(LogEvent.KIND, "event")
+                    .containsEntry(LogEvent.CATEGORY, java.util.List.of("process"))
+                    .containsEntry(LogEvent.TYPE, java.util.List.of("user", "end"))
+                    .containsEntry(LogEvent.OUTCOME, "success")
+                    .doesNotContainKey(LogEvent.LOCAL_ACTION);
+            assertThat(record.getMDCPropertyMap())
+                    .containsEntry(LogContext.USER_ID, users.require("ada").id().toString());
+            assertThat(record.getFormattedMessage()).doesNotContain("ada");
+        }
+        assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).as("the scope is closed").isNull();
+    }
+
+    /** No account was logged out, so no logout record is written either. */
+    @Test
+    void logoutOfASessionWithNoPrincipalIndexWritesNoLogoutRecord() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.getSession(true).setAttribute("unrelated", "value");
+
+        try (com.example.backend.audit.CapturedLog captured =
+                com.example.backend.audit.CapturedLog.attach()) {
+            controller.logout(request, new MockHttpServletResponse());
+
+            assertThat(captured.withAction(
+                    ch.qos.logback.classic.Level.TRACE, LogEvent.ACTION, "user-logout")).isEmpty();
+        }
     }
 
     /** Neither length validator judges a missing value: that is {@code @NotBlank}'s refusal. */

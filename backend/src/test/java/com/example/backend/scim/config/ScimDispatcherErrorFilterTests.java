@@ -3,7 +3,12 @@ package com.example.backend.scim.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.audit.CapturedLog;
+import com.example.backend.observability.LogEvent;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -55,6 +60,56 @@ class ScimDispatcherErrorFilterTests {
         assertThat(error.has("scimType")).isFalse();
         assertThat(error.get("detail").asText()).isEqualTo(detail);
         assertThat(response.getContentAsString()).doesNotContain("script");
+    }
+
+    /**
+     * Each refusal the dispatcher sends is one {@code scim.refusal} record — the advice's record
+     * shape — with a reason fixed by the status, and nothing of the dispatcher's message.
+     */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(delimiter = '|', value = {
+        "404 | notFound             | WARN  | denied",
+        "405 | methodNotAllowed     | WARN  | denied",
+        "406 | notAcceptable        | WARN  | denied",
+        "413 | payloadTooLarge      | WARN  | denied",
+        "415 | unsupportedMediaType | WARN  | denied",
+        "400 | requestRefused       | WARN  | denied",
+        "500 | serverError          | ERROR | error",
+        "503 | serverError          | ERROR | error"})
+    void a_sent_error_is_one_scim_refusal_record(
+            int status, String reason, String level, String type) throws Exception {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(),
+                    (req, res) -> ((HttpServletResponse) res)
+                            .sendError(status, "Request method 'X<script>' is bad"));
+
+            List<ILoggingEvent> records =
+                    captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal");
+            assertThat(records).hasSize(1);
+            ILoggingEvent record = records.getFirst();
+            assertThat(record.getLevel()).isEqualTo(Level.toLevel(level));
+            assertThat(record.getFormattedMessage()).isEqualTo("SCIM request refused");
+            assertThat(CapturedLog.fields(record))
+                    .containsEntry(LogEvent.ACTION, "user-provisioning")
+                    .containsEntry(LogEvent.CATEGORY, List.of("process"))
+                    .containsEntry(LogEvent.TYPE, List.of(type))
+                    .containsEntry(LogEvent.OUTCOME, "failure")
+                    .containsEntry(LogEvent.REASON, reason)
+                    .containsEntry(LogEvent.HTTP_STATUS_CODE, status)
+                    .doesNotContainKey(LogEvent.SCIM_RESOURCE_TYPE);
+            assertThat(record.toString()).doesNotContain("script");
+        }
+    }
+
+    @Test
+    void a_response_that_sends_no_error_writes_no_record() throws Exception {
+        try (CapturedLog captured = CapturedLog.attach()) {
+            filter.doFilter(new MockHttpServletRequest(), new MockHttpServletResponse(),
+                    (req, res) -> ((HttpServletResponse) res).setStatus(401));
+
+            assertThat(captured.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, "scim.refusal"))
+                    .isEmpty();
+        }
     }
 
     @Test
