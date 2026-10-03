@@ -6,6 +6,12 @@ Date: 2026-09-25
 
 Accepted.
 
+The administrator's disable and enable named below were removed when `active`
+became the directory's. The rule is unchanged and is the decision, not the list:
+an event an otherwise-successful request records joins its transaction; refusal
+events run fail-open, and so does the record of a post-commit session revocation,
+whose transaction has already committed (`AuditTrailService`).
+
 ## Context
 
 The audit trail records what the application already does: accepted and refused

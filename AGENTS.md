@@ -17,7 +17,11 @@ backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
 packages/         shared code, when any appears
 scripts/          shell layer the Makefile targets call
+CONTEXT.md        domain glossary (see /docs/agents/domain.md)
+docs/domain-rules.md  the behavior behind the glossary's terms
+docs/adr/         architectural decision records
 docs/agents/      agent documentation shared by both apps
+graphify-out/     knowledge graph, tracked (see "graphify" below)
 Makefile          cross-app orchestration; `make help` lists every target
 ```
 

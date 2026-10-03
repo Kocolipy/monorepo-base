@@ -9,6 +9,8 @@ frontend/   Vite + React + TypeScript SPA
 backend/    Spring Boot 4 service (Java 25, Maven)
 infra/      AWS CloudFormation template + deploy/cleanup scripts
 scripts/    shell layer the Makefile targets call
+CONTEXT.md  domain glossary
+docs/       domain rules, decision records (adr/), agent docs (agents/), specs
 Makefile    cross-app orchestration
 ```
 
@@ -83,7 +85,7 @@ and commit the resulting lockfile change.
 ```bash
 cd backend
 ./mvnw spring-boot:run   # run the service
-./mvnw clean verify      # build + tests
+./scripts/verify.sh      # the baseline gate: build, tests, ArchUnit, Semgrep
 docker compose up        # Postgres + Redis dependencies
 ```
 

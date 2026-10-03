@@ -3,7 +3,8 @@ info:
   title: Backend API
   version: 1.0.0
   description: |
-    API contract for authentication and Redis-backed HTTP sessions.
+    API contract for the session-authenticated application API and the SCIM v2
+    provisioning interface.
 
     CSRF protection is enabled, using the Synchronizer Token Pattern bound to the
     HTTP session. Every unsafe request (POST, PUT, PATCH, DELETE) must carry the
@@ -22,11 +23,8 @@ info:
     `/scim/v2`. The operations under the Connectors tag are how an administrator
     mints and retires the credentials that chain accepts.
 
-    **The SCIM namespace is behind a release gate that is now ON by default.** It was
-    off while Users and Groups were being built, because the two are one release
-    capability: a directory that could create Users but had no Groups could not
-    express authority. Groups are complete, so the gate stops hiding a finished
-    interface. Setting `APP_SCIM_ENABLED=false` still closes it, and while it is
+    **The SCIM namespace is behind a release gate that is ON by default.** Setting
+    `APP_SCIM_ENABLED=false` closes it, and while it is
     closed every path below `/scim/v2` answers `404` with a SCIM error document —
     discovery included, and ahead of authentication. Every SCIM operation documented
     here therefore also has a `404` that means "not served by this deployment" rather
@@ -925,7 +923,7 @@ paths:
       summary: List the SCIM resource types served
       description: |
         Public. Both User and Group: a resource type in this list is a claim that its
-        endpoint answers, and both now do.
+        endpoint answers.
       operationId: listScimResourceTypes
       security: []
       responses:
@@ -2672,8 +2670,8 @@ components:
         active:
           type: boolean
           description: |
-            SCIM's `active` attribute, owned by the directory and read-only here —
-            the former disable and enable operations were removed. An inactive
+            SCIM's `active` attribute, owned by the directory and read-only here.
+            An inactive
             identity is refused at login with the same bare `401` as a wrong
             password.
         locked:

@@ -6,6 +6,13 @@ Date: 2026-09-25
 
 Accepted.
 
+The disable endpoint this ADR was written against has since been removed;
+deactivation now comes from the directory (SCIM) and the inactivity job. The
+decision stands and is carried by the `AfterCommit` port
+(`auth.application.AfterCommit`), through which `IdentityAdministrationService`,
+`ScimUserSessionRevocationService` and `LoginAttemptService` revoke sessions only
+once their transaction commits.
+
 ## Context
 
 Disabling an account does two writes that live in different systems. The

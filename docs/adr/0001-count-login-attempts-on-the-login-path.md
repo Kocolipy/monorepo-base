@@ -6,12 +6,17 @@ Date: 2026-09-24
 
 Accepted.
 
+Written before the login identity moved onto SCIM Users: `AccountService` and
+`AccountAdministrationService` below are today's `LoginIdentityService` and
+`IdentityAdministrationService`. The decision — attempts are counted by
+`LoginService`, on the login path — is unchanged.
+
 ## Context
 
 An account's **failure run** lengthens on every rejected login and ends on an
 accepted one, and reaching the configured limit imposes a **lockout** — which has
 no duration and ends only when an administrator unlocks the account, and which
-revokes the account's live sessions as it is imposed (see `/CONTEXT.md`). The one
+revokes the account's live sessions as it is imposed (see `/docs/domain-rules.md`). The one
 exception is the Bootstrap Admin, whose failures are counted and audited but never
 lock it. Something has to notice how each attempt ended and write it down.
 
