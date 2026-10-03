@@ -111,6 +111,12 @@ public class AuditTrailService implements AuditTrail {
     /** Revocation touches one column. */
     private static final List<String> TOKEN_REVOKE_PATHS = List.of("revokedAt");
 
+    /**
+     * The one reason an authorization refusal is recorded with, whichever rule refused: generic,
+     * so the trail never names a Permission, a Role or the policy.
+     */
+    static final String INSUFFICIENT_PERMISSIONS = "INSUFFICIENT_PERMISSIONS";
+
     private final AuditEventRepository events;
     private final AuditRequestContext requests;
     private final OperationalAlerts alerts;
@@ -897,6 +903,33 @@ public class AuditTrailService implements AuditTrail {
                 request.requestId(),
                 null,
                 null);
+    }
+
+    /**
+     * Records an authorization refusal. Fail-open with an alert. The operation — method, route
+     * template and correlation id — comes from the caller, because a chain-level refusal happens
+     * before the dispatcher has matched a route, and before any request context this service's
+     * other events read is guaranteed to exist.
+     */
+    @Override
+    public void recordAccessDenied(UUID userId, AuditRequest operation) {
+        appendRaisingAlertOnFailure(new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                AuditOperation.ACCESS_DENIED,
+                AuditOutcome.FAILURE,
+                userId,
+                userId,
+                AuditEvent.USER_RESOURCE_TYPE,
+                userId,
+                List.of(),
+                AuditEvent.STATUS_CLIENT_ERROR,
+                INSUFFICIENT_PERMISSIONS,
+                operation.method(),
+                operation.pathTemplate(),
+                operation.requestId(),
+                null,
+                null));
     }
 
     /**

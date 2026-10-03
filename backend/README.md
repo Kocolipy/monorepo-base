@@ -49,22 +49,21 @@ absent. The development defaults are `user` / `P@ssw0rd` and `admin` /
 `APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the Bootstrap
 Admin. These published defaults must not be used in production.
 
-There is no role column. Every active User holds `USER`; direct membership of the
-Admin group additionally grants `ADMIN`. Authority is derived when a session is
-created, so a User added to or removed from the Admin group gains or loses `ADMIN`
-at their next login, never mid-session.
-
-Beside the roles, a session holds the **Permissions** the role mapping confers
-through the User's direct Group memberships, resolved at the same moment and
-reported, sorted by name, as `permissions` on `GET /api/auth/me`. With the
+There is no role column and no administrative role. Every active User holds
+baseline access (`ROLE_USER`), which is self-service only; everything else is
+granted by **Permission**. A session holds the Permissions the role mapping
+confers through the User's direct Group memberships, resolved when the session is
+created — so a User added to or removed from a mapped Group gains or loses them at
+their next login, never mid-session — and reported, sorted by name, as
+`permissions` on `GET /api/auth/me`. With the
 development fixtures enabled there is a User per development Role to sign in
 as, all with `APP_DEV_FIXTURES_PASSWORD`: `account-admin`, `auditor`,
 `connector-admin` and `monitoring`; the Superuser's is the Bootstrap Admin. See
 [Role mapping](#role-mapping).
 
 Three consecutive refused logins lock an account (`APP_LOCKOUT_MAX_ATTEMPTS`,
-default 3), and the lock is **permanent**: it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
-Unlock is the only thing that ends it. Imposing it also revokes that account's
+default 3), and the lock is **permanent**: it has no duration, nothing lifts it as time passes, and an Unlock by
+a holder of `user:write` is the only thing that ends it. Imposing it also revokes that account's
 live sessions, so a locked account stops acting immediately rather than when the
 session it already held expires. While the lockout holds the correct password is
 refused too, and every refusal — unknown username, a credentialless account,
@@ -86,8 +85,8 @@ A session is bound by two independent limits. It is dropped after
 `SESSION_TIMEOUT` (default 15 minutes) of inactivity — the servlet container's
 own idle timeout, reset by every request — and separately terminated once it has
 existed for `APP_SESSION_ABSOLUTE_LIFETIME` (default 8 hours), regardless of how
-recently it was used. Both bounds apply to every authenticated session, `ADMIN`
-included; whichever is reached first ends the session.
+recently it was used. Both bounds apply to every authenticated session, a
+Superuser's included; whichever is reached first ends the session.
 
 Every unsafe request (POST, PUT, PATCH, DELETE) needs the session's CSRF token in
 the `X-CSRF-TOKEN` header. It is fetched, never read from a cookie: `GET
@@ -109,11 +108,13 @@ token=$(csrf)
 curl -b cookies.txt http://localhost:8080/api/auth/me
 ```
 
-All `/api` endpoints other than login and the CSRF token require that cookie;
-those under `/api/admin/**` also require `ADMIN`, and a `USER` session is
-answered with `403`. Keep sending the cookie, and the token on unsafe requests.
-For example, an Admin lists the directory's Users (never with a password hash)
-and Unlocks one by its stable id:
+All `/api` endpoints other than login and the CSRF token require that cookie, and
+every one beyond self-service requires its own Permission — declared per
+operation in `docs/openapi.yaml`'s `security` field; a session without it is
+answered with `403`, as is any route the document does not declare. Keep sending
+the cookie, and the token on unsafe requests.
+For example, the Bootstrap Admin (a Superuser, holding every Permission) lists the
+directory's Users (never with a password hash) and Unlocks one by its stable id:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/admin/accounts
@@ -174,7 +175,10 @@ The Permission names are a closed set defined in code: `user:read`,
 `connector:write`, `connector:token`, `ops:read`, `counter:read`,
 `counter:write`.
 
-Startup fails, naming every problem, on: an unknown Permission; a Role defined
+`counter:read` and `counter:write` are also **baseline Permissions**: every
+active User holds them at sign-in whatever its Groups, so no Role needs to list
+them for its members to use the counter. A session confined by a required
+password change does not hold them. an unknown Permission; a Role defined
 twice or without a name; an entry with no Group id, mapping a Group id twice, or
 naming an undefined Role; anything but exactly one `superuser: true` entry; a
 Superuser Role missing any Permission; and a mapped Group id that does not
@@ -284,10 +288,11 @@ on the same cron one run deletes, and the others end `job-end` with
 | ------------------------ | ---------- | ---------------------------------------------------- |
 | `MANAGEMENT_SERVER_PORT` | the app's  | Serve `/actuator/**` on this port instead of the app's |
 
-`/actuator/prometheus` is the metrics scrape, and it is Admin-only: an ordinary
-User gets `403`, and a connector token gets `401` because the SCIM bearer chain
+`/actuator/prometheus` is the metrics scrape, and it requires the `ops:read`
+Permission (the Monitoring Role holds it alone): a session without it gets `403`,
+and a connector token gets `401` because the SCIM bearer chain
 does not cover `/actuator`. Setting `MANAGEMENT_SERVER_PORT` moves all of actuator,
-including `/actuator/health`, to that port and keeps it behind the same Admin
+including `/actuator/health`, to that port and keeps it behind the same `ops:read`
 rule. The exposure and histogram settings live in `src/main/resources/telemetry.yaml`,
 which the test configuration imports too. The tag policy (what a metric may be
 labelled with) lives in `ScimRequestObservationConvention`. The alert rules are

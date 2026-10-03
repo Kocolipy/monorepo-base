@@ -655,16 +655,19 @@ class IdentityAdministrationServiceTests {
                 AuditAdministrativeRefusal.PROTECTED_RESOURCE.name()));
     }
 
+    /**
+     * The self-target refusal holds for the Bootstrap Admin too, whatever it holds: no
+     * administrator acts on its own account through the admin flow. It replaces its own password
+     * through the self-service change instead.
+     */
     @Test
-    void theBootstrapAdminMayFlagItself() {
-        givenBootstrapAdmin();
+    void theBootstrapAdminCannotFlagItself() {
+        ScimUser bootstrap = givenBootstrapAdmin();
 
-        IdentitySummary flagged = service.forcePasswordChange(id(BOOTSTRAP), BOOTSTRAP);
+        assertThatThrownBy(() -> service.forcePasswordChange(id(BOOTSTRAP), BOOTSTRAP))
+                .isInstanceOf(ForbiddenIdentityChangeException.class);
 
-        assertThat(flagged.passwordChangeRequired()).isTrue();
-        // The response is the row the page redraws, so it keeps saying which row this is.
-        assertThat(flagged.bootstrapAdmin()).isTrue();
-        assertThat(users.require(BOOTSTRAP).login().isPasswordChangeRequired()).isTrue();
+        assertRefusedWithoutEffect(bootstrap, AuditAdministrativeRefusal.SELF_TARGET);
     }
 
     /**

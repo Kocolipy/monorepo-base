@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
@@ -562,14 +563,14 @@ class ScimConnectorLifecycleIntegrationTests {
 
     /** An authenticated Admin request, with a session and a matching CSRF token. */
     private MockHttpServletRequestBuilder asAdmin(MockHttpServletRequestBuilder request) {
-        return asRole(request, "ROLE_ADMIN");
+        return asRole(request, TestRoleMappings.SUPERUSER_AUTHORITIES);
     }
 
     private MockHttpServletRequestBuilder asRole(
-            MockHttpServletRequestBuilder request, String authority) {
+            MockHttpServletRequestBuilder request, String... authorities) {
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(
-                new TestingAuthenticationToken(ADMIN, null, authority));
+                new TestingAuthenticationToken(ADMIN, null, authorities));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

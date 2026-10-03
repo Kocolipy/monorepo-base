@@ -279,8 +279,11 @@ token value.
 
 ### Who can read it
 
-- **An Admin session only.** Every actuator path except `/actuator/health` needs
-  `ROLE_ADMIN`; an ordinary User gets `403`, a caller with no session `401`.
+- **A session holding `ops:read` only.** Every actuator path except
+  `/actuator/health` needs the `ops:read` Permission, which the Monitoring Role
+  holds and nothing else — give the Prometheus scraper's account that Role alone. A
+  session without it gets `403` (an Account admin's included), a caller with no
+  session `401`.
 - **Never a connector token.** The SCIM bearer chain covers `/scim/v2/**` only, so
   `Authorization: Bearer <connector token>` on `/actuator/prometheus` is not a
   credential there and gets `401`.
@@ -289,7 +292,7 @@ token value.
 ### Keep it off the internet
 
 In this stack the ALB forwards every path to port 8080, so the scrape is reachable
-from the internet. It is Admin-gated there, but the metrics surface belongs on the
+from the internet. It is behind `ops:read` there, but the metrics surface belongs on the
 internal network. Move actuator to its own port, which only the VPC can reach:
 
 ```bash
@@ -313,7 +316,8 @@ against the live stack, before you rely on the internal port.
 
 ### Scraping
 
-A scrape presents an Admin session cookie (`POST /api/auth/login` as an Admin,
+A scrape presents the session cookie of an account holding `ops:read` — the
+Monitoring Role's, and nothing more (`POST /api/auth/login` as that account,
 then send the returned cookie). Sessions end after 15 minutes idle and 8 hours
 absolute, so a long-running Prometheus has to log in again. No machine
 credential for metrics exists yet.

@@ -88,6 +88,8 @@ function TokenDisclosure({
 }
 
 function ConnectorSection({
+  canIssue,
+  canManage,
   connector,
   onDelete,
   onIssue,
@@ -95,6 +97,10 @@ function ConnectorSection({
   onRotate,
   pending,
 }: {
+  /** `connector:token`: issue, rotate and revoke are offered. */
+  canIssue: boolean;
+  /** `connector:write`: delete is offered. */
+  canManage: boolean;
   connector: Connector;
   onDelete: () => void;
   onIssue: (scope: TokenScope, lifetimeDays: number | null) => void;
@@ -122,9 +128,11 @@ function ConnectorSection({
           <h3 className="font-medium">{connector.displayName}</h3>
           <p className="text-sm text-muted-foreground">Created {formatDate(connector.createdAt)}</p>
         </div>
-        <Button disabled={pending} onClick={onDelete} size="sm" variant="destructive">
-          Delete {connector.displayName}
-        </Button>
+        {canManage ? (
+          <Button disabled={pending} onClick={onDelete} size="sm" variant="destructive">
+            Delete {connector.displayName}
+          </Button>
+        ) : null}
       </div>
 
       {connector.tokens.length === 0 ? (
@@ -152,7 +160,7 @@ function ConnectorSection({
                 <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
                 <td className="py-2 pr-4">{tokenStatus(token)}</td>
                 <td className="py-2">
-                  {token.active ? (
+                  {token.active && canIssue ? (
                     <span className="flex gap-2">
                       <Button
                         disabled={pending}
@@ -180,40 +188,42 @@ function ConnectorSection({
         </table>
       )}
 
-      <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium" htmlFor={scopeId}>
-            Scope for {connector.displayName}
-          </label>
-          <select
-            className={INPUT_CLASS}
-            id={scopeId}
-            onChange={(event) => setScope(event.target.value as TokenScope)}
-            value={scope}
-          >
-            <option value="READ_ONLY">Read only</option>
-            <option value="READ_WRITE">Read and write</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium" htmlFor={lifetimeId}>
-            Lifetime in days for {connector.displayName} (default 365)
-          </label>
-          <input
-            className={INPUT_CLASS}
-            id={lifetimeId}
-            inputMode="numeric"
-            max={365}
-            min={1}
-            onChange={(event) => setLifetime(event.target.value)}
-            type="number"
-            value={lifetime}
-          />
-        </div>
-        <Button disabled={pending} size="sm" type="submit">
-          Issue token for {connector.displayName}
-        </Button>
-      </form>
+      {canIssue ? (
+        <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium" htmlFor={scopeId}>
+              Scope for {connector.displayName}
+            </label>
+            <select
+              className={INPUT_CLASS}
+              id={scopeId}
+              onChange={(event) => setScope(event.target.value as TokenScope)}
+              value={scope}
+            >
+              <option value="READ_ONLY">Read only</option>
+              <option value="READ_WRITE">Read and write</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium" htmlFor={lifetimeId}>
+              Lifetime in days for {connector.displayName} (default 365)
+            </label>
+            <input
+              className={INPUT_CLASS}
+              id={lifetimeId}
+              inputMode="numeric"
+              max={365}
+              min={1}
+              onChange={(event) => setLifetime(event.target.value)}
+              type="number"
+              value={lifetime}
+            />
+          </div>
+          <Button disabled={pending} size="sm" type="submit">
+            Issue token for {connector.displayName}
+          </Button>
+        </form>
+      ) : null}
     </section>
   );
 }
@@ -393,8 +403,19 @@ function CreateConnectorForm({
  * issue, rotate and revoke their tokens. A token's plaintext appears exactly
  * once, in the response to the request that minted it, and is shown in
  * {@link TokenDisclosure}.
+ *
+ * Rendered only for a session holding `connector:read`. Creating and deleting
+ * a connector is offered only with `connector:write`, and issuing, rotating
+ * and revoking a token only with `connector:token` — each its own Permission
+ * on the backend, which refuses them independently.
  */
-export function Connectors() {
+export function Connectors({
+  canIssueTokens,
+  canManageConnectors,
+}: {
+  canIssueTokens: boolean;
+  canManageConnectors: boolean;
+}) {
   const { actionsFor, connectors, create, disclosure, dismiss, error, pending, unread } =
     useConnectors();
 
@@ -406,6 +427,8 @@ export function Connectors() {
   } else {
     listing = connectors.map((connector) => (
       <ConnectorSection
+        canIssue={canIssueTokens}
+        canManage={canManageConnectors}
         connector={connector}
         key={connector.id}
         pending={pending}
@@ -431,7 +454,7 @@ export function Connectors() {
           </p>
         ) : null}
         {disclosure ? <TokenDisclosure disclosure={disclosure} onDismiss={dismiss} /> : null}
-        <CreateConnectorForm onCreate={create} pending={pending} />
+        {canManageConnectors ? <CreateConnectorForm onCreate={create} pending={pending} /> : null}
         {listing}
       </CardContent>
     </Card>

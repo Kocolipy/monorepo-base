@@ -206,5 +206,16 @@ public enum AuditOperation {
      * the new value is ever recorded: an accepted change records the changed paths, a refusal its
      * reason from {@link AuditPasswordChangeRefusal}.
      */
-    PASSWORD_CHANGE
+    PASSWORD_CHANGE,
+
+    /**
+     * A signed-in caller was refused an operation on the application chain, for want of the
+     * Permission it requires, because no rule declares it, or because the session is confined
+     * by a required password change. The actor and subject are the refused User; the event
+     * carries the operation as its method and route template, and the one generic reason
+     * {@code INSUFFICIENT_PERMISSIONS} as its error code. It never names the Permission, Role or
+     * rule that refused — each operation requires exactly one Permission, which its declaration
+     * in the API document names.
+     */
+    ACCESS_DENIED
 }

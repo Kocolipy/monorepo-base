@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import type { Permission } from "@/auth/api";
 import { apiFetch } from "@/lib/http";
 
 import { Showcase } from "./showcase";
@@ -28,12 +29,23 @@ const auth: AuthContextState = {
   signOutForInactivity: vi.fn(),
   signedOutForInactivity: false,
   status: "authenticated",
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER", username: "ada" },
+  user: {
+    idleTimeoutSeconds: 900,
+    passwordChangeRequired: false,
+    permissions: ["counter:read", "counter:write"],
+    username: "ada",
+  },
 };
 
 function resolveWith(result: object) {
   apiFetchMock.mockResolvedValue(result as never);
 }
+
+/** The page as a session holding exactly these Permissions sees it. */
+const holding = (permissions: Permission[]): AuthContextState => ({
+  ...auth,
+  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
+});
 
 function resolveOnceWith(result: object) {
   apiFetchMock.mockResolvedValueOnce(result as never);
@@ -57,7 +69,7 @@ describe("Showcase", () => {
     vi.mocked(auth.logout).mockReset();
   });
 
-  it("offers every User the password change, and only an ADMIN the accounts page", async () => {
+  it("offers every User the password change, and the accounts page only by Permission", async () => {
     const { unmount } = renderShowcase();
     expect(await screen.findByRole("link", { name: "Change password" })).toHaveAttribute(
       "href",
@@ -66,23 +78,47 @@ describe("Showcase", () => {
     expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
     unmount();
 
-    renderShowcase({
-      ...auth,
-      user: {
-        idleTimeoutSeconds: 900,
-        passwordChangeRequired: false,
-        role: "ADMIN",
-        username: "grace",
-      },
-    });
-    expect(await screen.findByRole("link", { name: "Manage accounts" })).toHaveAttribute(
-      "href",
-      "/accounts",
-    );
-    expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
-      "href",
-      "/change-password",
-    );
+    // An Auditor's and a Monitoring account's Permissions open no Accounts view.
+    const { unmount: unmountOther } = renderShowcase(holding(["audit:read", "ops:read"]));
+    expect(await screen.findByRole("link", { name: "Change password" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
+    unmountOther();
+
+    for (const view of ["user:read", "group:read", "connector:read"] as const) {
+      const { unmount: unmountView } = renderShowcase(holding([view]));
+      expect(await screen.findByRole("link", { name: "Manage accounts" })).toHaveAttribute(
+        "href",
+        "/accounts",
+      );
+      expect(screen.getByRole("link", { name: "Change password" })).toHaveAttribute(
+        "href",
+        "/change-password",
+      );
+      unmountView();
+    }
+  });
+
+  it("shows a baseline User no counter, asks for none, and keeps self-service", async () => {
+    renderShowcase(holding([]));
+
+    expect(
+      await screen.findByText("You are signed in. Your account has no access to the counter."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("count")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Change password" })).toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows counter:read the count without the controls that change it", async () => {
+    resolveWith({ kind: "ok", data: 4 });
+    renderShowcase(holding(["counter:read"]));
+
+    expect(await screen.findByText("Clicked 4 times")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
   });
 
   it("renders the original home page and signed-in user", async () => {
@@ -92,10 +128,12 @@ describe("Showcase", () => {
     expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
   });
 
-  it("renders safely while authenticated user details are unavailable", async () => {
+  it("renders safely while authenticated user details are unavailable", () => {
     renderShowcase({ ...auth, user: null });
     expect(screen.getByText("Signed in as")).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Increment" })).toBeEnabled();
+    // No session details, so no Permission: nothing is offered and nothing is asked for.
+    expect(screen.queryByRole("button", { name: "Increment" })).not.toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
   });
 
   it("loads the current count when the showcase opens", async () => {

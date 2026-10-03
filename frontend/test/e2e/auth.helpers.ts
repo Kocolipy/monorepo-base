@@ -33,9 +33,10 @@ export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fi
 
 /**
  * The development role mapping's Roles (`backend/src/main/resources/authorization.yaml`),
- * each with the seeded User that holds it and the Permissions it confers, sorted
- * by name as `GET /api/auth/me` reports them. The Superuser's User is the
- * Bootstrap Admin, on the password `auth.setup.ts` settles.
+ * each with the seeded User that holds it and the Permissions its session holds:
+ * the Role's own plus the baseline `counter:read` / `counter:write` every User
+ * holds, sorted by name as `GET /api/auth/me` reports them. The Superuser's User
+ * is the Bootstrap Admin, on the password `auth.setup.ts` settles.
  */
 export const DEV_ROLES = {
   superuser: {
@@ -58,12 +59,12 @@ export const DEV_ROLES = {
   accountAdmin: {
     username: "account-admin",
     password: FIXTURE_PASSWORD,
-    permissions: ["group:read", "user:read", "user:write"],
+    permissions: ["counter:read", "counter:write", "group:read", "user:read", "user:write"],
   },
   auditor: {
     username: "auditor",
     password: FIXTURE_PASSWORD,
-    permissions: ["audit:read"],
+    permissions: ["audit:read", "counter:read", "counter:write"],
   },
   connectorAdmin: {
     username: "connector-admin",
@@ -72,6 +73,8 @@ export const DEV_ROLES = {
       "connector:read",
       "connector:token",
       "connector:write",
+      "counter:read",
+      "counter:write",
       "group:read",
       "group:write",
       "user:read",
@@ -81,7 +84,7 @@ export const DEV_ROLES = {
   monitoring: {
     username: "monitoring",
     password: FIXTURE_PASSWORD,
-    permissions: ["ops:read"],
+    permissions: ["counter:read", "counter:write", "ops:read"],
   },
 } as const;
 

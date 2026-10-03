@@ -44,11 +44,17 @@ public class AccessRefusalLog {
         this.routes = routes;
     }
 
-    /** Writes the refusal's record, at {@code WARN}, unless this exchange already has one. */
-    public void record(HttpServletRequest request, Refusal refusal) {
+    /**
+     * Writes the refusal's record, at {@code WARN}, unless this exchange already has one.
+     *
+     * @return whether this call wrote it — {@code false} for an exchange already recorded, or a
+     *     dispatch other than the request's own — so a caller keeping a record of its own beside
+     *     this one keeps it under the same once-per-exchange rule
+     */
+    public boolean record(HttpServletRequest request, Refusal refusal) {
         if (request.getDispatcherType() != DispatcherType.REQUEST
                 || request.getAttribute(RECORDED_ATTRIBUTE) != null) {
-            return;
+            return false;
         }
         request.setAttribute(RECORDED_ATTRIBUTE, refusal);
         // The published method — one of a fixed set — computed first: it is what the request
@@ -62,6 +68,7 @@ public class AccessRefusalLog {
                 .addKeyValue(LogEvent.HTTP_ROUTE, routes.of(request))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status())
                 .log(refusal.message());
+        return true;
     }
 
     /** Why a request was refused, as generic as the answer the caller itself received. */
@@ -74,8 +81,13 @@ public class AccessRefusalLog {
         BEARER_MISSING(401, "bearer-missing"),
         /** A SCIM request whose bearer credential is not accepted, for whatever reason. */
         BEARER_INVALID(401, "bearer-invalid"),
-        /** An authenticated caller the authorization rules do not admit to the route. */
-        ACCESS_DENIED(403, "access-denied"),
+        /**
+         * An authenticated caller the authorization rules do not admit to the operation: a
+         * Permission it does not hold, a route nothing declares, or a session confined by a
+         * required password change. One reason for all of them, so the record is no map of
+         * which rule refused.
+         */
+        INSUFFICIENT_PERMISSIONS(403, "insufficient-permissions"),
         /** An unsafe request without the session's CSRF token. Not an authorization decision. */
         CSRF(403, "csrf"),
         /** A read-only SCIM credential attempting a write. */

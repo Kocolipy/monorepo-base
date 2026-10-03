@@ -71,6 +71,7 @@ async function park(page: Page) {
  * remounts the showcase, whose counter read is refused, and the SPA sends the
  * User to sign in with the expired-session notice. A read, never the counter's
  * increment — `showcase.spec.ts` asserts exact counts on the shared counter.
+ * Every User holds the baseline `counter:read`, so the remount always reads.
  */
 async function expectNextRequestEndsSession(page: Page) {
   await page.getByRole("link", { name: "Back" }).click();
@@ -196,7 +197,7 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
 
       await expectNextRequestEndsSession(page);
 
-      // Signed in again, the User holds no Admin role: the page sends them
+      // Signed in again, the User holds only the baseline Permissions: the page sends them
       // away, and the backend refuses the data behind it.
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page).toHaveURL(/\/showcase$/);

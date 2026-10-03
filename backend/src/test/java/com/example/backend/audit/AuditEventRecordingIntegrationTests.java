@@ -2,10 +2,12 @@ package com.example.backend.audit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -301,6 +303,67 @@ class AuditEventRecordingIntegrationTests {
         assertThat(columns).contains("actor_id", "subject_id", "resource_id");
     }
 
+    // Authorization refusals
+
+    /**
+     * A signed-in User refused an operation for want of its Permission leaves exactly one
+     * {@code ACCESS_DENIED} event: the caller as actor and subject, the operation as its method and
+     * route TEMPLATE, and the one generic reason. A search of the row for the Permission's name,
+     * a Role's and the policy's vocabulary finds none of them — after first finding the reason,
+     * so the search is proven to read the row it searched.
+     */
+    @Test
+    void anAuthorizationRefusalIsAuditedWithTheCallerTheOperationAndAGenericReason()
+            throws Exception {
+        MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)
+                .andExpect(status().isOk())
+                .andReturn().getRequest().getSession();
+        clearRecordedEvents();
+
+        mvc.perform(get("/api/admin/audit-events").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", idOf(ADMIN)))
+                        .session(session))
+                .andExpect(status().isForbidden());
+
+        List<Map<String, Object>> refusals = rows(AuditOperation.ACCESS_DENIED);
+        assertThat(refusals).hasSize(2);
+        Map<String, Object> read = refusals.get(0);
+        assertThat(read).containsEntry("outcome", "FAILURE");
+        assertThat(read).containsEntry("actor_id", idOf(USER));
+        assertThat(read).containsEntry("subject_id", idOf(USER));
+        assertThat(read).containsEntry("status_class", "client_error");
+        assertThat(read).containsEntry("error_code", "INSUFFICIENT_PERMISSIONS");
+        assertThat(read).containsEntry("http_method", "GET");
+        assertThat(read).containsEntry("http_path", "/api/admin/audit-events");
+        assertThat(read.get("request_id")).isNotNull();
+        // The template, never the resolved path, which would carry the target's id.
+        assertThat(refusals.get(1)).containsEntry("http_method", "POST");
+        assertThat(refusals.get(1))
+                .containsEntry("http_path", "/api/admin/accounts/{id}/unlock");
+
+        assertThat(rowsContaining("INSUFFICIENT_PERMISSIONS")).isEqualTo(2);
+        for (String disclosed : List.of(
+                "audit:read", "user:write", "ROLE_", "Superuser", "Account admin", "Auditor",
+                "hasAuthority", "permission:")) {
+            assertThat(rowsContaining(disclosed)).as("a row naming %s", disclosed).isZero();
+        }
+    }
+
+    /** A CSRF refusal says nothing about what the caller may do, so it is not audited. */
+    @Test
+    void aCsrfRefusalIsNotAnAuditedAuthorizationRefusal() throws Exception {
+        MockHttpSession session = (MockHttpSession) logIn(USER, USER_PASSWORD)
+                .andExpect(status().isOk())
+                .andReturn().getRequest().getSession();
+        clearRecordedEvents();
+
+        mvc.perform(post("/api/admin/accounts/{id}/unlock", idOf(ADMIN)).session(session))
+                .andExpect(status().isForbidden());
+
+        assertThat(rows(AuditOperation.ACCESS_DENIED)).isEmpty();
+    }
+
     // Helpers
 
     private org.springframework.test.web.servlet.ResultActions logIn(
@@ -386,7 +449,8 @@ class AuditEventRecordingIntegrationTests {
     private MockHttpSession sessionOf(String username) {
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(
-                new TestingAuthenticationToken(username, null, "ROLE_ADMIN"));
+                new TestingAuthenticationToken(
+                        username, null, TestRoleMappings.SUPERUSER_AUTHORITIES));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

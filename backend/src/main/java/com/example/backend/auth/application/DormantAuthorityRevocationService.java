@@ -35,7 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
  * because ordinary Groups confer no authority in this model. The removal is the narrow
  * {@link ScimGroupRepository#removeMember}, which advances the Admin group's and the User's
  * versions exactly as a connector-driven removal does; the User's sessions end after the commit,
- * so a session issued with {@code ROLE_ADMIN} does not outlive the authority.
+ * so a session issued with the Superuser Role's Permissions does not outlive the authority.
  *
  * <h2>Serialization</h2>
  *

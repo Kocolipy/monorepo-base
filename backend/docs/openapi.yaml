@@ -23,6 +23,25 @@ info:
     `/scim/v2`. The operations under the Connectors tag are how an administrator
     mints and retires the credentials that chain accepts.
 
+    **Authorization is declared per operation.** Every operation's own `security`
+    requirement says what a caller needs, and the application enforces exactly
+    that (ADR 0010): `security: []` is public; `sessionCookie: []` is
+    self-service — any signed-in session with baseline access, no Permission;
+    `sessionCookie: [<permission>]` names the one Permission the operation
+    requires, from the closed set `user:read`, `user:write`, `group:read`,
+    `group:write`, `audit:read`, `connector:read`, `connector:write`,
+    `connector:token`, `ops:read`, `counter:read`, `counter:write`. A session's
+    Permissions are the baseline `counter:read` and `counter:write`, which every
+    active User holds, and those the Roles its Groups confer; `GET /api/auth/me`
+    reports them. A caller lacking the declared Permission gets a bodiless
+    `403` that never names it (see `PermissionRequired`). The application chain
+    denies by default: a route or method this document does not declare is
+    refused `403`, and a session never reaches `/scim/v2`. A session confined by
+    a required password change reaches only `GET /api/auth/me`,
+    `POST /api/auth/change-password` and `DELETE /api/auth/logout`.
+    `AuthorizationContractTests` proves every declaration here against the
+    running application.
+
     **The SCIM namespace is behind a release gate that is ON by default.** Setting
     `APP_SCIM_ENABLED=false` closes it, and while it is
     closed every path below `/scim/v2` answers `404` with a SCIM error document —
@@ -142,7 +161,7 @@ paths:
       summary: Log in
       description: |
         Authenticates database-backed credentials, stores the authenticated user
-        in the HTTP session, and returns the account role. A successful login also
+        in the HTTP session, and returns the account and its Permissions. A successful login also
         ends the account's run of failed attempts, resetting its counter to zero.
 
         One concurrent session per User: a successful login — a login confined
@@ -191,18 +210,23 @@ paths:
       tags: [Authentication]
       summary: Get the authenticated user
       description: |
-        Also answers a session confined by the change-required flag, reporting
-        `passwordChangeRequired: true` and no role, so a client can route it to
-        the change flow.
+        Self-service: needs an authenticated session and no Permission. Also
+        answers a session confined by the change-required flag, reporting
+        `passwordChangeRequired: true` and no Permission, so a client can route it
+        to the change flow.
 
         `permissions` lists the Permissions the session was issued with, sorted
-        by name: those the role mapping confers through the User's direct
-        Group memberships at sign-in. A User in no mapped Group gets an empty
-        list and keeps baseline access.
+        by name: the baseline `counter:read` and `counter:write`, which every
+        active User holds, and those the role mapping confers through the User's
+        direct Group memberships at sign-in. A User in no mapped Group gets the
+        baseline two and keeps baseline access. There is no role field: what a User may
+        do is its Permissions.
       operationId: getCurrentUser
+      security:
+        - sessionCookie: []
       responses:
         "200":
-          description: The authenticated user, its role and its Permissions.
+          description: The authenticated user and its Permissions.
           content:
             application/json:
               schema:
@@ -220,6 +244,8 @@ paths:
         refused `403`, and a retry with a freshly fetched token — bound to a new,
         anonymous session — is refused `401`.
       operationId: logout
+      security:
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -273,6 +299,8 @@ paths:
         change attempts are refused until an Admin calls `unlock`; nothing lifts
         a lockout on its own.
       operationId: changePassword
+      security:
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       requestBody:
@@ -338,10 +366,13 @@ paths:
         is to a lock helps someone guessing its password more than it helps the
         owner.
 
-        Requires the `USER` role, so a session confined by the change-required
-        flag is refused with 403, as every operation beyond its three is; it
-        reads its own requirement from `GET /api/auth/me`.
+        Self-service: needs an authenticated session with baseline access and no
+        Permission. A session confined by the change-required flag lacks baseline
+        access, so it is refused with 403, as every operation beyond its three is;
+        it reads its own requirement from `GET /api/auth/me`.
       operationId: getSelf
+      security:
+        - sessionCookie: []
       responses:
         "200":
           description: The caller's own record.
@@ -355,13 +386,15 @@ paths:
             body.
         "403":
           description: |
-            The session is confined by the change-required flag and holds no
-            role. No body.
+            The session is confined by the change-required flag and lacks
+            baseline access. No body.
   /api/session:
     get:
       tags: [Session]
       summary: Get session state
       operationId: getSession
+      security:
+        - sessionCookie: []
       responses:
         "200":
           description: Current session state.
@@ -375,6 +408,8 @@ paths:
       tags: [Session]
       summary: Update session state
       operationId: updateSession
+      security:
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       requestBody:
@@ -400,6 +435,8 @@ paths:
       tags: [Session]
       summary: Delete the current session
       operationId: deleteSession
+      security:
+        - sessionCookie: []
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -413,7 +450,12 @@ paths:
     get:
       tags: [Counter]
       summary: Get the authenticated user's count
+      description: |
+        Requires `counter:read`, a baseline Permission every active User holds,
+        so only a session confined by a required password change is refused.
       operationId: getCount
+      security:
+        - sessionCookie: [counter:read]
       responses:
         "200":
           description: The current count, or zero if the user has not incremented it yet.
@@ -423,11 +465,15 @@ paths:
                 $ref: "#/components/schemas/CountResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
   /api/count/increment:
     post:
       tags: [Counter]
       summary: Increment the authenticated user's count
       operationId: incrementCount
+      security:
+        - sessionCookie: [counter:write]
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -440,12 +486,16 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/CsrfTokenRejected"
+          description: |
+            The CSRF token is missing or stale (see `CsrfTokenRejected`), or the
+            caller does not hold `counter:write` (see `PermissionRequired`).
   /api/count/reset:
     post:
       tags: [Counter]
       summary: Reset the authenticated user's count
       operationId: resetCount
+      security:
+        - sessionCookie: [counter:write]
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -458,7 +508,9 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/CsrfTokenRejected"
+          description: |
+            The CSRF token is missing or stale (see `CsrfTokenRejected`), or the
+            caller does not hold `counter:write` (see `PermissionRequired`).
   /api/admin/accounts:
     get:
       tags: [Administration]
@@ -467,20 +519,21 @@ paths:
         The Accounts page's Users view: every SCIM User with its directory-owned
         identity, active flag and direct Groups, and its application-owned
         credential, lockout, change-required and last-authentication state.
-        Requires `ROLE_ADMIN`: an authenticated account with any other role is
-        refused with 403, and the 403 is decided by the filter chain before this
-        operation runs.
+        Requires `user:read`: a caller without it is refused with 403, by the
+        handler's own declaration and by the application chain's matching rule.
 
         READ-ONLY for everything the directory owns. No operation under
         `/api/admin/accounts` accepts a `userName`, `displayName`, `active` flag
         or Group membership: `PUT`, `PATCH` and `DELETE` on the collection or on
-        a User are answered `405` or `404` by the dispatcher. The directory
-        changes those over SCIM.
+        a User are undeclared, and the application chain, which denies by
+        default, refuses them with 403. The directory changes those over SCIM.
 
         The response never contains a password hash. It is serialised from a
         projection that has no field for one, so the guarantee is structural
         rather than a matter of review discipline.
       operationId: listAccounts
+      security:
+        - sessionCookie: [user:read]
       responses:
         "200":
           description: Every account, ordered by username.
@@ -493,7 +546,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
   /api/admin/accounts/{id}/unlock:
     post:
       tags: [Administration]
@@ -515,6 +568,8 @@ paths:
         Idempotent — an account serving no lockout is answered 200 with nothing
         written and no change required.
       operationId: unlockUser
+      security:
+        - sessionCookie: [user:write]
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -525,9 +580,9 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller is not an Admin (see `AdminRoleRequired`), or is an Admin
-            targeting their own account: recovering from a self-inflicted lockout
-            takes a second Admin or the Bootstrap Admin.
+            The caller does not hold `user:write` (see `PermissionRequired`), or
+            the target is the caller's own account, whatever Permissions it holds:
+            recovering from a self-inflicted lockout takes a second administrator.
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":
@@ -544,6 +599,8 @@ paths:
 
         Idempotent — an account already flagged is answered 200 unchanged.
       operationId: forcePasswordChange
+      security:
+        - sessionCookie: [user:write]
       parameters:
         - $ref: "#/components/parameters/UserId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -554,10 +611,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The caller is not an Admin (see `AdminRoleRequired`); or the target is
-            the caller's own account; or the target is the Bootstrap Admin and the
-            caller is not the Bootstrap Admin itself — only it may flag its own
-            password.
+            The caller does not hold `user:write` (see `PermissionRequired`); or
+            the target is the caller's own account, whatever Permissions it holds
+            — the Bootstrap Admin's included; or the target is the Bootstrap Admin,
+            whose password change nobody may force.
         "400":
           $ref: "#/components/responses/MalformedUserId"
         "404":
@@ -565,7 +622,7 @@ paths:
         "409":
           description: |
             The account has no password, so there is no credential to replace. Not
-            403: the caller holds the right role, the action itself is refused.
+            403: the caller holds the right Permission, the action itself is refused.
   /api/admin/groups:
     get:
       tags: [Administration]
@@ -573,13 +630,16 @@ paths:
       description: |
         The Accounts page's Groups view: every SCIM Group with its direct member
         count and whether it is the protected, server-seeded Admin group.
-        Requires `ROLE_ADMIN`, decided by the filter chain.
+        Requires `group:read`.
 
         READ-ONLY in its entirety. Groups and their membership are written by a
         connector over SCIM; this namespace declares no write operation on them,
         so `POST`, `PUT`, `PATCH` and `DELETE` here or on `/api/admin/groups/{id}`
-        are answered `405` or `404`.
+        are undeclared and refused with 403 by the application chain, which
+        denies by default.
       operationId: listGroups
+      security:
+        - sessionCookie: [group:read]
       responses:
         "200":
           description: Every Group, ordered by normalized display name.
@@ -592,7 +652,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
   /api/admin/connectors:
     get:
       tags: [Connectors]
@@ -609,6 +669,8 @@ paths:
         `active` is the server's own evaluation at the moment it answers, not a
         comparison the client makes against its own clock.
       operationId: listConnectors
+      security:
+        - sessionCookie: [connector:read]
       responses:
         "200":
           description: Every live connector.
@@ -621,7 +683,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
     post:
       tags: [Connectors]
       summary: Create a SCIM connector
@@ -630,6 +692,8 @@ paths:
         administrator's own label and carries no authority: scope is a property of
         each token, not of the connector.
       operationId: createConnector
+      security:
+        - sessionCookie: [connector:write]
       parameters:
         - $ref: "#/components/parameters/CsrfToken"
       responses:
@@ -644,7 +708,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
       requestBody:
         required: true
         content:
@@ -675,6 +739,8 @@ paths:
         administrator repeating a delete is likelier to have the wrong id than to
         want a second no-op.
       operationId: deleteConnector
+      security:
+        - sessionCookie: [connector:write]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -684,7 +750,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
   /api/admin/connectors/{connectorId}/tokens:
@@ -704,6 +770,8 @@ paths:
         400 rather than a silently shortened token, so an administrator never
         walks away believing their integration has longer than it does.
       operationId: issueConnectorToken
+      security:
+        - sessionCookie: [connector:token]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/CsrfToken"
@@ -716,7 +784,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
       requestBody:
@@ -746,6 +814,8 @@ paths:
         The response discloses the replacement's plaintext once, under
         `Cache-Control: no-store`, exactly as issue does.
       operationId: rotateConnectorToken
+      security:
+        - sessionCookie: [connector:token]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/TokenId"
@@ -756,7 +826,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
       requestBody:
@@ -777,6 +847,8 @@ paths:
         Idempotent — a token already revoked keeps its original revocation time
         and nothing is written, though the attempt is still audited.
       operationId: revokeConnectorToken
+      security:
+        - sessionCookie: [connector:token]
       parameters:
         - $ref: "#/components/parameters/ConnectorId"
         - $ref: "#/components/parameters/TokenId"
@@ -787,7 +859,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
   /api/admin/audit-events:
@@ -812,9 +884,12 @@ paths:
         resolved path, and a bulk read carries its filter's shape (`userName eq ?`)
         and never its values.
 
-        Reading the trail is not itself recorded. The listing is served only to an
-        Admin, like every operation under `/api/admin`.
+        Reading the trail is not itself recorded. The listing is served only to a
+        caller holding `audit:read`, which the Auditor Role holds without any other
+        administrative power.
       operationId: listAuditEvents
+      security:
+        - sessionCookie: [audit:read]
       parameters:
         - name: operation
           in: query
@@ -893,7 +968,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
   /scim/v2/ServiceProviderConfig:
     get:
       tags: [SCIM]
@@ -2003,6 +2078,8 @@ paths:
       tags: [Health]
       summary: Scrape operational telemetry
       operationId: scrapeMetrics
+      security:
+        - sessionCookie: [ops:read]
       description: |
         Prometheus text exposition of the service's operational telemetry: request
         count and latency histogram (`http_server_requests_seconds`) tagged by route
@@ -2011,8 +2088,10 @@ paths:
         scheduled-job saturation gauges. No tag carries a userName, externalId,
         resource id, filter text or token value.
 
-        Admin sessions only, decided by the filter chain before this operation runs:
-        an account with any other role gets 403. A connector bearer token is not a
+        Requires `ops:read` — the Monitoring Role holds it alone, so a scraper's
+        account can do nothing else — decided by the filter chain, since an actuator
+        endpoint has no handler of its own to declare it: a session without it gets
+        403. A connector bearer token is not a
         credential on this path and gets 401. Deployments may move it to an internal
         management port (`MANAGEMENT_SERVER_PORT`), where the same rule applies.
       responses:
@@ -2025,15 +2104,17 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
   /actuator/info:
     get:
       tags: [Health]
       summary: Read the build and application info
       operationId: getInfo
+      security:
+        - sessionCookie: [ops:read]
       description: |
         Spring Boot's info endpoint, exposed beside the scrape and under the same rule:
-        Admin sessions only, decided by the filter chain. It carries whatever
+        `ops:read`, decided by the filter chain. It carries whatever
         `InfoContributor`s the deployment enables, which by default is nothing, so
         the body is an empty object.
       responses:
@@ -2049,7 +2130,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/AdminRoleRequired"
+          $ref: "#/components/responses/PermissionRequired"
 security:
   - sessionCookie: []
 components:
@@ -2269,13 +2350,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/IssuedConnectorToken"
-    AdminRoleRequired:
+    PermissionRequired:
       description: |
-        The session is valid and was accepted; the account's role is what was
-        refused. Distinct from 401, which means no usable session arrived at all —
-        a client must not treat this as a signal to sign in again. A session
-        confined by the change-required flag holds no role, so it receives this
-        on every endpoint but the change flow, an Admin's included.
+        The session is valid and was accepted; the caller does not hold the
+        Permission this operation declares in its `security` requirement, so it
+        was refused. Distinct from 401, which means no usable session arrived at
+        all — a client must not treat this as a signal to sign in again. A session
+        confined by the change-required flag holds no Permission, so it receives
+        this on every endpoint but the change flow, a Superuser's included.
+
+        Bodiless, and generic on purpose: it never names the missing Permission,
+        a Role or the rule that refused. The refusal is audited
+        (`ACCESS_DENIED`) and logged at `WARN` with the caller, the operation and
+        the reason `insufficient-permissions`.
     ScimBadRequest:
       description: |
         The request was not acceptable SCIM: an unparseable or non-object body, a
@@ -2504,17 +2591,10 @@ components:
             own maximum, so no password the policy accepted is refused here.
     UserResponse:
       type: object
-      required: [username, role, permissions, passwordChangeRequired, idleTimeoutSeconds]
+      required: [username, permissions, passwordChangeRequired, idleTimeoutSeconds]
       properties:
         username:
           type: string
-        role:
-          type: [string, "null"]
-          enum: [USER, ADMIN, null]
-          description: |
-            The account role used for authorization. `null` while
-            `passwordChangeRequired` is true: a confined session holds no role
-            until the password is replaced, an Admin's included.
         permissions:
           type: array
           items:
@@ -2533,11 +2613,14 @@ components:
               - user:write
           description: |
             The Permissions this session was issued with, sorted by name, each once. They
-            are the union of the Roles of every mapped Group the User was a
+            are the baseline `counter:read` and `counter:write`, which every active
+            User holds, together with the union of the Roles of every mapped Group the User was a
             direct member of when it signed in (the role mapping, see the
             backend README's "Role mapping"), so a change of membership is seen
-            at the next sign-in. Empty for a User in no mapped Group, which
-            keeps baseline access, and while `passwordChangeRequired` is true.
+            at the next sign-in. Only the baseline two for a User in no mapped Group, and
+            empty while `passwordChangeRequired` is true.
+            What the SPA shows is decided from this list; what the server allows is
+            decided by each operation's own declaration, never by the SPA.
         passwordChangeRequired:
           type: boolean
           description: |
@@ -2945,9 +3028,15 @@ components:
         - DORMANT_AUTHORITY_REVOCATION
         - PASSWORD_CHANGE_REQUIRE
         - PASSWORD_CHANGE
+        - ACCESS_DENIED
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
-        a lockout has no duration, so there is no expiry lift.
+        a lockout has no duration, so there is no expiry lift. `ACCESS_DENIED` is an
+        authorization refusal on the application chain: the refused User as actor
+        and subject, the operation as `httpMethod` and `httpPath` (the route
+        template, `unmatched` for a route nothing declares) and the one generic
+        `errorCode` `INSUFFICIENT_PERMISSIONS` — never the Permission, Role or rule
+        that refused, which the operation's own `security` declaration names.
     ConnectorTokenScope:
       type: string
       enum: [READ_ONLY, READ_WRITE]

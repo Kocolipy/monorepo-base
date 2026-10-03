@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.auth.application.DormancyRun;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.auth.application.InactivityDeactivationService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.observability.RequestIdFilter;
@@ -252,7 +253,7 @@ class PasswordChangeLifecycleIntegrationTests {
             throws Exception {
         String forcedId = provisionAndSettle("lifecycle-forced", CONNECTOR_PASSWORD, NEW_PASSWORD);
         Cookie before = logIn("lifecycle-forced", NEW_PASSWORD, "USER", false);
-        assertThat(status(get("/api/count"), before)).isEqualTo(200);
+        assertThat(status(get("/api/self"), before)).isEqualTo(200);
 
         Cookie admin = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD, "ADMIN", false);
         MvcResult forced = send(post("/api/admin/accounts/{id}/force-password-change", forcedId),
@@ -273,7 +274,8 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(status(get("/api/auth/me"), confined)).isEqualTo(401);
 
         Cookie fresh = logIn("lifecycle-forced", second, "USER", false);
-        assertThat(status(get("/api/count"), fresh)).isEqualTo(200);
+        // Baseline access back: self-service answers again (this User holds no Permission).
+        assertThat(status(get("/api/self"), fresh)).isEqualTo(200);
     }
 
     @Test
@@ -609,7 +611,8 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(me.getResponse().getStatus()).isEqualTo(200);
         JsonNode body = json.readTree(me.getResponse().getContentAsString());
         assertThat(body.get("passwordChangeRequired").booleanValue()).isTrue();
-        assertThat(body.get("role").isNull()).isTrue();
+        assertThat(body.has("role")).isFalse();
+        assertThat(body.get("permissions").isEmpty()).isTrue();
 
         assertThat(status(get("/api/admin/accounts"), session)).isEqualTo(403);
         assertThat(status(post("/api/admin/accounts/{id}/unlock", idOf(BOOTSTRAP_ADMIN)), session))
@@ -703,11 +706,12 @@ class PasswordChangeLifecycleIntegrationTests {
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("passwordChangeRequired").booleanValue()).isEqualTo(confined);
-        if (role == null) {
-            assertThat(body.get("role").isNull()).isTrue();
-        } else {
-            assertThat(body.get("role").asText()).isEqualTo(role);
-        }
+        // There is no role field: "ADMIN" here means a member of the Superuser Group, which holds
+        // every Permission; "USER", a session holding only the baseline counter Permissions every
+        // User holds; null, a confined session holding none.
+        assertThat(body.has("role")).isFalse();
+        int expected = role == null ? 0 : "ADMIN".equals(role) ? Permission.values().length : 2;
+        assertThat(body.get("permissions").size()).isEqualTo(expected);
         Cookie session = login.getResponse().getCookie(sessionCookieName);
         assertThat(session).as("the login issued a session cookie").isNotNull();
         return new Cookie(session.getName(), session.getValue());

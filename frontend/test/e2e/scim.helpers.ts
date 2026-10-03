@@ -22,8 +22,12 @@ import { adminRequest, csrfHeaderFor, submitLoginViaApi } from "./auth.helpers";
  * still using.
  */
 
-/** The backend itself: SCIM is not behind the Vite `/api` proxy. */
-const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
+/**
+ * The backend itself: SCIM and actuator are not behind the Vite `/api` proxy,
+ * which serves the SPA for any other path. The session cookie still rides along,
+ * because a cookie is scoped to the host, not the port.
+ */
+export const BACKEND_URL = process.env.E2E_BACKEND_URL ?? "http://localhost:8080";
 
 export const USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
 const PATCH_OP_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";

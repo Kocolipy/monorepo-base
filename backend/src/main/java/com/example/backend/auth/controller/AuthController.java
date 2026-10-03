@@ -51,15 +51,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    /** Spring Security's prefix on every role-derived authority. */
-    private static final String ROLE_PREFIX = "ROLE_";
-
-    /** The role name the SPA reads as "may reach the administrative interface". */
-    private static final String ADMIN_ROLE = "ADMIN";
-
-    /** The authority the Admin group's membership confers, as Spring Security spells it. */
-    private static final String ADMIN_AUTHORITY = ROLE_PREFIX + ADMIN_ROLE;
-
     /**
      * The session attribute a login records the role mapping's hash under: the mapping the
      * session's Permissions were resolved under.
@@ -258,47 +249,25 @@ public class AuthController {
     }
 
     /**
-     * The single role the SPA is told the caller has.
+     * The signed-in account as the SPA is told it: its name, the Permissions its session was
+     * issued with, whether it is confined to the password change, and its idle bound.
      *
-     * <p>{@code ADMIN} wins when it is present, and that is stated rather than left to the order
-     * the authorities happen to arrive in. Authority is now DERIVED: an administrator holds
-     * {@code ROLE_ADMIN} and {@code ROLE_USER} both, because baseline access is what being an
-     * active identity means and administrative access is what the Admin group adds. A reader that
-     * took the first authority would report an administrator as an ordinary user whenever the
-     * ordering changed, which is the kind of defect that surfaces as "the admin screens vanished"
-     * long after the commit that caused it.
+     * <p>No role is reported. The SPA decides what to show by Permission, as the server decides
+     * what to allow, and a confined session holds none, so it reports none.
      *
      * <p>The idle timeout is read off the session itself rather than out of configuration, so the
      * figure the SPA signs out by is the one this session actually expires by and cannot drift
      * from it.
      */
     private UserResponse userResponse(Authentication authentication, HttpSession session) {
-        int idleTimeoutSeconds = session.getMaxInactiveInterval();
-        List<String> permissions = permissionsOf(authentication);
         boolean changeRequired = authentication.getAuthorities().stream()
                 .anyMatch(authority -> LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY
                         .equals(authority.getAuthority()));
-        if (changeRequired) {
-            // Confined: the session holds no role at all until the credential is replaced, so it
-            // reports none rather than one it cannot exercise — and, likewise, no Permission.
-            return new UserResponse(
-                    authentication.getName(), null, permissions, true, idleTimeoutSeconds);
-        }
-        boolean admin = authentication.getAuthorities().stream()
-                .anyMatch(authority -> ADMIN_AUTHORITY.equals(authority.getAuthority()));
-        if (admin) {
-            return new UserResponse(
-                    authentication.getName(), ADMIN_ROLE, permissions, false, idleTimeoutSeconds);
-        }
-        String role = authentication.getAuthorities().stream()
-                .map(authority -> authority.getAuthority())
-                .filter(authority -> authority.startsWith(ROLE_PREFIX))
-                .map(authority -> authority.substring(ROLE_PREFIX.length()))
-                .findFirst()
-                .orElseThrow(() ->
-                        new IllegalStateException("Authenticated identity has no role"));
         return new UserResponse(
-                authentication.getName(), role, permissions, false, idleTimeoutSeconds);
+                authentication.getName(),
+                permissionsOf(authentication),
+                changeRequired,
+                session.getMaxInactiveInterval());
     }
 
     /**
@@ -402,8 +371,6 @@ public class AuthController {
     }
 
     /**
-     * @param role                   {@code USER} or {@code ADMIN}; {@code null} while a password
-     *                               change is required, because the session holds neither
      * @param permissions            the Permissions the session was issued with, by name, sorted
      *                               by name; empty for a User in no mapped Group and while a
      *                               password change is required
@@ -414,7 +381,6 @@ public class AuthController {
      */
     public record UserResponse(
             String username,
-            String role,
             List<String> permissions,
             boolean passwordChangeRequired,
             int idleTimeoutSeconds) {

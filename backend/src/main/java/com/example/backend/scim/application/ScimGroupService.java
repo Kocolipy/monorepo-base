@@ -75,8 +75,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>Removing authority ends the sessions it was issued with</h2>
  *
- * <p>A session carries the role it was issued with, so a User removed from the Admin group would
- * otherwise keep {@code ROLE_ADMIN} for the rest of its lifetime. Every write that drops a direct
+ * <p>A session carries the Permissions it was issued with, so a User removed from the Admin group
+ * would otherwise keep the Superuser Role's Permissions for the rest of its lifetime. Every write
+ * that drops a direct
  * member of the Admin group — a PATCH {@code remove}, a PATCH {@code replace} of the members, or
  * a PUT whose member list leaves the User out — therefore ends that User's sessions through
  * {@link ScimUserSessions}, which does so only once the write commits. A refused, stale or

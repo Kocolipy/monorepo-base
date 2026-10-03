@@ -100,7 +100,7 @@ class RefusalLogIntegrationTests {
 
         JsonNode refusal = theOneRefusal(user, request("/api/admin/accounts").GET(), 403);
 
-        assertThat(refusal.at("/event/reason").asText()).isEqualTo("access-denied");
+        assertThat(refusal.at("/event/reason").asText()).isEqualTo("insufficient-permissions");
         assertThat(refusal.at("/user/id").asText()).isNotBlank();
     }
 
@@ -122,7 +122,7 @@ class RefusalLogIntegrationTests {
 
         JsonNode refusal = theOneRefusal(confined, request("/api/self").GET(), 403);
 
-        assertThat(refusal.at("/event/reason").asText()).isEqualTo("access-denied");
+        assertThat(refusal.at("/event/reason").asText()).isEqualTo("insufficient-permissions");
         assertThat(refusal.at("/user/id").asText()).isEqualTo(created.getFirst());
     }
 

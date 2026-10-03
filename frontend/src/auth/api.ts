@@ -1,4 +1,4 @@
-import { jsonDecoder, readObject } from "@/lib/decode";
+import { DecodeError, jsonDecoder, readObject } from "@/lib/decode";
 import {
   apiFetch,
   CSRF_EXPIRED_MESSAGE,
@@ -7,17 +7,35 @@ import {
   type ApiResult,
 } from "@/lib/http";
 
-/** Every role the backend grants. A role outside this list is refused, never passed through. */
-const AUTH_ROLES = ["USER", "ADMIN"] as const;
+/**
+ * Every Permission the backend grants: the closed set its `Permission` enum
+ * defines, spelled as `/api/auth/me` reports them. A value outside this list is
+ * refused, never passed through, because the guards read it.
+ */
+const PERMISSIONS = [
+  "audit:read",
+  "connector:read",
+  "connector:token",
+  "connector:write",
+  "counter:read",
+  "counter:write",
+  "group:read",
+  "group:write",
+  "ops:read",
+  "user:read",
+  "user:write",
+] as const;
 
-export type AuthRole = (typeof AUTH_ROLES)[number];
+export type Permission = (typeof PERMISSIONS)[number];
 
 export interface AuthUser {
   /**
-   * `null` while `passwordChangeRequired` is set: a confined session holds no
-   * role at all, an Admin's included, until the credential is replaced.
+   * What the session may do, as the backend issued it at sign-in: the union of
+   * the Roles its Groups confer. Empty for a User in no mapped Group, and while
+   * `passwordChangeRequired` is set. The SPA decides what to SHOW from this;
+   * the backend alone decides what is allowed.
    */
-  role: AuthRole | null;
+  permissions: readonly Permission[];
   /** The change-required flag: this session may only change its password or log out. */
   passwordChangeRequired: boolean;
   /**
@@ -30,18 +48,26 @@ export interface AuthUser {
 }
 
 /**
- * The `/me` and login `UserResponse`, read the same way for both.
- *
- * The role is checked against `AUTH_ROLES` rather than trusted, because the
- * route guards read it: an unknown string would otherwise reach a guard as if
- * it were a role. A body that does not decode fails the request outright.
+ * One Permission name, checked against `PERMISSIONS` rather than trusted: an
+ * unknown string would otherwise reach a guard as if it granted something.
+ */
+function decodePermission(value: unknown): Permission {
+  const permission = PERMISSIONS.find((candidate) => candidate === value);
+  if (permission === undefined)
+    throw new DecodeError("UserResponse.permissions holds an unknown value");
+  return permission;
+}
+
+/**
+ * The `/me` and login `UserResponse`, read the same way for both. A body that
+ * does not decode fails the request outright.
  */
 const decodeUser = jsonDecoder((body: unknown): AuthUser => {
   const user = readObject(body, "UserResponse");
   return {
     idleTimeoutSeconds: user.integer("idleTimeoutSeconds"),
     passwordChangeRequired: user.boolean("passwordChangeRequired"),
-    role: user.nullableOneOf("role", AUTH_ROLES),
+    permissions: user.array("permissions", decodePermission),
     username: user.string("username"),
   };
 });

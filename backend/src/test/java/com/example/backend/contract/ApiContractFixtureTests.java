@@ -309,12 +309,20 @@ class ApiContractFixtureTests {
             t.expect(t.csrf(t.call(HttpMethod.DELETE, "/api/session")), 401);
         });
         add(all, "count: GET, increment and reset, with their refusals", t -> {
-            Cookie session = t.settle(t.provision(true));
-            t.expect(t.get("/api/count").cookie(session), 200);
+            // counter:read and counter:write are baseline: every active User holds them, the
+            // Superuser and a User in no mapped Group alike. Only a confined session lacks them.
+            Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
+            Cookie user = t.settle(t.provision(true));
+            Cookie confined = t.logIn(t.provision(true), CONNECTOR_PASSWORD);
+            t.expect(t.get("/api/count").cookie(admin), 200);
+            t.expect(t.get("/api/count").cookie(user), 200);
+            t.expect(t.get("/api/count").cookie(confined), 403);
             t.expect(t.get("/api/count"), 401);
             for (String path : List.of("/api/count/increment", "/api/count/reset")) {
-                t.expect(t.csrf(t.post(path)).cookie(session), 200);
-                t.expect(t.post(path).cookie(session), 403);
+                t.expect(t.csrf(t.post(path)).cookie(admin), 200);
+                t.expect(t.csrf(t.post(path)).cookie(user), 200);
+                t.expect(t.csrf(t.post(path)).cookie(confined), 403);
+                t.expect(t.post(path).cookie(admin), 403);
                 t.expect(t.csrf(t.post(path)), 401);
             }
         });

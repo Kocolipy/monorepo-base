@@ -50,8 +50,11 @@ them:
   no `status`. Each wire type's decoder lives beside the type, in the module
   that owns it. Shared hooks belong here too — `components.json` points the
   shadcn CLI at `@/lib/hooks`.
-- **`src/auth/`** — the session and role authorization. `api.ts` maps semantic HTTP results for the
-  four `/api/auth/*` endpoints, `auth-context.tsx` holds the
+- **`src/auth/`** — the session and Permission-based authorization. `api.ts` maps semantic HTTP results for the
+  four `/api/auth/*` endpoints and decodes the session's `permissions`,
+  `permissions.ts` names the Permission each administrative view requires
+  (`VIEW_PERMISSIONS`) and the `holds` / `holdsAny` checks every guard and page
+  reads, `auth-context.tsx` holds the
   `checking | authenticated | guest` status, the expiry transition and the
   password-change transition,
   `auth-context-value.ts` is the context plus the `useAuth` hook,
@@ -67,24 +70,37 @@ them:
   in kind is `change-password.tsx`, which submits through the auth context's
   `changePassword`, because its `401` is about the current password and must
   not end the session through the seam. Free
-  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the ADMIN Accounts
-  page: it reads the read-only Users (`GET /api/admin/accounts`) and Groups
-  (`GET /api/admin/groups`) projections, posts Unlock and the forced password
-  change by the User's stable id (`POST /api/admin/accounts/{id}/unlock`,
-  `.../force-password-change`), and owns the copy for what each refusal status
-  means to an administrator. `connectors.tsx` is its connector/token panel
-  (`/api/admin/connectors/**`); `accounts-api.ts` holds both files' wire types and
-  paths. `active` and Group membership are the directory's, so the page has no
-  control that writes them.
+  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the administrative
+  Accounts page, each view rendered — and its listing requested — only for a
+  session holding that view's Permission: the read-only Users projection
+  (`GET /api/admin/accounts`, `user:read`), the Groups projection
+  (`GET /api/admin/groups`, `group:read`), and the connector panel
+  (`connector:read`). It posts Unlock and the forced password change by the
+  User's stable id (`POST /api/admin/accounts/{id}/unlock`,
+  `.../force-password-change`), offered only with `user:write`, and owns the
+  copy for what each refusal status means to an administrator. `connectors.tsx`
+  is its connector/token panel (`/api/admin/connectors/**`), offering create and
+  delete only with `connector:write` and issue, rotate and revoke only with
+  `connector:token`; `accounts-api.ts` holds both files' wire types and paths.
+  `showcase.tsx` reads the counter only with `counter:read`, offers its buttons
+  only with `counter:write` — both baseline Permissions every active User
+  holds — and links to the Accounts page only for a session
+  that may see one of its views. `active` and Group membership are the
+  directory's, so the page has no control that writes them.
 - **`src/components/`** — shared non-primitive components; today only
   `error-boundary.tsx`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with
-  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and an
-  `ADMIN`-restricted `ProtectedRoute` (`/accounts`). A session with the
+  `GuestRoute` (`/`), `ProtectedRoute` (`/showcase`, `/change-password`), and a
+  Permission-guarded `ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}`
+  (`/accounts`): it renders for a session holding any one of the listed
+  Permissions, and a deep link from any other session is redirected to
+  `/showcase`. A session with the
   change-required flag is confined to `/change-password` by the guards' shared
-  transition table, whatever path it asks for. The outermost element is
+  transition table, whatever path it asks for and whatever it holds. Every such
+  decision is a rendering decision only: the backend enforces each operation's
+  Permission on its own. The outermost element is
   `ErrorBoundary`: a render error anywhere
   below shows a generic "Something went wrong" fallback with a reload action,
   logs to `console.error` only, and never puts the error's message or stack in
@@ -134,9 +150,9 @@ backend side moves. What the SPA has to honour:
   sent. `/docs/adr/0009-csrf-synchronizer-token.md` records why the cookie
   design was retired.
 - **`403` is not `401`, and not always CSRF.** A `403` is either a missing or
-  stale CSRF token or an authorization refusal (a `USER` on `/api/admin/**`, a
-  session confined by a required password change, an Admin acting on its own
-  account). CSRF applies only to unsafe methods, so `apiFetch` returns a safe
+  stale CSRF token or an authorization refusal (a session lacking the
+  operation's Permission, a session confined by a required password change, an
+  administrator acting on its own account). CSRF applies only to unsafe methods, so `apiFetch` returns a safe
   request's `403` as `forbidden` at once, with no re-fetch. An unsafe request's
   `403` re-fetches the token and retries once; a `403` on the retry was sent
   with a fresh token, so it is `forbidden` too. `csrf-expired` is left for a
@@ -169,7 +185,7 @@ backend side moves. What the SPA has to honour:
 - **Sessions are also capped at 8 hours from creation**, independent of the
   15-minute idle bound above: a session kept continuously active is still
   ended once it has existed that long. Both bounds apply to every
-  authenticated session, `ADMIN` included, and whichever is reached first ends
+  authenticated session, a Superuser's included, and whichever is reached first ends
   it — there is no way to distinguish the two from the SPA's side; either one
   simply presents as the ordinary `401` → `unauthenticated` → sign-out path
   described above.

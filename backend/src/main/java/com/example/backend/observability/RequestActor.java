@@ -38,6 +38,11 @@ public final class RequestActor {
         request.setAttribute(USER_ATTRIBUTE, userId);
     }
 
+    /** The stable id of the User the request was authenticated as by session, or {@code null}. */
+    public static UUID userOf(HttpServletRequest request) {
+        return attribute(request, USER_ATTRIBUTE);
+    }
+
     /** The request was authenticated by the bearer token of the connector with this id. */
     public static void connector(HttpServletRequest request, UUID connectorId) {
         request.setAttribute(CONNECTOR_ATTRIBUTE, connectorId);

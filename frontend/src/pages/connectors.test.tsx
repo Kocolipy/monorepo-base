@@ -25,7 +25,12 @@ const auth: AuthContextState = {
   signOutForInactivity: vi.fn(),
   signedOutForInactivity: false,
   status: "authenticated",
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "ADMIN", username: "ada" },
+  user: {
+    idleTimeoutSeconds: 900,
+    passwordChangeRequired: false,
+    permissions: [],
+    username: "ada",
+  },
 };
 
 const CONNECTOR_ID = "c0000000-0000-4000-8000-000000000001";
@@ -77,15 +82,64 @@ function routeApi({ actions = [], listings }: { actions?: object[]; listings: ob
   }) as never);
 }
 
-function renderConnectors() {
+function renderConnectors(
+  { canIssueTokens = true, canManageConnectors = true } = {} as {
+    canIssueTokens?: boolean;
+    canManageConnectors?: boolean;
+  },
+) {
   return render(
     <AuthContext.Provider value={auth}>
-      <Connectors />
+      <Connectors canIssueTokens={canIssueTokens} canManageConnectors={canManageConnectors} />
     </AuthContext.Provider>,
   );
 }
 
 const section = (name: string) => within(screen.getByRole("region", { name: `Connector ${name}` }));
+
+describe("Connectors by Permission", () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+  });
+
+  const oneActiveToken = () =>
+    routeApi({ listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }] });
+
+  it("offers neither creating nor deleting a connector without connector:write", async () => {
+    oneActiveToken();
+    renderConnectors({ canManageConnectors: false });
+
+    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("New connector name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create connector" })).not.toBeInTheDocument();
+    expect(section("Okta").queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
+    // Token actions are connector:token's, held here.
+    expect(section("Okta").getByRole("button", { name: /^Rotate token/ })).toBeEnabled();
+  });
+
+  it("offers no token issue, rotation or revocation without connector:token", async () => {
+    oneActiveToken();
+    renderConnectors({ canIssueTokens: false });
+
+    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    const okta = section("Okta");
+    expect(okta.queryByRole("button", { name: /^Issue token/ })).not.toBeInTheDocument();
+    expect(okta.queryByRole("button", { name: /^Rotate token/ })).not.toBeInTheDocument();
+    expect(okta.queryByRole("button", { name: /^Revoke token/ })).not.toBeInTheDocument();
+    // Connector management is connector:write's, held here.
+    expect(okta.getByRole("button", { name: "Delete Okta" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create connector" })).toBeEnabled();
+  });
+
+  it("still lists every connector and its tokens to a reader holding neither", async () => {
+    oneActiveToken();
+    renderConnectors({ canIssueTokens: false, canManageConnectors: false });
+
+    expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
 
 describe("Connectors", () => {
   beforeEach(() => {

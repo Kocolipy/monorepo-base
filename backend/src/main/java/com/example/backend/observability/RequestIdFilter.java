@@ -211,8 +211,18 @@ public class RequestIdFilter extends OncePerRequestFilter {
                 : UNMATCHED;
     }
 
-    static String method(HttpServletRequest request) {
+    /** The method as the request record publishes it: one of a fixed set, or {@code OTHER}. */
+    public static String method(HttpServletRequest request) {
         return METHODS.contains(request.getMethod()) ? request.getMethod() : OTHER_METHOD;
+    }
+
+    /**
+     * The correlation id this filter minted for the request, or {@code null} for a request it
+     * never saw — for a record written inside the security chain, where no other request context
+     * is guaranteed to exist yet.
+     */
+    public static String requestId(HttpServletRequest request) {
+        return existingRequestId(request);
     }
 
     /** Exactly {@code prefix}, or {@code prefix} followed by a sub-path. */

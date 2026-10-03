@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.infrastructure.session.AccountSessionsAdapter;
 import com.example.backend.scim.domain.NormalizedUserName;
@@ -135,7 +136,7 @@ class AdminAccountEndpointTests {
 
     @Test
     void anAdministratorSeesEveryAccountWithItsRoleStatusAndCreationDate() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].userName")
                         .value(Matchers.hasItems("test-admin", "test-user")))
@@ -161,7 +162,7 @@ class AdminAccountEndpointTests {
     void theListingReportsTheBootstrapAdminAndEachUsersDirectGroups() throws Exception {
         String adminGroup = adminGroupName();
 
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/api/admin/accounts").session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.userName == 'test-admin')].bootstrapAdmin")
                         .value(Matchers.contains(true)))
@@ -183,7 +184,7 @@ class AdminAccountEndpointTests {
     @Test
     void theListingNeverCarriesAPasswordHash() throws Exception {
         String body = mvc.perform(get("/api/admin/accounts")
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(content().string(Matchers.not(Matchers.containsString("$2a$"))))
                 .andExpect(content().string(Matchers.not(Matchers.containsString("argon2id"))))
@@ -202,7 +203,7 @@ class AdminAccountEndpointTests {
         String adminGroup = adminGroupName();
 
         String body = mvc.perform(get("/api/admin/groups")
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.displayName == '" + adminGroup + "')].adminGroup")
                         .value(Matchers.contains(true)))
@@ -242,7 +243,7 @@ class AdminAccountEndpointTests {
     @Test
     void aControlRequestWithoutACsrfTokenIsRefusedBeforeAuthorization() throws Exception {
         mvc.perform(post("/api/admin/accounts/{id}/unlock", require("test-user").id())
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
     }
 
@@ -260,11 +261,11 @@ class AdminAccountEndpointTests {
     @Test
     void anUnknownAccountIsNotFound() throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", UUID.randomUUID()))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
         mvc.perform(withCsrf(post(
                         "/api/admin/accounts/{id}/force-password-change", UUID.randomUUID()))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isNotFound());
     }
 
@@ -275,19 +276,21 @@ class AdminAccountEndpointTests {
     @Test
     void aUserNameIsNotAnIdAndActsOnNobody() throws Exception {
         mvc.perform(withCsrf(post("/api/admin/accounts/test-user/unlock"))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         mvc.perform(withCsrf(post("/api/admin/accounts/test-user/force-password-change"))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isBadRequest());
         assertThat(require("test-user").login().isPasswordChangeRequired()).isFalse();
     }
 
     /**
-     * The legacy Disable and Enable endpoints are REMOVED, not hidden: an administrator holding a
-     * valid CSRF header gets {@code 404} at the old path, whether it names the account by
-     * {@code userName} as it used to or by the stable id, and the account is untouched — its
-     * {@code active} flag, its version and the sessions it holds are exactly as they were.
+     * The legacy Disable and Enable endpoints are REMOVED, not hidden: an administrator holding
+     * every Permission and a valid CSRF header is refused {@code 403} at the old path — the
+     * application chain denies by default, so a route nothing declares is refused before any
+     * dispatch — whether it names the account by {@code userName} as it used to or by the stable
+     * id, and the account is untouched: its {@code active} flag, its version and the sessions it
+     * holds are exactly as they were.
      */
     @Test
     void theLegacyDisableAndEnableEndpointsAreGone() throws Exception {
@@ -298,8 +301,8 @@ class AdminAccountEndpointTests {
             for (String action : List.of("disable", "enable")) {
                 for (Object target : List.of("test-user", before.id())) {
                     mvc.perform(withCsrf(post("/api/admin/accounts/{target}/" + action, target))
-                                    .session(authenticatedSession("ROLE_ADMIN")))
-                            .andExpect(status().isNotFound());
+                                    .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                            .andExpect(status().isForbidden());
                 }
             }
 
@@ -314,13 +317,13 @@ class AdminAccountEndpointTests {
 
     /**
      * The read-only criterion, enforced by the backend and not only by which controls the page
-     * renders: every write an Admin could aim at a User or a Group through the administration
-     * namespace is refused — {@code 405} where the path exists for reading, {@code 404} where it
-     * does not exist at all — and the directory reads back exactly as it was.
+     * renders: every write an administrator could aim at a User or a Group through the
+     * administration namespace is refused {@code 403} — none is a declared operation, and the
+     * application chain denies whatever it does not declare — and the directory reads back
+     * exactly as it was.
      *
-     * <p>Each request carries a valid CSRF header and an Admin session, so the refusal is the
-     * dispatcher's and not the chain's: a missing header or a wrong role would earn {@code 403}
-     * and prove nothing about whether a write handler exists.
+     * <p>Each request carries a valid CSRF header and a session holding every Permission, so the
+     * refusal is the deny-by-default rule's and not the CSRF filter's or a missing Permission's.
      */
     @Test
     void everyWriteToADirectoryOwnedResourceIsRefused() throws Exception {
@@ -353,13 +356,13 @@ class AdminAccountEndpointTests {
 
         for (MockHttpServletRequestBuilder write : writes) {
             int status = mvc.perform(withCsrf(write)
-                            .session(authenticatedSession("ROLE_ADMIN"))
+                            .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
                     .andReturn().getResponse().getStatus();
             assertThat(status)
                     .as("%s", write.buildRequest(context.getServletContext()).getRequestURI())
-                    .isIn(404, 405);
+                    .isEqualTo(403);
         }
 
         assertThat(listing("/api/admin/accounts")).isEqualTo(listingBefore);
@@ -372,7 +375,7 @@ class AdminAccountEndpointTests {
         UUID id = require("test-user").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", id))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.locked").value(false))
@@ -381,32 +384,46 @@ class AdminAccountEndpointTests {
     }
 
     /**
-     * An Admin cannot Unlock their own account, addressed by id: the principal is the seeded
-     * Bootstrap Admin's own name and the target is its id. A second Admin's self-targeted forced
-     * change is covered at the service; the Bootstrap Admin is the one Admin allowed to flag itself.
+     * No administrator may Unlock their own account, addressed by id, whatever Permissions it
+     * holds: the principal is the seeded Bootstrap Admin's own name and the target is its id.
      */
     @Test
     void anAdministratorCannotUnlockTheirOwnAccount() throws Exception {
         UUID self = require("test-admin").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/unlock", self))
-                        .session(authenticatedSession("test-admin", "ROLE_ADMIN")))
+                        .session(authenticatedSession("test-admin", TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
     }
 
-    /** Only the Bootstrap Admin may flag its own password; anyone else asking is refused. */
+    /**
+     * Nobody may force the Bootstrap Admin's password change — not another administrator, and
+     * (below) not the Bootstrap Admin itself, since no administrator acts on its own account.
+     */
     @Test
     void anotherAdministratorCannotForceTheBootstrapAdminsPasswordChange() throws Exception {
         UUID bootstrap = require("test-admin").id();
 
         mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
-                        .session(authenticatedSession("ROLE_ADMIN")))
+                        .session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
+                .andExpect(status().isForbidden());
+        assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
+    }
+
+    /** The Bootstrap Admin holding every Permission is refused a forced change on itself. */
+    @Test
+    void theBootstrapAdminCannotForceItsOwnPasswordChange() throws Exception {
+        UUID bootstrap = require("test-admin").id();
+
+        mvc.perform(withCsrf(post("/api/admin/accounts/{id}/force-password-change", bootstrap))
+                        .session(authenticatedSession(
+                                "test-admin", TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isForbidden());
         assertThat(require("test-admin").login().isPasswordChangeRequired()).isFalse();
     }
 
     private String listing(String path) throws Exception {
-        return mvc.perform(get(path).session(authenticatedSession("ROLE_ADMIN")))
+        return mvc.perform(get(path).session(authenticatedSession(TestRoleMappings.SUPERUSER_AUTHORITIES)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
     }
@@ -430,13 +447,13 @@ class AdminAccountEndpointTests {
         return SessionCsrf.withCsrf(mvc, request);
     }
 
-    private MockHttpSession authenticatedSession(String authority) {
-        return authenticatedSession("account", authority);
+    private MockHttpSession authenticatedSession(String... authorities) {
+        return authenticatedSession("account", authorities);
     }
 
-    private MockHttpSession authenticatedSession(String name, String authority) {
+    private MockHttpSession authenticatedSession(String name, String[] authorities) {
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        securityContext.setAuthentication(new TestingAuthenticationToken(name, null, authority));
+        securityContext.setAuthentication(new TestingAuthenticationToken(name, null, authorities));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

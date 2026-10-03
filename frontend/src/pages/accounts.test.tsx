@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
+import type { Permission } from "@/auth/api";
 import { apiFetch } from "@/lib/http";
 
 import { Accounts } from "./accounts";
@@ -14,9 +15,37 @@ vi.mock("@/lib/http", async (importOriginal) => ({
   apiFetch: vi.fn(),
 }));
 
-// The connector panel has its own suite; here it would only add a third
+// The connector panel has its own suite; here it stands in as a marker that says
+// whether it was rendered and with which actions, rather than adding a third
 // listing request to every test.
-vi.mock("./connectors", () => ({ Connectors: () => null }));
+vi.mock("./connectors", () => ({
+  Connectors: ({
+    canIssueTokens,
+    canManageConnectors,
+  }: {
+    canIssueTokens: boolean;
+    canManageConnectors: boolean;
+  }) => (
+    <p data-testid="connectors-panel">
+      {`manage=${String(canManageConnectors)} issue=${String(canIssueTokens)}`}
+    </p>
+  ),
+}));
+
+/** Every Permission, as a Superuser's session holds them. */
+const EVERY_PERMISSION: Permission[] = [
+  "audit:read",
+  "connector:read",
+  "connector:token",
+  "connector:write",
+  "counter:read",
+  "counter:write",
+  "group:read",
+  "group:write",
+  "ops:read",
+  "user:read",
+  "user:write",
+];
 
 const apiFetchMock = vi.mocked(apiFetch);
 
@@ -30,7 +59,12 @@ const auth: AuthContextState = {
   signOutForInactivity: vi.fn(),
   signedOutForInactivity: false,
   status: "authenticated",
-  user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "ADMIN", username: "ada" },
+  user: {
+    idleTimeoutSeconds: 900,
+    passwordChangeRequired: false,
+    permissions: EVERY_PERMISSION,
+    username: "ada",
+  },
 };
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
@@ -359,7 +393,7 @@ describe("Accounts", () => {
     expect(root.queryByRole("button", { name: /Force password change/ })).not.toBeInTheDocument();
   });
 
-  it("offers the Bootstrap Admin a forced change on its own account", async () => {
+  it("does not offer the Bootstrap Admin a forced change on its own account", async () => {
     routeApi({
       users: { kind: "ok", data: [userRow({ bootstrapAdmin: true, userName: "root" })] },
     });
@@ -368,14 +402,15 @@ describe("Accounts", () => {
       user: {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
-        role: "ADMIN",
+        permissions: EVERY_PERMISSION,
         username: "root",
       },
     });
 
+    expect(await screen.findByRole("rowheader", { name: /^root/ })).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "Force password change for root" }),
-    ).toBeEnabled();
+      screen.queryByRole("button", { name: "Force password change for root" }),
+    ).not.toBeInTheDocument();
   });
 
   it("disables every control while an action is in flight", async () => {
@@ -535,11 +570,23 @@ describe("Accounts", () => {
    * types it as optional; the page must not throw while it is absent, and with
    * no name to compare it recognises no row as the caller's own.
    */
-  it("renders without a signed-in user and treats no row as the caller's own", async () => {
+  it("treats no row as the caller's own when the session names no user", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
+    renderAccounts({
+      ...auth,
+      user: { ...auth.user!, username: "" },
+    });
+
+    expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
+  });
+
+  it("shows no view at all without a signed-in user, whose Permissions are unknown", () => {
     routeApi({ users: { kind: "ok", data: [userRow({ locked: true })] } });
     renderAccounts({ ...auth, user: null });
 
-    expect(await screen.findByRole("button", { name: "Unlock grace" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
   });
 
   it("reports a failed Users read", async () => {
@@ -658,5 +705,69 @@ describe("Accounts", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     expect(auth.logout).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Accounts by Permission", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** The page as a session holding exactly these Permissions sees it. */
+  const holding = (permissions: Permission[]): AuthContextState => ({
+    ...auth,
+    user: { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions, username: "ada" },
+  });
+
+  /** Every request the page issued, by path. */
+  const requested = () => apiFetchMock.mock.calls.map(([path]) => path);
+
+  it("shows an Account admin the Users and Groups and no connector panel", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow({ locked: true, userName: "grace" })] } });
+    renderAccounts(holding(["group:read", "user:read", "user:write"]));
+
+    expect(await screen.findByRole("table", { name: "Users" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
+    expect(screen.queryByTestId("connectors-panel")).not.toBeInTheDocument();
+    // The actions its user:write allows.
+    expect(row("grace").getByRole("button", { name: "Unlock grace" })).toBeEnabled();
+  });
+
+  it("offers no Unlock or forced change without user:write", async () => {
+    routeApi({ users: { kind: "ok", data: [userRow({ locked: true, userName: "grace" })] } });
+    renderAccounts(holding(["user:read"]));
+
+    expect(await screen.findByRole("rowheader", { name: /^grace/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Force password change/ })).not.toBeInTheDocument();
+  });
+
+  it("neither shows nor requests a view the session lacks the Permission for", async () => {
+    routeApi({ users: { kind: "ok", data: [] } });
+    renderAccounts(holding(["group:read"]));
+
+    expect(await screen.findByRole("heading", { name: "Groups" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
+    expect(requested()).toEqual(["/api/admin/groups"]);
+  });
+
+  it("shows only the connector panel to a connector reader, with neither action", () => {
+    routeApi({ users: { kind: "ok", data: [] } });
+    renderAccounts(holding(["connector:read"]));
+
+    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=false issue=false");
+    expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Groups" })).not.toBeInTheDocument();
+    expect(requested()).toEqual([]);
+  });
+
+  it("passes the connector panel each of its actions by its own Permission", () => {
+    routeApi({ users: { kind: "ok", data: [] } });
+    const { unmount } = renderAccounts(holding(["connector:read", "connector:write"]));
+    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=true issue=false");
+    unmount();
+
+    renderAccounts(holding(["connector:read", "connector:token"]));
+    expect(screen.getByTestId("connectors-panel")).toHaveTextContent("manage=false issue=true");
   });
 });

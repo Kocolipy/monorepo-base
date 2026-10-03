@@ -16,13 +16,13 @@ const api = vi.mocked(authApi);
 const CONFINED: authApi.AuthUser = {
   idleTimeoutSeconds: 900,
   passwordChangeRequired: true,
-  role: null,
+  permissions: [],
   username: "ada",
 };
 const USER: authApi.AuthUser = {
   idleTimeoutSeconds: 900,
   passwordChangeRequired: false,
-  role: "USER",
+  permissions: [],
   username: "ada",
 };
 const CREDENTIALS = ["ada", "chosen-1"] as const;

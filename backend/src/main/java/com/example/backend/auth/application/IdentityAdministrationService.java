@@ -140,8 +140,9 @@ public class IdentityAdministrationService {
      * so the version does not advance. No session is revoked: a locked User holds none, since
      * imposing the lock ended them.
      *
-     * <p>An Admin may not unlock their own account; recovering from a self-inflicted state takes a
-     * second Admin, or the Bootstrap Admin. The refusal is checked before anything is written.
+     * <p>No administrator may unlock their own account, whatever Permissions it holds; recovering
+     * from a self-inflicted state takes a second administrator. The refusal is checked before
+     * anything is written.
      *
      * <p>Idempotent on an identity serving no lockout: it is returned unchanged, nothing is written
      * and no change is required — there was no lockout for the credential to have reached.
@@ -179,9 +180,10 @@ public class IdentityAdministrationService {
      * <p>Refused, before anything is written:
      *
      * <ul>
-     *   <li>on the acting Admin's own account — except the Bootstrap Admin's, which only it may
-     *       flag;
-     *   <li>on the Bootstrap Admin, by anyone but itself;
+     *   <li>on the caller's own account, whatever Permissions it holds — the Bootstrap Admin's
+     *       included, so no administrator acts on itself through the admin flow; a User replaces
+     *       its own password through the self-service change instead;
+     *   <li>on the Bootstrap Admin, by anyone else — it is the deployment's recovery identity;
      *   <li>on a credentialless User, which already cannot log in and has nothing to replace.
      * </ul>
      *
@@ -192,19 +194,17 @@ public class IdentityAdministrationService {
     public IdentitySummary forcePasswordChange(UUID userId, String requestedBy) {
         ScimUser user = require(userId);
         UUID actorId = actorId(requestedBy);
-        boolean self = isSelf(user, requestedBy);
-        boolean bootstrap = user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN;
-        if (bootstrap && !self) {
-            throw refuseForcedChange(actorId, user.id(),
-                    AuditAdministrativeRefusal.PROTECTED_RESOURCE,
-                    new ForbiddenIdentityChangeException(
-                            "Only the bootstrap administrator may require its own password change"));
-        }
-        if (self && !bootstrap) {
+        if (isSelf(user, requestedBy)) {
             throw refuseForcedChange(actorId, user.id(),
                     AuditAdministrativeRefusal.SELF_TARGET,
                     new ForbiddenIdentityChangeException(
-                            "An Admin cannot force a password change on their own account"));
+                            "An administrator cannot force a password change on their own account"));
+        }
+        if (user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN) {
+            throw refuseForcedChange(actorId, user.id(),
+                    AuditAdministrativeRefusal.PROTECTED_RESOURCE,
+                    new ForbiddenIdentityChangeException(
+                            "The bootstrap administrator's password change cannot be forced"));
         }
         if (!user.login().hasPassword()) {
             throw refuseForcedChange(actorId, user.id(),

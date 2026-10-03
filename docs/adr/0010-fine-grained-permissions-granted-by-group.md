@@ -74,6 +74,12 @@ for access.
   each Role, its Permissions and its Group.
 - `ROLE_ADMIN` is removed. `ROLE_USER` stays as the baseline authority meaning
   "active and no password change required".
+- **`counter:read` and `counter:write` are baseline Permissions** (amended while
+  implementing #115): every active User holds them at sign-in beside
+  `ROLE_USER`, whatever its Groups, because the counter is a basic capability
+  rather than an administrative one. A confined session holds neither. They stay
+  Permissions, and each counter operation still declares its own, so making the
+  counter Role-granted later is a one-line change.
 
 ## Consequences
 

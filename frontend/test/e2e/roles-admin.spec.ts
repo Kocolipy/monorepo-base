@@ -117,9 +117,10 @@ test.describe("ADMIN account control", () => {
   });
 
   /**
-   * The legacy Disable and Enable endpoints are gone, not hidden: a valid
-   * Admin session with a valid CSRF token reaches the dispatcher and is told the
-   * path does not exist — by the old `userName` addressing and by the new id.
+   * The legacy Disable and Enable endpoints are gone, not hidden: a session
+   * holding every Permission, with a valid CSRF token, is refused 403 — the
+   * application chain denies whatever it does not declare — by the old
+   * `userName` addressing and by the new id, and the User is untouched.
    */
   test("no longer serves the removed Disable and Enable endpoints", async ({ page }) => {
     const id = await userIdOf(page, "user");
@@ -127,7 +128,7 @@ test.describe("ADMIN account control", () => {
     for (const target of ["user", id]) {
       for (const action of ["disable", "enable"]) {
         const response = await postAdminAction(page, target, action);
-        expect(response.status(), `${action} ${target}`).toBe(404);
+        expect(response.status(), `${action} ${target}`).toBe(403);
       }
     }
     const listing = (await (await page.request.get("/api/admin/accounts")).json()) as Array<
@@ -163,7 +164,7 @@ test.describe("ADMIN account control", () => {
       ["PUT", "/api/admin/groups"],
     ] as const) {
       const response = await adminRequest(page, method, path, change);
-      expect([404, 405], `${method} ${path}`).toContain(response.status());
+      expect(response.status(), `${method} ${path}`).toBe(403);
     }
     expect(await directoryOwned()).toEqual(before);
   });
