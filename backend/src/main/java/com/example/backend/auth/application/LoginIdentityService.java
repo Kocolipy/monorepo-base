@@ -1,11 +1,18 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -45,9 +52,18 @@ import org.springframework.stereotype.Service;
  * <p>Membership is asked as a one-row question rather than by loading the Admin group and
  * scanning it: the latter reads every administrator's membership to answer something about one
  * User.
+ *
+ * <h2>Permissions come from the role mapping</h2>
+ *
+ * <p>Beside the roles, a User holds the Permissions of every Role the {@link RoleMapping} assigns
+ * to a Group it is a direct member of — derived here too, once per login, for the same reasons.
+ * A session confined by a required password change holds none, as it holds no role.
  */
 @Service
 public class LoginIdentityService implements UserDetailsService {
+
+    /** Spring Security's prefix on every role-derived authority. */
+    private static final String ROLE_PREFIX = "ROLE_";
 
     /** Baseline access, which every active User has by being one. */
     private static final String USER_ROLE = "USER";
@@ -89,14 +105,17 @@ public class LoginIdentityService implements UserDetailsService {
     private final ScimUserRepository users;
     private final ScimGroupRepository groups;
     private final PasswordEncoder passwordEncoder;
+    private final RoleMapping roleMapping;
 
     public LoginIdentityService(
             ScimUserRepository users,
             ScimGroupRepository groups,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            RoleMapping roleMapping) {
         this.users = users;
         this.groups = groups;
         this.passwordEncoder = passwordEncoder;
+        this.roleMapping = roleMapping;
     }
 
     /**
@@ -126,7 +145,7 @@ public class LoginIdentityService implements UserDetailsService {
         if (user.login().isPasswordChangeRequired()) {
             builder.authorities(PASSWORD_CHANGE_REQUIRED_AUTHORITY);
         } else {
-            builder.roles(rolesOf(user));
+            builder.authorities(authoritiesOf(user));
         }
         return builder
                 .accountLocked(user.login().isLocked())
@@ -149,18 +168,43 @@ public class LoginIdentityService implements UserDetailsService {
     }
 
     /**
-     * Baseline access, plus administrative authority when the User is a direct member of the Admin
-     * group.
+     * The hash of the role mapping every Permission this service reports was resolved under. A
+     * session records it beside the Permissions, so a session issued under another mapping can be
+     * recognised as such.
+     */
+    public String roleMappingHash() {
+        return roleMapping.hash();
+    }
+
+    /**
+     * Baseline access, administrative authority when the User is a direct member of the Admin
+     * group, and the Permissions of every Role its direct Group memberships confer.
      *
      * <p>{@code ADMIN} is placed FIRST, because a caller reading a single role off the
      * authorities — which the login response does — must see the higher one. That ordering is the
      * kind of coupling worth stating rather than discovering: the alternative is a response that
      * reports an administrator as an ordinary user.
+     *
+     * <p>Permissions are the UNION over the mapped Groups the User is a direct member of, so
+     * holding an extra Role never takes a power away, and a User in no mapped Group holds none and
+     * keeps {@code ROLE_USER}. Each is an authority spelled as its {@link Permission#value()}
+     * ({@code user:read}), which carries no {@code ROLE_} prefix and so can never be mistaken for a
+     * role. Their order here is immaterial: Spring Security's {@code User} keeps authorities sorted
+     * by name, and {@code /api/auth/me} sorts the Permissions it reports itself.
      */
-    private String[] rolesOf(ScimUser user) {
-        return groups.isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP)
-                ? new String[] {ADMIN_ROLE, USER_ROLE}
-                : new String[] {USER_ROLE};
+    private List<GrantedAuthority> authoritiesOf(ScimUser user) {
+        List<GrantedAuthority> authorities = new ArrayList<>();
+        if (groups.isMemberOfReservedGroup(user.id(), ReservedResourceName.ADMIN_GROUP)) {
+            authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + ADMIN_ROLE));
+        }
+        authorities.add(new SimpleGrantedAuthority(ROLE_PREFIX + USER_ROLE));
+        List<UUID> memberOf = groups.findGroupsOfUser(user.id()).stream()
+                .map(ScimGroupReference::id)
+                .toList();
+        roleMapping.permissionsOf(memberOf).stream()
+                .map(permission -> new SimpleGrantedAuthority(permission.value()))
+                .forEach(authorities::add);
+        return authorities;
     }
 
     /**

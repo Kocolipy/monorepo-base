@@ -3,6 +3,10 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
+import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
@@ -15,6 +19,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.GrantedAuthority;
@@ -45,7 +50,7 @@ class LoginIdentityServiceTests {
     private final CountingPasswordEncoder passwordEncoder = new CountingPasswordEncoder();
 
     private final LoginIdentityService service =
-            new LoginIdentityService(users, groups, passwordEncoder);
+            new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
 
     // Reporting the stored identity to Spring Security
 
@@ -370,6 +375,99 @@ class LoginIdentityServiceTests {
 
         assertThat(authoritiesOf(details)).containsExactly("ROLE_ADMIN", "ROLE_USER");
         assertThat(details.isEnabled()).isFalse();
+    }
+
+    // Permissions from the role mapping
+
+    private static final UUID HELPDESK = UUID.fromString(
+            "00000000-0000-4000-8000-0000000000b1");
+    private static final UUID AUDITORS = UUID.fromString(
+            "00000000-0000-4000-8000-0000000000b2");
+
+    /** Two Roles and a Superuser, each conferred by its own Group. */
+    private final LoginIdentityService mapped = new LoginIdentityService(
+            users, groups, passwordEncoder, RoleMapping.of(
+                    List.of(
+                            new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
+                            new RoleDefinition("Helpdesk", List.of("user:write", "user:read")),
+                            new RoleDefinition("Auditor", List.of("audit:read", "user:read"))),
+                    List.of(
+                            new GroupAssignment(
+                                    TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
+                            new GroupAssignment(HELPDESK, "Helpdesk", false),
+                            new GroupAssignment(AUDITORS, "Auditor", false))));
+
+    /**
+     * The union of the Roles of every mapped Group the User is directly in — each Permission once,
+     * sorted by name, after the roles — and an unmapped Group adds nothing.
+     */
+    @Test
+    void aUserInSeveralMappedGroupsHoldsTheUnionOfTheirPermissions() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+        groups.given(ScimGroup.created(AUDITORS, "Auditors",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+        groups.given(ScimIdentities.group("Unmapped", ada));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+                .containsExactly("ROLE_USER", "audit:read", "user:read", "user:write");
+    }
+
+    /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
+    @Test
+    void aUserInOneMappedGroupHoldsExactlyThatRolesPermissions() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.given(ScimGroup.created(AUDITORS, "Auditors",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+                .containsExactly("ROLE_USER", "audit:read", "user:read");
+    }
+
+    /** No mapped Group: no Permission, and baseline access all the same. */
+    @Test
+    void aUserInNoMappedGroupHoldsNoPermissionAndKeepsBaselineAccess() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.given(ScimIdentities.group("Unmapped", ada));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly("ROLE_USER");
+    }
+
+    /** A confined session holds no Permission either, whatever Groups confer. */
+    @Test
+    void aUserRequiredToChangeItsPasswordHoldsNoPermission() {
+        ScimUser grace = users.given(ScimIdentities.userWithLoginState(
+                "grace", new ScimLoginState("hash", 0, null, null, ScimIdentities.NOW)));
+        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(grace.id())), ScimIdentities.NOW));
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("grace")))
+                .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
+    }
+
+    /** The Superuser Group confers every Permission, beside the Admin group's roles. */
+    @Test
+    void theSuperuserGroupConfersEveryPermission() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        groups.createReserved(ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+                        List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW),
+                ReservedResourceName.ADMIN_GROUP);
+
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+                .startsWith("ROLE_ADMIN", "ROLE_USER")
+                .hasSize(2 + TestRoleMappings.EVERY_PERMISSION.size())
+                .containsAll(TestRoleMappings.EVERY_PERMISSION);
+    }
+
+    /** The hash the session records is the mapping's own. */
+    @Test
+    void reportsTheHashOfTheMappingItResolvesUnder() {
+        RoleMapping mapping = TestRoleMappings.superuserOnly();
+
+        assertThat(new LoginIdentityService(users, groups, passwordEncoder, mapping)
+                        .roleMappingHash())
+                .isEqualTo(mapping.hash());
     }
 
     /**

@@ -1,6 +1,8 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.authorization.domain.InvalidRoleMappingException;
+import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -14,7 +16,9 @@ import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -71,6 +75,7 @@ public class ScimSeedService {
     private final AuditTrail audit;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final RoleMapping roleMapping;
 
     public ScimSeedService(
             ScimUserRepository users,
@@ -78,13 +83,15 @@ public class ScimSeedService {
             ScimSeedLock seedLock,
             AuditTrail audit,
             PasswordEncoder passwordEncoder,
-            Clock clock) {
+            Clock clock,
+            RoleMapping roleMapping) {
         this.users = users;
         this.groups = groups;
         this.seedLock = seedLock;
         this.audit = audit;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
+        this.roleMapping = roleMapping;
     }
 
     /**
@@ -115,6 +122,75 @@ public class ScimSeedService {
             bootstrapAdmin = seedBootstrapAdmin(recovery, now);
         }
         seedAdminGroup(bootstrapAdmin, now);
+    }
+
+    /**
+     * The development fixtures: one Group per fixture, under the fixture's fixed id, with one
+     * User in it, so local runs and the e2e suite have a User per Role to sign in as.
+     *
+     * <p>Called only when {@code app.dev-fixtures.enabled} is set. Idempotent like the rest of
+     * seeding, and like the ordinary identity it never overwrites: a fixture User that exists keeps
+     * its password, and a fixture Group that exists keeps whatever membership it has been given
+     * since. Nothing is audited — these are development conveniences, not the recovery path.
+     *
+     * @param fixtures the Groups to create and the User each contains
+     * @param password every fixture User's password; refused when blank, because this setting has
+     *                 no published fallback and an empty one would be no credential at all
+     */
+    @Transactional
+    public void seedDevFixtures(List<DevFixture> fixtures, String password) {
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
+                            + " when the development fixtures are enabled");
+        }
+        seedLock.acquire();
+        Instant now = clock.instant();
+        for (DevFixture fixture : fixtures) {
+            ScimUser member = users
+                    .findByNormalizedUserName(NormalizedUserName.of(fixture.member()))
+                    .orElseGet(() -> users.create(
+                            newUser(new SeededIdentity(fixture.member(), password), now)));
+            if (groups.findById(fixture.groupId()).isEmpty()) {
+                groups.create(ScimGroup.created(
+                        fixture.groupId(),
+                        fixture.displayName(),
+                        List.of(ScimGroupMember.reference(member.id())),
+                        now));
+            }
+        }
+    }
+
+    /**
+     * Refuses startup unless every Group the role mapping names exists, and the Superuser Group is
+     * the reserved Admin group.
+     *
+     * <p>The half of the mapping's validation that needs the directory, so it runs after seeding:
+     * a mapping naming a Group that does not exist would be a Role nobody can hold, which an
+     * operator should learn at deploy time rather than as a missing power. And a Superuser Group
+     * that is not the reserved Admin group would be a Role holding every Permission conferred by a
+     * Group a connector may rename, empty or delete.
+     */
+    @Transactional(readOnly = true)
+    public void verifyMappedGroups() {
+        List<UUID> mapped = List.copyOf(roleMapping.mappedGroupIds());
+        Map<UUID, ScimGroup> found = new HashMap<>();
+        groups.findAllById(mapped).forEach(group -> found.put(group.id(), group));
+        List<String> problems = new ArrayList<>();
+        for (UUID groupId : mapped) {
+            if (!found.containsKey(groupId)) {
+                problems.add("Group " + groupId + " does not exist");
+            }
+        }
+        ScimGroup superuserGroup = found.get(roleMapping.superuserGroupId());
+        if (superuserGroup != null
+                && superuserGroup.reservedName() != ReservedResourceName.ADMIN_GROUP) {
+            problems.add("Superuser Group " + superuserGroup.id()
+                    + " is not the reserved Admin group");
+        }
+        if (!problems.isEmpty()) {
+            throw new InvalidRoleMappingException(problems);
+        }
     }
 
     /**
@@ -168,6 +244,11 @@ public class ScimSeedService {
     /**
      * The Admin group, reserved as it is created, with the Bootstrap Admin in it.
      *
+     * <p>Created under the role mapping's Superuser Group id, so the mapping can name the Group by
+     * its stable id before the Group exists: the Admin group IS the Superuser Group. A database
+     * whose Admin group was seeded under another id keeps it — the id is never rewritten — and
+     * {@link #verifyMappedGroups} then refuses startup, naming the mismatch.
+     *
      * <p>When the Group already exists its ordinary membership is left exactly as provisioning left
      * it — that membership is what external provisioning is for — and only the Bootstrap Admin's
      * own place in it is restored if something outside SCIM removed it.
@@ -178,7 +259,7 @@ public class ScimSeedService {
         if (existing.isEmpty()) {
             ScimGroup created = groups.createReserved(
                     ScimGroup.created(
-                            UUID.randomUUID(),
+                            roleMapping.superuserGroupId(),
                             ADMIN_GROUP_DISPLAY_NAME,
                             List.of(ScimGroupMember.reference(bootstrapAdmin.id())),
                             now),
@@ -233,5 +314,12 @@ public class ScimSeedService {
      * privilege would be a value a future caller could construct with the wrong one.
      */
     public record SeededIdentity(String userName, String password) {
+    }
+
+    /**
+     * One development fixture: a Group under a fixed stable id — the id the development role
+     * mapping names — and the userName of the one User seeded into it.
+     */
+    public record DevFixture(UUID groupId, String displayName, String member) {
     }
 }

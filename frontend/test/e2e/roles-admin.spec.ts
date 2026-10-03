@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { adminRequest, postAdminAction, userIdOf } from "./auth.helpers";
+import { DEV_ROLES, adminRequest, postAdminAction, userIdOf } from "./auth.helpers";
 
 test.describe("ADMIN route guards", () => {
   test("may view the accounts page", async ({ page }) => {
@@ -9,6 +9,18 @@ test.describe("ADMIN route guards", () => {
     await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
     await expect(page.getByRole("rowheader", { name: /^admin/ }).first()).toBeVisible();
     await expect(page).toHaveURL(/\/accounts$/);
+  });
+});
+
+test.describe("ADMIN Permissions", () => {
+  // The Bootstrap Admin is the Superuser Group's member, so its replayed session
+  // holds every Permission, sorted by name.
+  test("holds every Permission through the Superuser Group", async ({ page }) => {
+    const me = await page.request.get("/api/auth/me");
+    expect(me.status()).toBe(200);
+
+    const body = (await me.json()) as { permissions: string[] };
+    expect(body.permissions).toEqual(DEV_ROLES.superuser.permissions);
   });
 });
 

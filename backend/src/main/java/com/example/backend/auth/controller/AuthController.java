@@ -7,6 +7,7 @@ import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -18,6 +19,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +59,12 @@ public class AuthController {
 
     /** The authority the Admin group's membership confers, as Spring Security spells it. */
     private static final String ADMIN_AUTHORITY = ROLE_PREFIX + ADMIN_ROLE;
+
+    /**
+     * The session attribute a login records the role mapping's hash under: the mapping the
+     * session's Permissions were resolved under.
+     */
+    public static final String ROLE_MAPPING_HASH_ATTRIBUTE = "app.authorization.roleMappingHash";
 
     /** The response header a logout asks the browser to clear the origin's data with. */
     static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
@@ -129,6 +138,10 @@ public class AuthController {
             session.setAttribute(
                     FindByIndexNameSessionRepository.PRINCIPAL_NAME_INDEX_NAME,
                     outcome.userId().toString());
+            // The mapping the Permissions in the security context were resolved under, so a
+            // session minted under a different mapping can be told apart from one minted under
+            // the running one.
+            session.setAttribute(ROLE_MAPPING_HASH_ATTRIBUTE, outcome.roleMappingHash());
         }
 
         // The session id has just rotated, but its attributes moved with it — the
@@ -261,19 +274,21 @@ public class AuthController {
      */
     private UserResponse userResponse(Authentication authentication, HttpSession session) {
         int idleTimeoutSeconds = session.getMaxInactiveInterval();
+        List<String> permissions = permissionsOf(authentication);
         boolean changeRequired = authentication.getAuthorities().stream()
                 .anyMatch(authority -> LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY
                         .equals(authority.getAuthority()));
         if (changeRequired) {
             // Confined: the session holds no role at all until the credential is replaced, so it
-            // reports none rather than one it cannot exercise.
-            return new UserResponse(authentication.getName(), null, true, idleTimeoutSeconds);
+            // reports none rather than one it cannot exercise — and, likewise, no Permission.
+            return new UserResponse(
+                    authentication.getName(), null, permissions, true, idleTimeoutSeconds);
         }
         boolean admin = authentication.getAuthorities().stream()
                 .anyMatch(authority -> ADMIN_AUTHORITY.equals(authority.getAuthority()));
         if (admin) {
             return new UserResponse(
-                    authentication.getName(), ADMIN_ROLE, false, idleTimeoutSeconds);
+                    authentication.getName(), ADMIN_ROLE, permissions, false, idleTimeoutSeconds);
         }
         String role = authentication.getAuthorities().stream()
                 .map(authority -> authority.getAuthority())
@@ -282,7 +297,22 @@ public class AuthController {
                 .findFirst()
                 .orElseThrow(() ->
                         new IllegalStateException("Authenticated identity has no role"));
-        return new UserResponse(authentication.getName(), role, false, idleTimeoutSeconds);
+        return new UserResponse(
+                authentication.getName(), role, permissions, false, idleTimeoutSeconds);
+    }
+
+    /**
+     * The Permissions the session was issued with, by name and sorted by it: read off the
+     * authorities the login resolved, keeping only those that spell a {@link Permission}, so a role
+     * or the confinement marker is never reported as one.
+     */
+    private static List<String> permissionsOf(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(authority -> Permission.fromValue(authority.getAuthority()))
+                .flatMap(Optional::stream)
+                .sorted(Permission.BY_VALUE)
+                .map(Permission::value)
+                .toList();
     }
 
     /**
@@ -374,12 +404,19 @@ public class AuthController {
     /**
      * @param role                   {@code USER} or {@code ADMIN}; {@code null} while a password
      *                               change is required, because the session holds neither
+     * @param permissions            the Permissions the session was issued with, by name, sorted
+     *                               by name; empty for a User in no mapped Group and while a
+     *                               password change is required
      * @param passwordChangeRequired whether the session is confined to the change flow
      * @param idleTimeoutSeconds     the session's idle bound: how long it survives without a
      *                               request ({@code server.servlet.session.timeout}). The SPA signs
      *                               an inactive user out by this figure, so it never outlasts it
      */
     public record UserResponse(
-            String username, String role, boolean passwordChangeRequired, int idleTimeoutSeconds) {
+            String username,
+            String role,
+            List<String> permissions,
+            boolean passwordChangeRequired,
+            int idleTimeoutSeconds) {
     }
 }

@@ -29,6 +29,12 @@ Start the application:
 ./mvnw spring-boot:run
 ```
 
+Spring Boot does not read `.env` itself, so export it first (`make dev` from the
+repository root does). Without `APP_DEV_FIXTURES_ENABLED=true` and
+`APP_DEV_FIXTURES_PASSWORD` from it, startup refuses the shipped development
+role mapping, because the Groups it names do not exist; see
+[Role mapping](#role-mapping).
+
 The service listens on `http://localhost:8080`. Its health endpoint is
 `GET /actuator/health`.
 
@@ -47,6 +53,14 @@ There is no role column. Every active User holds `USER`; direct membership of th
 Admin group additionally grants `ADMIN`. Authority is derived when a session is
 created, so a User added to or removed from the Admin group gains or loses `ADMIN`
 at their next login, never mid-session.
+
+Beside the roles, a session holds the **Permissions** the role mapping confers
+through the User's direct Group memberships, resolved at the same moment and
+reported, sorted by name, as `permissions` on `GET /api/auth/me`. With the
+development fixtures enabled there is a User per development Role to sign in
+as, all with `APP_DEV_FIXTURES_PASSWORD`: `account-admin`, `auditor`,
+`connector-admin` and `monitoring`; the Superuser's is the Bootstrap Admin. See
+[Role mapping](#role-mapping).
 
 Three consecutive refused logins lock an account (`APP_LOCKOUT_MAX_ATTEMPTS`,
 default 3), and the lock is **permanent**: it has no duration, nothing lifts it as time passes, and an `ADMIN` performing
@@ -130,6 +144,74 @@ environments.
 
 Set `SESSION_COOKIE_SECURE=true` when serving the application over HTTPS. Store
 real Redis credentials in your deployment's secret manager; do not commit them.
+
+### Role mapping
+
+The `app.authorization` block defines the deployment's **Roles** — named sets of
+Permissions — and maps each Role to a Group by the Group's stable id. A User's
+Permissions are the union of the Roles of the mapped Groups it is a direct member
+of, resolved at login. It is read-only configuration: no endpoint creates or
+changes a Role or a mapping entry. The shipped default is a development mapping,
+in `src/main/resources/authorization.yaml`:
+
+```yaml
+app:
+  authorization:
+    roles:
+      - name: Account admin
+        permissions: [user:read, user:write, group:read]
+      # ...
+    groups:
+      - id: 00000000-0000-4000-8000-00000000a001   # a Group's SCIM stable id
+        role: Superuser
+        superuser: true                           # exactly one entry
+      - id: 00000000-0000-4000-8000-00000000a002
+        role: Account admin
+```
+
+The Permission names are a closed set defined in code: `user:read`,
+`user:write`, `group:read`, `group:write`, `audit:read`, `connector:read`,
+`connector:write`, `connector:token`, `ops:read`, `counter:read`,
+`counter:write`.
+
+Startup fails, naming every problem, on: an unknown Permission; a Role defined
+twice or without a name; an entry with no Group id, mapping a Group id twice, or
+naming an undefined Role; anything but exactly one `superuser: true` entry; a
+Superuser Role missing any Permission; and a mapped Group id that does not
+resolve to a Group, or a Superuser Group that is not the reserved Admin group.
+The Superuser Group IS the Admin group: seeding creates the Admin group under
+that entry's id, so give the Superuser entry the id the Admin group should have —
+or, on a database seeded earlier, the id it already has. Every other id must
+belong to a Group that exists when the service starts, so provision those Groups
+before deploying a mapping that names them.
+
+**Replace the list whole.** `roles` and `groups` are lists, and a list from a
+higher-precedence source replaces the shipped one entirely — for example a file
+passed with `SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/backend/authorization.yaml`,
+or indexed environment variables (`APP_AUTHORIZATION_GROUPS_0_ID`,
+`APP_AUTHORIZATION_GROUPS_0_ROLE`, `APP_AUTHORIZATION_GROUPS_0_SUPERUSER`, …).
+
+**Development fixtures.** The shipped mapping names four Groups no deployment
+has. With the fixtures enabled, startup seeds them under those ids, each with one
+User, so local runs and the e2e suite have a User per Role; without them, a
+deployment that did not replace the mapping fails startup instead of running with
+it. Fixtures never overwrite a User or Group that already exists.
+
+| Variable                     | Default  | Meaning                                                                    |
+| ---------------------------- | -------- | -------------------------------------------------------------------------- |
+| `APP_DEV_FIXTURES_ENABLED`   | `false`  | Seed the development Groups and their Users (`.env.example` sets `true`)   |
+| `APP_DEV_FIXTURES_PASSWORD`  | none     | Every fixture User's password; required when enabled, with no fallback     |
+
+| Role            | Permissions                                                                                         | Fixture Group      | Fixture User      |
+| --------------- | --------------------------------------------------------------------------------------------------- | ------------------ | ----------------- |
+| Superuser       | every Permission                                                                                    | the Admin group    | the Bootstrap Admin |
+| Account admin   | `user:read`, `user:write`, `group:read`                                                             | `Account admins`   | `account-admin`   |
+| Auditor         | `audit:read`                                                                                        | `Auditors`         | `auditor`         |
+| Connector admin | `connector:read`, `connector:write`, `connector:token`, `user:read`, `user:write`, `group:read`, `group:write` | `Connector admins` | `connector-admin` |
+| Monitoring      | `ops:read`                                                                                          | `Monitoring`       | `monitoring`      |
+
+A session records the hash of the mapping its Permissions were resolved under,
+so a later mapping change can be recognised against it.
 
 ### Logging
 

@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -34,6 +35,7 @@ import jakarta.servlet.http.Cookie;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,7 +111,7 @@ class AuthControllerTests {
                 ScimIdentities.group("Admins", grace), ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder);
+                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         AuthenticationManager manager = config.authenticationManager(identities, passwordEncoder);
         csrfTokenRepository = config.csrfTokenRepository();
         DefaultCookieSerializer cookieSerializer = new DefaultCookieSerializer();
@@ -169,6 +171,21 @@ class AuthControllerTests {
         assertThat(response.role()).isEqualTo("USER");
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
+    }
+
+    /** The session records the hash of the role mapping its Permissions were resolved under. */
+    @Test
+    void loginRecordsTheRoleMappingHashOnTheSession() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+
+        controller.login(
+                new AuthController.LoginRequest("ada", "correct-password"),
+                request,
+                new MockHttpServletResponse());
+
+        assertThat(request.getSession(false)
+                        .getAttribute(AuthController.ROLE_MAPPING_HASH_ATTRIBUTE))
+                .isEqualTo(TestRoleMappings.superuserOnly().hash());
     }
 
     /**
@@ -639,8 +656,8 @@ class AuthControllerTests {
         AuthController.UserResponse response = controller.currentUser(new TestingAuthenticationToken(
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
-        assertThat(response).isEqualTo(
-                new AuthController.UserResponse("ada", null, true, IDLE_TIMEOUT_SECONDS));
+        assertThat(response).isEqualTo(new AuthController.UserResponse(
+                "ada", null, List.of(), true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -648,12 +665,31 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "ada", "USER", false, IDLE_TIMEOUT_SECONDS));
+                        "ada", "USER", List.of(), false, IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "grace", "ADMIN", false, IDLE_TIMEOUT_SECONDS));
+                        "grace", "ADMIN", List.of(), false, IDLE_TIMEOUT_SECONDS));
+    }
+
+    /**
+     * The session's Permissions, sorted by name whatever order the authorities hold them in, and
+     * never a role or the confinement marker reported as one.
+     */
+    @Test
+    void currentUserReportsThePermissionAuthoritiesSortedByName() {
+        AuthController.UserResponse ordinary = controller.currentUser(
+                new TestingAuthenticationToken(
+                        "ada", null, "user:write", "ROLE_USER", "audit:read", "user:read"),
+                session());
+        AuthController.UserResponse admin = controller.currentUser(
+                new TestingAuthenticationToken(
+                        "grace", null, "ROLE_ADMIN", "ROLE_USER", "ops:read", "counter:read"),
+                session());
+
+        assertThat(ordinary.permissions()).containsExactly("audit:read", "user:read", "user:write");
+        assertThat(admin.permissions()).containsExactly("counter:read", "ops:read");
     }
 
     @Test
