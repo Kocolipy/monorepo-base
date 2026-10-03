@@ -1,10 +1,13 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.scim.domain.ScimAttribute;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimEmailFilter;
 import com.example.backend.scim.domain.ScimEmailPart;
 import com.example.backend.scim.domain.ScimName;
 import com.example.backend.scim.domain.ScimRequestLimits;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserPatchOperation.EmailUpdate;
 import com.example.backend.scim.domain.ScimUserPatchOperation.NamePart;
@@ -13,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
@@ -55,30 +58,45 @@ final class ScimUserPatchReader {
     private static final Pattern COMPARISON =
             Pattern.compile("\\s*([A-Za-z][A-Za-z0-9_$-]*)\\s+([A-Za-z]+)\\s+(.+?)\\s*");
 
-    private static final Set<String> READ_ONLY = Set.of("id", "meta", "groups", "schemas");
+    /**
+     * Which attributes exist, which are read-only, and which are complex or multi-valued: the User
+     * schema's facts, which classify a path before this reader decides what its operation does.
+     * Nothing below restates them; the maps that follow say only which edit a supported attribute
+     * becomes.
+     */
+    private static final ScimResourceSchema SCHEMA = ScimResourceSchema.of(ScimResourceType.USER);
+
+    /** The {@code emails} attribute, whose sub-attributes a value filter and a sub-path name. */
+    private static final ScimAttribute EMAILS = SCHEMA.find("emails").orElseThrow();
+
+    /** The {@code name} attribute, whose sub-attributes a sub-path names. */
+    private static final ScimAttribute NAME = SCHEMA.find("name").orElseThrow();
 
     /**
      * The calling connector's alias: read-write, as the schema declares it. {@code add} and
      * {@code replace} set it and {@code remove} clears it; the use case writes it under the calling
      * connector alone, so no PATCH can reach another connector's alias.
      */
-    private static final String EXTERNAL_ID = "externalid";
+    private static final String EXTERNAL_ID = "externalId";
 
+    /** The single-valued strings, each with the edit that sets or clears it. */
     private static final Map<String, TextAttribute> TEXT = Map.of(
-            "username", TextAttribute.USER_NAME,
-            "displayname", TextAttribute.DISPLAY_NAME,
-            "preferredlanguage", TextAttribute.PREFERRED_LANGUAGE,
+            "userName", TextAttribute.USER_NAME,
+            "displayName", TextAttribute.DISPLAY_NAME,
+            "preferredLanguage", TextAttribute.PREFERRED_LANGUAGE,
             "locale", TextAttribute.LOCALE,
             "timezone", TextAttribute.TIMEZONE);
 
+    /** {@code name}'s sub-attributes, by canonical name, as the part each edits. */
     private static final Map<String, NamePart> NAME_PARTS = Map.of(
             "formatted", NamePart.FORMATTED,
-            "familyname", NamePart.FAMILY_NAME,
-            "givenname", NamePart.GIVEN_NAME,
-            "middlename", NamePart.MIDDLE_NAME,
-            "honorificprefix", NamePart.HONORIFIC_PREFIX,
-            "honorificsuffix", NamePart.HONORIFIC_SUFFIX);
+            "familyName", NamePart.FAMILY_NAME,
+            "givenName", NamePart.GIVEN_NAME,
+            "middleName", NamePart.MIDDLE_NAME,
+            "honorificPrefix", NamePart.HONORIFIC_PREFIX,
+            "honorificSuffix", NamePart.HONORIFIC_SUFFIX);
 
+    /** {@code emails}' sub-attributes, by canonical name, as the part each edits or selects. */
     private static final Map<String, ScimEmailPart> EMAIL_PARTS = Map.of(
             "value", ScimEmailPart.VALUE,
             "type", ScimEmailPart.TYPE,
@@ -171,8 +189,7 @@ final class ScimUserPatchReader {
         }
         List<ScimUserPatchOperation> read = new ArrayList<>();
         for (String attribute : value.propertyNames()) {
-            String lower = attribute.toLowerCase(Locale.ROOT);
-            if (READ_ONLY.contains(lower)) {
+            if (isReadOnly(SCHEMA.find(attribute))) {
                 continue;
             }
             if (!PATH.matcher(attribute).matches() || attribute.contains(".")
@@ -180,8 +197,7 @@ final class ScimUserPatchReader {
                 throw ScimErrorException.invalidPath(
                         "Not an attribute name: " + ScimUserRequestReader.sanitized(attribute));
             }
-            read.add(target(op, new Path(attribute.toLowerCase(Locale.ROOT), null, null),
-                    value.get(attribute)));
+            read.add(target(op, new Path(attribute, null, null), value.get(attribute)));
         }
         return read;
     }
@@ -203,30 +219,45 @@ final class ScimUserPatchReader {
                 sub == null ? null : sub.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * The operation a path names, after the schema has classified it.
+     *
+     * <p>The order of the refusals is the order a client can act on: a read-only attribute is
+     * {@code mutability} whatever else the path says about it; a value filter on an attribute that
+     * is not multi-valued, or a sub-path on one with no sub-attributes, is {@code invalidPath}; and
+     * only then is an attribute this schema does not have refused as unimplemented.
+     */
     private static ScimUserPatchOperation target(Op op, Path path, JsonNode value) {
         String attribute = path.attribute();
-        if (READ_ONLY.contains(attribute)) {
-            throw ScimErrorException.mutability(attribute + " is read-only.");
+        Optional<ScimAttribute> declared = SCHEMA.find(attribute);
+        if (isReadOnly(declared)) {
+            throw ScimErrorException.mutability(declared.get().name() + " is read-only.");
         }
-        if (path.filter() != null && !attribute.equals("emails")) {
-            throw ScimErrorException.invalidPath("Only emails accepts a value filter.");
+        if (path.filter() != null && !declared.map(ScimAttribute::multiValued).orElse(false)) {
+            throw ScimErrorException.invalidPath(
+                    "Only a multi-valued attribute accepts a value filter.");
         }
-        if (path.subAttribute() != null && !attribute.equals("name")
-                && !attribute.equals("emails")) {
+        if (path.subAttribute() != null
+                && declared.map(found -> found.subAttributes().isEmpty()).orElse(true)) {
             throw ScimErrorException.invalidPath(attribute + " has no sub-attributes.");
         }
-        if (EXTERNAL_ID.equals(attribute)) {
+        String name = declared
+                .map(ScimAttribute::name)
+                .orElseThrow(() -> ScimErrorException.invalidPath(
+                        "This service does not implement the User attribute: "
+                                + ScimUserRequestReader.sanitized(attribute)));
+        if (EXTERNAL_ID.equals(name)) {
             return op == Op.REMOVE
                     ? new ScimUserPatchOperation.RemoveExternalId()
-                    : new ScimUserPatchOperation.SetExternalId(stringValue(value, "externalId"));
+                    : new ScimUserPatchOperation.SetExternalId(stringValue(value, EXTERNAL_ID));
         }
-        TextAttribute text = TEXT.get(attribute);
+        TextAttribute text = TEXT.get(name);
         if (text != null) {
             return op == Op.REMOVE
                     ? new ScimUserPatchOperation.RemoveText(text)
-                    : new ScimUserPatchOperation.SetText(text, stringValue(value, attribute));
+                    : new ScimUserPatchOperation.SetText(text, stringValue(value, name));
         }
-        return switch (attribute) {
+        return switch (name) {
             // A remove is refused rather than read as "back to the create default". RFC 7644
             // §3.5.2.2 makes a removed attribute unassigned, and this service has no unassigned
             // `active` to store; reading it as `true` would let a remove reactivate a deactivated
@@ -243,10 +274,25 @@ final class ScimUserPatchReader {
                     : new ScimUserPatchOperation.SetPassword(stringValue(value, "password"));
             case "name" -> name(op, path.subAttribute(), value);
             case "emails" -> emails(op, path, value);
-            default -> throw ScimErrorException.invalidPath(
-                    "This service does not implement the User attribute: "
-                            + ScimUserRequestReader.sanitized(attribute));
+            // Every writable User attribute has an arm above, so a writable attribute reaching here
+            // is one the schema gained without this reader learning to edit it.
+            default -> throw new IllegalStateException("No PATCH edit for the User attribute " + name);
         };
+    }
+
+    /** Whether the schema declares this attribute read-only, which no write can change. */
+    private static boolean isReadOnly(Optional<ScimAttribute> declared) {
+        return declared.map(attribute -> !attribute.isWritable()).orElse(false);
+    }
+
+    /** {@code name}'s sub-attribute as the part an edit targets, or empty when it has none such. */
+    private static Optional<NamePart> namePart(String sub) {
+        return NAME.subAttribute(sub).map(declared -> NAME_PARTS.get(declared.name()));
+    }
+
+    /** {@code emails}' sub-attribute as the part an edit targets, or empty when it has none such. */
+    private static Optional<ScimEmailPart> emailPart(String sub) {
+        return EMAILS.subAttribute(sub).map(declared -> EMAIL_PARTS.get(declared.name()));
     }
 
     private static ScimUserPatchOperation name(Op op, String sub, JsonNode value) {
@@ -259,10 +305,8 @@ final class ScimUserPatchReader {
             }
             return new ScimUserPatchOperation.MergeName(ScimUserRequestReader.readName(value));
         }
-        NamePart part = NAME_PARTS.get(sub);
-        if (part == null) {
-            throw ScimErrorException.invalidPath("name has no such sub-attribute.");
-        }
+        NamePart part = namePart(sub).orElseThrow(
+                () -> ScimErrorException.invalidPath("name has no such sub-attribute."));
         if (op == Op.REMOVE) {
             return new ScimUserPatchOperation.RemoveNamePart(part);
         }
@@ -280,10 +324,8 @@ final class ScimUserPatchReader {
         ScimEmailFilter filter =
                 path.filter() == null ? ScimEmailFilter.ALL : filter(path.filter());
         if (path.subAttribute() != null) {
-            ScimEmailPart part = EMAIL_PARTS.get(path.subAttribute());
-            if (part == null) {
-                throw ScimErrorException.invalidPath("emails has no such sub-attribute.");
-            }
+            ScimEmailPart part = emailPart(path.subAttribute()).orElseThrow(
+                    () -> ScimErrorException.invalidPath("emails has no such sub-attribute."));
             if (op == Op.REMOVE) {
                 return new ScimUserPatchOperation.RemoveEmailPart(filter, part);
             }
@@ -315,7 +357,7 @@ final class ScimUserPatchReader {
                     "A filtered emails operation requires an object value.");
         }
         for (String sub : value.propertyNames()) {
-            if (!EMAIL_PARTS.containsKey(sub.toLowerCase(Locale.ROOT))) {
+            if (emailPart(sub).isEmpty()) {
                 throw ScimErrorException.invalidValue(
                         "This service does not implement the emails sub-attribute: "
                                 + ScimUserRequestReader.sanitized(sub));
@@ -346,10 +388,8 @@ final class ScimUserPatchReader {
                         "Only 'sub-attribute eq value' comparisons joined by 'and' are supported"
                                 + " in an emails filter.");
             }
-            ScimEmailPart part = EMAIL_PARTS.get(matcher.group(1).toLowerCase(Locale.ROOT));
-            if (part == null) {
-                throw ScimErrorException.invalidFilter("emails has no such sub-attribute.");
-            }
+            ScimEmailPart part = emailPart(matcher.group(1)).orElseThrow(
+                    () -> ScimErrorException.invalidFilter("emails has no such sub-attribute."));
             if (!matcher.group(2).equalsIgnoreCase("eq")) {
                 throw ScimErrorException.invalidFilter(
                         "Only the eq operator is supported in an emails filter.");

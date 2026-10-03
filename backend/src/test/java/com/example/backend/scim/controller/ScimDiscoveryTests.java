@@ -2,6 +2,7 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.scim.domain.ScimResourceType;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -110,8 +111,8 @@ class ScimDiscoveryTests {
     void the_schemas_collection_is_the_core_user_and_group_schemas() {
         assertThat(ScimDiscovery.schemas(BASE_URI))
                 .containsExactly(
-                        ScimUserAttributes.schemaDocument(BASE_URI),
-                        ScimGroupAttributes.schemaDocument(BASE_URI));
+                        ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI),
+                        ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI));
     }
 
     /**

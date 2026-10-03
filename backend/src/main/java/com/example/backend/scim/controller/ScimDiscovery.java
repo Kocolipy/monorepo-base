@@ -140,8 +140,8 @@ public final class ScimDiscovery {
     /** The schema documents this service serves: the core User and Group schemas. */
     static List<Map<String, Object>> schemas(String baseUri) {
         return List.of(
-                ScimUserAttributes.schemaDocument(baseUri),
-                ScimGroupAttributes.schemaDocument(baseUri));
+                ScimSchemaDocuments.of(ScimResourceType.USER, baseUri),
+                ScimSchemaDocuments.of(ScimResourceType.GROUP, baseUri));
     }
 
     static Map<String, Object> userResourceType(String baseUri) {

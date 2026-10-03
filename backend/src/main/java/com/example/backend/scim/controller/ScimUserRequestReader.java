@@ -2,8 +2,11 @@ package com.example.backend.scim.controller;
 
 import com.example.backend.scim.application.NewScimUser;
 import com.example.backend.scim.application.ScimUserReplacement;
+import com.example.backend.scim.domain.ScimAttribute;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimName;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUserProfile;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,8 +41,18 @@ import tools.jackson.databind.JsonNode;
  */
 final class ScimUserRequestReader {
 
-    /** Attributes accepted on a write, from the one list that says what is implemented. */
-    private static final Set<String> WRITABLE = ScimUserAttributes.writableNames();
+    /** The User schema: which attributes exist, and which of them a write may set. */
+    private static final ScimResourceSchema SCHEMA = ScimResourceSchema.of(ScimResourceType.USER);
+
+    /** Attributes accepted on a write, from the one definition that says what is implemented. */
+    private static final Set<String> WRITABLE = SCHEMA.writableNames();
+
+    /**
+     * Read-only attributes a write IGNORES rather than refuses, per RFC 7644 §3.5.2: a client
+     * that round-trips a resource it read must be able to PUT it back. {@code schemas} is among
+     * them and is validated on its own before this rule applies.
+     */
+    private static final Set<String> IGNORED_ON_WRITE = SCHEMA.readOnlyNames();
 
     private ScimUserRequestReader() {
     }
@@ -125,8 +138,7 @@ final class ScimUserRequestReader {
      */
     private static void rejectUnsupportedAttributes(JsonNode body) {
         for (String attribute : body.propertyNames()) {
-            if (WRITABLE.contains(attribute) || ScimUserAttributes.IGNORED_ON_WRITE
-                    .contains(attribute)) {
+            if (WRITABLE.contains(attribute) || IGNORED_ON_WRITE.contains(attribute)) {
                 continue;
             }
             throw ScimErrorException.invalidValue(
@@ -188,10 +200,10 @@ final class ScimUserRequestReader {
     }
 
     static Set<String> declaredSubAttributes(String attribute) {
-        return ScimUserAttributes.SCHEMA_ATTRIBUTES.stream()
+        return SCHEMA.attributes().stream()
                 .filter(declared -> declared.name().equals(attribute))
                 .flatMap(declared -> declared.subAttributes().stream())
-                .map(ScimUserAttributes.Attribute::name)
+                .map(ScimAttribute::name)
                 .collect(java.util.stream.Collectors.toSet());
     }
 
