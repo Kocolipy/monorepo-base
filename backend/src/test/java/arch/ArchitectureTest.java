@@ -572,6 +572,37 @@ public class ArchitectureTest {
                     + " boundary that records events admits none");
 
     /**
+     * SCIM attribute facts have one owner: {@link com.example.backend.scim.domain.ScimResourceSchema}
+     * declares every attribute — its type, case sensitivity, cardinality, mutability and
+     * returnability — and discovery, request reading, projection, PATCH path classification and the
+     * query vocabulary all read it from there. A class that built its own
+     * {@code ScimAttribute} would be a second fact table, which is exactly what issue #104
+     * removed: the two would drift, and discovery would advertise one comparison while a filter
+     * applied another.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_resource_schema_defines_scim_attributes =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName("com.example.backend.scim.domain.ScimResourceSchema")
+            .and().doNotHaveFullyQualifiedName("com.example.backend.scim.domain.ScimAttribute")
+            .should().callCodeUnitWhere(com.tngtech.archunit.core.domain.JavaCall.Predicates.target(
+                    new DescribedPredicate<com.tngtech.archunit.core.domain.AccessTarget>(
+                            "a ScimAttribute constructor, factory or modifier") {
+                        @Override
+                        public boolean test(com.tngtech.archunit.core.domain.AccessTarget target) {
+                            return target.getOwner().getFullName()
+                                            .equals("com.example.backend.scim.domain.ScimAttribute")
+                                    && java.util.Set.of("<init>", "singular", "complex",
+                                            "multiValuedComplex", "asRequired", "asCaseExact", "unique",
+                                            "canonical", "references")
+                                            .contains(target.getName());
+                        }
+                    }))
+            .allowEmptyShould(true)
+            .because("attribute facts are declared once, in ScimResourceSchema, and every"
+                    + " protocol path derives from that definition (issue #104)");
+
+    /**
      * Password acceptance has one owner: {@link com.example.backend.scim.domain.PasswordAcceptance}
      * reads a User's password history to refuse reuse and records the accepted hash, and nothing
      * else in the service does either. A caller that reached the history port itself would be

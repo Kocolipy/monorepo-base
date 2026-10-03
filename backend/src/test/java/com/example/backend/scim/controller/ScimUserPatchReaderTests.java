@@ -165,6 +165,74 @@ class ScimUserPatchReaderTests {
     }
 
     /**
+     * Read-only is decided on the attribute the path names, before anything else the path says:
+     * a sub-path or a value filter into a read-only attribute is still {@code mutability}, not
+     * {@code invalidPath}, and so is each op and the schema-qualified spelling.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"meta.version", "META.lastModified", "groups.value", "id.value",
+        "groups[value eq \\\"x\\\"]", "groups[type eq \\\"direct\\\"].display",
+        "urn:ietf:params:scim:schemas:core:2.0:User:groups",
+        "urn:ietf:params:scim:schemas:core:2.0:User:meta.version"})
+    void a_path_into_a_read_only_attribute_is_mutability_whatever_it_selects(String path) {
+        for (String op : List.of("add", "replace", "remove")) {
+            refused("[{\"op\":\"" + op + "\",\"path\":\"" + path + "\",\"value\":\"x\"}]",
+                    400, "mutability");
+        }
+    }
+
+    /**
+     * An attribute this service does not implement is {@code invalidPath} however it is
+     * addressed — bare, with a sub-path, or with a value filter — and so is a sub-path or value
+     * filter on a writable attribute whose schema gives it none.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"nickName", "nickName.first", "phoneNumbers[type eq \\\"work\\\"]",
+        "phoneNumbers[type eq \\\"work\\\"].value", "members", "password.value",
+        "password[value eq \\\"x\\\"]", "active[value eq true]", "externalId[value eq \\\"x\\\"]",
+        "displayName.value"})
+    void an_unknown_attribute_or_an_undeclared_sub_path_is_invalid_path(String path) {
+        refused("[{\"op\":\"replace\",\"path\":\"" + path + "\",\"value\":\"x\"}]",
+                400, "invalidPath");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"password", "PASSWORD",
+        "urn:ietf:params:scim:schemas:core:2.0:User:password"})
+    void the_write_only_password_is_set_and_removed_by_its_path(String path) {
+        assertThat(one("replace", path, "\"s3cret-Pass\"")).isEqualTo(new SetPassword("s3cret-Pass"));
+        assertThat(one("add", path, "\"s3cret-Pass\"")).isEqualTo(new SetPassword("s3cret-Pass"));
+        assertThat(one("remove", path, null)).isEqualTo(new RemovePassword());
+    }
+
+    /** Sub-attribute names in a path, a filter and a filtered value are case-insensitive. */
+    @Test
+    void email_sub_attributes_match_case_insensitively_everywhere_they_are_named() {
+        assertThat(one("replace", "EMAILS.VALUE", "\"a@example.com\""))
+                .isEqualTo(new UpdateEmails(ScimEmailFilter.ALL,
+                        new EmailUpdate("a@example.com", null, null)));
+        assertThat(one("remove", "emails[TYPE eq \"work\"].Primary", null))
+                .isEqualTo(new RemoveEmailPart(
+                        new ScimEmailFilter(List.of(new Condition(ScimEmailPart.TYPE, "work"))),
+                        ScimEmailPart.PRIMARY));
+        assertThat(one("replace", "emails[Primary eq true]", "{\"primary\":false}"))
+                .isEqualTo(new UpdateEmails(
+                        new ScimEmailFilter(List.of(new Condition(ScimEmailPart.PRIMARY, true))),
+                        new EmailUpdate(null, null, false)));
+        assertThat(one("remove", "name.HONORIFICSUFFIX", null))
+                .isEqualTo(new RemoveNamePart(NamePart.HONORIFIC_SUFFIX));
+    }
+
+    /** A path-less value ignores read-only attributes however they are spelled. */
+    @Test
+    void a_pathless_operation_ignores_read_only_attributes_in_any_case() {
+        assertThat(read("""
+                [{"op":"add","value":{"GROUPS":[],"Meta":{},"ID":"x","SCHEMAS":[],
+                  "locale":"en-GB"}}]"""))
+                .containsExactly(new SetText(TextAttribute.LOCALE, "en-GB"));
+    }
+
+    /**
      * {@code externalId} is read-write: {@code add} and {@code replace} set it, {@code remove}
      * clears it, by the bare path and by the schema-qualified one, case-insensitively.
      */
@@ -378,5 +446,136 @@ class ScimUserPatchReaderTests {
                 .hasSize(100);
         refused("[" + String.join(",", Collections.nCopies(101, operation)) + "]",
                 400, "invalidValue");
+    }
+
+    // ---- which refusal, not only which type -------------------------------------------------
+
+    /**
+     * Several refusals share a SCIM type, so the type alone cannot tell which check fired. These
+     * pin the detail as well: a check that stopped refusing would otherwise be hidden by a later
+     * one refusing the same request for a different reason.
+     */
+    private static void refusedWith(String body, String scimType, String detail) {
+        assertThatThrownBy(() -> ScimUserPatchReader.readPatch(JSON.readTree(body)))
+                .as(body)
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.status().value()).isEqualTo(400);
+                    assertThat(refusal.scimType()).isEqualTo(scimType);
+                    assertThat(refusal.detail()).contains(detail);
+                });
+    }
+
+    private static void operationRefusedWith(String operations, String scimType, String detail) {
+        refusedWith("{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],"
+                + "\"Operations\":" + operations + "}", scimType, detail);
+    }
+
+    @Test
+    void each_envelope_refusal_names_what_is_wrong() {
+        refusedWith("[]", "invalidSyntax", "must be a SCIM PatchOp");
+        refusedWith("{\"schemas\":\"urn:ietf:params:scim:api:messages:2.0:PatchOp\","
+                + "\"Operations\":[]}", "invalidSyntax", "exactly the schema");
+        refusedWith("{\"schemas\":[\"urn:ietf:params:scim:api:messages:2.0:PatchOp\","
+                + "\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"],\"Operations\":[]}",
+                "invalidSyntax", "exactly the schema");
+        refusedWith("{\"schemas\":{\"only\":\"urn:ietf:params:scim:api:messages:2.0:PatchOp\"},"
+                + "\"Operations\":[]}", "invalidSyntax", "exactly the schema");
+        operationRefusedWith("{\"op\":\"replace\"}", "invalidSyntax", "non-empty Operations array");
+        operationRefusedWith("[\"remove\"]", "invalidSyntax", "must be an object");
+        operationRefusedWith("[{\"op\":5,\"path\":\"locale\"}]", "invalidSyntax", "requires an op");
+    }
+
+    /** A JSON-null path is no path, so the value is read as an object of attributes. */
+    @Test
+    void a_null_path_is_read_as_no_path() {
+        assertThat(read("[{\"op\":\"replace\",\"path\":null,\"value\":{\"locale\":\"en-GB\"}}]"))
+                .containsExactly(new SetText(TextAttribute.LOCALE, "en-GB"));
+    }
+
+    /** Surrounding whitespace in a path is not part of it. */
+    @Test
+    void a_path_is_read_without_its_surrounding_whitespace() {
+        assertThat(one("replace", "  displayName ", "\"Ada\""))
+                .isEqualTo(new SetText(TextAttribute.DISPLAY_NAME, "Ada"));
+    }
+
+    @Test
+    void each_path_refusal_names_the_path_lower_cased_and_sanitized() {
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"Bad!Path\",\"value\":\"x\"}]",
+                "invalidPath", "Not a valid attribute path: bad!path");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"NickName\",\"value\":\"x\"}]",
+                "invalidPath", "does not implement the User attribute: nickname");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"USERNAME.first\",\"value\":\"x\"}]",
+                "invalidPath", "username has no sub-attributes.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"META.lastModified\",\"value\":\"x\"}]",
+                "mutability", "meta is read-only.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"Groups\",\"value\":[]}]",
+                "mutability", "groups is read-only.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"active[value eq true]\","
+                + "\"value\":true}]", "invalidPath", "multi-valued attribute accepts a value filter");
+    }
+
+    /** A path-less value's keys must be plain attribute names, and a refusal echoes one sanitized. */
+    @Test
+    void a_pathless_key_that_is_not_a_plain_name_is_refused_as_such() {
+        operationRefusedWith("[{\"op\":\"replace\",\"value\":{\"Name.givenName\":\"Ada\"}}]",
+                "invalidPath", "Not an attribute name: name.givenname");
+        operationRefusedWith("[{\"op\":\"replace\",\"value\":{\"emails[type eq \\\"w\\\"]\":{}}}]",
+                "invalidPath", "Not an attribute name");
+        operationRefusedWith("[{\"op\":\"replace\",\"value\":{\"1locale\":\"x\"}}]",
+                "invalidPath", "Not an attribute name: 1locale");
+    }
+
+    @Test
+    void each_value_refusal_names_the_attribute_and_what_it_needed() {
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"displayName\",\"value\":null}]",
+                "invalidValue", "requires a value for displayName");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"active\"}]",
+                "invalidValue", "active must be a boolean.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"name\"}]",
+                "invalidValue", "name must be a complex value.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"name\",\"value\":\"Ada\"}]",
+                "invalidValue", "name must be a complex value.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"name\",\"value\":null}]",
+                "invalidValue", "name must be a complex value.");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":\"name.GIVENNAME\",\"value\":7}]",
+                "invalidValue", "name.givenname must be a string.");
+    }
+
+    @Test
+    void a_filtered_emails_value_must_be_an_object_of_known_sub_attributes() {
+        String path = "\"emails[type eq \\\"work\\\"]\"";
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path + "}]",
+                "invalidValue", "requires an object value");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path + ",\"value\":\"x\"}]",
+                "invalidValue", "requires an object value");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path + ",\"value\":{\"Label\":\"x\"}}]",
+                "invalidValue", "emails sub-attribute: label");
+        operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path
+                + ",\"value\":{\"primary\":\"yes\"}}]", "invalidValue", "emails.primary must be a boolean.");
+    }
+
+    /** Grouping is refused as grouping, whichever bracket introduces it. */
+    @ParameterizedTest
+    @ValueSource(strings = {"emails[(type eq \\\"work\\\")]", "emails[type eq \\\"work\\\")]",
+        "emails[[type eq \\\"work\\\"]]", "emails[(type eq \\\"work\\\"]",
+        "emails[type eq \\\"work\\\" and [value eq \\\"x\\\"]"})
+    void grouping_in_an_emails_filter_is_refused_as_grouping(String path) {
+        operationRefusedWith("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]",
+                "invalidFilter", "Grouping is not supported");
+    }
+
+    /**
+     * {@code and} joins two comparisons only as a word on its own, preceded and followed by
+     * whitespace; anything else is part of the compared value and so not one JSON literal.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "emails[primary eq truexand value eq \\\"x\\\"]",
+        "emails[type eq \\\"work\\\" andvalue eq \\\"x\\\"]",
+        "emails[type eq \\\"work\\\" xyz value eq \\\"x\\\"]"})
+    void and_joins_comparisons_only_as_a_separate_word(String path) {
+        operationRefusedWith("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]",
+                "invalidFilter", "must be a JSON string, boolean or null");
     }
 }

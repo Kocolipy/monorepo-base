@@ -1,5 +1,8 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.scim.domain.ScimAttribute;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -47,40 +50,43 @@ final class ScimAttributeProjection {
      */
     private enum Kind {
 
-        USER(ScimSchemas.USER, "User"),
-        GROUP(ScimSchemas.GROUP, "Group");
+        USER(ScimResourceType.USER),
+        GROUP(ScimResourceType.GROUP);
+
+        private final ScimResourceSchema schema;
 
         private final String schemaPrefix;
 
         private final String label;
 
-        Kind(String schemaUri, String label) {
-            this.schemaPrefix = schemaUri + ":";
-            this.label = label;
+        Kind(ScimResourceType type) {
+            this.schema = ScimResourceSchema.of(type);
+            this.schemaPrefix = type.schemaUri() + ":";
+            this.label = type.resourceTypeName();
         }
 
+        /** Every top-level name a projection may name: the declared and the common attributes. */
         Set<String> projectableNames() {
-            return this == USER
-                    ? ScimUserAttributes.projectableNames()
-                    : ScimGroupAttributes.projectableNames();
-        }
-
-        List<ScimUserAttributes.Attribute> schemaAttributes() {
-            return this == USER
-                    ? ScimUserAttributes.SCHEMA_ATTRIBUTES
-                    : ScimGroupAttributes.SCHEMA_ATTRIBUTES;
+            return schema.names();
         }
 
         /**
-         * Attributes a projection may not remove.
+         * The attributes whose sub-attributes a projection may name: the schema-declared ones.
          *
-         * <p>The same set for both types as things stand — {@code schemas} and {@code id}, which
-         * RFC 7643 §3.1 declares {@code returned=always} — because neither schema declares an
-         * always-returned attribute of its own. Asked per kind anyway, so a future one is honoured
-         * without a caller having to notice.
+         * <p>A common attribute is projected whole — {@code meta.resourceType} is refused while
+         * {@code meta} is accepted — because a projection's sub-paths are the ones the resource
+         * type's schema document advertises, and no schema document advertises {@code meta}.
+         */
+        List<ScimAttribute> schemaAttributes() {
+            return schema.attributes();
+        }
+
+        /**
+         * Attributes a projection may not remove: {@code schemas} and {@code id}, which RFC 7643
+         * §3.1 declares {@code returned=always}, plus any a schema declares so itself.
          */
         Set<String> alwaysReturned() {
-            return ScimUserAttributes.alwaysReturned();
+            return schema.alwaysReturnedNames();
         }
     }
 
@@ -355,11 +361,11 @@ final class ScimAttributeProjection {
     }
 
     private static Set<String> subAttributeNames(Kind kind, String top) {
-        Optional<ScimUserAttributes.Attribute> declared = kind.schemaAttributes().stream()
+        Optional<ScimAttribute> declared = kind.schemaAttributes().stream()
                 .filter(attribute -> attribute.name().equals(top))
                 .findFirst();
         return declared.map(attribute -> attribute.subAttributes().stream()
-                        .map(ScimUserAttributes.Attribute::name)
+                        .map(ScimAttribute::name)
                         .collect(Collectors.toSet()))
                 .orElse(Set.of());
     }

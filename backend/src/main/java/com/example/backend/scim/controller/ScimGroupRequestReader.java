@@ -4,6 +4,8 @@ import com.example.backend.scim.application.NewScimGroup;
 import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupReplacement;
 import com.example.backend.scim.domain.ScimRequestLimits;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -11,6 +13,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -37,11 +40,22 @@ import tools.jackson.databind.JsonNode;
  */
 final class ScimGroupRequestReader {
 
-    /** Attributes accepted on a write, from the one list that says what is implemented. */
-    private static final Set<String> WRITABLE = ScimGroupAttributes.writableNames();
+    /** The Group schema: which attributes exist, and which of them a write may set. */
+    private static final ScimResourceSchema SCHEMA = ScimResourceSchema.of(ScimResourceType.GROUP);
 
-    /** Attributes a PATCH path may name but never change — {@code mutability} when it tries. */
-    private static final Set<String> READ_ONLY = Set.of("id", "meta", "schemas");
+    /** Attributes accepted on a write, from the one definition that says what is implemented. */
+    private static final Set<String> WRITABLE = SCHEMA.writableNames();
+
+    /**
+     * Read-only attributes: a resource body IGNORES them, per RFC 7644 §3.5.2, so a client that
+     * round-trips a resource it read can PUT it back unchanged; a PATCH path naming one is
+     * {@code mutability}. Lower-cased for the PATCH path match, which is case-insensitive.
+     */
+    private static final Set<String> READ_ONLY = SCHEMA.readOnlyNames();
+
+    private static final Set<String> READ_ONLY_PATHS = READ_ONLY.stream()
+            .map(name -> name.toLowerCase(Locale.ROOT))
+            .collect(Collectors.toUnmodifiableSet());
 
     /** The core Group schema URN as a path prefix, matched case-insensitively. */
     private static final String SCHEMA_PREFIX = ScimSchemas.GROUP + ":";
@@ -175,7 +189,7 @@ final class ScimGroupRequestReader {
         }
 
         String attribute = unqualified(path).toLowerCase(Locale.ROOT);
-        if (READ_ONLY.contains(attribute)) {
+        if (READ_ONLY_PATHS.contains(attribute)) {
             throw ScimErrorException.mutability(attribute + " is read-only.");
         }
         return switch (attribute) {
@@ -251,8 +265,7 @@ final class ScimGroupRequestReader {
         requireSchema(
                 body, ScimSchemas.GROUP, "This service implements one Group schema only: ");
         for (String attribute : body.propertyNames()) {
-            if (WRITABLE.contains(attribute)
-                    || ScimGroupAttributes.IGNORED_ON_WRITE.contains(attribute)) {
+            if (WRITABLE.contains(attribute) || READ_ONLY.contains(attribute)) {
                 continue;
             }
             throw ScimErrorException.invalidValue(

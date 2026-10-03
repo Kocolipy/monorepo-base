@@ -443,7 +443,7 @@ class ScimFilterParserTests {
 
         assertThat(path.reference()).isEqualTo(ref(ScimFilterPath.EMAILS_VALUE));
         assertThat(path.attribute().multiValued()).isTrue();
-        assertThat(path.attribute().kind()).isEqualTo(ScimQueryVocabulary.Kind.STRING);
+        assertThat(path.attribute().kind()).isEqualTo(ScimAttributeType.STRING);
     }
 
     @ParameterizedTest

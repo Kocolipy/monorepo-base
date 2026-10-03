@@ -2,6 +2,9 @@ package com.example.backend.scim.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.scim.domain.ScimAttribute;
+import com.example.backend.scim.domain.ScimResourceSchema;
+import com.example.backend.scim.domain.ScimResourceType;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,46 +19,62 @@ import org.junit.jupiter.params.provider.ValueSource;
  * The claim that discovery matches the implementation, as an assertion.
  *
  * <p>The schema document and the set of attributes a write accepts are derived from one
- * list, so these tests are what makes that derivation load-bearing: advertising an
- * attribute nothing stores, or accepting one nothing advertises, fails here.
+ * definition, {@link ScimResourceSchema}, so these tests are what makes that derivation
+ * load-bearing: advertising an attribute nothing stores, or accepting one nothing advertises,
+ * fails here. The whole-document assertions are the independent half: each expected document is
+ * written out here by hand rather than generated from the definition it checks.
  *
- * <p>Both vocabularies are held to that standard. {@link ScimGroupAttributes} is a second
- * list read by the same three consumers, so the Group document and the Group write's
- * accepted set are compared the same way the User's are — a Group attribute advertised and
- * not implemented would otherwise be exactly the defect this class exists to catch,
- * unnoticed because it is on the newer of the two resources.
+ * <p>Both resource types are held to that standard, so a Group attribute advertised and not
+ * implemented is caught exactly as a User one would be.
  */
-class ScimUserAttributesTests {
+class ScimSchemaDocumentsTests {
 
     private static final String BASE_URI = ScimTestUris.BASE_URI;
+
+    private static final ScimResourceSchema USER = ScimResourceSchema.of(ScimResourceType.USER);
+
+    private static final ScimResourceSchema GROUP = ScimResourceSchema.of(ScimResourceType.GROUP);
+
+    /** The RFC 7643 §3.1 common attributes, written out rather than read off the definition. */
+    private static final Set<String> COMMON_NAMES = Set.of("schemas", "id", "externalId", "meta");
 
     @Test
     void the_schema_document_advertises_exactly_the_declared_attributes() {
         assertThat(advertisedNames()).containsExactlyInAnyOrderElementsOf(
-                ScimUserAttributes.SCHEMA_ATTRIBUTES.stream()
-                        .map(ScimUserAttributes.Attribute::name)
+                USER.attributes().stream()
+                        .map(ScimAttribute::name)
                         .collect(Collectors.toSet()));
     }
 
     /**
-     * Every attribute a write accepts is advertised, and every advertised WRITABLE one is
-     * accepted. The two common attributes a resource body carries — {@code schemas} and
-     * {@code externalId} — are writable without being declared by a resource schema, which
-     * is RFC 7643 §3.1, so they are named here rather than derived.
+     * Every attribute a write may set is advertised writable, and every advertised writable one
+     * may be set. {@code externalId} is the one common attribute a write sets without a resource
+     * schema declaring it, which is RFC 7643 §3.1, so it is named here rather than derived.
      *
      * <p>"Writable" is read out of the document's own {@code mutability}, not out of a list
-     * written here: {@code groups} is advertised and is NOT accepted on a write, and the
-     * declaration that says so is the same one a connector reads. Deriving the expectation
-     * from a second hand-written list would let the document and the accepted set disagree
-     * with nothing failing.
+     * written here: {@code groups} is advertised and is NOT writable, and the declaration that
+     * says so is the same one a connector reads. The second assertion is the independent oracle:
+     * the writable set, as this directory's profile has it, by name.
      */
     @Test
     void the_accepted_write_attributes_are_the_advertised_writable_ones() {
-        Set<String> accepted = ScimUserAttributes.writableNames();
+        Set<String> accepted = USER.writableNames();
 
-        assertThat(accepted).containsAll(Set.of("schemas", "externalId"));
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
-                withCommonWritables(advertisedWritableNames(ScimUserAttributes.schemaDocument(BASE_URI))));
+                withCommonWritables(advertisedWritableNames(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI))));
+        assertThat(accepted).containsExactlyInAnyOrder(
+                "userName", "name", "displayName", "preferredLanguage", "locale", "timezone",
+                "active", "password", "emails", "externalId");
+    }
+
+    /**
+     * The attributes a write ignores rather than refuses: the read-only common attributes, and
+     * on a User the reverse membership view.
+     */
+    @Test
+    void the_read_only_attributes_are_the_common_ones_and_on_a_user_the_groups_view() {
+        assertThat(USER.readOnlyNames()).containsExactlyInAnyOrder("schemas", "id", "meta", "groups");
+        assertThat(GROUP.readOnlyNames()).containsExactlyInAnyOrder("schemas", "id", "meta");
     }
 
     /**
@@ -74,8 +93,8 @@ class ScimUserAttributesTests {
                 .containsExactly("value", "display", "$ref", "type");
         assertThat(subAttributes(groups))
                 .allSatisfy(sub -> assertThat(sub).containsEntry("mutability", "readOnly"));
-        assertThat(ScimUserAttributes.writableNames()).doesNotContain("groups");
-        assertThat(ScimUserAttributes.IGNORED_ON_WRITE).contains("groups");
+        assertThat(USER.writableNames()).doesNotContain("groups");
+        assertThat(USER.readOnlyNames()).contains("groups");
     }
 
     /**
@@ -89,8 +108,8 @@ class ScimUserAttributesTests {
         assertThat(password).containsEntry("mutability", "writeOnly");
         assertThat(password).containsEntry("returned", "never");
         assertThat(password).containsEntry("caseExact", true);
-        assertThat(ScimUserAttributes.isNeverReturned("password")).isTrue();
-        assertThat(ScimUserAttributes.isNeverReturned("userName")).isFalse();
+        assertThat(USER.find("password").orElseThrow().isReturned()).isFalse();
+        assertThat(USER.find("userName").orElseThrow().isReturned()).isTrue();
     }
 
     @Test
@@ -124,7 +143,7 @@ class ScimUserAttributesTests {
     @ValueSource(strings = {"id", "externalId", "meta", "schemas"})
     void a_common_attribute_is_not_declared_by_the_resource_schema(String attribute) {
         assertThat(advertisedNames()).doesNotContain(attribute);
-        assertThat(ScimUserAttributes.projectableNames()).contains(attribute);
+        assertThat(USER.names()).contains(attribute);
     }
 
     /**
@@ -134,21 +153,21 @@ class ScimUserAttributesTests {
      */
     @Test
     void every_declared_and_common_attribute_is_projectable() {
-        assertThat(ScimUserAttributes.projectableNames())
+        assertThat(USER.names())
                 .containsExactlyInAnyOrderElementsOf(union(
-                        advertisedNames(), ScimUserAttributes.COMMON_ATTRIBUTES));
-        assertThat(ScimUserAttributes.projectableNames()).contains("groups");
+                        advertisedNames(), COMMON_NAMES));
+        assertThat(USER.names()).contains("groups");
     }
 
     /** {@code schemas} and {@code id} are the attributes a projection may never remove. */
     @Test
     void the_always_returned_attributes_are_schemas_and_id() {
-        assertThat(ScimUserAttributes.alwaysReturned()).containsExactlyInAnyOrder("schemas", "id");
+        assertThat(USER.alwaysReturnedNames()).containsExactlyInAnyOrder("schemas", "id");
     }
 
     @Test
     void the_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimUserAttributes.schemaDocument(BASE_URI);
+        Map<String, Object> document = ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI);
 
         assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
         assertThat(document).containsEntry("id", ScimSchemas.USER);
@@ -211,42 +230,42 @@ class ScimUserAttributesTests {
                 "resourceType", "Schema",
                 "location", BASE_URI + "/Schemas/" + ScimSchemas.USER));
 
-        assertThat(ScimUserAttributes.schemaDocument(BASE_URI)).isEqualTo(expected);
+        assertThat(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI)).isEqualTo(expected);
     }
 
     // --- the Group vocabulary, held to the same standard ---------------------------------
 
     @Test
     void the_group_schema_document_advertises_exactly_the_declared_attributes() {
-        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)))
-                .containsExactlyInAnyOrderElementsOf(ScimGroupAttributes.SCHEMA_ATTRIBUTES.stream()
-                        .map(ScimUserAttributes.Attribute::name)
+        assertThat(advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)))
+                .containsExactlyInAnyOrderElementsOf(GROUP.attributes().stream()
+                        .map(ScimAttribute::name)
                         .collect(Collectors.toSet()));
     }
 
     @Test
     void the_accepted_group_write_attributes_are_the_advertised_writable_ones() {
-        Set<String> accepted = ScimGroupAttributes.writableNames();
+        Set<String> accepted = GROUP.writableNames();
 
-        assertThat(accepted).containsAll(Set.of("schemas", "externalId"));
         assertThat(accepted).containsExactlyInAnyOrderElementsOf(
-                withCommonWritables(advertisedWritableNames(ScimGroupAttributes.schemaDocument(BASE_URI))));
+                withCommonWritables(advertisedWritableNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI))));
+        assertThat(accepted).containsExactlyInAnyOrder("displayName", "members", "externalId");
     }
 
     @Test
     void a_common_group_attribute_is_not_declared_by_the_group_schema() {
-        assertThat(advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)))
+        assertThat(advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)))
                 .doesNotContainAnyElementsOf(Set.of("id", "externalId", "meta", "schemas"));
-        assertThat(ScimGroupAttributes.projectableNames())
-                .containsAll(ScimUserAttributes.COMMON_ATTRIBUTES);
+        assertThat(GROUP.names())
+                .containsAll(COMMON_NAMES);
     }
 
     @Test
     void every_declared_and_common_group_attribute_is_projectable() {
-        assertThat(ScimGroupAttributes.projectableNames())
+        assertThat(GROUP.names())
                 .containsExactlyInAnyOrderElementsOf(union(
-                        advertisedNames(ScimGroupAttributes.schemaDocument(BASE_URI)),
-                        ScimUserAttributes.COMMON_ATTRIBUTES));
+                        advertisedNames(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)),
+                        COMMON_NAMES));
     }
 
     /**
@@ -256,7 +275,7 @@ class ScimUserAttributesTests {
     @Test
     void a_group_display_name_is_required_case_insensitive_and_server_unique() {
         Map<String, Object> displayName =
-                advertised(ScimGroupAttributes.schemaDocument(BASE_URI), "displayName");
+                advertised(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI), "displayName");
 
         assertThat(displayName).containsEntry("required", true);
         assertThat(displayName).containsEntry("caseExact", false);
@@ -271,7 +290,7 @@ class ScimUserAttributesTests {
      */
     @Test
     void group_membership_is_written_by_value_alone() {
-        Map<String, Object> members = advertised(ScimGroupAttributes.schemaDocument(BASE_URI), "members");
+        Map<String, Object> members = advertised(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI), "members");
 
         assertThat(members).containsEntry("mutability", "readWrite");
         assertThat(members).containsEntry("multiValued", true);
@@ -303,12 +322,12 @@ class ScimUserAttributesTests {
                 "resourceType", "Schema",
                 "location", BASE_URI + "/Schemas/" + ScimSchemas.GROUP));
 
-        assertThat(ScimGroupAttributes.schemaDocument(BASE_URI)).isEqualTo(expected);
+        assertThat(ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI)).isEqualTo(expected);
     }
 
     @Test
     void the_group_document_declares_itself_as_a_schema_at_its_own_location() {
-        Map<String, Object> document = ScimGroupAttributes.schemaDocument(BASE_URI);
+        Map<String, Object> document = ScimSchemaDocuments.of(ScimResourceType.GROUP, BASE_URI);
 
         assertThat(document).containsEntry("schemas", List.of(ScimSchemas.SCHEMA));
         assertThat(document).containsEntry("id", ScimSchemas.GROUP);
@@ -366,7 +385,7 @@ class ScimUserAttributesTests {
     }
 
     private static Set<String> advertisedNames() {
-        return advertisedNames(ScimUserAttributes.schemaDocument(BASE_URI));
+        return advertisedNames(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI));
     }
 
     private static Set<String> advertisedNames(Map<String, Object> document) {
@@ -383,9 +402,9 @@ class ScimUserAttributesTests {
                 .collect(Collectors.toSet());
     }
 
-    /** The two common attributes a write may assert though no resource schema declares them. */
+    /** The one common attribute a write may set though no resource schema declares it. */
     private static Set<String> withCommonWritables(Set<String> advertised) {
-        return union(advertised, Set.of("schemas", "externalId"));
+        return union(advertised, Set.of("externalId"));
     }
 
     private static Set<String> union(Set<String> first, Set<String> second) {
@@ -393,7 +412,7 @@ class ScimUserAttributesTests {
     }
 
     private static Map<String, Object> advertised(String name) {
-        return advertised(ScimUserAttributes.schemaDocument(BASE_URI), name);
+        return advertised(ScimSchemaDocuments.of(ScimResourceType.USER, BASE_URI), name);
     }
 
     private static Map<String, Object> advertised(Map<String, Object> document, String name) {

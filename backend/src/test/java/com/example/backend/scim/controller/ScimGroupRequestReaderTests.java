@@ -134,6 +134,32 @@ class ScimGroupRequestReaderTests {
                  "displayName":"Eng"}""")).externalId()).isNull();
     }
 
+    /**
+     * A PUT body round-tripped from a read keeps its read-only attributes, and they are ignored
+     * (RFC 7644 §3.5.2): the replacement is what the writable attributes alone say.
+     */
+    @Test
+    void a_replacement_ignores_the_read_only_attributes_it_carries() {
+        assertThat(ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "id":"%s","meta":{"resourceType":"Group"},"displayName":"Eng"}"""
+                .formatted(UUID.randomUUID()))))
+                .isEqualTo(new ScimGroupReplacement("Eng", List.of(), null));
+    }
+
+    /** An attribute the Group schema does not define is refused, not silently dropped. */
+    @Test
+    void a_replacement_naming_an_attribute_the_schema_does_not_define_is_invalid_value() {
+        assertThatThrownBy(() -> ScimGroupRequestReader.readReplace(JSON.readTree("""
+                {"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                 "displayName":"Eng","nickName":"x"}""")))
+                .isInstanceOfSatisfying(ScimErrorException.class, refusal -> {
+                    assertThat(refusal.scimType()).isEqualTo("invalidValue");
+                    assertThat(refusal.getMessage())
+                            .isEqualTo("This service does not implement the Group attribute: nickname");
+                });
+    }
+
     @Test
     void a_members_value_path_with_remove_names_one_member() {
         UUID member = UUID.randomUUID();

@@ -9,7 +9,6 @@ import com.example.backend.scim.domain.ScimFilter.Or;
 import com.example.backend.scim.domain.ScimFilter.Presence;
 import com.example.backend.scim.domain.ScimFilter.ValuePath;
 import com.example.backend.scim.domain.ScimQueryVocabulary.Attribute;
-import com.example.backend.scim.domain.ScimQueryVocabulary.Kind;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
