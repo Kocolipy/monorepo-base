@@ -1,7 +1,6 @@
 # Architecture
 
-What is here today, and where a new concern belongs. This baseline has two
-pages; the rules below exist so that the tenth page does not need a rewrite.
+What is here today, and where a new concern belongs.
 
 ## The layers
 
@@ -26,7 +25,7 @@ runs it.
 
 ### Why `auth/` is its own folder and not a page
 
-`src/auth/` is a _concern_, not a screen. It holds six files:
+`src/auth/` is a _concern_, not a screen. It holds eight files:
 
 - `api.ts` — the four `/api/auth/*` calls, each mapping a status code to a
   domain outcome (`401` on `/me` is a guest, not an error; `401` on
@@ -45,13 +44,20 @@ runs it.
 - `use-session-request.ts` — the seam features request through. It handles an
   `unauthenticated` result itself and returns a `SessionResult`, which has no
   `unauthenticated` member, so no page can forget to relay a session ending.
+- `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
+  authenticated session. It times the backend's own idle window
+  (`idleTimeoutSeconds`), counts only user input as activity, shares it across
+  tabs, and warns a minute before signing out (`/frontend/AGENTS.md`, "Backend
+  contract").
+- `password-policy.ts` — the backend's password length bounds, mirrored so the
+  change form can state the rule; the backend still decides.
 
 `pages/login.tsx`, `pages/showcase.tsx`, `pages/accounts.tsx` and
 `pages/change-password.tsx` are screens that _consume_ this; they hold no
 session or role logic themselves, and none decides where a visitor goes next. A
 new protected area adds a route declaration, not a second copy of the guard.
 
-`pages/accounts.tsx` is the widest of the three. It reads two read-only
+`pages/accounts.tsx` is the widest of the four. It reads two read-only
 projections — Users from `GET /api/admin/accounts`, Groups from
 `GET /api/admin/groups` — and posts the two operations an Admin performs on a
 User, Unlock and the forced password change, to
@@ -61,8 +67,7 @@ response rather than reloading the listing — the response _is_ that User's new
 state, so a refetch would only add a request that could disagree with it.
 Nothing the directory owns (`userName`, display name, `active`, Group
 membership) has a control on the page, and the backend has no endpoint that
-would accept one; the former Disable and Enable actions and their endpoints were
-removed. The page hides Unlock and the forced change where the backend would
+would accept one. The page hides Unlock and the forced change where the backend would
 refuse them — on the Admin's own row, and Unlock on the Bootstrap Admin, which
 cannot be locked and shows no lockout state.
 
@@ -220,7 +225,7 @@ directory that a test run writes into belongs on this list.
 
 | Path               | Element                                                              | Notes                                                                                       |
 | ------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `/`                | `<Login />`                                                          | Visitor login; authenticated accounts go to `/showcase`                                     |
+| `/`                | `<GuestRoute><Login /></GuestRoute>`                                 | Guest login; authenticated Users go to `/showcase`                                          |
 | `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                                                             |
 | `/accounts`        | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | Users/Groups projections, Unlock, forced change, connectors — `ADMIN` only                  |
 | `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                | self-service change for any authenticated User; the only route a flagged session is offered |
@@ -257,7 +262,7 @@ uncontrolled, because React mirrors a controlled input's value into the DOM
 `value` attribute, and no message the page shows contains either value.
 
 `resolveSessionRoute` is the pure transition table behind both guard adapters.
-It sends a Visitor to login with a return destination, confines a flagged
+It sends a Guest to login with a return destination, confines a flagged
 session to `/change-password`, renders authenticated routes for either role, and
 redirects a role mismatch to `/showcase`. After a successful change it sends the
 visitor to login carrying `passwordChanged` instead of a return destination.
@@ -285,12 +290,12 @@ to need it does not have to invent a convention.
 | Server-state caching            | a query library wrapping `apiFetch`, wired in `App.tsx` beside `AuthProvider`        |
 | Shared non-primitive components | `src/components/` (one level up from `ui/`), or beside the page that owns them       |
 | Environment config              | `VITE_`-prefixed variables, read through `import.meta.env`, documented in README.md  |
-| Session-expiry warning          | `src/auth/`, reading the 15-minute window from `/frontend/AGENTS.md`                 |
 | Nested layouts, lazy routes     | `src/App.tsx`, when there is a second protected area                                 |
 | PWA / service worker            | `vite-plugin-pwa` in `vite.config.ts` + a `.fallowrc.jsonc` `entry` line             |
 
 Already present, and where it lives: routing in `src/App.tsx`, authentication in
-`src/auth/`, typed HTTP results in `src/lib/http.ts`, and the top-level error
+`src/auth/` (the idle sign-out and its expiry warning included), typed HTTP
+results in `src/lib/http.ts`, and the top-level error
 boundary in `src/components/error-boundary.tsx`, wrapped around the whole tree
 in `App.tsx` because there is no app shell for it to sit inside. A feature module maps
 results only when it adds feature behavior; a page consumes pass-through

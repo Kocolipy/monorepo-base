@@ -17,8 +17,8 @@
 | `npm run test:mutation` | Stryker over the whole repo                           | CI only                               |
 | scoped Stryker          | Stryker over the source one test covers               | after writing or changing a unit test |
 
-The three levels — baseline, full, extensive — and which one to run where are
-in AGENTS.md.
+The baseline gate, the conditional gates and their triggers are in AGENTS.md
+under "Testing".
 
 ## Unit tests
 
@@ -149,9 +149,8 @@ reason recorded in a `_comment_mutate` key beside the array:
   class strings, and killing them means pinning assertions to markup that is
   about to be replaced.
 
-`thresholds.break` is `null`, so a low score reports but does not fail. The
-score is at 100% today; treat a drop as a question about the test, not a number
-to chase.
+`thresholds.break` is `null`, so a low score reports but does not fail; treat a
+drop as a question about the test, not a number to chase.
 
 ## E2E
 
@@ -185,11 +184,12 @@ skipped** — the suite still reports green. `test/arch/e2eSpecRouting.test.ts`
 reads the routing table out of the config and fails on an unmatched or
 doubly-matched spec, so adding a spec means adding it to a `testMatch`.
 
-Keep specs that only need an authenticated session in `authenticated`; do not
-call `login()` in each test. Specs that exercise sign-in itself should get a
-separate signed-out project with explicitly empty `storageState`. Per-test
-`login()` under `fullyParallel` fires N concurrent logins that can throttle and
-time out; shared storage state collapses that to one.
+Route a spec by the identity it needs: `user` or `admin` replays that seeded
+identity's saved session, and `guest` starts signed out for specs that exercise
+sign-in itself. Do not call `login()` in each test. Per-test `login()` under
+`fullyParallel` fires N concurrent logins that can throttle and time out, and
+under one session per User each would revoke the session its project replays;
+shared storage state collapses that to one.
 
 ### Calling the API from a spec
 
@@ -248,9 +248,7 @@ A spec that needs a known **backend defect** to be visible marks the test
 and turns red the moment the fix lands, so the marker cannot outlive the bug.
 Remove the marker in the fix's PR.
 
-A forced change **revokes the sessions it holds**. The `admin` project keeps
-`dependencies: ["setup", "user"]` so it still runs after the `user` project,
-although nothing in it now touches the seeded `user`'s sessions. Proving
+A forced change **revokes the sessions it holds**. Proving
 revocation needs a session of its own rather than the page's — sign in through
 `submitLoginViaApi` on an `APIRequestContext` with an empty `storageState`, check
 it answers 200 _before_ the action (an unauthenticated jar answers 401 too, so
@@ -342,9 +340,11 @@ timing hacks:
   flight.
 - **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Reset" })`,
   `getByLabel("Display Name")`. `getByTestId` is fine for a value with no
-  accessible name of its own, as `smoke.spec.ts` uses for the counter.
-- **Restore anything a spec mutates.** Not applicable yet — no spec writes to
-  shared state — but it is the rule the moment one does.
+  accessible name of its own, as `showcase.spec.ts` uses for the counter.
+- **Restore anything a spec mutates, or own it.** A spec either resets the
+  shared state it changes (`showcase.spec.ts` resets the counter) or acts only
+  on fixtures it provisioned and deletes in a `finally` (see "Calling the API
+  from a spec").
 
 ## Semgrep
 

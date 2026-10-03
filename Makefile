@@ -1,16 +1,6 @@
 # Root orchestration for the monorepo. Per-app detail stays in frontend/ and
-# backend/; this file only composes their existing entry points.
-#
-#   make bootstrap          install frontend deps, prepare backend tooling
-#   make infra-up           start Postgres + Redis
-#   make infra-down         stop them
-#   make dev                run backend + frontend together
-#   make verify-frontend    the frontend app's own baseline gate
-#   make verify-backend     the backend app's own baseline gate
-#   make verify             both gates, serially
-#   make integration-test   deps + both apps + Playwright
-#   make package            build the SPA into the Spring Boot JAR
-#   make container          build the deployable integrated image
+# backend/; this file only composes their existing entry points. Each target
+# carries its description after '##'; `make` (or `make help`) lists them.
 #
 # Toolchain versions are pinned in /.nvmrc, /.tool-versions,
 # frontend/package.json and backend/.mvn/wrapper/maven-wrapper.properties;

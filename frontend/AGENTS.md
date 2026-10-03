@@ -33,7 +33,7 @@ implementation loop, so it belongs to CI. Reach for scoped Stryker instead, whic
 
 ## Architecture
 
-Five folders under `src/`, and the dependency direction runs one way through
+Five folders under `src/` plus the composition root, and the dependency direction runs one way through
 them:
 
 - **`src/components/ui/`** — the shadcn primitives. This is a **placeholder**
@@ -56,8 +56,10 @@ them:
   password-change transition,
   `auth-context-value.ts` is the context plus the `useAuth` hook,
   `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
-  into `ProtectedRoute` / `GuestRoute`, and `use-session-request.ts` is the seam
-  features request through.
+  into `ProtectedRoute` / `GuestRoute`, `use-session-request.ts` is the seam
+  features request through, `idle-sign-out.tsx` is the inactivity sign-out (see
+  "Backend contract"), and `password-policy.ts` mirrors the backend's password
+  length bounds for the change form.
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
   `accounts.tsx`, `change-password.tsx`). A page requests through
   `useSessionRequest`, never `apiFetch` directly — the
@@ -72,8 +74,10 @@ them:
   `.../force-password-change`), and owns the copy for what each refusal status
   means to an administrator. `connectors.tsx` is its connector/token panel
   (`/api/admin/connectors/**`); `accounts-api.ts` holds both files' wire types and
-  paths. There is no Disable or Enable: `active` is the directory's, and those
-  endpoints were removed.
+  paths. `active` and Group membership are the directory's, so the page has no
+  control that writes them.
+- **`src/components/`** — shared non-primitive components; today only
+  `error-boundary.tsx`.
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with
@@ -81,14 +85,14 @@ them:
   `ADMIN`-restricted `ProtectedRoute` (`/accounts`). A session with the
   change-required flag is confined to `/change-password` by the guards' shared
   transition table, whatever path it asks for. The outermost element is
-  `ErrorBoundary` (`src/components/error-boundary.tsx`): a render error anywhere
+  `ErrorBoundary`: a render error anywhere
   below shows a generic "Something went wrong" fallback with a reload action,
   logs to `console.error` only, and never puts the error's message or stack in
   the DOM.
-  `@/` resolves to `src/`. That alias is declared in four places — `tsconfig.json`
-  `paths`, `vite.config.ts`, `vitest.config.ts`, and (via `tsConfig`)
-  `test/.dependency-cruiser.cjs` — and all four have to agree, or a change breaks
-  a different tool than the one being edited.
+
+`@/` resolves to `src/`, declared in four places that must agree — the table is
+in `docs/ARCHITECTURE.md` under "The `@/` alias". Change all four together, or
+the change breaks a different tool than the one being edited.
 
 Four rules are review-blocking, and `npm run test:arch` enforces all four:
 
@@ -210,10 +214,7 @@ invokes the script rather than re-listing the steps, so the two cannot drift.
 
 While iterating, run the pieces instead of the whole gate: `npm run typecheck`,
 `npm test` and `npm run test:arch` are the fast inner loop, and establishing them
-green _before_ touching code is what proves a later failure is yours. The suite
-is small today, so it runs in seconds in the foreground. The ten-minute
-`timeout: 600000` habit is worth keeping anyway, so a growing suite never gets
-cut off mid-run.
+green _before_ touching code is what proves a later failure is yours.
 
 ### Conditional gates
 

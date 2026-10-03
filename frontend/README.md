@@ -4,10 +4,11 @@ React + TypeScript + Vite + Tailwind CSS v4, with the full tooling gate wired
 up around a small session-authenticated app.
 
 This is a **baseline repo**. The application content is deliberately thin — a
-login page, a counter page for authenticated accounts, and an administrator-only
-accounts page that shows the directory's Users and Groups read-only, unlocks a
-User or forces its password change, and manages SCIM connectors and their tokens, all
-talking to the Spring Boot backend over session cookies. What is actually built
+login page, a counter page for authenticated accounts, a self-service
+change-password page, and an administrator-only accounts page that shows the
+directory's Users and Groups read-only, unlocks a User or forces its password
+change, and manages SCIM connectors and their tokens, all talking to the Spring
+Boot backend over session cookies. What is actually built
 out is the toolchain: type checking, linting, unit tests, architecture tests,
 E2E, static security analysis, dead-code/complexity analysis, and mutation
 testing.
@@ -70,40 +71,24 @@ npm test -- -t "counts each click"
 
 ```
 src/
-  main.tsx                mounts React, imports index.css
-  App.tsx                 app root — BrowserRouter + AuthProvider + the routes
+  main.tsx, App.tsx       composition root — mount, router, AuthProvider, the routes
   index.css               Tailwind entry + the design tokens
-  vite-env.d.ts
-  auth/                   session state, route guards, request seam
-  pages/login.tsx         the public login page at /
-  pages/showcase.tsx      the USER/ADMIN counter page at /showcase
-  pages/accounts.tsx      the ADMIN-only Accounts page at /accounts: Users and Groups projections
-  pages/connectors.tsx    its connector/token panel, with the one-time token disclosure
-  pages/accounts-api.ts   the administration API's wire shapes and paths, for both
+  auth/                   session state, route guards, request seam, idle sign-out
+  pages/                  one component per page, plus the admin API's wire shapes
+  components/             shared components (error boundary)
   components/ui/          shadcn primitives (placeholder — see below)
-  lib/utils.ts            cn()
-  lib/http.ts             typed API results — credentials + CSRF + status + decoding
+  lib/                    cn(), typed HTTP results, response decoders
 test/
-  setup.ts                jest-dom
-  .dependency-cruiser.cjs
+  .dependency-cruiser.cjs module-boundary rules
   arch/                   architecture rules the module graph can't express
-  e2e/smoke.spec.ts       guest-facing Playwright smoke suite
-  e2e/showcase.spec.ts    authenticated session + counter
-  e2e/accounts-admin.spec.ts  the ADMIN accounts page, driven as a browser
-  e2e/session-revocation.spec.ts  sessions ended by a second sign-in or a SCIM write
-  e2e/login-lockout.spec.ts       lockout reached at the login page
-  e2e/console-errors.spec.ts      every authenticated route loads without errors
-  e2e/auth.helpers.ts     sign-in, CSRF and admin-request fixtures
-  e2e/scim.helpers.ts     connector, SCIM User and clean-up fixtures
-  e2e/auth.setup.ts       signs in once, saves the storage state, sweeps leftovers
-semgrep/rules/          local Semgrep ruleset
-docs/                   ARCHITECTURE.md, TESTING_GUIDE.md
-graphify-out/           knowledge graph (tracked; refreshed with the code)
+  e2e/                    Playwright specs, fixtures and the sign-in setup
+semgrep/rules/            local Semgrep ruleset
+docs/                     ARCHITECTURE.md, TESTING_GUIDE.md
 ```
 
 `@/` resolves to `src/`. There is no `src/types/`, `src/hooks/` or `src/utils/`
-— types live beside what owns them and shared helpers live in `src/lib/`. See
-`docs/ARCHITECTURE.md`.
+— types live beside what owns them and shared helpers live in `src/lib/`.
+`docs/ARCHITECTURE.md` has the per-file map and the reasoning behind each rule.
 
 ## Component library
 
@@ -128,14 +113,13 @@ toggled in-app. Nothing toggles it yet.
 
 ## Testing
 
-Three levels — **baseline** (typecheck, unit, arch), **full** (baseline + E2E +
-Semgrep + fallow), **extensive** (full + mutation, CI only). Which one to run
-where is in `AGENTS.md`; the details of each are in `docs/TESTING_GUIDE.md`.
+`npm run verify` is the baseline gate every change must pass; scoped Stryker,
+Playwright E2E and `fallow audit` are conditional gates, each with its own
+trigger. `AGENTS.md` has the gates and their triggers; `docs/TESTING_GUIDE.md`
+has the details of each.
 
 Unit tests run on Vitest with happy-dom and Testing Library, colocated with the
-code they cover. Coverage and mutation score are both at 100% on the code that
-is mutated — a small surface, but the gates are real and the arch rules have
-been verified to fail on planted violations.
+code they cover.
 
 E2E runs in four Playwright projects: `setup` signs in the seeded User and Admin
 once and saves separate storage states, `guest` runs signed-out and smoke
@@ -174,12 +158,12 @@ In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 ## Technology stack
 
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
-- **react-router-dom 7** for routing (`/` login, `/showcase` authenticated,
-  `/accounts` ADMIN-only)
+- **react-router-dom 7** for routing (`/` login, `/showcase` and
+  `/change-password` authenticated, `/accounts` ADMIN-only)
 - **Vite 7** for development and building, with Brotli/gzip precompression
 - **Tailwind CSS v4** (CSS-first, no config file) with shadcn-shaped tokens
 - **Vitest 4** + Testing Library + happy-dom for unit tests
-- **Playwright** for E2E, with a session-reusing `authenticated` project
+- **Playwright** for E2E, with per-identity projects reusing saved sessions
 - **dependency-cruiser** for architecture rules
 - **Semgrep** for static security analysis
 - **fallow** for dead code, complexity and duplication

@@ -1,9 +1,12 @@
 # Backend
 
-A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and user
-counts persisted in PostgreSQL. Spring
-Session replaces the servlet container's in-memory session, so session state can
-survive application restarts and be shared by multiple application instances.
+A Java 25 / Spring Boot backend with HTTP sessions persisted in Redis and the
+identity directory, audit trail and per-User counters persisted in PostgreSQL.
+Identities are provisioned by an external directory over a SCIM 2.0 interface
+(`/scim/v2`); the session-authenticated application API lives under `/api`.
+Spring Session replaces the servlet container's in-memory session, so session
+state can survive application restarts and be shared by multiple application
+instances.
 
 ## Prerequisites
 
@@ -92,78 +95,28 @@ token=$(csrf)
 curl -b cookies.txt http://localhost:8080/api/auth/me
 ```
 
-All API endpoints other than login, the CSRF token and the health check require
-that cookie. Counter and session endpoints accept either authenticated role;
-administration endpoints under `/api/admin/**` require `ADMIN`. Continue sending
-the cookie, and the token on unsafe requests, when using the session API:
-
-```bash
-curl -b cookies.txt http://localhost:8080/api/session
-
-curl -b cookies.txt \
-  -X PUT http://localhost:8080/api/session \
-  -H 'Content-Type: application/json' \
-  -H "X-CSRF-TOKEN: $token" \
-  -d '{"displayName":"Ada"}'
-
-curl -b cookies.txt http://localhost:8080/api/session
-
-curl -b cookies.txt -X DELETE -H "X-CSRF-TOKEN: $token" \
-  http://localhost:8080/api/auth/logout
-```
-
-Review who has access. This needs an `ADMIN` session; a `USER` session is
-answered with `403`, and the listing never contains a password hash:
+All `/api` endpoints other than login and the CSRF token require that cookie;
+those under `/api/admin/**` also require `ADMIN`, and a `USER` session is
+answered with `403`. Keep sending the cookie, and the token on unsafe requests.
+For example, an Admin lists the directory's Users (never with a password hash)
+and Unlocks one by its stable id:
 
 ```bash
 curl -b cookies.txt http://localhost:8080/api/admin/accounts
-```
-
-```json
-[
-  {
-    "id": "0b6f2c1e-8d7a-4f1e-9a3b-2c5d6e7f8a90",
-    "userName": "admin",
-    "admin": true,
-    "active": true,
-    "locked": false,
-    "hasPassword": true,
-    "createdAt": "2026-01-02T03:04:05.123456Z"
-  }
-]
-```
-
-`admin` is derived from Admin group membership at read time; it is not a stored
-field.
-
-Control an identity. Activating and unlocking are **separate capabilities**:
-deactivating leaves the failure run standing, activating leaves a lockout
-standing, and unlocking says nothing about `active`. Each is a POST, so each
-needs the CSRF header (`$token`, fetched above):
-
-```bash
-curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/accounts/user/disable
 
 curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/accounts/user/enable
-
-curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" \
-  http://localhost:8080/api/admin/accounts/user/unlock
+  http://localhost:8080/api/admin/accounts/<id>/unlock
 ```
 
-Each answers `200` with the identity as it now stands, `404` for an unknown
-username, and `409` when the change is unsafe — deactivating yourself, the
-Bootstrap Admin, or the last active administrator. Deactivating revokes the
-User's live sessions once the change commits, as well as stopping new logins.
+The administration API only reads what the directory owns (`userName`,
+`active`, Group membership); its writes are Unlock and the forced password
+change. Deactivation is the directory's, over SCIM.
 
-Increment or reset the count belonging to the authenticated user:
-
-```bash
-curl -b cookies.txt http://localhost:8080/api/count
-curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" http://localhost:8080/api/count/increment
-curl -b cookies.txt -X POST -H "X-CSRF-TOKEN: $token" http://localhost:8080/api/count/reset
-```
+`docs/openapi.yaml` documents every operation, status and body — the
+authentication, session, counter, self-service (`/api/self`), administration
+(accounts, groups, connectors and their tokens, audit events) and SCIM
+surfaces — and the baseline gate holds it against the running code (see
+`docs/api-contract-check.md`).
 
 ## Configuration
 
@@ -216,10 +169,6 @@ endpoints still answer `401` without a connector token. Set
 `APP_SCIM_ENABLED=false` to turn the interface off: the whole `/scim/v2`
 namespace then answers `404` — public discovery included, and ahead of
 authentication, so a valid connector token gets the same answer as none at all.
-
-The reason it exists: SCIM Users and Groups are one release capability. A directory
-that can create Users but has no Groups cannot express authority, so the gate kept
-the User half unreachable until the Group half was built. Both halves now exist.
 
 The value is not written in `application.yaml`: the default belongs to
 `ScimSecurityConfig`, so an unset variable reaches the gate as open rather than as
@@ -330,9 +279,12 @@ The audit table is append-only, and that is a property of the database rather th
 of the code writing to it. The `V3` migration creates two roles:
 
 - **`backend_app`** — what every runtime connection assumes, through
-  `spring.datasource.hikari.connection-init-sql`. It holds full DML on `accounts`
-  and `user_counters`, and `INSERT`/`SELECT` only on `audit_events`. An `UPDATE` or
-  `DELETE` of a recorded event from application code is refused by the server.
+  `spring.datasource.hikari.connection-init-sql`. It holds DML on the tables the
+  application writes — the `scim_*` directory tables, `user_counters`,
+  `scheduled_job_locks` — insert-only access to `scim_tombstones`, and
+  `INSERT`/`SELECT` only on `audit_events`. An `UPDATE` or `DELETE` of a recorded
+  event from application code is refused by the server. The migrations' `GRANT`
+  statements are the exact list.
 - **`backend_audit_retention`** — holds `UPDATE`/`DELETE` on `audit_events` and is
   reserved for the retention job, which assumes it with a transaction-scoped
   `SET LOCAL ROLE` and reverts on commit.
@@ -352,8 +304,9 @@ role than it serves as. A later migration that adds a table the application writ
 must grant `backend_app` on it.
 
 Sessions are stored through Spring Session's **indexed** Redis repository, which
-keeps a per-principal index. That index is what lets disabling an account revoke
-the sessions it holds, so the setting is a requirement rather than a preference:
+keeps a per-principal index. That index is what lets the service end a User's
+sessions — on deactivation, lockout, a forced password change, or a new login
+under one session per User — so the setting is a requirement rather than a preference:
 with the default repository the application does not start. It is configured in
 `src/main/resources/session.yaml`, imported by both the main and the test
 `application.yaml` so the two cannot drift. Two consequences for
@@ -401,14 +354,23 @@ siblings emitted by the build are copied verbatim (resource filtering is off, so
 binaries are not corrupted).
 
 The backend serves static files and forwards client-side routes such as
-`/account/settings` to `index.html`; `/api/**` and `/actuator/**` remain
+`/showcase` to `index.html`; `/api/**` and `/actuator/**` remain
 backend-only paths.
 
 ## Build and test
 
 ```bash
-./mvnw clean verify
+./scripts/verify.sh
 ```
+
+That is the baseline gate: the build, the tests, the ArchUnit rules
+(`src/test/java/arch/ArchitectureTest.java`) and the Semgrep scan
+(`./scripts/semgrep.sh`, which exits non-zero on any finding). It needs Docker
+for the Testcontainers-backed tests and Semgrep on `PATH` (`pip install
+semgrep`); the first scan downloads the registry packs, so it needs network
+access. Mutation testing with PIT is a conditional gate on top of it.
+`AGENTS.md` is the authority on what each gate covers, when PIT runs and with
+which mutators, and when a surviving mutant may be accepted.
 
 Build the container after packaging the application:
 
@@ -416,47 +378,3 @@ Build the container after packaging the application:
 ./mvnw clean package
 docker build -t backend:local .
 ```
-
-## Quality gates
-
-Two gates finish a change, next to the build and the test suite:
-
-```bash
-./mvnw -Dtest=ArchitectureTest test   # ArchUnit rules; also run by clean verify
-pip install semgrep                   # once
-./scripts/semgrep.sh                  # exits non-zero on any finding
-```
-
-`src/test/java/arch/ArchitectureTest.java` encodes the project's structure —
-onion layering (adapters depend on application, application on domain, domain on
-nothing), package placement for entities and configuration, naming conventions,
-constructor injection, JPA mapping, and freedom from package cycles. A failure
-names the rule and the offending class; satisfy the boundary rather than
-relaxing the rule.
-
-`./scripts/semgrep.sh` pins the rulesets the gate runs and passes `--error`, so
-green means zero findings. The first run downloads registry rules and caches
-them, so it needs network access. Extra flags reach Semgrep directly, for
-example `./scripts/semgrep.sh --json --output semgrep.json`. `.semgrepignore`
-lists the skipped paths; it replaces Semgrep's built-in default list, which would
-otherwise skip `src/test/java`. That replacement is why the script passes
-`--project-root .`: Semgrep resolves the project root from git, which is the
-monorepo root, and an ignore file below that root is read but no longer cancels
-the defaults — so without the flag the whole test tree is skipped silently. The
-scan covers 94 files, 73 of them Java (39 main, 34 test).
-
-Mutation testing is a third, non-gate check that PIT runs on demand:
-
-```bash
-./mvnw org.pitest:pitest-maven:mutationCoverage \
-  -DtargetClasses="com.example.backend.auth.controller.AuthController*" \
-  -DtargetTests="com.example.backend.auth.controller.AuthControllerTests"
-```
-
-Nothing to install — `pitest-maven` is declared in `pom.xml` and bound to no
-lifecycle phase, so `./mvnw clean verify` never runs it. Reports land in
-`target/pit-reports/`: `index.html` to browse, `mutations.xml` for the per-mutant
-status.
-
-`AGENTS.md` is the authority on when each of these runs, how to read a result,
-and when a surviving mutant may be accepted.
