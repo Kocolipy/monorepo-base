@@ -95,12 +95,13 @@ without, with a password or without.
 _Avoid_: Account, SCIM User (in prose), member (except of a Group)
 
 **Group**:
-A set of Users in the SCIM directory with direct members only; only the Admin
-group confers authority.
+A set of Users in the SCIM directory with direct members only; the Admin group
+confers Admin authority, and a mapped Group confers its Role.
 
 **Admin group**:
 The server-seeded Group whose direct members are Admins; it can be neither
-renamed nor deleted.
+renamed nor deleted. It is also the Superuser Group, seeded under that Group's
+stable id.
 
 **Admin**:
 A User that is a direct member of the Admin group, with that authority taken at
@@ -128,6 +129,27 @@ _Avoid_: disabled, inactive User
 
 **Reactivation**:
 A SCIM write that takes a User's `active` from false to true.
+
+### Authorization
+
+**Permission**:
+One named, fine-grained power a protected action requires, such as
+`user:read` or `connector:token`; the set is closed and defined in code, not
+configuration.
+_Avoid_: scope, right, privilege
+
+**Role**:
+A named set of Permissions defined in deployment configuration; a User holds
+one by being a direct member of the Group mapped to it.
+_Avoid_: role (for `ROLE_USER` / `ROLE_ADMIN`, which are not Roles)
+
+**Role mapping**:
+The read-only deployment configuration that defines the Roles and maps each one
+to a Group by stable id; a User's Permissions are the union of the Roles of the
+mapped Groups it directly belongs to, taken at Login.
+
+**Superuser Group**:
+The one mapped Group whose Role holds every Permission: the Admin group.
 _Avoid_: enabling
 
 ### Authentication

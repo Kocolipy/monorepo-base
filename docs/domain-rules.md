@@ -282,6 +282,52 @@ is derived from that membership at Login, not stored, and the session carries it
 `ROLE_ADMIN` alongside `ROLE_USER`. An Admin may use the counter page, the accounts page at `/accounts`,
 and the administration API under `/api/admin/**`.
 
+**Permission** and **Role** — a Permission is one fine-grained power from a
+closed set defined in code (`user:read`, `user:write`, `group:read`,
+`group:write`, `audit:read`, `connector:read`, `connector:write`,
+`connector:token`, `ops:read`, `counter:read`, `counter:write`); a new one is a
+code change, because it means something only once a protected action declares
+it. A Role is a named set of them, defined in deployment configuration. Neither
+is stored in the database, and nothing at runtime creates or changes one.
+
+**Role mapping** — the read-only `app.authorization` configuration block that
+defines the Roles and maps each Role to a Group by the Group's stable id; see the
+backend README's "Role mapping" for its shape. The rules:
+
+- **Union.** A User's Permissions are the union of the Roles of the mapped
+  Groups it is a _direct_ member of — nesting is not modelled — so holding an
+  extra Role never takes a power away. A User in no mapped Group holds none and
+  keeps baseline access (`ROLE_USER`).
+- **Taken at Login.** Like Admin authority, Permissions are resolved once, at
+  Login, and the session carries them, together with the hash of the mapping
+  they were resolved under. A membership change is seen at the next Login. A
+  confined session holds none, as it holds no role.
+- **Validated at startup, fail-fast.** Startup refuses — naming every problem
+  in one message — a Permission name outside the closed set, a Role defined
+  twice or without a name, a mapping entry with no Group id, a Group id mapped
+  more than once, an entry naming an undefined Role, anything but exactly one
+  **Superuser Group**, a Superuser Group whose Role lacks any Permission, and,
+  once the directory is seeded, a mapped Group id that does not resolve to a
+  Group or a Superuser Group that is not the reserved Admin group.
+- **The hash** is SHA-256 over a canonical rendering of the validated mapping,
+  so reordering configuration lists does not change it and any change of meaning
+  does.
+
+**Superuser Group** — the one mapped Group whose Role holds every Permission. It
+is the Admin group: seeding creates the Admin group under the Superuser Group's
+configured stable id, so a deployment's mapping can name it before it exists. An
+Admin group seeded earlier under another id keeps that id, and startup then
+refuses the mapping rather than rewriting the id.
+
+**Development fixtures** — the shipped mapping (`authorization.yaml`) is a
+development default: Superuser, Account admin, Auditor, Connector admin and
+Monitoring, each Role but Superuser conferred by a Group with one User in it.
+With `APP_DEV_FIXTURES_ENABLED=true` startup seeds those Groups under the
+mapping's ids and their Users with `APP_DEV_FIXTURES_PASSWORD`, never
+overwriting one that exists. Without the fixtures those Groups do not exist, so a
+deployment that did not replace the development mapping fails startup instead of
+running with it.
+
 **Account** — **gone.** There is no longer a separate login identity: the
 `accounts` table and its aggregate were removed when the User became the one
 identity this application has, owning the profile, the credential and the

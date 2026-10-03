@@ -194,10 +194,15 @@ paths:
         Also answers a session confined by the change-required flag, reporting
         `passwordChangeRequired: true` and no role, so a client can route it to
         the change flow.
+
+        `permissions` lists the Permissions the session was issued with, sorted
+        by name: those the role mapping confers through the User's direct
+        Group memberships at sign-in. A User in no mapped Group gets an empty
+        list and keeps baseline access.
       operationId: getCurrentUser
       responses:
         "200":
-          description: The authenticated user and role.
+          description: The authenticated user, its role and its Permissions.
           content:
             application/json:
               schema:
@@ -2499,7 +2504,7 @@ components:
             own maximum, so no password the policy accepted is refused here.
     UserResponse:
       type: object
-      required: [username, role, passwordChangeRequired, idleTimeoutSeconds]
+      required: [username, role, permissions, passwordChangeRequired, idleTimeoutSeconds]
       properties:
         username:
           type: string
@@ -2510,6 +2515,29 @@ components:
             The account role used for authorization. `null` while
             `passwordChangeRequired` is true: a confined session holds no role
             until the password is replaced, an Admin's included.
+        permissions:
+          type: array
+          items:
+            type: string
+            enum:
+              - audit:read
+              - connector:read
+              - connector:token
+              - connector:write
+              - counter:read
+              - counter:write
+              - group:read
+              - group:write
+              - ops:read
+              - user:read
+              - user:write
+          description: |
+            The Permissions this session was issued with, sorted by name, each once. They
+            are the union of the Roles of every mapped Group the User was a
+            direct member of when it signed in (the role mapping, see the
+            backend README's "Role mapping"), so a change of membership is seen
+            at the next sign-in. Empty for a User in no mapped Group, which
+            keeps baseline access, and while `passwordChangeRequired` is true.
         passwordChangeRequired:
           type: boolean
           description: |

@@ -28,7 +28,7 @@ export default defineConfig({
     // of being silently skipped at runtime.
     {
       name: "guest",
-      testMatch: /(?:smoke|login)\.spec\.ts/,
+      testMatch: /(?:smoke|login|dev-roles)\.spec\.ts/,
       // Last, after `admin`. The backend keeps one session per User and a
       // successful login ends every other one (#64), so `login.spec.ts` signing
       // in as the seeded Admin revokes the session `admin.json` replays. Run

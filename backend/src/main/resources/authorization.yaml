@@ -1,0 +1,89 @@
+# The role mapping, and the development fixtures that make its default usable.
+#
+# Imported by the main `application.yaml`. The test resources' `application.yaml`
+# shadows the main one and does NOT import this file: test contexts carry a
+# Superuser-only mapping of their own, and a test that needs the development
+# mapping imports this document explicitly.
+#
+# Configuration reference: backend/README.md, "Role mapping".
+
+app:
+  authorization:
+    # Roles: a name and the Permissions it holds. The Permission names are a
+    # closed set defined in code (authorization.domain.Permission); an unknown
+    # name fails startup.
+    roles:
+      - name: Superuser
+        permissions:
+          - user:read
+          - user:write
+          - group:read
+          - group:write
+          - audit:read
+          - connector:read
+          - connector:write
+          - connector:token
+          - ops:read
+          - counter:read
+          - counter:write
+      - name: Account admin
+        permissions: [user:read, user:write, group:read]
+      - name: Auditor
+        permissions: [audit:read]
+      - name: Connector admin
+        # The four directory Permissions as well, because a connector token
+        # may carry only Permissions its creator holds.
+        permissions:
+          - connector:read
+          - connector:write
+          - connector:token
+          - user:read
+          - user:write
+          - group:read
+          - group:write
+      - name: Monitoring
+        permissions: [ops:read]
+    # The DEVELOPMENT DEFAULT mapping: Group stable id -> Role. Exactly one entry
+    # is the Superuser Group; startup seeds the reserved Admin group with that id.
+    # Every other id must resolve to an existing Group at startup, and on a
+    # deployment that has not enabled the development fixtures below none of
+    # these do — so a deployment that forgot to replace this list fails startup
+    # instead of running with it. Replace it whole (a list from a
+    # higher-precedence source replaces this one; see the README).
+    groups:
+      - id: 00000000-0000-4000-8000-00000000a001
+        role: Superuser
+        superuser: true
+      - id: 00000000-0000-4000-8000-00000000a002
+        role: Account admin
+      - id: 00000000-0000-4000-8000-00000000a003
+        role: Auditor
+      - id: 00000000-0000-4000-8000-00000000a004
+        role: Connector admin
+      - id: 00000000-0000-4000-8000-00000000a005
+        role: Monitoring
+
+  # One Group per non-Superuser Role above, each with one User in it, so local
+  # runs and the e2e suite have a User per Role to sign in as. The Superuser's
+  # User is the Bootstrap Admin, which is seeded regardless.
+  #
+  # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it). The
+  # password has no fallback here: this remote is public, so a deployment that
+  # enabled the fixtures without choosing one fails startup rather than shipping
+  # a published credential.
+  dev-fixtures:
+    enabled: ${APP_DEV_FIXTURES_ENABLED:false}
+    password: ${APP_DEV_FIXTURES_PASSWORD:}
+    groups:
+      - id: 00000000-0000-4000-8000-00000000a002
+        display-name: Account admins
+        member: account-admin
+      - id: 00000000-0000-4000-8000-00000000a003
+        display-name: Auditors
+        member: auditor
+      - id: 00000000-0000-4000-8000-00000000a004
+        display-name: Connector admins
+        member: connector-admin
+      - id: 00000000-0000-4000-8000-00000000a005
+        display-name: Monitoring
+        member: monitoring

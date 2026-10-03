@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.auth.InMemoryAccountSessions;
 import com.example.backend.auth.MutableClock;
@@ -65,7 +66,7 @@ class RefusalTimingEquivalenceTests {
                 ScimIdentities.NOW));
         users.given(ScimIdentities.credentiallessUser("nopass"));
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder);
+                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 new LoginAttemptService(

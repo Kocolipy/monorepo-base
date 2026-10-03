@@ -304,6 +304,19 @@ public class ArchitectureTest {
     // Module Boundaries
 
     @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule authorization_depends_on_no_module =
+        noClasses()
+            .that().resideInAPackage("com.example.backend.authorization..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "com.example.backend.audit..", "com.example.backend.auth..",
+                    "com.example.backend.counter..", "com.example.backend.lifecycle..",
+                    "com.example.backend.observability..", "com.example.backend.scheduling..",
+                    "com.example.backend.scim..", "com.example.backend.session..",
+                    "com.example.backend.web..")
+            .because("the Permission vocabulary and the role mapping are read by both the session"
+                    + " and the SCIM side, so they know neither; a Group id is checked against the"
+                    + " directory by scim, not here");
+    @com.tngtech.archunit.junit.ArchTest
     static final ArchRule observability_depends_on_no_module =
         noClasses()
             .that().resideInAPackage("com.example.backend.observability..")

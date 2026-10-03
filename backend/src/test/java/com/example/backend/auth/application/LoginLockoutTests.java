@@ -3,6 +3,7 @@ package com.example.backend.auth.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.authorization.TestRoleMappings;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
@@ -93,7 +94,7 @@ class LoginLockoutTests {
                 ScimIdentities.group("Admins", recovery), ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
-                new LoginIdentityService(users, groups, passwordEncoder);
+                new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
         login = new LoginService(
                 config.authenticationManager(identities, passwordEncoder),
                 new LoginAttemptService(

@@ -136,11 +136,18 @@ it makes the same change voluntarily. Password history refuses the seed
 password afterwards, so this is one-way for that database. The specs read these
 environment variables; the SPA reads none of them:
 
-| Variable                   | Default                   | Used for                                                                                                                |
-| -------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `E2E_ADMIN_PASSWORD`       | `E2e-Bootstrap-Secret-4m` | the seeded Admin's password in the suite                                                                                |
-| `APP_LOCKOUT_MAX_ATTEMPTS` | `3`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
-| `E2E_BACKEND_URL`          | `http://localhost:8080`   | SCIM calls that bypass the Vite proxy                                                                                   |
+| Variable                    | Default                   | Used for                                                                                                                |
+| --------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `E2E_ADMIN_PASSWORD`        | `E2e-Bootstrap-Secret-4m` | the seeded Admin's password in the suite                                                                                |
+| `APP_LOCKOUT_MAX_ATTEMPTS`  | `3`                       | the backend's lockout threshold, mirrored by the lockout specs (`make integration-test` exports it from `backend/.env`) |
+| `APP_DEV_FIXTURES_PASSWORD` | `Dev-Fixture-P@ssw0rd`    | the development Role Users' password (`make integration-test` exports it from `backend/.env`)                           |
+| `E2E_BACKEND_URL`           | `http://localhost:8080`   | SCIM calls that bypass the Vite proxy                                                                                   |
+
+The backend's development role mapping seeds one User per Role when it runs with
+`APP_DEV_FIXTURES_ENABLED=true` (as `backend/.env.example` sets): `account-admin`,
+`auditor`, `connector-admin` and `monitoring`, the Superuser's being the Admin.
+`DEV_ROLES` and `loginAsRole()` in `test/e2e/auth.helpers.ts` sign in as each,
+and `dev-roles.spec.ts` checks each one's Permissions on `/api/auth/me`.
 
 ## Backend contract
 

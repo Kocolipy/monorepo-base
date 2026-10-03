@@ -23,6 +23,71 @@ export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "E2e-Bootstrap-S
 const ADMIN_CREDENTIALS = [ADMIN_USERNAME, ADMIN_PASSWORD] as const;
 
 /**
+ * The development fixture Users' password: the backend's
+ * `APP_DEV_FIXTURES_PASSWORD`, read from the same variable. `make
+ * integration-test` exports `backend/.env` before it runs this suite; unset
+ * means `backend/.env.example`'s value. The fixtures exist only when the backend
+ * runs with `APP_DEV_FIXTURES_ENABLED=true`.
+ */
+export const FIXTURE_PASSWORD = process.env.APP_DEV_FIXTURES_PASSWORD ?? "Dev-Fixture-P@ssw0rd";
+
+/**
+ * The development role mapping's Roles (`backend/src/main/resources/authorization.yaml`),
+ * each with the seeded User that holds it and the Permissions it confers, sorted
+ * by name as `GET /api/auth/me` reports them. The Superuser's User is the
+ * Bootstrap Admin, on the password `auth.setup.ts` settles.
+ */
+export const DEV_ROLES = {
+  superuser: {
+    username: ADMIN_USERNAME,
+    password: ADMIN_PASSWORD,
+    permissions: [
+      "audit:read",
+      "connector:read",
+      "connector:token",
+      "connector:write",
+      "counter:read",
+      "counter:write",
+      "group:read",
+      "group:write",
+      "ops:read",
+      "user:read",
+      "user:write",
+    ],
+  },
+  accountAdmin: {
+    username: "account-admin",
+    password: FIXTURE_PASSWORD,
+    permissions: ["group:read", "user:read", "user:write"],
+  },
+  auditor: {
+    username: "auditor",
+    password: FIXTURE_PASSWORD,
+    permissions: ["audit:read"],
+  },
+  connectorAdmin: {
+    username: "connector-admin",
+    password: FIXTURE_PASSWORD,
+    permissions: [
+      "connector:read",
+      "connector:token",
+      "connector:write",
+      "group:read",
+      "group:write",
+      "user:read",
+      "user:write",
+    ],
+  },
+  monitoring: {
+    username: "monitoring",
+    password: FIXTURE_PASSWORD,
+    permissions: ["ops:read"],
+  },
+} as const;
+
+export type DevRole = keyof typeof DEV_ROLES;
+
+/**
  * Refused attempts that lock an account: the backend's
  * `app.auth.lockout.max-attempts`, read from the same `APP_LOCKOUT_MAX_ATTEMPTS`
  * the backend reads. `make integration-test` exports `backend/.env` before it
@@ -78,6 +143,19 @@ export async function loginAs(page: Page, username: string, password: string) {
 /** Sign in the seeded ADMIN identity used by the existing authenticated specs. */
 export async function login(page: Page) {
   const [username, password] = ADMIN_CREDENTIALS;
+  await loginAs(page, username, password);
+}
+
+/**
+ * Sign in as the User holding one development Role, through the login page, and
+ * wait for the protected page.
+ *
+ * Signing in ends every other session of that User (one session per User), so
+ * a spec doing this for `superuser` must not run beside one replaying
+ * `admin.json`.
+ */
+export async function loginAsRole(page: Page, role: DevRole) {
+  const { username, password } = DEV_ROLES[role];
   await loginAs(page, username, password);
 }
 

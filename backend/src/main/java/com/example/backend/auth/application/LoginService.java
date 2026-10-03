@@ -121,7 +121,7 @@ public class LoginService {
                     .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                     .log("Login accepted");
         }
-        return new LoginOutcome(authentication, userId);
+        return new LoginOutcome(authentication, userId, identities.roleMappingHash());
     }
 
     /**
@@ -153,8 +153,10 @@ public class LoginService {
      * the security context and the identity's stable id — the SCIM resource id the
      * web adapter writes into the session index, so application-owned session
      * lookups survive a later {@code userName} change instead of following
-     * {@code authentication.getName()}.
+     * {@code authentication.getName()} — and the hash of the role mapping the
+     * authentication's Permissions were resolved under, which the session records.
      */
-    public record LoginOutcome(Authentication authentication, UUID userId) {
+    public record LoginOutcome(
+            Authentication authentication, UUID userId, String roleMappingHash) {
     }
 }

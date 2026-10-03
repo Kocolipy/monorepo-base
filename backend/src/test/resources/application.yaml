@@ -33,3 +33,26 @@ app:
       max-attempts: 3
   session:
     absolute-lifetime: 8h
+  # Not `authorization.yaml`'s development mapping: the minimum a valid mapping
+  # is, so no test context needs Groups beyond the seeded Admin group to start.
+  # A test exercising the development mapping and its fixtures imports
+  # `classpath:authorization.yaml` itself.
+  authorization:
+    roles:
+      - name: Superuser
+        permissions:
+          - user:read
+          - user:write
+          - group:read
+          - group:write
+          - audit:read
+          - connector:read
+          - connector:write
+          - connector:token
+          - ops:read
+          - counter:read
+          - counter:write
+    groups:
+      - id: 00000000-0000-4000-8000-00000000a001
+        role: Superuser
+        superuser: true

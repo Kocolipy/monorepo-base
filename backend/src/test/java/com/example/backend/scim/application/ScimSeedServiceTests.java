@@ -1,12 +1,20 @@
 package com.example.backend.scim.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.domain.InvalidRoleMappingException;
+import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.authorization.domain.RoleMapping.GroupAssignment;
+import com.example.backend.authorization.domain.RoleMapping.RoleDefinition;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.application.ScimSeedService.DevFixture;
 import com.example.backend.scim.application.ScimSeedService.SeededIdentity;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -54,7 +62,8 @@ class ScimSeedServiceTests {
             seedLock,
             audit,
             passwordEncoder,
-            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC));
+            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
+            TestRoleMappings.superuserOnly());
 
     @Test
     void a_fresh_database_gets_both_configured_identities() {
@@ -401,6 +410,169 @@ class ScimSeedServiceTests {
         assertThat(passwordEncoder.encodes).isEqualTo(2);
         assertThat(users.require("admin").login().passwordHash()).isNotEqualTo("admin-password");
         assertThat(users.require("user").login().passwordHash()).isNotEqualTo("user-password");
+    }
+
+    // The role mapping's Superuser Group
+
+    /** The Admin group is created under the mapping's Superuser Group id: they are one Group. */
+    @Test
+    void the_admin_group_is_created_under_the_superuser_group_id() {
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow().id())
+                .isEqualTo(TestRoleMappings.SUPERUSER_GROUP_ID);
+    }
+
+    @Test
+    void a_seeded_directory_satisfies_a_superuser_only_mapping() {
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThatCode(seeding::verifyMappedGroups).doesNotThrowAnyException();
+    }
+
+    /**
+     * An Admin group seeded earlier under another id keeps it — the id is never rewritten — and the
+     * check then refuses startup, because the mapping's Superuser Group does not exist.
+     */
+    @Test
+    void an_admin_group_seeded_under_another_id_keeps_it_and_fails_the_check() {
+        ScimUser bootstrapAdmin = users.createReserved(
+                ScimIdentities.user("admin"), ReservedResourceName.BOOTSTRAP_ADMIN);
+        UUID earlier = groups.createReserved(
+                ScimIdentities.group("Admins", bootstrapAdmin), ReservedResourceName.ADMIN_GROUP)
+                .id();
+
+        seeding.seed(ORDINARY, RECOVERY);
+
+        assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow().id())
+                .isEqualTo(earlier);
+        assertThatThrownBy(seeding::verifyMappedGroups)
+                .isInstanceOf(InvalidRoleMappingException.class)
+                .hasMessage("Invalid role mapping: Group " + TestRoleMappings.SUPERUSER_GROUP_ID
+                        + " does not exist");
+    }
+
+    @Test
+    void a_mapped_group_that_does_not_exist_fails_the_check_by_id() {
+        UUID helpdesk = UUID.fromString("00000000-0000-4000-8000-0000000000c1");
+        UUID auditors = UUID.fromString("00000000-0000-4000-8000-0000000000c2");
+        ScimSeedService withHelpdesk = seedingUnder(mappingWith(helpdesk, auditors));
+        groups.given(ScimGroup.created(auditors, "Auditors", List.of(), ScimIdentities.NOW));
+        withHelpdesk.seed(ORDINARY, RECOVERY);
+
+        assertThatThrownBy(withHelpdesk::verifyMappedGroups)
+                .isInstanceOf(InvalidRoleMappingException.class)
+                .hasMessage("Invalid role mapping: Group " + helpdesk + " does not exist");
+    }
+
+    /**
+     * A Superuser Group id resolving to an ordinary Group would put every Permission behind a Group a
+     * connector may rename, empty or delete.
+     */
+    @Test
+    void a_superuser_group_that_is_not_the_reserved_admin_group_fails_the_check() {
+        groups.given(ScimGroup.created(
+                TestRoleMappings.SUPERUSER_GROUP_ID, "Impostors", List.of(), ScimIdentities.NOW));
+        ScimUser bootstrapAdmin = users.createReserved(
+                ScimIdentities.user("admin"), ReservedResourceName.BOOTSTRAP_ADMIN);
+        groups.createReserved(
+                ScimIdentities.group("Admins", bootstrapAdmin), ReservedResourceName.ADMIN_GROUP);
+
+        assertThatThrownBy(seeding::verifyMappedGroups)
+                .isInstanceOf(InvalidRoleMappingException.class)
+                .hasMessage("Invalid role mapping: Superuser Group "
+                        + TestRoleMappings.SUPERUSER_GROUP_ID
+                        + " is not the reserved Admin group");
+    }
+
+    // Development fixtures
+
+    private static final UUID FIXTURE_GROUP =
+            UUID.fromString("00000000-0000-4000-8000-0000000000d1");
+
+    private static final List<DevFixture> FIXTURES =
+            List.of(new DevFixture(FIXTURE_GROUP, "Account admins", "account-admin"));
+
+    @Test
+    void the_fixtures_create_each_group_under_its_id_with_its_user_in_it() {
+        seeding.seedDevFixtures(FIXTURES, "fixture-password");
+
+        ScimUser member = users.require("account-admin");
+        ScimGroup group = groups.findById(FIXTURE_GROUP).orElseThrow();
+        assertThat(group.displayName()).isEqualTo("Account admins");
+        assertThat(group.members()).extracting(ScimGroupMember::userId)
+                .containsExactly(member.id());
+        assertThat(group.isProtectedFromWrites()).isFalse();
+        assertThat(group.createdAt()).isEqualTo(ScimIdentities.NOW);
+        assertThat(member.createdAt()).isEqualTo(ScimIdentities.NOW);
+        assertThat(member.isProtectedFromWrites()).isFalse();
+        assertThat(member.login().isPasswordChangeRequired()).isFalse();
+        assertThat(passwordEncoder.matches("fixture-password", member.login().passwordHash()))
+                .isTrue();
+        assertThat(seedLock.usersSeenAtEachAcquire).containsExactly(0L);
+    }
+
+    /** Never overwrites: a second run, or a fixture User changed since, is left as it is. */
+    @Test
+    void the_fixtures_are_idempotent_and_never_overwrite() {
+        ScimUser existing = users.given(ScimIdentities.user("account-admin"));
+
+        seeding.seedDevFixtures(FIXTURES, "fixture-password");
+        seeding.seedDevFixtures(FIXTURES, "another-password");
+
+        assertThat(users.require("account-admin").login().passwordHash())
+                .isEqualTo(existing.login().passwordHash());
+        assertThat(groups.findById(FIXTURE_GROUP).orElseThrow().members())
+                .extracting(ScimGroupMember::userId)
+                .containsExactly(existing.id());
+        assertThat(groups.size()).isEqualTo(1);
+        assertThat(passwordEncoder.encodes).isZero();
+    }
+
+    /**
+     * A Group already standing under a fixture's id — renamed and repopulated since — is left as
+     * it is: the fixture is created only where nothing holds the id.
+     */
+    @Test
+    void a_fixture_group_that_already_exists_is_left_as_it_is() {
+        ScimUser other = users.given(ScimIdentities.user("someone-else"));
+        groups.given(ScimGroup.created(FIXTURE_GROUP, "Renamed since",
+                List.of(ScimGroupMember.reference(other.id())), ScimIdentities.NOW));
+
+        seeding.seedDevFixtures(FIXTURES, "fixture-password");
+
+        ScimGroup group = groups.findById(FIXTURE_GROUP).orElseThrow();
+        assertThat(group.displayName()).isEqualTo("Renamed since");
+        assertThat(group.members()).extracting(ScimGroupMember::userId)
+                .containsExactly(other.id());
+    }
+
+    @Test
+    void the_fixtures_are_refused_without_a_password() {
+        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, " "))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
+        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, null))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(users.size()).isZero();
+        assertThat(groups.size()).isZero();
+    }
+
+    private ScimSeedService seedingUnder(RoleMapping mapping) {
+        return new ScimSeedService(
+                users, groups, seedLock, audit, passwordEncoder,
+                Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping);
+    }
+
+    private static RoleMapping mappingWith(UUID... more) {
+        List<GroupAssignment> entries = new ArrayList<>(List.of(new GroupAssignment(
+                TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true)));
+        for (UUID id : more) {
+            entries.add(new GroupAssignment(id, "Superuser", false));
+        }
+        return RoleMapping.of(
+                List.of(new RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION)),
+                entries);
     }
 
     /** Records how many Users existed at each acquisition, so a test can see WHEN it was taken. */
