@@ -6,7 +6,8 @@ Date: 2026-10-01
 
 Accepted. Records a departure from the SCIM plan's original authentication slice.
 #7 shipped a lockout that lifted on a timer. #30 replaced it with a permanent one,
-and #19, #21 and #46 build on that change.
+and #19, #21 and #46 build on that change. ADR 0011 (proposed) adds a second
+cause, dormancy, under the same rule that only an Admin's Unlock lifts a lock.
 
 ## Context
 

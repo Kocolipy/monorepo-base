@@ -7,6 +7,7 @@ Date: 2026-10-01
 Accepted. Records a departure from the SCIM plan that spans #19 (password-change
 lifecycle, which shipped the grace period), #18 (inactivity governance) and the
 confinement work in #46 and #47. Implemented in #48, for which no issue was filed.
+The dormancy jobs it relies on are to be replaced by ADR 0011 (proposed).
 
 ## Context
 
