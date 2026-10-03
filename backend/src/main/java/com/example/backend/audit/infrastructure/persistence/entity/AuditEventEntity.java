@@ -15,7 +15,7 @@ import java.util.UUID;
  * Database representation of a recorded audit event.
  *
  * <p>Every column is {@code updatable = false}. That is a statement about intent
- * rather than the enforcement — the enforcement is the {@code V3} migration's
+ * rather than the enforcement — the enforcement is the schema migration's
  * grants and its {@code BEFORE UPDATE OR DELETE} trigger, which refuse the
  * statement whatever this mapping says. Together they mean an {@code UPDATE} on
  * this table is impossible to reach by accident and impossible to perform on

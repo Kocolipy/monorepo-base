@@ -49,7 +49,8 @@ class BackendApplicationTests {
      * "Flyway ran the migrations" apart from "some other mechanism happened to
      * leave a schema Hibernate's validation was satisfied by". The expected list
      * grows with each migration deliberately: a new one that forgot to land here
-     * fails this test rather than passing silently.
+     * fails this test rather than passing silently. V1 is the whole pre-production
+     * schema; a change from here on is V2 onward.
      */
     @Test
     void theSchemaCameFromFlywayMigrationsAloneOnAFreshDatabase() throws Exception {
@@ -64,8 +65,7 @@ class BackendApplicationTests {
                 assertThat(rows.getBoolean("success")).isTrue();
                 versions.add(rows.getString("version"));
             }
-            assertThat(versions).containsExactly(
-                    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
+            assertThat(versions).containsExactly("1");
         }
     }
 }

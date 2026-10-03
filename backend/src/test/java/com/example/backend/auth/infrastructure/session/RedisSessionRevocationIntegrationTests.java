@@ -38,7 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * does on a real login: the identity's stable SCIM resource id, not its
  * {@code userName}, into
  * {@link FindByIndexNameSessionRepository#PRINCIPAL_NAME_INDEX_NAME}. That is
- * exactly the behavior the migration and the rekeyed adapter exist to prove —
+ * exactly the behavior the rekeyed adapter exists to prove —
  * a session survives a rename because nothing about it was ever keyed by the
  * name that changed.
  */

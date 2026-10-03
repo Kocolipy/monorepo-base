@@ -17,10 +17,10 @@ import org.springframework.dao.DataIntegrityViolationException;
  */
 final class IntegrityViolations {
 
-    /** The live-User {@code userName} uniqueness, from {@code V5__scim_users.sql}. */
+    /** The live-User {@code userName} uniqueness, declared on {@code scim_users}. */
     static final String USER_NAME_UNIQUE = "uq_scim_users_normalized_user_name";
 
-    /** The live-Group {@code displayName} uniqueness, from {@code V7__scim_groups.sql}. */
+    /** The live-Group {@code displayName} uniqueness, declared on {@code scim_groups}. */
     static final String DISPLAY_NAME_UNIQUE = "uq_scim_groups_normalized_display_name";
 
     private IntegrityViolations() {

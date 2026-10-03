@@ -13,10 +13,9 @@ import java.util.UUID;
  * Database representation of one connector's {@code externalId} alias for one SCIM
  * resource.
  *
- * <p>Mapped even though this ticket only ever deletes from the table, because
- * {@code ddl-auto: validate} then checks the mapping against the migration on every
- * context start — which is how a column this ticket's deletion depends on cannot be
- * quietly renamed by the migration that adds the resource tables.
+ * <p>Mapped so {@code ddl-auto: validate} checks it against the migration on every
+ * context start — which is how a column the connector-deletion cascade depends on
+ * cannot be quietly renamed by a later migration.
  *
  * <p>The key is the pair, so a connector holds at most one alias per resource. The
  * VALUE is deliberately not unique: RFC 7643 allows two resources to carry the same
@@ -33,8 +32,8 @@ public class ScimExternalIdEntity {
     private UUID connectorId;
 
     /**
-     * The SCIM resource. No JPA association, because {@code scim_resources} does not
-     * exist yet — the migration adds the foreign key when it does.
+     * The SCIM resource. No JPA association: the foreign key to {@code scim_resources}
+     * lives in the schema, and its cascade removes the alias with the resource.
      */
     @Id
     @Column(nullable = false, updatable = false)

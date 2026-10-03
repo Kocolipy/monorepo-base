@@ -7,7 +7,7 @@
   "5": ".advanceBy",
   "6": "ScimGroupServiceTests",
   "7": ".toDomain",
-  "8": "org.springframework.web.bind.annotation.RestController",
+  "8": "AdminConnectorController.java",
   "9": "Attribute",
   "10": ".handle",
   "11": "IdentitySummary",
@@ -97,7 +97,7 @@
   "95": "auth.helpers.ts",
   "96": "include",
   "97": "SpaFrontendTests",
-  "98": "AccessRefusalLogTests",
+  "98": "Refusal",
   "99": "change-password.tsx",
   "100": "lib.sh",
   "101": ".changePassword",
@@ -111,7 +111,7 @@
   "109": ".current",
   "110": "Domain and authority model",
   "111": "BoundedInputStream",
-  "112": "SecurityConfig.java",
+  "112": "AccessRefusalLog",
   "113": "SelfControllerTests",
   "114": "sources.ts",
   "115": "AGENTS.md",
@@ -328,5 +328,6 @@
   "326": "preferred_language",
   "327": "prettier",
   "328": "timezone",
-  "329": "user_name"
+  "329": "user_name",
+  "330": "ContainerTestConfiguration.java"
 }
