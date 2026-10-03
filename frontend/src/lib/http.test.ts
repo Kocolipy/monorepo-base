@@ -460,7 +460,7 @@ describe("logout on an expired session", () => {
             Response.json({
               idleTimeoutSeconds: 900,
               passwordChangeRequired: false,
-              role: "USER",
+              permissions: [],
               username: "ada",
             }),
           );
@@ -506,7 +506,7 @@ describe("logout on an expired session", () => {
           Response.json({
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
-            role: "USER",
+            permissions: [],
             username: "ada",
           }),
         );
@@ -515,7 +515,7 @@ describe("logout on an expired session", () => {
           Response.json({
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
-            role: "USER",
+            permissions: [],
             username: "ada",
           }),
         );

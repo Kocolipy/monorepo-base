@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
+import { holds, VIEW_PERMISSIONS } from "@/auth/permissions";
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,14 +66,14 @@ function LockoutCell({ user }: { user: UserRow }) {
 }
 
 /**
- * Whether the signed-in Admin may force this row's password change: never on
- * their own account, except the Bootstrap Admin's own; never on the Bootstrap
- * Admin by anyone else; and only for a User with a password not already
- * flagged. The backend refuses every excluded case independently.
+ * Whether the signed-in administrator may force this row's password change:
+ * never on their own account, never on the Bootstrap Admin, and only for a
+ * User with a password not already flagged. The backend refuses every excluded
+ * case independently.
  */
 function offersForcedChange(user: UserRow, self: boolean): boolean {
   if (!user.hasPassword || user.passwordChangeRequired) return false;
-  return self === user.bootstrapAdmin;
+  return !self && !user.bootstrapAdmin;
 }
 
 /** Unlock only while a lockout is in force, and never on the caller's own account. */
@@ -93,11 +94,13 @@ function UserActions({
   self,
   user,
 }: {
-  onAction: OnAction;
+  /** `null` when the session lacks `user:write`, which both actions require: none is offered. */
+  onAction: OnAction | null;
   pending: boolean;
   self: boolean;
   user: UserRow;
 }) {
+  if (onAction === null) return null;
   return (
     <span className="flex flex-wrap gap-2">
       {offersUnlock(user, self) ? (
@@ -133,7 +136,7 @@ function UserRowView({
   signedIn,
   user,
 }: {
-  onAction: OnAction;
+  onAction: OnAction | null;
   pending: boolean;
   signedIn: string | undefined;
   user: UserRow;
@@ -197,7 +200,7 @@ function UsersTable({
   signedIn,
   users,
 }: {
-  onAction: OnAction;
+  onAction: OnAction | null;
   pending: boolean;
   signedIn: string | undefined;
   users: UserRow[];
@@ -308,19 +311,23 @@ const readUserRow = jsonDecoder(decodeUserRow);
 /**
  * One listing read, reported into state: the rows, or a failure and its copy.
  * `decode` must be a stable reference (module-level), since the read reruns
- * whenever it changes.
+ * whenever it changes. Not issued at all when `enabled` is false — the session
+ * lacks the listing's Permission, so the view is not shown and the request
+ * would only be refused.
  */
 function useListing<T>(
   path: string,
   decode: (response: Response) => Promise<T[]>,
   failureMessage: string,
   onFailure: (message: string) => void,
+  enabled: boolean,
 ) {
   const request = useSessionRequest();
   const [rows, setRows] = useState<T[] | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!enabled) return;
     void request(path, {}, decode).then((result) => {
       if (result.kind === "ok") {
         setRows(result.data);
@@ -330,16 +337,17 @@ function useListing<T>(
       setFailed(true);
       onFailure(refusalMessage(result, failureMessage));
     });
-  }, [decode, failureMessage, onFailure, path, request]);
+  }, [decode, enabled, failureMessage, onFailure, path, request]);
 
   return { failed, rows, setRows };
 }
 
 /**
  * The two listing reads and the row actions, as state: what the page shows and
- * the one function that changes it.
+ * the one function that changes it. Each listing is read only when the session
+ * holds its Permission.
  */
-function useDirectory() {
+function useDirectory(readUsers: boolean, readGroups: boolean) {
   const request = useSessionRequest();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -350,12 +358,14 @@ function useDirectory() {
     readUserRows,
     "Unable to load the users. Please try again.",
     report,
+    readUsers,
   );
   const groups = useListing(
     GROUPS_PATH,
     readGroupRows,
     "Unable to load the groups. Please try again.",
     report,
+    readGroups,
   );
   const setUsers = users.setRows;
 
@@ -399,18 +409,28 @@ function useDirectory() {
 
 /**
  * The Accounts page: the directory's Users and Groups as read-only
- * projections, the two operations an Admin performs on a User, and connector
- * and token management.
+ * projections, the two operations an administrator performs on a User, and
+ * connector and token management.
+ *
+ * Each view is shown only to a session holding the Permission its listing
+ * requires — Users `user:read`, Groups `group:read`, Connectors
+ * `connector:read` — and Unlock and the forced change only with `user:write`.
+ * The route guard keeps out a User who may see none of them. All of that is a
+ * rendering decision and never the authorization: the backend enforces every
+ * operation on its own.
  *
  * Nothing the directory owns is editable here, and that is enforced twice: the
  * page renders no control that could change it, and the backend has no
- * endpoint that would accept the change. The `ADMIN` route guard keeps a
- * `USER` out; the backend restricts `/api/admin/**` independently, so the
- * guard is a rendering decision and never the authorization.
+ * endpoint that would accept the change.
  */
 export function Accounts() {
   const { logout, user } = useAuth();
-  const { error, groups, pending, runAction, users } = useDirectory();
+  const readUsers = holds(user, VIEW_PERMISSIONS.users);
+  const readGroups = holds(user, VIEW_PERMISSIONS.groups);
+  const { error, groups, pending, runAction, users } = useDirectory(readUsers, readGroups);
+  const onAction: OnAction | null = holds(user, "user:write")
+    ? (target, action) => void runAction(target, action)
+    : null;
 
   return (
     <main className="mx-auto flex min-h-svh max-w-6xl flex-col gap-6 p-8">
@@ -430,32 +450,41 @@ export function Accounts() {
         </p>
       ) : null}
 
-      <ProjectionCard
-        description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
-        empty="No users are provisioned."
-        failed={users.failed}
-        rows={users.rows}
-        title="Users"
-      >
-        <UsersTable
-          onAction={(target, action) => void runAction(target, action)}
-          pending={pending}
-          signedIn={user?.username}
-          users={users.rows ?? []}
+      {readUsers ? (
+        <ProjectionCard
+          description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
+          empty="No users are provisioned."
+          failed={users.failed}
+          rows={users.rows}
+          title="Users"
+        >
+          <UsersTable
+            onAction={onAction}
+            pending={pending}
+            signedIn={user?.username}
+            users={users.rows ?? []}
+          />
+        </ProjectionCard>
+      ) : null}
+
+      {readGroups ? (
+        <ProjectionCard
+          description="Groups and their membership come from the directory and are read-only here. A Group mapped to a Role grants that Role's Permissions to its direct members from their next sign-in."
+          empty="No groups are provisioned."
+          failed={groups.failed}
+          rows={groups.rows}
+          title="Groups"
+        >
+          <GroupsTable groups={groups.rows ?? []} />
+        </ProjectionCard>
+      ) : null}
+
+      {holds(user, VIEW_PERMISSIONS.connectors) ? (
+        <Connectors
+          canIssueTokens={holds(user, "connector:token")}
+          canManageConnectors={holds(user, "connector:write")}
         />
-      </ProjectionCard>
-
-      <ProjectionCard
-        description="Groups and their membership come from the directory and are read-only here. Direct members of the protected Admin group hold administrative authority from their next sign-in."
-        empty="No groups are provisioned."
-        failed={groups.failed}
-        rows={groups.rows}
-        title="Groups"
-      >
-        <GroupsTable groups={groups.rows ?? []} />
-      </ProjectionCard>
-
-      <Connectors />
+      ) : null}
 
       <Link className="text-sm font-medium underline underline-offset-4" to="/showcase">
         Back to counter

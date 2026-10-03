@@ -477,6 +477,45 @@ class AuditTrailServiceTests {
         assertThat(event.changedPaths()).isEmpty();
     }
 
+    /**
+     * An authorization refusal names the refused User as actor and subject, the operation as the
+     * method, route template and correlation id the CALLER passed — not the request context's,
+     * which a chain-level refusal predates — and the one generic reason.
+     */
+    @Test
+    void anAuthorizationRefusalNamesTheCallerTheOperationAndTheGenericReason() {
+        trail.recordAccessDenied(
+                ACTOR, new AuditRequest("GET", "/api/admin/audit-events", "req-refused"));
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.ACCESS_DENIED);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(event.actorId()).isEqualTo(ACTOR);
+        assertThat(event.subjectId()).isEqualTo(ACTOR);
+        assertThat(event.resourceId()).isEqualTo(ACTOR);
+        assertThat(event.resourceType()).isEqualTo(AuditEvent.USER_RESOURCE_TYPE);
+        assertThat(event.errorCode()).isEqualTo("INSUFFICIENT_PERMISSIONS");
+        assertThat(event.statusClass()).isEqualTo("client_error");
+        assertThat(event.changedPaths()).isEmpty();
+        assertThat(event.httpMethod()).isEqualTo("GET");
+        assertThat(event.httpPath()).isEqualTo("/api/admin/audit-events");
+        assertThat(event.requestId()).isEqualTo("req-refused");
+        assertThat(event.occurredAt()).isEqualTo(NOW);
+        assertThat(event.id()).isNotNull();
+        assertThat(event.resultCount()).isNull();
+        assertThat(event.filterShape()).isNull();
+    }
+
+    /** A refusal the trail cannot record is still the caller's 403: fail-open, with an alert. */
+    @Test
+    void anAuthorizationRefusalFailsOpenWithAnAlert() {
+        events.failWith(new IllegalStateException("insert refused"));
+
+        trail.recordAccessDenied(ACTOR, new AuditRequest("GET", "/api/count", null));
+
+        assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
+    }
+
     // The two failure semantics
 
     @Test

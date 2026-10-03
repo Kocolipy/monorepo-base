@@ -1,31 +1,122 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-import { DEV_ROLES, loginAsRole, type DevRole } from "./auth.helpers";
+import { DEV_ROLES, loginAsRole, postAdminAction, type DevRole } from "./auth.helpers";
+import { BACKEND_URL } from "./scim.helpers";
 
 // The development role mapping's fixture Users: each signs in through the login
-// page and holds exactly its Role's Permissions on `GET /api/auth/me`. This is
-// what lets a later spec sign in as a Role rather than as the Admin.
+// page, holds exactly its Role's Permissions on `GET /api/auth/me`, sees exactly
+// the pages and actions those Permissions allow, and is refused every direct
+// API call outside them.
 //
 // In the `guest` project — empty `storageState` — because signing in is the
 // subject. The Superuser is left out on purpose: its User is the Bootstrap
 // Admin, whose sign-in would end the session `admin.json` replays and that
 // `login.spec.ts` uses beside this file; `roles-admin.spec.ts` checks it on the
-// replayed session instead. Each fixture User is signed in by this file alone.
-const FIXTURE_ROLES: DevRole[] = ["accountAdmin", "auditor", "connectorAdmin", "monitoring"];
+// replayed session instead. Each fixture User is signed in by this file alone,
+// and by one test, so a parallel run never signs one of them out of another.
+
+/** Every Permission-guarded read on the application chain, by the Permission it requires. */
+const GUARDED_READS = {
+  // Straight to the backend: Vite proxies only `/api` and would answer this with the SPA.
+  [`${BACKEND_URL}/actuator/prometheus`]: "ops:read",
+  "/api/admin/accounts": "user:read",
+  "/api/admin/audit-events": "audit:read",
+  "/api/admin/connectors": "connector:read",
+  "/api/admin/groups": "group:read",
+  "/api/count": "counter:read",
+} as const;
+
+/** What the Accounts page shows a Role, or `null` when its deep link routes away. */
+type AccountsView = { users: boolean; groups: boolean; connectors: boolean } | null;
+
+const EXPECTED: Record<
+  Exclude<DevRole, "superuser">,
+  { accounts: AccountsView; unlock: boolean; createConnector: boolean }
+> = {
+  accountAdmin: {
+    accounts: { connectors: false, groups: true, users: true },
+    createConnector: false,
+    unlock: true,
+  },
+  auditor: { accounts: null, createConnector: false, unlock: false },
+  connectorAdmin: {
+    accounts: { connectors: true, groups: true, users: true },
+    createConnector: true,
+    unlock: true,
+  },
+  monitoring: { accounts: null, createConnector: false, unlock: false },
+};
+
+async function expectShowcase(page: Page, linksToAccounts: boolean) {
+  await page.goto("/showcase");
+  await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
+  // Every fixture Role's User holds the baseline counter Permissions: the counter
+  // is shown and offered to each. Its value is not asserted — it is per User.
+  await expect(page.getByTestId("count")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Increment" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(
+    linksToAccounts ? 1 : 0,
+  );
+}
+
+async function expectAccounts(page: Page, view: AccountsView, createConnector: boolean) {
+  await page.goto("/accounts");
+  if (view === null) {
+    // Routed away exactly as any page the User lacks the Permission for.
+    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
+    await expect(page).toHaveURL(/\/showcase$/);
+    return;
+  }
+  await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+  await expect(page).toHaveURL(/\/accounts$/);
+  if (view.users) {
+    await expect(page.getByRole("table", { name: "Users" }).getByRole("row").nth(1)).toBeVisible();
+  }
+  for (const [title, shown] of [
+    ["Users", view.users],
+    ["Groups", view.groups],
+    ["Connectors", view.connectors],
+  ] as const) {
+    await expect(page.getByRole("heading", { name: title, exact: true })).toHaveCount(
+      shown ? 1 : 0,
+    );
+  }
+  await expect(page.getByRole("button", { name: "Create connector" })).toHaveCount(
+    createConnector ? 1 : 0,
+  );
+}
 
 test.describe("development Roles", () => {
-  for (const role of FIXTURE_ROLES) {
-    test(`${DEV_ROLES[role].username} signs in holding the ${role} Permissions`, async ({
+  for (const role of Object.keys(EXPECTED) as (keyof typeof EXPECTED)[]) {
+    const { permissions, username } = DEV_ROLES[role];
+    const expected = EXPECTED[role];
+
+    test(`${username} sees and reaches exactly what its ${role} Permissions allow`, async ({
       page,
     }) => {
       await loginAsRole(page, role);
 
+      // Its Permissions, and no role field beside them.
       const me = await page.request.get("/api/auth/me");
       expect(me.status()).toBe(200);
-      const body = (await me.json()) as { permissions: string[]; role: string };
-      expect(body.permissions).toEqual(DEV_ROLES[role].permissions);
-      // Not an Admin: the Roles are not the Admin group.
-      expect(body.role).toBe("USER");
+      const body = (await me.json()) as Record<string, unknown>;
+      expect(body.permissions).toEqual(permissions);
+      expect(body).not.toHaveProperty("role");
+
+      // The pages and actions it is shown.
+      await expectShowcase(page, expected.accounts !== null);
+      await expectAccounts(page, expected.accounts, expected.createConnector);
+
+      // A direct API call: each guarded read answers by its own Permission alone.
+      const held: readonly string[] = permissions;
+      for (const [path, permission] of Object.entries(GUARDED_READS)) {
+        const status = (await page.request.get(path)).status();
+        expect(status, `GET ${path} for ${username}`).toBe(held.includes(permission) ? 200 : 403);
+      }
+      // An action, with a valid CSRF token so the refusal is the Permission's: an
+      // unknown id answers 404 to a holder of user:write, and 403 to anyone else.
+      const unlock = await postAdminAction(page, crypto.randomUUID(), "unlock");
+      expect(unlock.status(), `unlock for ${username}`).toBe(expected.unlock ? 404 : 403);
     });
   }
 });

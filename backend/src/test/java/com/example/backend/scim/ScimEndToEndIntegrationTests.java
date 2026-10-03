@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.domain.ConnectorTokenScope;
@@ -194,9 +195,10 @@ class ScimEndToEndIntegrationTests {
                 .isEqualTo(200);
         JsonNode body = json.readTree(login.getResponse().getContentAsString());
         assertThat(body.get("username").asText()).isEqualTo(BOOTSTRAP_ADMIN);
-        assertThat(body.get("role").asText())
-                .as("derived from Admin group membership; there is no role column left to read")
-                .isEqualTo("ADMIN");
+        assertThat(body.has("role")).as("there is no role field any more").isFalse();
+        assertThat(body.get("permissions").valueStream().map(JsonNode::asText).toList())
+                .as("derived from Superuser Group membership; there is no role column to read")
+                .contains("user:read");
 
         MockHttpSession session = (MockHttpSession) login.getRequest().getSession(false);
         MvcResult listing = mvc.perform(get("/api/admin/accounts").session(session)).andReturn();
@@ -284,8 +286,12 @@ class ScimEndToEndIntegrationTests {
                                 .formatted(userName, password)))
                 .andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
-        assertThat(json.readTree(login.getResponse().getContentAsString()).get("role").asText())
-                .isEqualTo(expectedRole);
+        // "ADMIN": a member of the Superuser Group, holding every Permission; "USER": only the
+        // baseline counter Permissions every User holds.
+        JsonNode body = json.readTree(login.getResponse().getContentAsString());
+        assertThat(body.has("role")).isFalse();
+        assertThat(body.get("permissions").size())
+                .isEqualTo("ADMIN".equals(expectedRole) ? Permission.values().length : 2);
         return (MockHttpSession) login.getRequest().getSession(false);
     }
 

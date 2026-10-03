@@ -123,8 +123,9 @@ code they cover.
 
 E2E runs in four Playwright projects: `setup` signs in the seeded User and Admin
 once and saves separate storage states, `guest` runs signed-out and smoke
-coverage, `user` verifies the `USER` route policy, and `admin` drives the
-counter/session suites plus the `ADMIN` account administration page and its
+coverage and signs in each development Role's User, `user` verifies what a
+baseline User (only the counter's baseline Permissions) sees and is refused, and `admin` drives the
+counter/session suites plus the Superuser's account administration page and its
 endpoints. The non-guest projects need the backend running — see the root
 `README.md` and `make integration-test`.
 
@@ -147,7 +148,9 @@ The backend's development role mapping seeds one User per Role when it runs with
 `APP_DEV_FIXTURES_ENABLED=true` (as `backend/.env.example` sets): `account-admin`,
 `auditor`, `connector-admin` and `monitoring`, the Superuser's being the Admin.
 `DEV_ROLES` and `loginAsRole()` in `test/e2e/auth.helpers.ts` sign in as each,
-and `dev-roles.spec.ts` checks each one's Permissions on `/api/auth/me`.
+and `dev-roles.spec.ts` checks, for each one, its Permissions on `/api/auth/me`,
+the pages and actions the SPA shows it, and that every Permission-guarded read
+outside them is refused `403`.
 
 ## Backend contract
 

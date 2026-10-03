@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.example.backend.authorization.TestRoleMappings;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -280,9 +281,18 @@ class SecurityConfigTests {
     }
 
     @Test
-    void adminRoleCanReachTheAdminNamespace() throws Exception {
-        mvc.perform(get("/api/admin/accounts").session(authenticatedSession("ROLE_ADMIN")))
+    void theListingPermissionCanReachTheAccountsListing() throws Exception {
+        mvc.perform(get("/api/admin/accounts")
+                        .session(authenticatedSession("ROLE_USER", "user:read")))
                 .andExpect(status().isOk());
+    }
+
+    /** Another administrative Permission is not this route's: deny by Permission, not by area. */
+    @Test
+    void anotherPermissionCannotReachTheAccountsListing() throws Exception {
+        mvc.perform(get("/api/admin/accounts")
+                        .session(authenticatedSession("ROLE_USER", "audit:read", "user:write")))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -310,11 +320,22 @@ class SecurityConfigTests {
      * through finds nothing — where a refused one never gets that far (401 or 403 above).
      */
     @Test
-    void adminRoleCanReachActuatorEndpoints() throws Exception {
-        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_ADMIN")))
+    void opsReadCanReachActuatorEndpoints() throws Exception {
+        mvc.perform(get("/actuator/info").session(authenticatedSession("ROLE_USER", "ops:read")))
                 .andExpect(status().isNotFound());
-        mvc.perform(get("/actuator/prometheus").session(authenticatedSession("ROLE_ADMIN")))
+        mvc.perform(get("/actuator/prometheus")
+                        .session(authenticatedSession("ROLE_USER", "ops:read")))
                 .andExpect(status().isNotFound());
+    }
+
+    /** Every Permission but ops:read — an account administrator's included — is refused. */
+    @Test
+    void everyOtherPermissionIsRefusedTheActuatorEndpoints() throws Exception {
+        String[] allButOps = java.util.stream.Stream.of(TestRoleMappings.SUPERUSER_AUTHORITIES)
+                .filter(authority -> !authority.equals("ops:read"))
+                .toArray(String[]::new);
+        mvc.perform(get("/actuator/prometheus").session(authenticatedSession(allButOps)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -325,9 +346,9 @@ class SecurityConfigTests {
                 .andExpect(status().isUnauthorized());
     }
 
-    private MockHttpSession authenticatedSession(String authority) {
+    private MockHttpSession authenticatedSession(String... authorities) {
         SecurityContext context = SecurityContextHolder.createEmptyContext();
-        context.setAuthentication(new TestingAuthenticationToken("account", null, authority));
+        context.setAuthentication(new TestingAuthenticationToken("account", null, authorities));
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,

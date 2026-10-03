@@ -115,18 +115,23 @@ class DevelopmentRoleMappingIntegrationTests {
                 .build();
     }
 
-    /** One fixture User per Role, each holding exactly its Role's Permissions, sorted by name. */
+    /**
+     * One fixture User per Role, each holding exactly its Role's Permissions plus the baseline
+     * counter Permissions every User holds, sorted by name.
+     */
     @Test
     void eachDevelopmentRolesUserSignsInHoldingThatRolesPermissions() throws Exception {
         assertThat(permissionsOnMe(logIn("account-admin", FIXTURE_PASSWORD)))
-                .containsExactly("group:read", "user:read", "user:write");
+                .containsExactly("counter:read", "counter:write", "group:read", "user:read",
+                        "user:write");
         assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                .containsExactly("audit:read");
+                .containsExactly("audit:read", "counter:read", "counter:write");
         assertThat(permissionsOnMe(logIn("connector-admin", FIXTURE_PASSWORD)))
                 .containsExactly("connector:read", "connector:token", "connector:write",
-                        "group:read", "group:write", "user:read", "user:write");
+                        "counter:read", "counter:write", "group:read", "group:write",
+                        "user:read", "user:write");
         assertThat(permissionsOnMe(logIn("monitoring", FIXTURE_PASSWORD)))
-                .containsExactly("ops:read");
+                .containsExactly("counter:read", "counter:write", "ops:read");
     }
 
     /** The Superuser Group is the seeded Admin group, so the Bootstrap Admin holds everything. */
@@ -143,21 +148,25 @@ class DevelopmentRoleMappingIntegrationTests {
         addMember(ACCOUNT_ADMINS, auditor);
         try {
             assertThat(permissionsOnMe(logIn("auditor", FIXTURE_PASSWORD)))
-                    .containsExactly("audit:read", "group:read", "user:read", "user:write");
+                    .containsExactly("audit:read", "counter:read", "counter:write", "group:read",
+                            "user:read", "user:write");
         } finally {
             removeMember(ACCOUNT_ADMINS, auditor);
         }
     }
 
-    /** A User in no mapped Group holds no Permission, and keeps its baseline access. */
+    /**
+     * A User in no mapped Group holds no Role's Permission: only the baseline counter Permissions,
+     * and its baseline access.
+     */
     @Test
     void aUserInNoMappedGroupHoldsNoneAndKeepsBaselineAccess() throws Exception {
         Cookie session = logIn("test-user", "test-password");
 
         JsonNode me = me(session);
         assertThat(me.get("permissions").isArray()).isTrue();
-        assertThat(me.get("permissions")).isEmpty();
-        assertThat(me.get("role").asString()).isEqualTo("USER");
+        assertThat(permissionsOnMe(session)).containsExactly("counter:read", "counter:write");
+        assertThat(me.has("role")).as("there is no role field").isFalse();
         assertThat(mvc.perform(get("/api/self").cookie(session))
                         .andReturn().getResponse().getStatus())
                 .isEqualTo(200);

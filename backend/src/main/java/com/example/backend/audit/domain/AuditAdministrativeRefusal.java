@@ -24,7 +24,7 @@ public enum AuditAdministrativeRefusal {
 
     /**
      * The target is the Bootstrap Admin, the deployment's recovery identity, and the operation
-     * is one only it may perform on itself — today, a forced password change. Also stored, from
+     * is one nobody may perform on it — today, a forced password change. Also stored, from
      * before the Disable action was removed, for a refused attempt to disable it.
      */
     PROTECTED_RESOURCE,

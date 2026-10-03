@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.InvalidAuditQueryException;
 import java.time.Instant;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,9 +19,9 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * Inbound HTTP adapter for the redacted administrative audit listing.
  *
- * <p>Under {@code /api/admin}, so it is session authenticated and restricted to
- * {@code ROLE_ADMIN} by the filter chain; authorization is not expressed here, for the reason
- * {@code AdminAccountController} does not express it either.
+ * <p>Under {@code /api/admin}, so it is session authenticated; it requires {@code audit:read},
+ * declared here with method security and repeated by the chain as a backstop, for the reason
+ * {@code AdminAccountController} gives.
  *
  * <p>Every filter binds to a typed value — an operation or outcome from its closed set, an id, an
  * instant — so a malformed one is refused with {@code 400} by the binder before this method runs,
@@ -37,6 +38,7 @@ public class AdminAuditController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('audit:read')")
     public AuditEventPage list(
             @RequestParam(required = false) AuditOperation operation,
             @RequestParam(required = false) AuditOutcome outcome,

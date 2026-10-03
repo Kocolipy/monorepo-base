@@ -17,6 +17,7 @@ import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,13 +33,14 @@ import com.example.backend.scim.domain.ConnectorTokenScope;
  * Inbound HTTP adapter for connector and token administration.
  *
  * <p>Under {@code /api/admin}, so it is on the APPLICATION chain — session
- * authenticated, CSRF protected, restricted to {@code ROLE_ADMIN} by the filter
- * chain. That is deliberate and is the opposite of the namespace it manages
- * credentials for: minting a SCIM token is an administrator's browser action, not
- * something a connector may do for itself, so no bearer token reaches this
- * controller and no connector can issue itself a wider one. Authorization is not
- * expressed here, for the reason {@code AdminAccountController} does not express it
- * either: every access rule stays readable in one place.
+ * authenticated, CSRF protected, and each operation requires its own Permission
+ * ({@code connector:read} to list, {@code connector:write} to create and delete,
+ * {@code connector:token} to issue, rotate and revoke), declared on the handler with
+ * method security and repeated by the chain as a backstop. That is deliberate and is
+ * the opposite of the namespace it manages credentials for: minting a SCIM token is
+ * an administrator's browser action, not something a connector may do for itself, so
+ * no bearer token reaches this controller and no connector can issue itself a wider
+ * one.
  *
  * <p>Two response shapes, and the difference is the whole point.
  * {@link ConnectorSummary} has no field a credential could occupy and is what a
@@ -84,12 +86,14 @@ public class AdminConnectorController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('connector:read')")
     public List<ConnectorSummary> listConnectors() {
         return connectors.listConnectors();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('connector:write')")
     public ConnectorSummary create(
             @Valid @RequestBody CreateConnectorRequest request, Principal principal) {
         return connectors.create(request.displayName(), principal.getName());
@@ -101,6 +105,7 @@ public class AdminConnectorController {
      */
     @DeleteMapping("/{connectorId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('connector:write')")
     public void delete(@PathVariable UUID connectorId, Principal principal) {
         connectors.delete(connectorId, principal.getName());
     }
@@ -110,6 +115,7 @@ public class AdminConnectorController {
      * exist — there is no endpoint that returns it again.
      */
     @PostMapping("/{connectorId}/tokens")
+    @PreAuthorize("hasAuthority('connector:token')")
     public ResponseEntity<IssuedConnectorToken> issueToken(
             @PathVariable UUID connectorId,
             @Valid @RequestBody IssueTokenRequest request,
@@ -123,6 +129,7 @@ public class AdminConnectorController {
      * old token's expiry only ever moves earlier.
      */
     @PostMapping("/{connectorId}/tokens/{tokenId}/rotate")
+    @PreAuthorize("hasAuthority('connector:token')")
     public ResponseEntity<IssuedConnectorToken> rotateToken(
             @PathVariable UUID connectorId,
             @PathVariable UUID tokenId,
@@ -136,6 +143,7 @@ public class AdminConnectorController {
     /** Revokes a token, effective immediately. */
     @PostMapping("/{connectorId}/tokens/{tokenId}/revoke")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('connector:token')")
     public void revokeToken(
             @PathVariable UUID connectorId, @PathVariable UUID tokenId, Principal principal) {
         connectors.revokeToken(tokenId, principal.getName());

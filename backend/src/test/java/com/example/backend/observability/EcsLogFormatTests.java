@@ -801,7 +801,7 @@ class EcsLogFormatTests {
         assertThat(record.at("/app/event/action").asText()).isEqualTo("access.denied");
         assertThat(record.at("/log/level").asText()).isEqualTo("WARN");
         assertThat(record.at("/event/outcome").asText()).isEqualTo("failure");
-        assertThat(record.at("/event/reason").asText()).isEqualTo("access-denied");
+        assertThat(record.at("/event/reason").asText()).isEqualTo("insufficient-permissions");
         assertThat(record.at("/user/id").asText()).isEqualTo(userId("test-user").toString());
         assertThat(record.at("/http/request/method").asText()).isEqualTo("GET");
         assertThat(record.at("/http/route").asText()).isEqualTo("/api/admin/accounts");

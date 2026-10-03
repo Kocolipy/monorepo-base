@@ -193,11 +193,11 @@ shared storage state collapses that to one.
 
 ### Calling the API from a spec
 
-A **safe** request needs nothing but the jar: `roles-admin.spec.ts` and
-`roles-user.spec.ts` call `GET /api/admin/accounts` through `page.request` directly,
-which is how the role policy is asserted on the server rather than only on the
-SPA's redirect. A spec that asserts a role is refused must assert the exact
-status — `403` means the session was accepted and the role refused, where a `401`
+A **safe** request needs nothing but the jar: `roles-admin.spec.ts`,
+`roles-user.spec.ts` and `dev-roles.spec.ts` call the Permission-guarded reads through `page.request` directly,
+which is how the Permission policy is asserted on the server rather than only on the
+SPA's redirect. A spec that asserts a Permission is refused must assert the exact
+status — `403` means the session was accepted and the Permission refused, where a `401`
 would mean the request arrived unauthenticated and the spec passed for the wrong
 reason.
 
@@ -212,7 +212,7 @@ from `GET /api/auth/csrf` and echo it, as `csrfHeaderFor()` in
 discards the pre-login token; add new API fixtures beside it rather than inlining a raw
 `page.request.post`. `postAdminAction()` is the fixture for the administration
 endpoints, and it deliberately RETURNS the response instead of asserting on it:
-a `USER` reaching one must be refused for its role, and that is only proven with
+a caller lacking the Permission must be refused for it, and that is only proven with
 a valid token present, since a missing one earns the same `403` from the CSRF
 filter first.
 

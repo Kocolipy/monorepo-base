@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.counter.controller.UserCounterController;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.RedactedFaultException;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +14,7 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.StaticApplicationContext;
 import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -22,6 +24,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -30,7 +34,9 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver;
 
 /**
  * What the handler answers and what it records, for each kind of failure, read off the records
@@ -57,6 +63,49 @@ class ApiExceptionHandlerTests {
     void tearDown() {
         logs.close();
         RequestContextHolder.resetRequestAttributes();
+    }
+
+    /**
+     * A handler's own Permission declaration refusing the caller is NOT this advice's to answer:
+     * run through Spring MVC's real exception resolution, against a handler in a package the
+     * advice covers, the refusal is left unresolved — no response written, no fault record — so
+     * it propagates to the security chain, which answers it {@code 403} and records it as the
+     * refusal it is. Answered here, the catch-all would have made it a {@code 500}.
+     */
+    @Test
+    void aMethodSecurityRefusalIsLeftForTheSecurityChainToAnswer() throws Exception {
+        StaticApplicationContext context = new StaticApplicationContext();
+        context.registerSingleton("apiExceptionHandler", ApiExceptionHandler.class);
+        context.refresh();
+        ExceptionHandlerExceptionResolver resolver = new ExceptionHandlerExceptionResolver();
+        resolver.setApplicationContext(context);
+        resolver.afterPropertiesSet();
+        HandlerMethod handled = new HandlerMethod(
+                new UserCounterController(null),
+                UserCounterController.class.getMethod("getCount", java.security.Principal.class));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AccessDeniedException refused = new AuthorizationDeniedException("Access Denied");
+
+        assertThat(resolver.resolveException(request, response, handled, refused)).isNull();
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.isCommitted()).isFalse();
+        assertThat(logs.withAction(Level.ERROR, LogEvent.KIND, "event")).isEmpty();
+        // And the advice IS consulted for this handler, so the null above is its answer: anything
+        // else reaching the catch-all is recorded as the fault it is.
+        resolver.resolveException(
+                request, new MockHttpServletResponse(), handled, new IllegalStateException());
+        assertThat(logs.withAction(Level.ERROR, LogEvent.KIND, "event"))
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .containsExactly("Request failed with an unexpected exception");
+        context.close();
+    }
+
+    @Test
+    void handingARefusalBackRethrowsTheVeryException() {
+        AccessDeniedException refused = new AccessDeniedException("Access Denied");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> handler.handBackToTheChain(refused))
+                .isSameAs(refused);
     }
 
     @Test

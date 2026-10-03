@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "@/auth/auth-context";
+import { ADMINISTRATION_PERMISSIONS } from "@/auth/permissions";
 import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -47,7 +48,7 @@ export function App() {
             <Route
               path="/accounts"
               element={
-                <ProtectedRoute requiredRole="ADMIN">
+                <ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}>
                   <Accounts />
                 </ProtectedRoute>
               }

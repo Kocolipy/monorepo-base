@@ -6,8 +6,9 @@
  * redirect carries — is decided in one function that needs no router to test.
  */
 
-import type { AuthRole } from "./api";
+import type { Permission } from "./api";
 import type { AuthStatus } from "./auth-context-value";
+import { holdsAny } from "./permissions";
 
 /** The login route, which is also where an unauthenticated visitor is sent. */
 export const LOGIN_PATH = "/";
@@ -21,8 +22,12 @@ export const DEFAULT_DESTINATION = "/showcase";
  */
 export const CREDENTIAL_CHANGE_PATH = "/change-password";
 
-/** What a route requires of the current visitor. */
-export type SessionRequirement = "authenticated" | "guest" | AuthRole;
+/**
+ * What a route requires of the current visitor: a guest, any authenticated
+ * session, or an authenticated session holding at least one of the named
+ * Permissions.
+ */
+export type SessionRequirement = "authenticated" | "guest" | { anyOf: readonly Permission[] };
 
 /**
  * State a redirect carries forward.
@@ -55,8 +60,8 @@ export interface SessionRouteInput {
   requires: SessionRequirement;
   /** A return destination carried by an earlier redirect, if there was one. */
   returnTo?: string;
-  /** The authenticated account's role, when one is available. */
-  role?: AuthRole | null;
+  /** The authenticated session's Permissions, when they are known. */
+  permissions?: readonly Permission[];
   sessionExpired: boolean;
   /** The current `guest` status came from the SPA's sign-out for inactivity. */
   signedOutForInactivity: boolean;
@@ -67,9 +72,9 @@ export function resolveSessionRoute({
   passwordChangeRequired,
   passwordChanged,
   pathname,
+  permissions,
   requires,
   returnTo,
-  role,
   sessionExpired,
   signedOutForInactivity,
   status,
@@ -94,8 +99,9 @@ export function resolveSessionRoute({
     };
   }
 
-  // Confinement outranks every other rule, a recorded return destination and an
-  // Admin's role included: the session may do nothing else until it changes.
+  // Confinement outranks every other rule, a recorded return destination and a
+  // Superuser's Permissions included: the session may do nothing else until it
+  // changes.
   if (passwordChangeRequired) {
     return pathname === CREDENTIAL_CHANGE_PATH
       ? { kind: "render" }
@@ -103,6 +109,21 @@ export function resolveSessionRoute({
   }
 
   if (requires === "guest") return { kind: "redirect", to: returnTo ?? DEFAULT_DESTINATION };
-  if (requires === "authenticated" || role === requires) return { kind: "render" };
+  return authenticatedRoute(requires, permissions);
+}
+
+/**
+ * An unflagged, authenticated session on a protected route: any session renders
+ * an authenticated one, and a Permission-guarded one renders for a session
+ * holding any one of its Permissions. A page the session holds none of them for
+ * is routed away to the default destination, never rendered empty.
+ */
+function authenticatedRoute(
+  requires: Exclude<SessionRequirement, "guest">,
+  permissions: readonly Permission[] = [],
+): SessionRoute {
+  if (requires === "authenticated" || holdsAny({ permissions }, requires.anyOf)) {
+    return { kind: "render" };
+  }
   return { kind: "redirect", to: DEFAULT_DESTINATION };
 }

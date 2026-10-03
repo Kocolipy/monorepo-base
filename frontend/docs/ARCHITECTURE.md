@@ -54,7 +54,7 @@ runs it.
 
 `pages/login.tsx`, `pages/showcase.tsx`, `pages/accounts.tsx` and
 `pages/change-password.tsx` are screens that _consume_ this; they hold no
-session or role logic themselves, and none decides where a visitor goes next. A
+session or Permission logic themselves, and none decides where a visitor goes next. A
 new protected area adds a route declaration, not a second copy of the guard.
 
 `pages/accounts.tsx` is the widest of the four. It reads two read-only
@@ -223,23 +223,38 @@ directory that a test run writes into belongs on this list.
 
 `App.tsx` owns the whole route table — five routes, deliberately flat:
 
-| Path               | Element                                                              | Notes                                                                                       |
-| ------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `/`                | `<GuestRoute><Login /></GuestRoute>`                                 | Guest login; authenticated Users go to `/showcase`                                          |
-| `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                      | available to `USER` and `ADMIN`                                                             |
-| `/accounts`        | `<ProtectedRoute requiredRole="ADMIN"><Accounts /></ProtectedRoute>` | Users/Groups projections, Unlock, forced change, connectors — `ADMIN` only                  |
-| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                | self-service change for any authenticated User; the only route a flagged session is offered |
-| `*`                | `<Navigate replace to="/" />`                                        | unknown paths fall back to login                                                            |
+| Path               | Element                                                                                          | Notes                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                | `<GuestRoute><Login /></GuestRoute>`                                                             | Guest login; authenticated Users go to `/showcase`                                                                                                            |
+| `/showcase`        | `<ProtectedRoute><Showcase /></ProtectedRoute>`                                                  | every authenticated User; the counter by `counter:read` / `counter:write` (baseline, held by every User), the Accounts link by any Accounts view's Permission |
+| `/accounts`        | `<ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}><Accounts /></ProtectedRoute>` | any one of `user:read`, `group:read`, `connector:read`; each view and action by its own Permission                                                            |
+| `/change-password` | `<ProtectedRoute><ChangePassword /></ProtectedRoute>`                                            | self-service change for any authenticated User; the only route a flagged session is offered                                                                   |
+| `*`                | `<Navigate replace to="/" />`                                                                    | unknown paths fall back to login                                                                                                                              |
+
+**Permission-based guards.** The SPA decides navigation, page guards and in-page
+actions from the `permissions` `GET /api/auth/me` and the login response report
+— there is no role. `src/auth/permissions.ts` holds the one table of what each
+administrative view requires (`VIEW_PERMISSIONS`: Users `user:read`, Groups
+`group:read`, connectors `connector:read`) and the `holds` / `holdsAny` checks; a
+route states its requirement as `requiredPermissions`, which
+`resolveSessionRoute` reads as "any one of these", and a page hides each action
+it lacks the Permission for (Unlock and the forced change `user:write`, connector
+create and delete `connector:write`, token issue, rotate and revoke
+`connector:token`, the counter's buttons `counter:write`). A view the session
+cannot see is not requested either, so it never turns into a `403` on screen. A
+deep link to a page the session holds no Permission for is redirected to
+`/showcase`, exactly as any page it may not see. There is no audit page; the audit
+listing is API-only.
 
 **Change-password route.** The backend confines a session whose password must be
 replaced (the change-required flag, see `/CONTEXT.md`): `GET /api/auth/me` and
-the login response report `passwordChangeRequired: true` with `role: null`, and
+the login response report `passwordChangeRequired: true` with no Permission, and
 every endpoint but `POST /api/auth/change-password` and logout answers `403`.
 `AuthUser` carries that flag, and `resolveSessionRoute` confines such a session
 to `/change-password`: any other path it asks for — `/showcase`, `/accounts`,
 the login route, an unknown path (which falls back to login first) — redirects
-there, ahead of the role check and of any recorded return destination, so a
-flagged Admin is confined exactly as a flagged User is. The page offers sign-out,
+there, ahead of the Permission check and of any recorded return destination, so a
+flagged Superuser is confined exactly as a flagged User is. The page offers sign-out,
 so a flagged User is never stuck on it. An unflagged User may open it too, for a
 voluntary change, and the showcase links to it.
 
@@ -263,11 +278,12 @@ uncontrolled, because React mirrors a controlled input's value into the DOM
 
 `resolveSessionRoute` is the pure transition table behind both guard adapters.
 It sends a Guest to login with a return destination, confines a flagged
-session to `/change-password`, renders authenticated routes for either role, and
-redirects a role mismatch to `/showcase`. After a successful change it sends the
+session to `/change-password`, renders an authenticated route for any session,
+renders a Permission-guarded one for a session holding any of its Permissions,
+and redirects every other session to `/showcase`. After a successful change it sends the
 visitor to login carrying `passwordChanged` instead of a return destination.
-Spring Security remains authoritative for server operations: `/api/admin/**`
-requires `ADMIN`, and a flagged session is refused everything but the change and
+Spring Security remains authoritative for server operations: every operation
+requires its own declared Permission, and a flagged session is refused everything but the change and
 logout, even if client-side routing is bypassed, so the guard decides what is
 _rendered_ and never what is _permitted_.
 

@@ -5,9 +5,11 @@ import {
   DEFAULT_DESTINATION,
   LOGIN_PATH,
   resolveSessionRoute,
+  type SessionRequirement,
   type SessionRoute,
   type SessionRouteInput,
 } from "./session-route";
+import type { Permission } from "./api";
 
 const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput => ({
   passwordChangeRequired: false,
@@ -20,9 +22,26 @@ const input = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput =>
   ...overrides,
 });
 
-/** A confined session exactly as the backend reports one: flagged, and holding no role. */
+/** A confined session exactly as the backend reports one: flagged, and holding no Permission. */
 const flagged = (overrides: Partial<SessionRouteInput> = {}): SessionRouteInput =>
-  input({ passwordChangeRequired: true, role: null, ...overrides });
+  input({ passwordChangeRequired: true, permissions: [], ...overrides });
+
+/** The Accounts page's requirement: any one of its views' Permissions. */
+const ACCOUNTS: SessionRequirement = { anyOf: ["user:read", "group:read", "connector:read"] };
+
+const EVERY_PERMISSION: Permission[] = [
+  "audit:read",
+  "connector:read",
+  "connector:token",
+  "connector:write",
+  "counter:read",
+  "counter:write",
+  "group:read",
+  "group:write",
+  "ops:read",
+  "user:read",
+  "user:write",
+];
 
 const toChangePassword: SessionRoute = { kind: "redirect", to: CREDENTIAL_CHANGE_PATH };
 
@@ -44,18 +63,18 @@ describe("resolveSessionRoute for the change-required flag", () => {
       toChangePassword,
     ],
     [
-      "confines a flagged session on the ADMIN-only route",
-      flagged({ pathname: "/accounts", requires: "ADMIN" }),
+      "confines a flagged session on a Permission-guarded route",
+      flagged({ pathname: "/accounts", requires: ACCOUNTS }),
       toChangePassword,
     ],
     [
-      "confines a flagged Admin even if a role were reported",
-      flagged({ pathname: "/accounts", requires: "ADMIN", role: "ADMIN" }),
+      "confines a flagged session even if Permissions were reported",
+      flagged({ pathname: "/accounts", permissions: EVERY_PERMISSION, requires: ACCOUNTS }),
       toChangePassword,
     ],
     [
-      "confines a flagged USER even if a role were reported",
-      flagged({ pathname: "/showcase", role: "USER" }),
+      "confines a flagged baseline User on the showcase",
+      flagged({ pathname: "/showcase", permissions: [] }),
       toChangePassword,
     ],
     [
@@ -69,18 +88,18 @@ describe("resolveSessionRoute for the change-required flag", () => {
       toChangePassword,
     ],
     [
-      "renders the change-password route for an unflagged USER",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, role: "USER" }),
+      "renders the change-password route for an unflagged baseline User",
+      input({ pathname: CREDENTIAL_CHANGE_PATH, permissions: [] }),
       { kind: "render" },
     ],
     [
-      "renders the change-password route for an unflagged ADMIN",
-      input({ pathname: CREDENTIAL_CHANGE_PATH, role: "ADMIN" }),
+      "renders the change-password route for an unflagged Superuser",
+      input({ pathname: CREDENTIAL_CHANGE_PATH, permissions: EVERY_PERMISSION }),
       { kind: "render" },
     ],
     [
-      "lets an unflagged ADMIN reach the ADMIN-only route",
-      input({ pathname: "/accounts", requires: "ADMIN", role: "ADMIN" }),
+      "lets an unflagged session holding the Permission reach the guarded route",
+      input({ pathname: "/accounts", permissions: EVERY_PERMISSION, requires: ACCOUNTS }),
       { kind: "render" },
     ],
     [
@@ -177,21 +196,51 @@ describe("resolveSessionRoute", () => {
     });
   });
 
-  it("renders an ADMIN-only route for an administrator", () => {
+  it("renders a Permission-guarded route for a session holding its Permission", () => {
     expect(
-      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", role: "ADMIN" })),
+      resolveSessionRoute(
+        input({ pathname: "/accounts", permissions: ["user:read"], requires: ACCOUNTS }),
+      ),
     ).toEqual({ kind: "render" });
   });
 
-  it("redirects a USER away from an ADMIN-only route", () => {
+  it("renders it for a session holding any one of the Permissions it names", () => {
     expect(
-      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", role: "USER" })),
+      resolveSessionRoute(
+        input({ pathname: "/accounts", permissions: ["connector:read"], requires: ACCOUNTS }),
+      ),
+    ).toEqual({ kind: "render" });
+  });
+
+  it("redirects a session holding none of its Permissions away from it", () => {
+    expect(
+      resolveSessionRoute(
+        input({
+          pathname: "/accounts",
+          // Real Permissions, just not this route's: an Auditor and a Monitoring account.
+          permissions: ["audit:read", "ops:read", "counter:write"],
+          requires: ACCOUNTS,
+        }),
+      ),
     ).toEqual({ kind: "redirect", to: DEFAULT_DESTINATION });
   });
 
-  it("sends a guest on an ADMIN-only route to login with its return destination", () => {
+  it("redirects a baseline session, holding no Permission, away from it", () => {
     expect(
-      resolveSessionRoute(input({ pathname: "/accounts", requires: "ADMIN", status: "guest" })),
+      resolveSessionRoute(input({ pathname: "/accounts", permissions: [], requires: ACCOUNTS })),
+    ).toEqual({ kind: "redirect", to: DEFAULT_DESTINATION });
+  });
+
+  it("redirects a session whose Permissions are not known yet away from it", () => {
+    expect(resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS }))).toEqual({
+      kind: "redirect",
+      to: DEFAULT_DESTINATION,
+    });
+  });
+
+  it("sends a guest on a Permission-guarded route to login with its return destination", () => {
+    expect(
+      resolveSessionRoute(input({ pathname: "/accounts", requires: ACCOUNTS, status: "guest" })),
     ).toEqual({
       kind: "redirect",
       state: { expired: false, from: "/accounts" },

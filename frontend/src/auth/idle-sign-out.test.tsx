@@ -29,7 +29,7 @@ const WARN_AT_MS = LIMIT_MS - 60_000;
 const user = (idleTimeoutSeconds = IDLE_SECONDS): authApi.AuthUser => ({
   idleTimeoutSeconds,
   passwordChangeRequired: false,
-  role: "USER",
+  permissions: [],
   username: "ada",
 });
 

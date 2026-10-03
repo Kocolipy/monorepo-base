@@ -25,6 +25,10 @@ import java.util.stream.Collectors;
  */
 public final class RecordingAuditTrail implements AuditTrail {
 
+    private static String operationOf(com.example.backend.audit.domain.AuditRequest request) {
+        return request.method() + " " + request.pathTemplate();
+    }
+
     private final List<Recorded> recorded = new ArrayList<>();
 
     /** One recorded call: what it said happened, and the ids and reason it named. */
@@ -261,6 +265,22 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordUnlockRefused(
             UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason) {
         recorded.add(new Recorded(AuditOperation.LOCKOUT_LIFT, actorId, subjectId, reason.name()));
+    }
+
+    @Override
+    public void recordAccessDenied(
+            UUID userId, com.example.backend.audit.domain.AuditRequest operation) {
+        accessDeniedRequests.add(operation);
+        recorded.add(new Recorded(AuditOperation.ACCESS_DENIED, userId, userId,
+                operationOf(operation)));
+    }
+
+    private final List<com.example.backend.audit.domain.AuditRequest> accessDeniedRequests =
+            new ArrayList<>();
+
+    /** The operation each authorization refusal was recorded with, request id included. */
+    public List<com.example.backend.audit.domain.AuditRequest> accessDeniedRequests() {
+        return List.copyOf(accessDeniedRequests);
     }
 
     @Override

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
+import { ADMINISTRATION_PERMISSIONS, holds, holdsAny } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
@@ -20,12 +21,17 @@ const decodeCount = jsonDecoder((body: unknown): number =>
   readObject(body, "CountResponse").integer("count"),
 );
 
-/** The original home page, now available to authenticated users at /showcase. */
-export function Showcase() {
+const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
+
+/**
+ * The counter's state and the two changes to it. The current count is read
+ * once, on mount, and only when `canRead` — without `counter:read` the read
+ * would only be refused, so it is never asked for.
+ */
+function useCounter(canRead: boolean) {
   const [count, setCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [isUpdating, setIsUpdating] = useState(true);
-  const { logout, user } = useAuth();
+  const [isUpdating, setIsUpdating] = useState(canRead);
   const request = useSessionRequest();
 
   const getCount = useCallback(() => request("/api/count", {}, decodeCount), [request]);
@@ -47,22 +53,89 @@ export function Showcase() {
   }, []);
 
   useEffect(() => {
+    if (!canRead) return;
     void getCount()
       .then((result) => applyResult(result, "Unable to load the counter. Please try again."))
       .finally(() => {
         setIsUpdating(false);
       });
-  }, [applyResult, getCount]);
+  }, [applyResult, canRead, getCount]);
 
-  const updateCount = async (request: () => Promise<SessionResult<number>>) => {
+  const updateCount = async (change: () => Promise<SessionResult<number>>) => {
     setError(null);
     setIsUpdating(true);
     try {
-      applyResult(await request(), "Unable to update the counter. Please try again.");
+      applyResult(await change(), "Unable to update the counter. Please try again.");
     } finally {
       setIsUpdating(false);
     }
   };
+
+  return {
+    count,
+    error,
+    increment: () => void updateCount(incrementCount),
+    isUpdating,
+    reset: () => void updateCount(resetCount),
+  };
+}
+
+/** The count for `counter:read`; for a session without it, a note that it has none. */
+function CounterReading({ canRead, count }: { canRead: boolean; count: number }) {
+  if (!canRead) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        You are signed in. Your account has no access to the counter.
+      </p>
+    );
+  }
+  return (
+    <p className="text-sm text-muted-foreground" data-testid="count">
+      Clicked {count} {count === 1 ? "time" : "times"}
+    </p>
+  );
+}
+
+/** Increment and Reset, offered only with `counter:write`. */
+function CounterControls({
+  canWrite,
+  count,
+  increment,
+  isUpdating,
+  reset,
+}: {
+  canWrite: boolean;
+  count: number;
+  increment: () => void;
+  isUpdating: boolean;
+  reset: () => void;
+}) {
+  if (!canWrite) return null;
+  return (
+    <>
+      <Button onClick={increment} disabled={isUpdating}>
+        Increment
+      </Button>
+      <Button variant="outline" onClick={reset} disabled={count === 0 || isUpdating}>
+        Reset
+      </Button>
+    </>
+  );
+}
+
+/**
+ * The original home page, now available to authenticated users at /showcase.
+ *
+ * Every signed-in User lands here; what it shows follows the session's
+ * Permissions. The counter is read only with `counter:read` and changed only
+ * with `counter:write` — baseline Permissions every active User holds, so in
+ * practice every signed-in User has the counter — and the link to the Accounts
+ * page appears only for a User who may see one of its views.
+ */
+export function Showcase() {
+  const { logout, user } = useAuth();
+  const canRead = holds(user, "counter:read");
+  const { count, error, increment, isUpdating, reset } = useCounter(canRead);
 
   return (
     <main className="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-6 p-8">
@@ -84,9 +157,7 @@ export function Showcase() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground" data-testid="count">
-            Clicked {count} {count === 1 ? "time" : "times"}
-          </p>
+          <CounterReading canRead={canRead} count={count} />
           {error ? (
             <p className="mt-2 text-sm text-destructive" role="alert">
               {error}
@@ -94,26 +165,20 @@ export function Showcase() {
           ) : null}
         </CardContent>
         <CardFooter className="gap-2">
-          <Button onClick={() => void updateCount(incrementCount)} disabled={isUpdating}>
-            Increment
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => void updateCount(resetCount)}
-            disabled={count === 0 || isUpdating}
-          >
-            Reset
-          </Button>
+          <CounterControls
+            canWrite={holds(user, "counter:write")}
+            count={count}
+            increment={increment}
+            isUpdating={isUpdating}
+            reset={reset}
+          />
           <div className="ml-auto flex gap-4">
-            {user?.role === "ADMIN" ? (
-              <Link className="text-sm font-medium underline underline-offset-4" to="/accounts">
+            {holdsAny(user, ADMINISTRATION_PERMISSIONS) ? (
+              <Link className={LINK_CLASS} to="/accounts">
                 Manage accounts
               </Link>
             ) : null}
-            <Link
-              className="text-sm font-medium underline underline-offset-4"
-              to={CREDENTIAL_CHANGE_PATH}
-            >
+            <Link className={LINK_CLASS} to={CREDENTIAL_CHANGE_PATH}>
               Change password
             </Link>
           </div>

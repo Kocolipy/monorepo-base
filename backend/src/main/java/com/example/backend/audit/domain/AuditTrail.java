@@ -292,6 +292,19 @@ public interface AuditTrail {
     void recordUnlockRefused(UUID actorId, UUID subjectId, AuditAdministrativeRefusal reason);
 
     /**
+     * Records an authorization refusal on the application chain. Fail-open with an alert, as
+     * every refusal is: the caller is already receiving {@code 403}.
+     *
+     * @param userId    the refused User's stable id, or {@code null} when the session names none
+     * @param operation the refused request as the trail identifies one: its method, the route
+     *                  TEMPLATE it addressed (never the resolved path) and its correlation id.
+     *                  Passed in rather than read from the request context because a chain-level
+     *                  refusal happens before the dispatcher has matched a route that context
+     *                  could report.
+     */
+    void recordAccessDenied(UUID userId, AuditRequest operation);
+
+    /**
      * Records a User replacing its own password. Fail-closed: a credential change this service
      * cannot account for does not happen. Names the changed paths, never a value.
      */

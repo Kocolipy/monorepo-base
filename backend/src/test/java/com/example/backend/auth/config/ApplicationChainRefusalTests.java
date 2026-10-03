@@ -5,10 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.RequestActor;
+import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.observability.RouteTemplates;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -20,11 +26,15 @@ import org.springframework.security.web.csrf.MissingCsrfTokenException;
 
 /**
  * The application chain's two refusal answers, each driven directly: what the caller receives,
- * and the one record it leaves.
+ * and the records it leaves.
  */
 class ApplicationChainRefusalTests {
 
-    private final AccessRefusalLog refusals = new AccessRefusalLog(new RouteTemplates(() -> null));
+    private final RouteTemplates routes = new RouteTemplates(() -> null);
+
+    private final AccessRefusalLog refusals = new AccessRefusalLog(routes);
+
+    private final RecordingAuditTrail audit = new RecordingAuditTrail();
 
     private final MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -129,17 +139,42 @@ class ApplicationChainRefusalTests {
     // ---- 403 ---------------------------------------------------------------------------------
 
     @Test
-    void an_authorization_refusal_is_403_recorded_as_access_denied() throws Exception {
+    void an_authorization_refusal_is_403_recorded_as_insufficient_permissions() throws Exception {
+        UUID caller = UUID.randomUUID();
+        MockHttpServletRequest request = request("GET", "/api/admin/accounts");
+        RequestActor.user(request, caller);
+        // The id RequestIdFilter stamped on the exchange, which the audit row must carry so the
+        // refusal joins its request-end record.
+        request.setAttribute(RequestIdFilter.class.getName() + ".requestId", "req-refused");
+
         ILoggingEvent record = onlyRecord(() -> deniedHandler().handle(
-                request("GET", "/api/admin/accounts"), response,
-                new AccessDeniedException("Access Denied: requires ROLE_ADMIN")));
+                request, response,
+                new AccessDeniedException("Access Denied: requires user:read")));
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(record.getLevel()).isEqualTo(Level.WARN);
-        assertThat(CapturedLog.fields(record)).containsEntry(LogEvent.REASON, "access-denied");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.REASON, "insufficient-permissions");
         assertThat(record.getThrowableProxy()).isNull();
         assertThat(CapturedLog.fields(record).toString() + record.getFormattedMessage())
-                .doesNotContain("ROLE_").doesNotContain("ADMIN");
+                .doesNotContain("ROLE_").doesNotContain("user:read");
+        // Audited once, naming the caller and the operation and nothing about the rule.
+        assertThat(audit.recorded()).containsExactly(new RecordingAuditTrail.Recorded(
+                AuditOperation.ACCESS_DENIED, caller, caller, "GET unmatched"));
+        assertThat(audit.accessDeniedRequests()).extracting(AuditRequest::requestId)
+                .containsExactly("req-refused");
+    }
+
+    /** The error dispatch a refusal is rendered through is the same exchange: not audited again. */
+    @Test
+    void a_refusal_already_recorded_is_not_audited_again() throws Exception {
+        MockHttpServletRequest request = request("GET", "/api/admin/accounts");
+        RefusalLoggingAccessDeniedHandler handler = deniedHandler();
+
+        handler.handle(request, response, new AccessDeniedException("x"));
+        handler.handle(request, new MockHttpServletResponse(), new AccessDeniedException("x"));
+
+        assertThat(audit.of(AuditOperation.ACCESS_DENIED)).hasSize(1);
     }
 
     @Test
@@ -159,6 +194,8 @@ class ApplicationChainRefusalTests {
         assertThat(CapturedLog.fields(invalid)).containsEntry(LogEvent.REASON, "csrf");
         assertThat(invalid.getFormattedMessage() + CapturedLog.fields(invalid))
                 .doesNotContain("expected").doesNotContain("actual");
+        // Not an authorization decision, so not an audited refusal.
+        assertThat(audit.recorded()).isEmpty();
     }
 
     private SessionAuthenticationEntryPoint entryPoint() {
@@ -166,7 +203,7 @@ class ApplicationChainRefusalTests {
     }
 
     private RefusalLoggingAccessDeniedHandler deniedHandler() {
-        return new RefusalLoggingAccessDeniedHandler(refusals);
+        return new RefusalLoggingAccessDeniedHandler(refusals, audit, routes);
     }
 
     private static ILoggingEvent onlyRecord(Action action) throws Exception {

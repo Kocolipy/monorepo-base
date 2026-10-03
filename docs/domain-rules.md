@@ -146,9 +146,9 @@ survives a security change (see **Session revocation**). Failure
 runs and lockouts remain application-owned authentication behavior on the User.
 
 The User is the only identity: the `accounts` table and the `Account`
-aggregate are gone, Login authenticates against `scim_users`, and Admin authority
-is derived from direct membership of the server-seeded Admin group rather than
-read from a role column, which no longer exists.
+aggregate are gone, Login authenticates against `scim_users`, and authority is
+the Permissions the role mapping confers through direct Group membership rather
+than anything read from a role column, which no longer exists.
 
 **Normalized SCIM storage** — the PostgreSQL representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
@@ -171,12 +171,12 @@ A Group may contain direct User members only; Group-valued members and transitiv
 membership are unsupported. Users and Groups enter the SCIM interface together;
 they are not separate future capabilities.
 
-**Admin group** — the server-seeded Group whose members receive the authorization
-the removed role column's `ADMIN` value used to grant, still carried in a session
-as `ROLE_ADMIN`, in addition to baseline User access. Its stable
-resource id carries that authorization meaning: SCIM may change ordinary
-membership but may neither rename nor delete the Group, nor remove the Bootstrap
-Admin's membership.
+**Admin group** — the server-seeded Group that is the **Superuser Group**: its
+members hold the Superuser Role, and with it every Permission, in addition to
+baseline User access. There is no `ROLE_ADMIN`: the Group confers authority only
+through the Role the mapping assigns it. Its stable resource id carries that
+meaning: SCIM may change ordinary membership but may neither rename nor delete
+the Group, nor remove the Bootstrap Admin's membership.
 
 **SCIM tombstone** — the privacy-minimal record retained after SCIM deletion: the
 resource type, stable resource id and deletion time (UTC), and nothing else. Its
@@ -271,16 +271,51 @@ login page; asking for a protected route records the return destination and
 sends them there.
 
 **User** — any identity in the SCIM directory, signed in or not. Every active
-User with a session receives baseline access:
-the counter page at `/showcase` and its own password change, but not account
-administration, in the browser or
-over the API. There is no role column: baseline access is `ROLE_USER`, granted to
-every session not confined by the change-required flag.
+User with a session receives baseline access — self-service: `GET /api/auth/me`,
+its own password change, logout, `/api/self` and `/api/session` — and nothing
+else without a Permission, in the browser or over the API. There is no role
+column: baseline access is `ROLE_USER`, granted to every session not confined by
+the change-required flag, whatever Roles it holds or lacks, so a misconfigured
+mapping can never take self-service away.
 
-**Admin** — a User that is a direct member of the **Admin group**. Admin authority
-is derived from that membership at Login, not stored, and the session carries it as
-`ROLE_ADMIN` alongside `ROLE_USER`. An Admin may use the counter page, the accounts page at `/accounts`,
-and the administration API under `/api/admin/**`.
+**Admin** — a User holding at least one administrative Permission through its
+Roles. There is no administrative role and no `ROLE_ADMIN`: what an Admin may do
+is exactly its Permissions — a helpdesk operator holding `user:read` and
+`user:write` sees and unlocks accounts, and nothing more.
+
+**Deny by default** — every operation of the application chain declares what it
+needs, and whatever declares nothing is refused. Three kinds, and nothing else:
+
+- **Public** — `POST /api/auth/login`, `GET /api/auth/csrf` and
+  `/actuator/health`, reachable with no session.
+- **Self-service** — authenticated, no Permission: the five baseline routes
+  above. They act only on the session's own User and take no account id from the
+  request, so there is no caller-supplied id to check ownership against.
+- **One Permission** — every other operation requires exactly one, declared on
+  its handler with method security and repeated by the chain as a backstop:
+  `user:read` lists accounts; `user:write` unlocks and forces a password change;
+  `group:read` lists Groups; `audit:read` lists audit events; `connector:read`
+  lists connectors, `connector:write` creates and deletes them,
+  `connector:token` issues, rotates and revokes their tokens; `ops:read` reaches
+  every actuator endpoint but health, on whichever port actuator is served;
+  `counter:read` / `counter:write` read and change the counter.
+
+An undeclared route under `/api/`, a method a declared route does not serve, and
+`/scim/**` for a session (the SCIM chain serves bearer tokens only) are all
+refused `403`. The API document declares each operation's requirement in its
+`security` field, and a contract test proves every declaration against the
+running application.
+
+**Authorization refusal** — the `403` a signed-in caller gets when the operation
+does not admit it: a Permission it lacks, a route nothing declares, or a session
+confined by the change-required flag. Generic on purpose: the response is
+bodiless, and the refusal is audited (`ACCESS_DENIED`) and logged at `WARN` with
+the caller, the operation (method and route template) and one reason
+(`INSUFFICIENT_PERMISSIONS` / `insufficient-permissions`), never naming the
+Permission, a Role or the rule. The missing Permission is recoverable from the
+operation's declaration in the API document, since each requires exactly one. A
+missing or stale CSRF token is a `403` too, but it is not an authorization
+decision and is neither audited nor reasoned as one.
 
 **Permission** and **Role** — a Permission is one fine-grained power from a
 closed set defined in code (`user:read`, `user:write`, `group:read`,
@@ -296,12 +331,17 @@ backend README's "Role mapping" for its shape. The rules:
 
 - **Union.** A User's Permissions are the union of the Roles of the mapped
   Groups it is a _direct_ member of — nesting is not modelled — so holding an
-  extra Role never takes a power away. A User in no mapped Group holds none and
-  keeps baseline access (`ROLE_USER`).
-- **Taken at Login.** Like Admin authority, Permissions are resolved once, at
+  extra Role never takes a power away. A User in no mapped Group holds only the
+  baseline Permissions below and keeps baseline access (`ROLE_USER`).
+- **Baseline Permissions.** `counter:read` and `counter:write` are held by every
+  active User whatever its Groups, granted at Login beside `ROLE_USER` rather
+  than through a Role. The counter is a basic capability, and a Group every User
+  must join would be a second place for the fact that it is a User. A confined
+  session does not hold them.
+- **Taken at Login.** Permissions are resolved once, at
   Login, and the session carries them, together with the hash of the mapping
   they were resolved under. A membership change is seen at the next Login. A
-  confined session holds none, as it holds no role.
+  confined session holds none.
 - **Validated at startup, fail-fast.** Startup refuses — naming every problem
   in one message — a Permission name outside the closed set, a Role defined
   twice or without a name, a mapping entry with no Group id, a Group id mapped
@@ -427,14 +467,16 @@ no password to replace. It is **cleared** only by a successful self-service chan
 a connector write never clears it.
 
 **Confined session** — a session issued while the change-required flag is set. It
-holds no role, an Admin's included, so it may call only `GET /api/auth/me`, the
-self-service change and logout; every other endpoint, `/api/admin/**` included,
-answers `403`.
+holds no Permission and not even baseline access, a Superuser's included, so it may
+call only `GET /api/auth/me`, the self-service change and logout; every other
+endpoint, `/api/admin/**`, `/api/self` and `/api/session` included, answers `403`.
 
-**Forced password change** — an Admin action setting the change-required flag on
-another User and ending every session it holds. The Admin never sees, chooses or
-transports the password. Refused on the acting Admin's own account, on the
-Bootstrap Admin by anyone but itself, and (`409`) on a credentialless User.
+**Forced password change** — an action of a holder of `user:write`, setting the
+change-required flag on another User and ending every session it holds. The Admin
+never sees, chooses or transports the password. Refused (`403`) on the caller's own
+account whatever Permissions it holds — the Bootstrap Admin's included, which
+replaces its own password through the self-service change — and on the Bootstrap
+Admin by anyone; and (`409`) on a credentialless User.
 
 **Self-service password change** — `POST /api/auth/change-password`, for the User
 the session belongs to. A wrong current password lengthens the same failure run as
@@ -445,12 +487,13 @@ the version, records a `PASSWORD_CHANGE` audit event with no password value, and
 revokes every session of the User, the submitter's included.
 
 **Recovery guard** — what keeps the deployment recoverable now that Admins no
-longer deactivate anyone. Two rules. An Admin may not Unlock or force-change their
-own account (`403`), so recovering from a self-inflicted state takes a second
-Admin — and the Bootstrap Admin may flag only its own password. And the Bootstrap
-Admin can never be locked and is protected from every SCIM write, deactivation
-included, so a deployment whose other Admins are all locked is still recoverable:
-it signs in and unlocks them.
+longer deactivate anyone. Two rules. **Self-target refusal:** no Admin may Unlock
+or force-change their own account (`403`), whatever Permissions it holds — a
+Superuser's included — so recovering from a self-inflicted state takes a second
+Admin, and nobody may force the Bootstrap Admin's password change at all. And the
+Bootstrap Admin can never be locked and is protected from every SCIM write,
+deactivation included, so a deployment whose other Admins are all locked is still
+recoverable: it signs in and unlocks them.
 
 The self-target check compares NORMALIZED `userName`s: a session names its
 principal by whatever spelling it logged in with, and a raw comparison would let
@@ -501,11 +544,17 @@ also requires the User to change its password), the **forced password change**
 (offered only on a credentialed User not already flagged), and connector and token
 management with one-time plaintext disclosure. Both User operations address the
 User by its stable id. It offers neither operation on the signed-in Admin's own
-row, and no Unlock on the Bootstrap Admin, so the backend's refusals are visible
-before the click. There is no Deactivate or Activate: `active` is the directory's,
-and the backend has no endpoint that would accept a write to any directory-owned
-field. The page never decides authorization — it renders behind the `ADMIN` guard,
-and the backend refuses `/api/admin/**` to any other role regardless.
+row, no Unlock on the Bootstrap Admin, and no forced change on it either, so the
+backend's refusals are visible before the click. There is no Deactivate or
+Activate: `active` is the directory's, and the backend has no endpoint that would
+accept a write to any directory-owned field. Each view and action is shown by its
+own Permission — the Users projection by `user:read`, its Unlock and forced change
+by `user:write`, the Groups projection by `group:read`, connectors by
+`connector:read` (create and delete by `connector:write`, tokens by
+`connector:token`) — and the page renders for a User who may see at least one view;
+a deep link from anyone else is routed to the showcase. The page never decides
+authorization: the backend refuses each operation to a caller lacking its
+Permission regardless.
 
 **Dormancy basis** — the instant a User's dormancy is measured from: its
 `lastAuthenticatedAt` — set by every successful Login made while no password

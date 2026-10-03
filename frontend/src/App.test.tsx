@@ -35,7 +35,7 @@ describe("App", () => {
           JSON.stringify({
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
-            role: "USER",
+            permissions: [],
             username: "ada",
           }),
           {
@@ -60,7 +60,8 @@ describe("App", () => {
           Response.json({
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
-            role: "USER",
+            // counter:read, so the showcase reads the counter and meets the 401.
+            permissions: ["counter:read"],
             username: "ada",
           }),
         )
@@ -93,7 +94,7 @@ describe("App", () => {
           JSON.stringify({
             idleTimeoutSeconds: 900,
             passwordChangeRequired: false,
-            role: "USER",
+            permissions: [],
             username: "ada",
           }),
           {
@@ -139,14 +140,14 @@ describe("App", () => {
     );
   });
 
-  it("redirects a USER away from account administration", async () => {
+  it("redirects a User holding no Accounts Permission away from account administration", async () => {
     window.history.replaceState(null, "", "/accounts");
     stubFetchWithCsrf(
       vi.fn().mockResolvedValue(
         Response.json({
           idleTimeoutSeconds: 900,
           passwordChangeRequired: false,
-          role: "USER",
+          permissions: [],
           username: "ada",
         }),
       ),
@@ -157,7 +158,7 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/showcase");
   });
 
-  it("renders account administration for an ADMIN", async () => {
+  it("renders account administration for a Superuser", async () => {
     window.history.replaceState(null, "", "/accounts");
     stubFetchWithCsrf(
       vi.fn((input: string) =>
@@ -181,12 +182,23 @@ describe("App", () => {
               ])
             : input === "/api/admin/groups" || input === "/api/admin/connectors"
               ? Response.json([])
-              : // The /me response is UNCHANGED by the identity unification: it still
-                // reports `username` and a single `role`, derived from the authorities.
+              : // Every Permission, as the Superuser Group confers them; no role field.
                 Response.json({
                   idleTimeoutSeconds: 900,
                   passwordChangeRequired: false,
-                  role: "ADMIN",
+                  permissions: [
+                    "audit:read",
+                    "connector:read",
+                    "connector:token",
+                    "connector:write",
+                    "counter:read",
+                    "counter:write",
+                    "group:read",
+                    "group:write",
+                    "ops:read",
+                    "user:read",
+                    "user:write",
+                  ],
                   username: "grace",
                 }),
         ),
@@ -205,7 +217,7 @@ describe("App", () => {
 const CONFINED = {
   idleTimeoutSeconds: 900,
   passwordChangeRequired: true,
-  role: null,
+  permissions: [],
   username: "ada",
 };
 
@@ -258,7 +270,7 @@ describe("App with the change-required flag", () => {
         Response.json({
           idleTimeoutSeconds: 900,
           passwordChangeRequired: false,
-          role: "USER",
+          permissions: [],
           username: "ada",
         }),
       ),
@@ -285,7 +297,7 @@ describe("App with the change-required flag", () => {
         Response.json({
           idleTimeoutSeconds: 900,
           passwordChangeRequired: false,
-          role: "USER",
+          permissions: [],
           username: "ada",
         }),
       )

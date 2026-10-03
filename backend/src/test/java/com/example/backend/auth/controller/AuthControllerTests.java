@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.scim.domain.ScimGroup;
+import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.auth.application.CurrentPasswordRejectedException;
 import com.example.backend.auth.application.LoginAttemptService;
 import com.example.backend.auth.application.LoginIdentityService;
@@ -88,8 +91,8 @@ class AuthControllerTests {
      * test could not do: it held an in-memory {@code UserDetailsManager} beside an
      * account repository, so the two could disagree. There is one identity now, so
      * {@link LoginIdentityService} is the {@code UserDetailsService} here, and
-     * {@code grace} reports {@code ADMIN} because she is in the reserved Admin
-     * group rather than because a fixture said so. The lockout itself is exercised
+     * {@code grace} holds every Permission because she is in the Superuser Group
+     * rather than because a fixture said so. The lockout itself is exercised
      * in {@code LoginLockoutTests}.
      */
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
@@ -104,11 +107,16 @@ class AuthControllerTests {
         users.given(identity("ada", passwordEncoder.encode("correct-password")));
         ScimUser grace = users.given(
                 identity("grace", passwordEncoder.encode("another-correct-password")));
-        // Administrative authority is a Group membership now, so an administrator
-        // is arranged by putting her in the reserved Admin group — through the
+        // Authority is a Group membership: she is arranged as a Superuser by putting her in the
+        // reserved Admin group under the Superuser Group id the mapping names — through the
         // port, because nothing else may mint a reserved resource.
         groups.createReserved(
-                ScimIdentities.group("Admins", grace), ReservedResourceName.ADMIN_GROUP);
+                ScimGroup.created(
+                        TestRoleMappings.SUPERUSER_GROUP_ID,
+                        "Admins",
+                        List.of(ScimGroupMember.reference(grace.id())),
+                        Instant.EPOCH),
+                ReservedResourceName.ADMIN_GROUP);
 
         LoginIdentityService identities =
                 new LoginIdentityService(users, groups, passwordEncoder, TestRoleMappings.superuserOnly());
@@ -168,7 +176,7 @@ class AuthControllerTests {
         SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("ada");
-        assertThat(response.role()).isEqualTo("USER");
+        assertThat(response.passwordChangeRequired()).isFalse();
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("ada");
     }
@@ -189,12 +197,9 @@ class AuthControllerTests {
     }
 
     /**
-     * An administrator's login reports {@code ADMIN}, and the assertion is now
-     * about a choice rather than about an accident: authority is derived, so she
-     * holds {@code ROLE_ADMIN} and {@code ROLE_USER} both — baseline access is what
-     * being an active identity means. A response that read the first authority it
-     * found would report an administrator as an ordinary user, which is why both
-     * the granted set and the single reported role are pinned here.
+     * A member of the Superuser Group signs in holding baseline access and every Permission —
+     * and no administrative role, which no longer exists: authority beyond the baseline is
+     * Permissions alone (ADR 0010).
      */
     @Test
     void secondaryUserCanLogIn() {
@@ -208,12 +213,13 @@ class AuthControllerTests {
         SecurityContext savedContext = (SecurityContext) request.getSession(false).getAttribute(
                 HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
         assertThat(response.username()).isEqualTo("grace");
-        assertThat(response.role()).isEqualTo("ADMIN");
+        assertThat(response.permissions()).hasSize(Permission.values().length);
         assertThat(savedContext.getAuthentication().isAuthenticated()).isTrue();
         assertThat(savedContext.getAuthentication().getName()).isEqualTo("grace");
         assertThat(savedContext.getAuthentication().getAuthorities())
                 .extracting(GrantedAuthority::getAuthority)
-                .contains("ROLE_ADMIN", "ROLE_USER");
+                .contains("ROLE_USER")
+                .doesNotContain("ROLE_ADMIN");
     }
 
     @Test
@@ -352,7 +358,7 @@ class AuthControllerTests {
                 new TestingAuthenticationToken("ada", null, "ROLE_USER"), session());
 
         assertThat(response.username()).isEqualTo("ada");
-        assertThat(response.role()).isEqualTo("USER");
+        assertThat(response.passwordChangeRequired()).isFalse();
     }
 
     /**
@@ -394,27 +400,19 @@ class AuthControllerTests {
     }
 
     /**
-     * The derived-authority reader, asserted at its hard case: an administrator
-     * holds both authorities, and {@code ROLE_USER} arriving first must not make
-     * the response say {@code USER}.
+     * {@code /me} reports Permissions and nothing else the session holds: not the baseline role,
+     * not a leftover {@code ROLE_ADMIN} a session from before the scheme might carry, not another
+     * framework authority — and in the order of their names, not the order they were granted.
      */
     @Test
-    void currentUserReportsAdminForAnAdministratorHoldingBothAuthorities() {
+    void currentUserReportsOnlyPermissionsSortedByName() {
         AuthController.UserResponse response = controller.currentUser(
-                new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"), session());
+                new TestingAuthenticationToken("grace", null,
+                        "user:write", "ROLE_USER", "ROLE_ADMIN", "FACTOR_PASSWORD", "audit:read"),
+                session());
 
         assertThat(response.username()).isEqualTo("grace");
-        assertThat(response.role()).isEqualTo("ADMIN");
-    }
-
-    @Test
-    void currentUserRejectsAnAuthenticationWithoutAnApplicationRole() {
-        var authentication = new TestingAuthenticationToken(
-                "ada", null, "FACTOR_PASSWORD");
-
-        assertThatThrownBy(() -> controller.currentUser(authentication, session()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("Authenticated identity has no role");
+        assertThat(response.permissions()).containsExactly("audit:read", "user:write");
     }
 
     /**
@@ -650,14 +648,14 @@ class AuthControllerTests {
                 PasswordPolicy.Rule.CONTAINS_USER_NAME.message()));
     }
 
-    /** A confined session holds no role, so it reports none, and says the change is due. */
+    /** A confined session holds no Permission, so it reports none, and says the change is due. */
     @Test
     void currentUserReportsAConfinedSessionWithNoRole() {
         AuthController.UserResponse response = controller.currentUser(new TestingAuthenticationToken(
                 "ada", null, LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY), session());
 
         assertThat(response).isEqualTo(new AuthController.UserResponse(
-                "ada", null, List.of(), true, IDLE_TIMEOUT_SECONDS));
+                "ada", List.of(), true, IDLE_TIMEOUT_SECONDS));
     }
 
     @Test
@@ -665,12 +663,12 @@ class AuthControllerTests {
         assertThat(controller.currentUser(
                         new TestingAuthenticationToken("ada", null, "ROLE_USER"), session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "ada", "USER", List.of(), false, IDLE_TIMEOUT_SECONDS));
+                        "ada", List.of(), false, IDLE_TIMEOUT_SECONDS));
         assertThat(controller.currentUser(
-                        new TestingAuthenticationToken("grace", null, "ROLE_USER", "ROLE_ADMIN"),
+                        new TestingAuthenticationToken("grace", null, "ROLE_USER", "user:read"),
                         session()))
                 .isEqualTo(new AuthController.UserResponse(
-                        "grace", "ADMIN", List.of(), false, IDLE_TIMEOUT_SECONDS));
+                        "grace", List.of("user:read"), false, IDLE_TIMEOUT_SECONDS));
     }
 
     /**

@@ -500,6 +500,53 @@ public final class OpenApiContract {
     /** One documented operation: a method on a path template. */
     public record Operation(String method, String template, JsonNode definition) {
 
+        /**
+         * What the operation's OWN {@code security} requirement says a caller needs. Read from the
+         * operation alone, never inherited from the document's top-level default, because the
+         * authorization contract requires every operation to declare itself: an operation that
+         * says nothing is {@link Access#UNDECLARED}, which the contract refuses.
+         *
+         * <ul>
+         *   <li>{@code security: []} — {@link Access#PUBLIC};
+         *   <li>{@code - sessionCookie: []} — {@link Access#SELF_SERVICE}: authenticated, no
+         *       Permission;
+         *   <li>{@code - sessionCookie: [<permission>]} — {@link Access#PERMISSION}, exactly one;
+         *   <li>{@code - connectorBearer: [...]} — {@link Access#BEARER}, the SCIM chain's.
+         * </ul>
+         * Anything else — two requirements, two Permissions, an unknown scheme — is
+         * {@link Access#MALFORMED}.
+         */
+        public Requirement requirement() {
+            JsonNode security = definition.get("security");
+            if (security == null) {
+                return new Requirement(Access.UNDECLARED, null);
+            }
+            if (!security.isArray()) {
+                return new Requirement(Access.MALFORMED, null);
+            }
+            if (security.isEmpty()) {
+                return new Requirement(Access.PUBLIC, null);
+            }
+            if (security.size() != 1 || security.get(0).size() != 1) {
+                return new Requirement(Access.MALFORMED, null);
+            }
+            Map.Entry<String, JsonNode> scheme = security.get(0).properties().iterator().next();
+            JsonNode scopes = scheme.getValue();
+            switch (scheme.getKey()) {
+                case "connectorBearer":
+                    return new Requirement(Access.BEARER, null);
+                case "sessionCookie":
+                    if (scopes.isEmpty()) {
+                        return new Requirement(Access.SELF_SERVICE, null);
+                    }
+                    return scopes.size() == 1 && scopes.get(0).isTextual()
+                            ? new Requirement(Access.PERMISSION, scopes.get(0).asText())
+                            : new Requirement(Access.MALFORMED, null);
+                default:
+                    return new Requirement(Access.MALFORMED, null);
+            }
+        }
+
         /** The statuses this operation documents. */
         public Set<Integer> statuses() {
             Set<Integer> statuses = new LinkedHashSet<>();
@@ -521,6 +568,18 @@ public final class OpenApiContract {
         public String toString() {
             return method + " " + template;
         }
+    }
+
+    /** How an operation's {@code security} requirement classifies it. */
+    public enum Access { PUBLIC, SELF_SERVICE, PERMISSION, BEARER, UNDECLARED, MALFORMED }
+
+    /**
+     * An operation's declared requirement.
+     *
+     * @param permission the one Permission a {@link Access#PERMISSION} operation names, as spelled
+     *                   in the document; {@code null} for every other access
+     */
+    public record Requirement(Access access, String permission) {
     }
 
     /** The outcome of checking one exchange: what it covered, and how it departed. */

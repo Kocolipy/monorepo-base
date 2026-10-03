@@ -14,6 +14,7 @@ import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -82,6 +83,19 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     ResponseEntity<Object> handleUnexpected(Exception fault) {
         return fault(fault, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    /**
+     * A handler's own Permission declaration refused the caller: not answered here but handed
+     * back, unchanged, to the security chain. Rethrowing the very exception leaves it unresolved,
+     * so it propagates out of the dispatcher to the chain's exception translation, which answers
+     * it as the {@code 403} — and writes the one refusal record and audit row — a URL rule's
+     * refusal gets. Without this the catch-all above would turn every such refusal into a
+     * {@code 500}.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    void handBackToTheChain(AccessDeniedException refused) {
+        throw refused;
     }
 
     /**

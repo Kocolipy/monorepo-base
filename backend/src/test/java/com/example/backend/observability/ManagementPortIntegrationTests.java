@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -26,9 +27,14 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>What the documentation promises and this pins: moving the scrape off the public port
  * takes it off the public port — the application port no longer serves it — and does NOT
- * take it out from behind the Admin gate, because the application chain guards the
+ * take it out from behind its Permission, because the application chain guards the
  * management port too. A network boundary is added, never swapped for the access rule —
- * and the gate still admits an Admin session there, so Prometheus has a working path.
+ * and the rule still admits the Monitoring Role's account there, holding {@code ops:read} and
+ * nothing else, so Prometheus has a working path; an Account admin, holding every User and Group
+ * power but not {@code ops:read}, is refused.
+ *
+ * <p>Runs under the shipped development role mapping, with its fixture Users, so the two
+ * accounts are the ones local runs and the e2e suite sign in as.
  *
  * <p>Every expectation sits in ONE test method, with soft assertions so each still reports
  * on its own. {@code ManagementSessionConfiguration} runs once, while this class's context
@@ -38,14 +44,22 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = "management.server.port=0")
+        properties = {
+            "management.server.port=0",
+            "app.dev-fixtures.enabled=true",
+            "app.dev-fixtures.password=" + ManagementPortIntegrationTests.FIXTURE_PASSWORD})
+@ActiveProfiles("dev-mapping")
 @Import(ContainerTestConfiguration.class)
 @AutoConfigureMetrics
 class ManagementPortIntegrationTests {
 
-    private static final String ADMIN = "test-admin";
+    static final String FIXTURE_PASSWORD = "management-port-fixture-password";
 
-    private static final String ADMIN_PASSWORD = "test-admin-password";
+    /** The Monitoring Role's fixture User: {@code ops:read} alone. */
+    private static final String MONITORING = "monitoring";
+
+    /** The Account admin Role's fixture User: {@code user:*} and {@code group:read}. */
+    private static final String ACCOUNT_ADMIN = "account-admin";
 
     private static final String REQUESTS = "http_server_requests_seconds_count";
 
@@ -58,7 +72,7 @@ class ManagementPortIntegrationTests {
     private final HttpClient anonymous = HttpClient.newHttpClient();
 
     @Test
-    void the_scrape_moves_to_the_management_port_and_stays_behind_the_admin_gate()
+    void the_scrape_moves_to_the_management_port_and_stays_behind_ops_read()
             throws Exception {
         SoftAssertions softly = new SoftAssertions();
 
@@ -84,15 +98,24 @@ class ManagementPortIntegrationTests {
                 .as("health on the management port")
                 .isEqualTo(200);
 
-        // An Admin session is admitted. Cookies are scoped to the host, not the port
-        // (RFC 6265 §8.5), so a session opened on the application port is presented to
+        // The Monitoring Role's account is admitted. Cookies are scoped to the host, not the
+        // port (RFC 6265 §8.5), so a session opened on the application port is presented to
         // the management port as well.
-        HttpClient admin = adminSession();
-        HttpResponse<String> adminScrape = get(admin, managementPort, "/actuator/prometheus");
-        softly.assertThat(adminScrape.statusCode())
-                .as("Admin scrape on the management port")
+        HttpClient monitoring = session(MONITORING);
+        HttpResponse<String> monitoringScrape =
+                get(monitoring, managementPort, "/actuator/prometheus");
+        softly.assertThat(monitoringScrape.statusCode())
+                .as("Monitoring scrape on the management port")
                 .isEqualTo(200);
-        softly.assertThat(adminScrape.body()).contains(REQUESTS);
+        softly.assertThat(monitoringScrape.body()).contains(REQUESTS);
+
+        // An Account admin, holding much but not ops:read, is refused there.
+        HttpResponse<String> accountAdminScrape =
+                get(session(ACCOUNT_ADMIN), managementPort, "/actuator/prometheus");
+        softly.assertThat(accountAdminScrape.statusCode())
+                .as("Account admin scrape on the management port")
+                .isEqualTo(403);
+        softly.assertThat(accountAdminScrape.body()).doesNotContain(REQUESTS);
 
         softly.assertAll();
     }
@@ -101,20 +124,21 @@ class ManagementPortIntegrationTests {
      * A password login through the real CSRF handshake, as the SPA does it: fetch the
      * session's token from {@code GET /api/auth/csrf}, then echo it in the header named there.
      */
-    private HttpClient adminSession() throws Exception {
+    private HttpClient session(String userName) throws Exception {
         CookieManager jar = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-        HttpClient admin = HttpClient.newBuilder().cookieHandler(jar).build();
-        HttpResponse<String> issued = get(admin, applicationPort, "/api/auth/csrf");
+        HttpClient client = HttpClient.newBuilder().cookieHandler(jar).build();
+        HttpResponse<String> issued = get(client, applicationPort, "/api/auth/csrf");
         assertThat(issued.statusCode()).as("the CSRF token fetch").isEqualTo(200);
         JsonNode csrf = JsonMapper.builder().build().readTree(issued.body());
-        HttpResponse<String> login = admin.send(request(applicationPort, "/api/auth/login")
+        HttpResponse<String> login = client.send(request(applicationPort, "/api/auth/login")
                 .header("Content-Type", "application/json")
                 .header(csrf.get("headerName").asText(), csrf.get("token").asText())
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        "{\"username\":\"" + ADMIN + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}"))
+                        "{\"username\":\"" + userName + "\",\"password\":\"" + FIXTURE_PASSWORD
+                                + "\"}"))
                 .build(), HttpResponse.BodyHandlers.ofString());
-        assertThat(login.statusCode()).as("the Admin login itself").isEqualTo(200);
-        return admin;
+        assertThat(login.statusCode()).as("the %s login itself", userName).isEqualTo(200);
+        return client;
     }
 
     private static HttpResponse<String> get(HttpClient client, int port, String path)

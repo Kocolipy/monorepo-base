@@ -95,18 +95,18 @@ without, with a password or without.
 _Avoid_: Account, SCIM User (in prose), member (except of a Group)
 
 **Group**:
-A set of Users in the SCIM directory with direct members only; the Admin group
-confers Admin authority, and a mapped Group confers its Role.
+A set of Users in the SCIM directory with direct members only; a mapped Group
+confers its Role.
 
 **Admin group**:
-The server-seeded Group whose direct members are Admins; it can be neither
-renamed nor deleted. It is also the Superuser Group, seeded under that Group's
-stable id.
+The server-seeded Group that is the Superuser Group, seeded under that Group's
+stable id; it can be neither renamed nor deleted. Membership confers nothing of
+its own: its Role, Superuser, is what grants every Permission.
 
 **Admin**:
-A User that is a direct member of the Admin group, with that authority taken at
-Login.
-_Avoid_: administrator role, ADMIN account
+A User holding at least one administrative Permission, through its Roles.
+_Avoid_: administrator role, ADMIN account, `ROLE_ADMIN` (no such authority
+exists)
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
@@ -141,7 +141,7 @@ _Avoid_: scope, right, privilege
 **Role**:
 A named set of Permissions defined in deployment configuration; a User holds
 one by being a direct member of the Group mapped to it.
-_Avoid_: role (for `ROLE_USER` / `ROLE_ADMIN`, which are not Roles)
+_Avoid_: role (for `ROLE_USER`, baseline access, which is not a Role)
 
 **Role mapping**:
 The read-only deployment configuration that defines the Roles and maps each one
@@ -151,6 +151,23 @@ mapped Groups it directly belongs to, taken at Login.
 **Superuser Group**:
 The one mapped Group whose Role holds every Permission: the Admin group.
 _Avoid_: enabling
+
+**Baseline access**:
+What every active User holds without any Role and without a required
+password change: self-service (`/api/auth/me`, change-password, logout,
+`/api/self`, `/api/session`), spelled `ROLE_USER` in the session and not a Role,
+and the baseline Permissions `counter:read` and `counter:write`.
+
+**Self-service**:
+An operation needing a signed-in session and no Permission, acting only on the
+session's own User.
+
+**Authorization refusal**:
+A `403` for a signed-in caller the operation does not admit — a Permission it
+lacks, a route nothing declares, or a session confined to the password change.
+Audited and logged with the caller, the operation and one generic reason, never
+the Permission, Role or rule.
+_Avoid_: forbidden (for a CSRF refusal, which is not an authorization decision)
 
 ### Authentication
 
@@ -167,8 +184,8 @@ The permanent state a User enters when its failure run reaches the limit; only a
 Admin's Unlock ends it.
 
 **Unlock**:
-An Admin ending a User's lockout and failure run; it never changes `active`, just
-as deactivation never ends a lockout.
+An Admin holding `user:write` ending a User's lockout and failure run; it never
+changes `active`, just as deactivation never ends a lockout.
 
 **Bootstrap Admin exemption**:
 The Bootstrap Admin's immunity from lockout, so the deployment always has a way
@@ -180,16 +197,17 @@ else and must be replaced before it may do anything else.
 _Avoid_: password expiry, temporary password
 
 **Forced password change**:
-An Admin setting another User's change-required flag and ending its sessions,
-without ever seeing a password.
+An Admin holding `user:write` setting another User's change-required flag and
+ending its sessions, without ever seeing a password.
 
 **Self-service password change**:
 A User replacing its own password from its own session.
 
 **Recovery guard**:
-The rules that keep a deployment recoverable: an Admin may not Unlock or
-force-change its own User (the Bootstrap Admin may flag only its own password),
-and the Bootstrap Admin can never be locked.
+The rules that keep a deployment recoverable: no Admin may Unlock or
+force-change its own User, whatever Permissions it holds (the Bootstrap Admin
+included, which replaces its password by the self-service change), nobody may
+force the Bootstrap Admin's change, and the Bootstrap Admin can never be locked.
 
 ### Dormancy
 
@@ -215,8 +233,11 @@ across instances.
 ### Administration
 
 **Accounts page**:
-The Admin's screen at `/accounts`: the Users and Groups projections, Unlock, the
-forced password change, and connector management.
+The administrative screen at `/accounts`, each view shown by its own Permission:
+the Users projection (`user:read`) with Unlock and the forced password change
+(`user:write`), the Groups projection (`group:read`), and connector management
+(`connector:read`; create and delete `connector:write`, tokens
+`connector:token`).
 
 **Users projection**:
 What administration may know about each User — never a credential.
@@ -232,7 +253,7 @@ profile or credential value.
 _Avoid_: log (the application log is a different stream)
 
 **Audit listing**:
-The Admin read of the audit trail.
+The read of the audit trail, by a holder of `audit:read`.
 
 ### Retired
 

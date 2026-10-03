@@ -28,9 +28,9 @@ describe("auth API", () => {
   });
 
   it("returns the authenticated user", async () => {
-    resolveWith({ kind: "ok", data: { role: "USER", username: "ada" } });
+    resolveWith({ kind: "ok", data: { permissions: [], username: "ada" } });
 
-    await expect(getCurrentUser()).resolves.toEqual({ role: "USER", username: "ada" });
+    await expect(getCurrentUser()).resolves.toEqual({ permissions: [], username: "ada" });
   });
 
   it.each([{ kind: "csrf-expired" }, { kind: "failed", status: 503 }])(
@@ -43,9 +43,9 @@ describe("auth API", () => {
 
   it("requests typed user data when signing in", async () => {
     const [username, password] = TEST_LOGIN;
-    resolveWith({ kind: "ok", data: { role: "USER", username } });
+    resolveWith({ kind: "ok", data: { permissions: [], username } });
 
-    await expect(login(username, password)).resolves.toEqual({ role: "USER", username });
+    await expect(login(username, password)).resolves.toEqual({ permissions: [], username });
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/auth/login",
       {
@@ -123,7 +123,7 @@ describe("the CSRF token across session changes", () => {
   });
 
   it("forgets the token once a login has rotated the session", async () => {
-    resolveWith({ kind: "ok", data: { role: "USER", username: "ada" } });
+    resolveWith({ kind: "ok", data: { permissions: [], username: "ada" } });
     await login("ada", "secret");
     expect(discardMock).toHaveBeenCalledOnce();
   });
@@ -189,7 +189,7 @@ describe("the user decoder", () => {
   const confined = {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: true,
-    role: null,
+    permissions: [],
     username: "ada",
   };
 
@@ -204,20 +204,63 @@ describe("the user decoder", () => {
     await expect(decodeWithCall(0, 2, confined)).resolves.toStrictEqual(confined);
   });
 
-  it("reads an unflagged session's role", async () => {
+  it("reads an unflagged session's Permissions, in the order reported", async () => {
     await getCurrentUser();
     await expect(
       decodeWithCall(0, 2, {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
-        role: "ADMIN",
+        permissions: ["audit:read", "user:read", "user:write"],
         username: "grace",
       }),
     ).resolves.toStrictEqual({
       idleTimeoutSeconds: 900,
       passwordChangeRequired: false,
-      role: "ADMIN",
+      permissions: ["audit:read", "user:read", "user:write"],
       username: "grace",
+    });
+  });
+
+  it("reads every Permission the backend can grant", async () => {
+    const every = [
+      "audit:read",
+      "connector:read",
+      "connector:token",
+      "connector:write",
+      "counter:read",
+      "counter:write",
+      "group:read",
+      "group:write",
+      "ops:read",
+      "user:read",
+      "user:write",
+    ];
+    await getCurrentUser();
+    await expect(
+      decodeWithCall(0, 2, {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: every,
+        username: "root",
+      }),
+    ).resolves.toMatchObject({ permissions: every });
+  });
+
+  it("ignores a role field a body might still carry", async () => {
+    await getCurrentUser();
+    await expect(
+      decodeWithCall(0, 2, {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: [],
+        role: "ADMIN",
+        username: "ada",
+      }),
+    ).resolves.toStrictEqual({
+      idleTimeoutSeconds: 900,
+      passwordChangeRequired: false,
+      permissions: [],
+      username: "ada",
     });
   });
 
@@ -232,25 +275,35 @@ describe("the user decoder", () => {
   it.each([
     [
       "a missing username",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER" },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [] },
       "UserResponse.username",
     ],
     [
       "a missing flag",
-      { idleTimeoutSeconds: 900, role: "USER", username: "ada" },
+      { idleTimeoutSeconds: 900, permissions: [], username: "ada" },
       "UserResponse.passwordChangeRequired",
     ],
     [
-      "a missing role",
+      "missing Permissions",
       { idleTimeoutSeconds: 900, passwordChangeRequired: false, username: "ada" },
-      "UserResponse.role",
+      "UserResponse.permissions is not an array",
+    ],
+    [
+      "Permissions that are not a list",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: "user:read",
+        username: "ada",
+      },
+      "UserResponse.permissions is not an array",
     ],
     [
       "a non-boolean flag",
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: NOT_A_BOOLEAN,
-        role: "USER",
+        permissions: [],
         username: "ada",
       },
       "UserResponse.passwordChangeRequired",
@@ -259,38 +312,53 @@ describe("the user decoder", () => {
     // number of seconds is refused rather than guessed at.
     [
       "a missing idle timeout",
-      { passwordChangeRequired: false, role: "USER", username: "ada" },
+      { passwordChangeRequired: false, permissions: [], username: "ada" },
       "UserResponse.idleTimeoutSeconds is not an integer",
     ],
     [
       "a fractional idle timeout",
-      { idleTimeoutSeconds: 1.5, passwordChangeRequired: false, role: "USER", username: "ada" },
+      { idleTimeoutSeconds: 1.5, passwordChangeRequired: false, permissions: [], username: "ada" },
       "UserResponse.idleTimeoutSeconds is not an integer",
     ],
     [
       "an idle timeout sent as a string",
-      { idleTimeoutSeconds: "900", passwordChangeRequired: false, role: "USER", username: "ada" },
+      {
+        idleTimeoutSeconds: "900",
+        passwordChangeRequired: false,
+        permissions: [],
+        username: "ada",
+      },
       "UserResponse.idleTimeoutSeconds is not an integer",
     ],
     [
       "a non-string username",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "USER", username: 7 },
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [], username: 7 },
       "UserResponse.username",
     ],
     [
-      "an unknown role, which the route guards would otherwise read",
+      "an unknown Permission, which the route guards would otherwise read",
       {
         idleTimeoutSeconds: 900,
         passwordChangeRequired: false,
-        role: "SUPERUSER",
+        permissions: ["user:read", "superuser"],
         username: "ada",
       },
-      "UserResponse.role is not USER | ADMIN",
+      "UserResponse.permissions holds an unknown value",
     ],
     [
-      "a role in the wrong case",
-      { idleTimeoutSeconds: 900, passwordChangeRequired: false, role: "admin", username: "ada" },
-      "UserResponse.role",
+      "a Permission in the wrong case",
+      {
+        idleTimeoutSeconds: 900,
+        passwordChangeRequired: false,
+        permissions: ["User:Read"],
+        username: "ada",
+      },
+      "UserResponse.permissions holds an unknown value",
+    ],
+    [
+      "a Permission that is not a string",
+      { idleTimeoutSeconds: 900, passwordChangeRequired: false, permissions: [7], username: "ada" },
+      "UserResponse.permissions holds an unknown value",
     ],
     ["a non-object body", ["ada"], "UserResponse is not an object"],
     ["a null body", null, "UserResponse is not an object"],

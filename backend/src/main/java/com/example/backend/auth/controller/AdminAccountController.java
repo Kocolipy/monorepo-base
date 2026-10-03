@@ -9,6 +9,7 @@ import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,10 +22,11 @@ import org.springframework.web.bind.annotation.RestController;
  * Inbound HTTP adapter for the Users projection of the Accounts page and the two operations an
  * administrator may perform on a User.
  *
- * <p>Authorization is not expressed here. {@code /api/admin/**} is restricted to
- * {@code ROLE_ADMIN} by the filter chain, so a non-admin never reaches this
- * class — which keeps every access rule in one readable place instead of half
- * here and half there. The chain is what {@code SecurityConfigTests} asserts on.
+ * <p>Each operation declares the Permission it requires where it is defined, with method
+ * security ({@code user:read} to list, {@code user:write} for Unlock and the forced password
+ * change); the application chain repeats each declaration as a URL rule, as a backstop that
+ * fails closed (ADR 0010). {@code AuthorizationContractTests} proves every declaration against
+ * the running application, driven by the API document.
  *
  * <p>READ-ONLY for everything the directory owns, and enforced by absence: there is no handler
  * that accepts a {@code userName}, an {@code active} flag or a Group membership, so a
@@ -56,6 +58,7 @@ public class AdminAccountController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('user:read')")
     public List<IdentitySummary> listAccounts() {
         return identities.listIdentities();
     }
@@ -65,6 +68,7 @@ public class AdminAccountController {
      * password. Says nothing about {@code active}.
      */
     @PostMapping("/{id}/unlock")
+    @PreAuthorize("hasAuthority('user:write')")
     public IdentitySummary unlock(@PathVariable UUID id, Principal principal) {
         return identities.unlock(id, principal.getName());
     }
@@ -74,11 +78,15 @@ public class AdminAccountController {
      * sessions it holds. The Admin never learns or chooses the password.
      */
     @PostMapping("/{id}/force-password-change")
+    @PreAuthorize("hasAuthority('user:write')")
     public IdentitySummary forcePasswordChange(@PathVariable UUID id, Principal principal) {
         return identities.forcePasswordChange(id, principal.getName());
     }
 
-    /** A refusal about whose account it is — the caller's own, or the Bootstrap Admin. */
+    /**
+     * A refusal about whose account it is — the caller's own, whatever Permissions it holds, or
+     * the Bootstrap Admin's.
+     */
     @ExceptionHandler(ForbiddenIdentityChangeException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public void forbiddenChange() {

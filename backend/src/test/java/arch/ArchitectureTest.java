@@ -277,29 +277,74 @@ public class ArchitectureTest {
             .allowEmptyShould(true)
             .because("JPA, Spring Data and Hibernate are a persistence adapter's implementation detail");
 
-    // backend/AGENTS.md: role authorization lives in the filter chain only
+    // ADR 0010: every protected handler declares its Permission with method security, beside the
+    // code it protects; the chain repeats it as a backstop. One mechanism, on handlers only.
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_method_level_role_checks =
+    static final ArchRule one_method_security_mechanism =
         noMethods()
-            .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
-            .orShould().beAnnotatedWith("org.springframework.security.access.prepost.PostAuthorize")
+            .should().beAnnotatedWith("org.springframework.security.access.prepost.PostAuthorize")
             .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
             .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
             .allowEmptyShould(true)
-            .because("backend/AGENTS.md: role checks live in the security filter chain, where every"
-                    + " protected route is visible in one place");
+            .because("ADR 0010: a Permission is declared with @PreAuthorize alone, so every"
+                    + " declaration reads the same way and the authorization contract test finds them");
 
-    // backend/AGENTS.md: role authorization lives in the filter chain only
+    // ADR 0010: the declaration sits on the web adapter's handler, never deeper or on a type
     @com.tngtech.archunit.junit.ArchTest
-    static final ArchRule no_method_security_enabled =
+    static final ArchRule permissions_are_declared_on_handlers =
+        methods()
+            .that().areAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
+            .should().beDeclaredInClassesThat().areAnnotatedWith(RestController.class)
+            .andShould().beDeclaredInClassesThat().resideInAPackage("..controller..")
+            .because("ADR 0010: each protected operation declares its Permission where the"
+                    + " operation is defined, so the requirement is read next to the route");
+
+    // ADR 0010: a class-level declaration would silently cover a handler added later
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule no_class_level_method_security =
         noClasses()
-            .should().beAnnotatedWith("org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity")
-            .orShould().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
+            .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
             .orShould().beAnnotatedWith("org.springframework.security.access.annotation.Secured")
             .orShould().beAnnotatedWith("jakarta.annotation.security.RolesAllowed")
             .allowEmptyShould(true)
-            .because("backend/AGENTS.md: role checks live in the security filter chain, where every"
-                    + " protected route is visible in one place");
+            .because("ADR 0010: every operation names its own Permission; a class-wide one would"
+                    + " grant a handler added later a Permission nobody chose for it");
+
+    /**
+     * The session-chain adapters whose handlers need NO Permission: self-service (authenticated
+     * only) and the public login surface. Every other application-chain handler is protected.
+     */
+    private static final java.util.Set<String> SELF_SERVICE_OR_PUBLIC_CONTROLLERS = java.util.Set.of(
+            "com.example.backend.auth.controller.AuthController",
+            "com.example.backend.auth.controller.SelfController",
+            "com.example.backend.session.controller.SessionController");
+
+    // ADR 0010: a forgotten declaration fails closed at build time, not only at the chain
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule every_protected_handler_declares_a_permission =
+        methods()
+            .that().areAnnotatedWith(org.springframework.web.bind.annotation.GetMapping.class)
+            .or().areAnnotatedWith(org.springframework.web.bind.annotation.PostMapping.class)
+            .or().areAnnotatedWith(org.springframework.web.bind.annotation.PutMapping.class)
+            .or().areAnnotatedWith(org.springframework.web.bind.annotation.PatchMapping.class)
+            .or().areAnnotatedWith(org.springframework.web.bind.annotation.DeleteMapping.class)
+            .or().areAnnotatedWith(org.springframework.web.bind.annotation.RequestMapping.class)
+            .and().areDeclaredInClassesThat(new DescribedPredicate<com.tngtech.archunit.core.domain.JavaClass>(
+                    "are application-chain adapters that are neither self-service nor public") {
+                @Override
+                public boolean test(com.tngtech.archunit.core.domain.JavaClass owner) {
+                    return owner.isAnnotatedWith(RestController.class)
+                            && !SELF_SERVICE_OR_PUBLIC_CONTROLLERS.contains(owner.getName())
+                            // The SCIM protocol's own handlers are the bearer chain's, which
+                            // authorizes connector tokens itself; only its admin adapter is ours.
+                            && !(owner.getPackageName().equals("com.example.backend.scim.controller")
+                                    && owner.getSimpleName().startsWith("Scim"));
+                }
+            })
+            .should().beAnnotatedWith("org.springframework.security.access.prepost.PreAuthorize")
+            .because("ADR 0010: every protected operation declares the Permission it requires;"
+                    + " a handler added without one would otherwise be held only by the chain's"
+                    + " backstop rule, if anyone remembered to write it");
 
     // Module Boundaries
 

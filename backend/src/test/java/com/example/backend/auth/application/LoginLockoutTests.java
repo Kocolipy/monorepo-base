@@ -406,7 +406,7 @@ class LoginLockoutTests {
                 // Security's own FACTOR_PASSWORD authority, which is not a derived role and
                 // says how the principal authenticated rather than what it may do.
                 .filteredOn(authority -> authority.startsWith("ROLE_"))
-                .containsExactly("ROLE_ADMIN", "ROLE_USER");
+                .containsExactly("ROLE_USER");
     }
 
     @Test

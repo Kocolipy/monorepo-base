@@ -114,7 +114,7 @@ class AccessRefusalLogTests {
     void a_denial_is_one_warn_access_control_record_with_method_route_and_status() {
         MockHttpServletRequest request = request("GET", "/api/things/" + UUID.randomUUID());
 
-        ILoggingEvent record = onlyRecord(request, Refusal.ACCESS_DENIED);
+        ILoggingEvent record = onlyRecord(request, Refusal.INSUFFICIENT_PERMISSIONS);
 
         assertThat(record.getLevel()).isEqualTo(Level.WARN);
         assertThat(record.getFormattedMessage()).isEqualTo("Request refused: access denied");
@@ -125,7 +125,7 @@ class AccessRefusalLogTests {
                 .containsEntry(LogEvent.ACTION, "access-control")
                 .containsEntry(LogEvent.LOCAL_ACTION, "access.denied")
                 .containsEntry(LogEvent.OUTCOME, "failure")
-                .containsEntry(LogEvent.REASON, "access-denied")
+                .containsEntry(LogEvent.REASON, "insufficient-permissions")
                 .containsEntry(LogEvent.HTTP_METHOD, "GET")
                 .containsEntry(LogEvent.HTTP_ROUTE, "/api/things/{id}")
                 .containsEntry(LogEvent.HTTP_STATUS_CODE, 403);
@@ -169,7 +169,7 @@ class AccessRefusalLogTests {
                         org.assertj.core.groups.Tuple.tuple("session-expired", 401),
                         org.assertj.core.groups.Tuple.tuple("bearer-missing", 401),
                         org.assertj.core.groups.Tuple.tuple("bearer-invalid", 401),
-                        org.assertj.core.groups.Tuple.tuple("access-denied", 403),
+                        org.assertj.core.groups.Tuple.tuple("insufficient-permissions", 403),
                         org.assertj.core.groups.Tuple.tuple("csrf", 403),
                         org.assertj.core.groups.Tuple.tuple("insufficient-scope", 403));
     }
@@ -185,10 +185,10 @@ class AccessRefusalLogTests {
         MockHttpServletRequest request = request("GET", "/api/things");
 
         try (CapturedLog captured = CapturedLog.attach()) {
-            refusals.record(request, Refusal.ACCESS_DENIED);
-            refusals.record(request, Refusal.ACCESS_DENIED);
+            assertThat(refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)).isTrue();
+            assertThat(refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)).isFalse();
             request.setDispatcherType(DispatcherType.ERROR);
-            refusals.record(request, Refusal.NO_SESSION);
+            assertThat(refusals.record(request, Refusal.NO_SESSION)).isFalse();
 
             assertThat(captured.withAction(Level.TRACE, LogEvent.KIND, "event")).hasSize(1);
         }

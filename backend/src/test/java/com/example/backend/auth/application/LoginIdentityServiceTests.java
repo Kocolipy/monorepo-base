@@ -266,27 +266,27 @@ class LoginIdentityServiceTests {
 
     /**
      * Baseline access is what being an active identity means, so an identity outside the
-     * Admin group holds {@code ROLE_USER} and nothing else.
+     * Admin group holds {@code ROLE_USER} and the baseline counter Permissions, and nothing else.
      */
     @Test
     void anIdentityOutsideTheAdminGroupHoldsUserAuthorityAlone() {
         users.given(ScimIdentities.user("ada"));
         givenAdminGroup();
 
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
 
     /**
-     * A member of the Admin group holds BOTH, with {@code ADMIN} first: a caller reading a
-     * single role off the authorities — which the login response does — must see the higher
-     * one, so the ordering is asserted rather than left to discovery.
+     * There is no administrative role any more (ADR 0010): a member of the Admin group holds
+     * baseline access and its Role's Permissions, never {@code ROLE_ADMIN}. The Admin group's id
+     * here is not the mapping's Superuser Group, so it confers nothing at all.
      */
     @Test
-    void anIdentityInTheAdminGroupHoldsAdminFirstThenUser() {
+    void anIdentityInTheAdminGroupHoldsNoAdministrativeRole() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         givenAdminGroup(ada);
 
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
 
     /** With no Admin group seeded at all, nobody is an administrator. */
@@ -294,7 +294,7 @@ class LoginIdentityServiceTests {
     void withNoAdminGroupSeededNobodyHoldsAdminAuthority() {
         users.given(ScimIdentities.user("ada"));
 
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
 
     /**
@@ -312,7 +312,7 @@ class LoginIdentityServiceTests {
                 ReservedResourceName.ADMIN_GROUP);
         groups.create(ScimIdentities.group("Admins", ada));
 
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
 
     /** Membership is direct only, so another Group's members are not administrators. */
@@ -322,13 +322,13 @@ class LoginIdentityServiceTests {
         givenAdminGroup();
         groups.create(ScimIdentities.group("Engineering", ada));
 
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf("ada")).containsExactly(BASELINE);
     }
 
     /**
      * Authority is read at login and never recomputed, and that is the specified behaviour
      * rather than a limitation: a session carries the authorities it was issued with, so
-     * adding an identity to the Admin group grants administrative access at its NEXT login
+     * adding an identity to a mapped Group grants its Role's Permissions at its NEXT login
      * and never mid-session.
      *
      * <p>Both halves are needed. The already-issued principal proves nothing was
@@ -338,42 +338,48 @@ class LoginIdentityServiceTests {
     @Test
     void authorityIsReadAtLoginAndNeverRecomputedForAnAlreadyIssuedPrincipal() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
-        ScimGroup admins = givenAdminGroup();
+        ScimGroup helpdesk = groups.given(
+                ScimGroup.created(HELPDESK, "Helpdesk", List.of(), ScimIdentities.NOW));
 
-        UserDetails issuedBeforeTheGrant = service.loadUserByUsername("ada");
-        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly("ROLE_USER");
+        UserDetails issuedBeforeTheGrant = mapped.loadUserByUsername("ada");
+        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly(BASELINE);
 
-        addMember(admins, ada);
+        addMember(helpdesk, ada);
 
-        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly("ROLE_USER");
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        assertThat(authoritiesOf(issuedBeforeTheGrant)).containsExactly(BASELINE);
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
+                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
     }
 
     /** And the converse: a removal likewise takes effect at the next login, not before. */
     @Test
     void revokingMembershipTakesEffectAtTheNextLoginRatherThanMidSession() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
-        ScimGroup admins = givenAdminGroup(ada);
+        ScimGroup helpdesk = groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        UserDetails issuedWhileAdmin = service.loadUserByUsername("ada");
-        assertThat(authoritiesOf(issuedWhileAdmin)).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        UserDetails issuedWhileHelpdesk = mapped.loadUserByUsername("ada");
+        assertThat(authoritiesOf(issuedWhileHelpdesk))
+                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
 
-        groups.replace(admins.replacedWith(admins.displayName(), List.of(), ScimIdentities.NOW))
+        groups.replace(helpdesk.replacedWith(helpdesk.displayName(), List.of(), ScimIdentities.NOW))
                 .orElseThrow();
 
-        assertThat(authoritiesOf(issuedWhileAdmin)).containsExactly("ROLE_ADMIN", "ROLE_USER");
-        assertThat(authoritiesOf("ada")).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf(issuedWhileHelpdesk))
+                .containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
     }
 
-    /** An inactive administrator is still reported as one; it is simply disabled. */
+    /** An inactive member of a mapped Group is still reported with its Permissions; it is simply disabled. */
     @Test
-    void anInactiveAdministratorIsStillReportedWithAdminAuthority() {
+    void anInactiveMemberIsStillReportedWithItsPermissions() {
         ScimUser ada = users.given(ScimIdentities.inactiveUser("ada"));
-        givenAdminGroup(ada);
+        groups.given(ScimGroup.created(HELPDESK, "Helpdesk",
+                List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
-        UserDetails details = service.loadUserByUsername("ada");
+        UserDetails details = mapped.loadUserByUsername("ada");
 
-        assertThat(authoritiesOf(details)).containsExactly("ROLE_ADMIN", "ROLE_USER");
+        assertThat(authoritiesOf(details)).containsExactly("ROLE_USER", "counter:read", "counter:write", "user:read", "user:write");
         assertThat(details.isEnabled()).isFalse();
     }
 
@@ -411,7 +417,8 @@ class LoginIdentityServiceTests {
         groups.given(ScimIdentities.group("Unmapped", ada));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "user:read", "user:write");
+                .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
+                        "user:read", "user:write");
     }
 
     /** One mapped Group: exactly its Role's Permissions, and another Role's are not leaked in. */
@@ -422,16 +429,20 @@ class LoginIdentityServiceTests {
                 List.of(ScimGroupMember.reference(ada.id())), ScimIdentities.NOW));
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .containsExactly("ROLE_USER", "audit:read", "user:read");
+                .containsExactly("ROLE_USER", "audit:read", "counter:read", "counter:write",
+                        "user:read");
     }
 
-    /** No mapped Group: no Permission, and baseline access all the same. */
+    /**
+     * No mapped Group: no Role's Permission, and baseline access all the same — which includes
+     * the counter's Permissions, held by every active User whatever its Groups.
+     */
     @Test
-    void aUserInNoMappedGroupHoldsNoPermissionAndKeepsBaselineAccess() {
+    void aUserInNoMappedGroupHoldsOnlyTheBaselinePermissions() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
         groups.given(ScimIdentities.group("Unmapped", ada));
 
-        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly("ROLE_USER");
+        assertThat(authoritiesOf(mapped.loadUserByUsername("ada"))).containsExactly(BASELINE);
     }
 
     /** A confined session holds no Permission either, whatever Groups confer. */
@@ -446,7 +457,7 @@ class LoginIdentityServiceTests {
                 .containsExactly(LoginIdentityService.PASSWORD_CHANGE_REQUIRED_AUTHORITY);
     }
 
-    /** The Superuser Group confers every Permission, beside the Admin group's roles. */
+    /** The Superuser Group confers every Permission, and no administrative role beside them. */
     @Test
     void theSuperuserGroupConfersEveryPermission() {
         ScimUser ada = users.given(ScimIdentities.user("ada"));
@@ -455,8 +466,9 @@ class LoginIdentityServiceTests {
                 ReservedResourceName.ADMIN_GROUP);
 
         assertThat(authoritiesOf(mapped.loadUserByUsername("ada")))
-                .startsWith("ROLE_ADMIN", "ROLE_USER")
-                .hasSize(2 + TestRoleMappings.EVERY_PERMISSION.size())
+                .startsWith("ROLE_USER")
+                .doesNotContain("ROLE_ADMIN")
+                .hasSize(1 + TestRoleMappings.EVERY_PERMISSION.size())
                 .containsAll(TestRoleMappings.EVERY_PERMISSION);
     }
 
@@ -489,6 +501,12 @@ class LoginIdentityServiceTests {
                         ScimIdentities.NOW))
                 .orElseThrow();
     }
+
+    /**
+     * What every active User holds with no mapped Group: {@code ROLE_USER} and the counter's two
+     * Permissions, sorted by name as Spring Security's {@code User} keeps them.
+     */
+    private static final String[] BASELINE = {"ROLE_USER", "counter:read", "counter:write"};
 
     private List<String> authoritiesOf(String userName) {
         return authoritiesOf(service.loadUserByUsername(userName));
