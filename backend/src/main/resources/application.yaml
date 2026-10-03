@@ -15,7 +15,7 @@ spring:
     password: ${DATABASE_PASSWORD:backend}
     hikari:
       # Every runtime connection assumes `backend_app`, the least-privilege role
-      # the V3 migration creates: full DML on the tables the application owns the
+      # the V1 migration creates: full DML on the tables the application owns the
       # lifecycle of, and INSERT/SELECT only on `audit_events`. That is what makes
       # the audit trail append-only for THIS application rather than only by
       # convention — an UPDATE or DELETE from application code is refused by the

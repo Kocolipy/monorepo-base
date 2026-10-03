@@ -42,7 +42,7 @@ window between the candidate query and the write.
 
 ## Amendment (2026-10-02): the audit retention job
 
-The audit retention job takes the same lock, on its own `audit-retention` row (V15), so
+The audit retention job takes the same lock, on its own `audit-retention` row, so
 two instances on the same cron no longer both run the delete (issue #97). It takes the
 lock before assuming the retention role, as the application role, which holds the grant.
 

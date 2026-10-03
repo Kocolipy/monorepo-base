@@ -10,9 +10,9 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * The one place a Postgres container is declared for tests.
  *
- * <p>{@code ddl-auto: validate} plus Flyway migrations written in PostgreSQL
- * syntax (gen_random_uuid(), ON DELETE CASCADE) mean the test database has to
- * genuinely be Postgres — H2 cannot run {@code db/migration} as shipped, and a
+ * <p>{@code ddl-auto: validate} plus a Flyway migration written in PostgreSQL
+ * syntax (PL/pgSQL triggers, partial and expression indexes) means the test
+ * database has to genuinely be Postgres — H2 cannot run {@code db/migration} as shipped, and a
  * dialect emulation layer would verify a schema the deployed service does not
  * have. {@code @ServiceConnection} registers the container's JDBC URl,
  * username and password directly onto {@code spring.datasource.*}, so no test

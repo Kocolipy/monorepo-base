@@ -27,8 +27,8 @@ only on a successful change. #46 and #47 had already delivered all of that.
 ## Decision
 
 - No grace period exists. The grace job, its schedule, its lock row, its
-  configuration key and its audit operation are removed. The `V14` migration
-  deletes the lock row.
+  configuration key and its audit operation are removed, and the schema no
+  longer writes the lock row.
 - A Login made while the flag is set does not move `lastAuthenticatedAt`. Its
   failure run still clears, and `LOGIN_SUCCESS` is still audited.
 - A successful self-service change records the authentication, since it is the

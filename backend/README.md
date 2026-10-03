@@ -276,7 +276,7 @@ moves the basis.
 ### Audit trail database roles
 
 The audit table is append-only, and that is a property of the database rather than
-of the code writing to it. The `V3` migration creates two roles:
+of the code writing to it. The `V1` migration creates two roles:
 
 - **`backend_app`** — what every runtime connection assumes, through
   `spring.datasource.hikari.connection-init-sql`. It holds DML on the tables the
