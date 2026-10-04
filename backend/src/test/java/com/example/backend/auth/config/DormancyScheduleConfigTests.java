@@ -10,6 +10,7 @@ import com.example.backend.auth.PendingCommit;
 import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.ScimUserSessionRevocationService;
 import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.observability.ScheduledJobMetrics;
 import com.example.backend.scheduling.InMemoryScheduledJobLock;
 import com.example.backend.scheduling.domain.ScheduledJob;
@@ -27,8 +28,10 @@ import io.micrometer.observation.ObservationRegistry;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.scheduling.config.CronTask;
 import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The dormancy job's change counters, read from a registry: registered at zero when the job is
@@ -67,8 +70,7 @@ class DormancyScheduleConfigTests {
         new DormancyScheduleConfig(
                 dormancy,
                 DormancyPolicy.defaults(),
-                new ScheduledJobMetrics(registry, ObservationRegistry.NOOP, clock),
-                registry)
+                new ScheduledJobMetrics(registry, ObservationRegistry.NOOP, clock))
                 .configureTasks(registrar);
         List<CronTask> crons = registrar.getCronTaskList();
         assertThat(crons).hasSize(1);
@@ -116,13 +118,15 @@ class DormancyScheduleConfigTests {
     /** A skipped run changed nothing and counts nothing. */
     @Test
     void aSkippedRunCountsNothing() {
-        users.given(ScimIdentities.user("ada"));
-        clock.advanceBy(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        givenAdmins(ada);
+        clock.advanceBy(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
         lock.holdElsewhere(ScheduledJob.DORMANCY);
 
         scheduled.run();
 
         assertThat(locked()).isZero();
+        assertThat(rolesRevoked()).isZero();
     }
 
     /** A failed run — its transaction rolled back after a User was locked — counts nothing. */
@@ -139,8 +143,41 @@ class DormancyScheduleConfigTests {
         assertThat(users.require("ada").login().isLocked())
                 .as("the run got as far as locking").isTrue();
         assertThat(locked()).isZero();
+        assertThat(rolesRevoked()).isZero();
         assertThat(registry.find("app.job.runs").tag("job", "dormancy").tag("outcome", "failure")
                 .counter().count()).isEqualTo(1);
+    }
+
+    /**
+     * The counters and the run's {@code job-end} record are written from the run's one report of
+     * its counts, so the two can never disagree.
+     */
+    @Test
+    void theCountersMoveByWhatTheJobEndRecordReports() {
+        ScimUser ada = users.given(ScimIdentities.user("ada"));
+        users.given(ScimIdentities.user("bob"));
+        givenAdmins(ada);
+        clock.advanceBy(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+
+        try (EcsLogCapture logs = EcsLogCapture.attach(new StandardEnvironment())) {
+            scheduled.run();
+
+            JsonNode end = logs.records().stream()
+                    .filter(record -> "job-end".equals(record.at("/event/type/0").asText()))
+                    .reduce((first, second) -> second)
+                    .orElseThrow();
+            assertThat(end.at("/dormancy/locked_count").asLong()).isEqualTo(2);
+            assertThat(end.at("/dormancy/roles_revoked_count").asLong()).isEqualTo(1);
+            assertThat(locked()).isEqualTo(end.at("/dormancy/locked_count").asDouble());
+            assertThat(rolesRevoked()).isEqualTo(end.at("/dormancy/roles_revoked_count").asDouble());
+        }
+    }
+
+    private void givenAdmins(ScimUser member) {
+        groups.createReserved(
+                ScimGroup.created(TestRoleMappings.SUPERUSER_GROUP_ID, "Admins",
+                        List.of(ScimGroupMember.reference(member.id())), ScimIdentities.NOW),
+                ReservedResourceName.ADMIN_GROUP);
     }
 
     private double locked() {

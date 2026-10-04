@@ -93,8 +93,8 @@ groups:
             the connector's job (find by filter, then PUT); deleting the existing
             identities to let the creates succeed destroys their history and ids.
 
-      # 4. The dormancy job failing to run. DormancyScheduleConfig registers it
-      #    with ScheduledJobMetrics under job="dormancy", so both series exist —
+      # 4. The dormancy job failing to run. DormancyScheduleConfig names it to the
+      #    scheduled-job module (ScheduledJobMetrics) as job="dormancy", so both series exist —
       #    at zero, and at the scheduling time — from startup.
       - alert: DormancyJobFailed
         expr: >

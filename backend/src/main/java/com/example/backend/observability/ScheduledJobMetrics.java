@@ -8,6 +8,8 @@ import io.micrometer.core.instrument.TimeGauge;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -16,12 +18,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.dao.DataAccessException;
+import org.springframework.scheduling.config.CronTask;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionException;
 
 /**
- * The one wrapper every scheduled job runs through: what each run publishes as metrics and
- * as log records, so that no job re-implements either.
+ * The scheduled-job module: the one place every scheduled job is registered and runs through,
+ * so that no job re-implements its registration, its metrics or its log records.
+ *
+ * <h2>Registration</h2>
+ *
+ * <p>A schedule config only names its job ({@link ScheduledJobSpec}): name, cron, description,
+ * the fields particular to its startup record, and which of its run counts are counters.
+ * {@link #schedule} builds the cron task, puts it on a cron trigger in
+ * {@link ServiceTimeZone#ZONE}, registers the job's metrics at zero and writes its startup
+ * record. Each run's counts are reported once, by the run, and written from that one report both
+ * as {@code job-end} fields and onto the declared counters.
  *
  * <h2>Metrics</h2>
  *
@@ -109,6 +123,42 @@ public class ScheduledJobMetrics {
      */
     public Runnable instrumentLocked(
             String job, Operation operation, Supplier<? extends SkippableJobRun> task) {
+        return instrument(job, operation, task, Map.of());
+    }
+
+    /**
+     * Registers {@code job} with the scheduler: its {@linkplain ScheduledJobSpec#countedAs
+     * counters}, each at zero; its task, run through {@link #instrumentLocked} on a cron
+     * trigger in {@link ServiceTimeZone#ZONE}, the zone the log timestamps are written in; and
+     * its startup record ({@link LogEvent#jobScheduled}) with the job's own fields.
+     *
+     * <p>A run's counts are reported once, by the run ({@link SkippableJobRun#counts}), and
+     * written from there both as fields of its {@code job-end} record and onto the counters
+     * declared for them. That happens only once the run has returned — after its transaction
+     * committed — and only for a run that did the work, so a run that failed, and so rolled
+     * back, or that skipped counts nothing.
+     */
+    public void schedule(ScheduledTaskRegistrar registrar, ScheduledJobSpec job) {
+        Map<String, Counter> counters = new HashMap<>();
+        for (ScheduledJobSpec.RunCounter counter : job.counters()) {
+            counters.put(counter.countField(), Counter.builder(counter.name())
+                    .description(counter.description())
+                    .register(registry));
+        }
+        registrar.addCronTask(new CronTask(
+                instrument(job.name(), job.operation(), job.task(), counters),
+                new CronTrigger(job.cron(), ServiceTimeZone.ZONE)));
+        LoggingEventBuilder scheduled = LogEvent.jobScheduled(
+                log, job.operation(), job.name(), job.cron(), job.description());
+        job.startupFields().forEach(scheduled::addKeyValue);
+        scheduled.log();
+    }
+
+    private Runnable instrument(
+            String job,
+            Operation operation,
+            Supplier<? extends SkippableJobRun> task,
+            Map<String, Counter> counters) {
         Counter succeeded = runs(job, "success");
         Counter failed = runs(job, "failure");
         AtomicLong lastSuccessMillis = new AtomicLong(clock.millis());
@@ -134,16 +184,31 @@ public class ScheduledJobMetrics {
                         long endedAt = clock.millis();
                         lastSuccessMillis.set(endedAt);
                         succeeded.increment();
-                        logEnd(operation, result, endedAt - startedAt);
+                        logEnd(operation, result, endedAt - startedAt, counters);
                     }
                 });
     }
 
-    private static void logEnd(Operation operation, SkippableJobRun result, long durationMillis) {
+    /**
+     * The run's {@code job-end}, carrying what a run that did the work counted — each count
+     * also added to the counter declared for it, so the field and the counter come from the
+     * one report.
+     */
+    private static void logEnd(
+            Operation operation,
+            SkippableJobRun result,
+            long durationMillis,
+            Map<String, Counter> counters) {
         LoggingEventBuilder end =
                 LogEvent.jobEnd(log, operation, durationMillis, result.skipped());
         if (!result.skipped()) {
-            result.counts().forEach(end::addKeyValue);
+            result.counts().forEach((field, count) -> {
+                end.addKeyValue(field, count);
+                Counter counter = counters.get(field);
+                if (counter != null) {
+                    counter.increment(count);
+                }
+            });
         }
         end.log();
     }

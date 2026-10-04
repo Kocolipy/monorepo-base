@@ -50,6 +50,25 @@ The port and adapter moved from `auth` to a shared `scheduling` module for it: `
 may depend on no business module (`ArchitectureTest.audit_depends_only_on_observability`),
 so it could not reach a port in `auth.domain`. The mechanism is unchanged.
 
+## Amendment (2026-10-04): the scheduled-job module registers every job
+
+Registration moved into the scheduled-job module, `ScheduledJobMetrics` (`observability`), so
+that it is in one place (issue #129). A schedule config now only names its job in a
+`ScheduledJobSpec`: its name, `Operation`, cron, description, task, the fields particular to
+its startup record, and which of its run counts are also counters. `ScheduledJobMetrics.schedule`
+builds the cron task and its trigger in `ServiceTimeZone.ZONE`, registers the run metrics and
+the declared counters at zero, and writes the startup record. That record is now logged under
+the `ScheduledJobMetrics` logger rather than the config's.
+
+A run reports its counts once (`SkippableJobRun.counts()`). Each count becomes a field on the
+`job-end` record and moves the counter declared for it. Counting happens only after the run
+has returned, and so after its transaction committed, and only when it did the work. A run
+that rolled back or skipped on a held lock therefore counts nothing, which is the same
+guarantee the dormancy counters had before. The lock mechanism above is unchanged.
+
+A new scheduled job therefore needs a `ScheduledJob` lock member and its migration row, as
+before, plus one `ScheduledJobSpec`.
+
 ## Alternatives considered
 
 **`pg_try_advisory_xact_lock(hashtext(name))`.** Same transaction scoping with no table. Not
