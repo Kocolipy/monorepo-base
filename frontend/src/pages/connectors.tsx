@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
+import { VIEW_PERMISSIONS } from "@/auth/permissions";
+import { useGatedRead } from "@/auth/use-gated-read";
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -282,59 +284,39 @@ interface ConnectorActions {
 function useConnectors() {
   const request = useSessionRequest();
 
-  const [connectors, setConnectors] = useState<Connector[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
   // A failed read is reported as a failure, never as an empty list.
-  const [unread, setUnread] = useState(false);
+  const listing = useGatedRead({
+    decode: readConnectors,
+    failureMessage: "Unable to load the connectors. Please try again.",
+    path: CONNECTORS_PATH,
+    permission: VIEW_PERMISSIONS.connectors,
+  });
 
-  const applyFailure = useCallback(
-    (result: Exclude<SessionResult<unknown>, { kind: "ok" }>, message: string) => {
-      setError(refusalMessage(result, message));
-    },
-    [],
-  );
-
-  const fetchConnectors = useCallback(
-    () => request(CONNECTORS_PATH, {}, readConnectors),
-    [request],
-  );
-
-  const applyListing = useCallback(
-    (result: SessionResult<Connector[]>) => {
-      if (result.kind === "ok") {
-        setConnectors(result.data);
-        setUnread(false);
-        return;
-      }
-      setConnectors((current) => current ?? []);
-      setUnread(true);
-      applyFailure(result, "Unable to load the connectors. Please try again.");
-    },
-    [applyFailure],
-  );
-
-  useEffect(() => {
-    void fetchConnectors().then(applyListing);
-  }, [applyListing, fetchConnectors]);
-
-  /** One mutation: clear the last error, run it, report a refusal, then re-read. */
+  /**
+   * One mutation: clear the last error, run it, report a refusal, then re-read.
+   * The re-read's own refusal, when it has one, is the latest thing to go wrong,
+   * so it is what the error line shows.
+   */
   const mutate = async <T,>(
     what: string,
     run: () => Promise<SessionResult<T>>,
     onOk?: (data: T) => void,
   ) => {
-    setError(null);
+    setMutationError(null);
+    listing.clearError();
     setPending(true);
     try {
       const result = await run();
       if (result.kind === "ok") {
         onOk?.(result.data);
       } else {
-        applyFailure(result, failure(what, result.kind === "failed" ? result.status : undefined));
+        const status = result.kind === "failed" ? result.status : undefined;
+        setMutationError(refusalMessage(result, failure(what, status)));
       }
-      applyListing(await fetchConnectors());
+      await listing.reload();
     } finally {
       setPending(false);
     }
@@ -386,13 +368,13 @@ function useConnectors() {
 
   return {
     actionsFor,
-    connectors,
+    connectors: listing.data,
     create,
     disclosure,
     dismiss: () => setDisclosure(null),
-    error,
+    error: listing.error ?? mutationError,
     pending,
-    unread,
+    unread: listing.failed,
   };
 }
 
@@ -458,12 +440,10 @@ export function Connectors({
   const { actionsFor, connectors, create, disclosure, dismiss, error, pending, unread } =
     useConnectors();
 
-  let listing: ReactNode;
-  if (connectors === null) {
-    listing = <p className="text-sm text-muted-foreground">Loading connectors…</p>;
-  } else if (connectors.length === 0) {
-    listing = unread ? null : <p className="text-sm text-muted-foreground">No connectors exist.</p>;
-  } else {
+  // A failed re-read keeps the connectors last read on screen; a failure with
+  // none to keep shows neither the loading line nor a claim that none exist.
+  let listing: ReactNode = null;
+  if (connectors !== null && connectors.length > 0)
     listing = connectors.map((connector) => (
       <ConnectorSection
         canIssue={canIssueTokens}
@@ -475,7 +455,10 @@ export function Connectors({
         {...actionsFor(connector)}
       />
     ));
-  }
+  else if (unread) listing = null;
+  else if (connectors === null)
+    listing = <p className="text-sm text-muted-foreground">Loading connectors…</p>;
+  else listing = <p className="text-sm text-muted-foreground">No connectors exist.</p>;
 
   return (
     <Card>

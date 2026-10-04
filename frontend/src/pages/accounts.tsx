@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { holds, VIEW_PERMISSIONS } from "@/auth/permissions";
-import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
+import { useGatedRead } from "@/auth/use-gated-read";
+import { refusalMessage, useSessionRequest } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -271,9 +272,9 @@ function GroupsTable({ groups }: { groups: GroupRow[] }) {
 }
 
 /**
- * A projection's card: its loading state, its empty state — withheld when the
- * read failed, so a failure is never also reported as an empty directory — and
- * otherwise its table.
+ * A projection's card: its loading state, its empty state — both withheld when
+ * the read failed, so a failure is never also reported as an empty directory or
+ * as a load still under way — and otherwise its table.
  */
 function ProjectionCard({
   children,
@@ -290,12 +291,13 @@ function ProjectionCard({
   rows: unknown[] | null;
   title: string;
 }) {
+  // A failed read is never followed by a successful one on this page, so a
+  // failure always means there are no rows to show.
   let body: ReactNode = children;
-  if (rows === null) {
+  if (failed) body = null;
+  else if (rows === null)
     body = <p className="text-sm text-muted-foreground">Loading {title.toLowerCase()}…</p>;
-  } else if (rows.length === 0) {
-    body = failed ? null : <p className="text-sm text-muted-foreground">{empty}</p>;
-  }
+  else if (rows.length === 0) body = <p className="text-sm text-muted-foreground">{empty}</p>;
   return (
     <Card>
       <CardHeader>
@@ -313,72 +315,31 @@ const readGroupRows = jsonDecoder(decodeGroupRows);
 const readUserRow = jsonDecoder(decodeUserRow);
 
 /**
- * One listing read, reported into state: the rows, or a failure and its copy.
- * `decode` must be a stable reference (module-level), since the read reruns
- * whenever it changes. Not issued at all when `enabled` is false — the session
- * lacks the listing's Permission, so the view is not shown and the request
- * would only be refused.
- */
-function useListing<T>(
-  path: string,
-  decode: (response: Response) => Promise<T[]>,
-  failureMessage: string,
-  onFailure: (message: string) => void,
-  enabled: boolean,
-) {
-  const request = useSessionRequest();
-  const [rows, setRows] = useState<T[] | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!enabled) return;
-    void request(path, {}, decode).then((result) => {
-      if (result.kind === "ok") {
-        setRows(result.data);
-        return;
-      }
-      setRows([]);
-      setFailed(true);
-      onFailure(refusalMessage(result, failureMessage));
-    });
-  }, [decode, enabled, failureMessage, onFailure, path, request]);
-
-  return { failed, rows, setRows };
-}
-
-/**
  * The two listing reads and the row actions, as state: what the page shows and
  * the one function that changes it. Each listing is read only when the session
  * holds its Permission.
+ *
+ * The page has one error line, showing the latest thing to go wrong: an
+ * action's refusal while one is showing, otherwise a listing's. Starting an
+ * action withdraws whatever was shown, as the action supersedes it.
  */
-function useDirectory(readUsers: boolean, readGroups: boolean) {
+function useDirectory() {
   const request = useSessionRequest();
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const report = useCallback((message: string) => setError(message), []);
-  const users = useListing(
-    USERS_PATH,
-    readUserRows,
-    "Unable to load the users. Please try again.",
-    report,
-    readUsers,
-  );
-  const groups = useListing(
-    GROUPS_PATH,
-    readGroupRows,
-    "Unable to load the groups. Please try again.",
-    report,
-    readGroups,
-  );
-  const setUsers = users.setRows;
-
-  const applyFailure = useCallback(
-    (result: Exclude<SessionResult<unknown>, { kind: "ok" }>, failureMessage: string) => {
-      setError(refusalMessage(result, failureMessage));
-    },
-    [],
-  );
+  const users = useGatedRead({
+    decode: readUserRows,
+    failureMessage: "Unable to load the users. Please try again.",
+    path: USERS_PATH,
+    permission: VIEW_PERMISSIONS.users,
+  });
+  const groups = useGatedRead({
+    decode: readGroupRows,
+    failureMessage: "Unable to load the groups. Please try again.",
+    path: GROUPS_PATH,
+    permission: VIEW_PERMISSIONS.groups,
+  });
 
   /**
    * Runs one action and replaces just that row from the response, rather than
@@ -386,7 +347,9 @@ function useDirectory(readUsers: boolean, readGroups: boolean) {
    * would only add a request that could disagree with it.
    */
   const runAction = async (target: UserRow, action: UserAction) => {
-    setError(null);
+    setActionError(null);
+    users.clearError();
+    groups.clearError();
     setPending(true);
     try {
       const result = await request(
@@ -396,18 +359,19 @@ function useDirectory(readUsers: boolean, readGroups: boolean) {
       );
       if (result.kind === "ok") {
         const updated = result.data;
-        setUsers((current) =>
+        users.update((current) =>
           (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
         );
         return;
       }
       const status = result.kind === "failed" ? result.status : undefined;
-      applyFailure(result, actionFailure(action, target.userName, status));
+      setActionError(refusalMessage(result, actionFailure(action, target.userName, status)));
     } finally {
       setPending(false);
     }
   };
 
+  const error = actionError ?? groups.error ?? users.error;
   return { error, groups, pending, runAction, users };
 }
 
@@ -431,7 +395,7 @@ export function Accounts() {
   const { logout, user } = useAuth();
   const readUsers = holds(user, VIEW_PERMISSIONS.users);
   const readGroups = holds(user, VIEW_PERMISSIONS.groups);
-  const { error, groups, pending, runAction, users } = useDirectory(readUsers, readGroups);
+  const { error, groups, pending, runAction, users } = useDirectory();
   const onAction: OnAction | null = holds(user, "user:write")
     ? (target, action) => void runAction(target, action)
     : null;
@@ -459,14 +423,14 @@ export function Accounts() {
           description={`Identity, active status and Group membership come from the directory and are read-only here. ${UNLOCK_EXPLANATION}`}
           empty="No users are provisioned."
           failed={users.failed}
-          rows={users.rows}
+          rows={users.data}
           title="Users"
         >
           <UsersTable
             onAction={onAction}
             pending={pending}
             signedIn={user?.username}
-            users={users.rows ?? []}
+            users={users.data ?? []}
           />
         </ProjectionCard>
       ) : null}
@@ -476,10 +440,10 @@ export function Accounts() {
           description="Groups and their membership come from the directory and are read-only here. A Group mapped to a Role grants that Role's Permissions to its direct members from their next sign-in."
           empty="No groups are provisioned."
           failed={groups.failed}
-          rows={groups.rows}
+          rows={groups.data}
           title="Groups"
         >
-          <GroupsTable groups={groups.rows ?? []} />
+          <GroupsTable groups={groups.data ?? []} />
         </ProjectionCard>
       ) : null}
 
