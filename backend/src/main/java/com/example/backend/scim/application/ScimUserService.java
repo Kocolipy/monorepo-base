@@ -359,7 +359,7 @@ public class ScimUserService {
                 new ScimWriteEffects.UserState(
                         before.profile(), before.externalId(), current.login().passwordHash()),
                 new ScimWriteEffects.UserState(after.profile(), after.externalId(), passwordHash));
-        if (effects.audited().isEmpty()) {
+        if (effects.stored().nothing()) {
             // Nothing a client can read moved, so nothing is written and no version advances.
             // Still audited, with no changed paths, as a Group write that moves nothing is: the
             // connector did write, and a connector hammering no-op writes is worth seeing.
@@ -382,7 +382,7 @@ public class ScimUserService {
             // above, or a rollback after this, leaves the history as it was.
             passwordAcceptance.remember(id, accepted, now);
         }
-        if (effects.audited().contains(AuditUserAttribute.EXTERNAL_ID)) {
+        if (effects.stored().alias()) {
             writeAlias(connectorId, id, after.externalId());
         }
         audit.recordScimUserReplaced(connectorId, id, effects.audited());

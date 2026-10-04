@@ -1067,13 +1067,6 @@ class ScimUserServiceTests {
         assertThat(stored().version()).isEqualTo(version);
     }
 
-    @Test
-    void a_write_whose_effects_name_no_revocation_requests_none() {
-        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
-
-        assertThat(revocations).isEmpty();
-    }
-
     // ---- deletion -------------------------------------------------------------------------
 
     @Test

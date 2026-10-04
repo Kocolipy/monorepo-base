@@ -9,6 +9,7 @@ import com.example.backend.authorization.domain.Role;
 import com.example.backend.scim.application.ScimWriteEffects.GroupState;
 import com.example.backend.scim.application.ScimWriteEffects.RoleChange;
 import com.example.backend.scim.application.ScimWriteEffects.SessionRevocation;
+import com.example.backend.scim.application.ScimWriteEffects.Stored;
 import com.example.backend.scim.application.ScimWriteEffects.UserState;
 import com.example.backend.scim.domain.ScimEmail;
 import com.example.backend.scim.domain.ScimName;
@@ -426,6 +427,84 @@ class ScimWriteEffectsTests {
         });
     }
 
+    // ---- what the write stores ---------------------------------------------------------------------
+
+    /**
+     * Every User column, moved on its own, is a column write and no alias write; the alias, moved
+     * on its own, is the reverse. Decided beside the audit set, not read out of it.
+     */
+    @ParameterizedTest
+    @MethodSource("userAttributeMoves")
+    void a_user_write_stores_the_columns_or_the_alias_it_moved(
+            AuditUserAttribute attribute, UnaryOperator<UserState> edit) {
+        var effects = ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, edit.apply(STORED_ADA));
+
+        boolean alias = attribute == AuditUserAttribute.EXTERNAL_ID;
+        assertThat(effects.stored()).isEqualTo(new Stored(!alias, alias));
+        assertThat(effects.stored().nothing()).isFalse();
+    }
+
+    @Test
+    void a_user_write_moving_columns_and_alias_stores_both() {
+        var effects = ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA,
+                new UserState(active(STORED_ADA, false).profile(), "ext-ada-2", "hash-1"));
+
+        assertThat(effects.stored()).isEqualTo(new Stored(true, true));
+        assertThat(effects.stored().nothing()).isFalse();
+        assertThat(effects.stored().aliasOnly()).isFalse();
+    }
+
+    @Test
+    void a_user_write_restating_the_stored_state_or_a_deletion_stores_nothing() {
+        var restated = ScimWriteEffects.ofUserWrite(USER_ID, STORED_ADA, STORED_ADA);
+        UserState credentialless = password(STORED_ADA, null);
+        var absentRemoved = ScimWriteEffects.ofUserWrite(USER_ID, credentialless, credentialless);
+
+        assertThat(List.of(restated, absentRemoved, ScimWriteEffects.ofUserDeletion(USER_ID)))
+                .allSatisfy(effects -> {
+                    assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
+                    assertThat(effects.stored().nothing()).isTrue();
+                });
+    }
+
+    @ParameterizedTest
+    @MethodSource("groupAttributeMoves")
+    void a_group_write_stores_the_columns_or_the_alias_it_moved(
+            AuditGroupAttribute attribute, GroupState after) {
+        var effects = ScimWriteEffects.ofGroupWrite(
+                GROUP_ID, group("Engineering", "ext", ALICE), after, Optional.of(HELPDESK));
+
+        boolean alias = attribute == AuditGroupAttribute.EXTERNAL_ID;
+        assertThat(effects.stored()).isEqualTo(new Stored(!alias, alias));
+        assertThat(effects.stored().aliasOnly()).isEqualTo(alias);
+        assertThat(effects.stored().nothing()).isFalse();
+    }
+
+    /** A write that moved a column advances the version itself, so the alias is not alone. */
+    @Test
+    void a_group_write_moving_a_column_and_the_alias_is_not_alias_only() {
+        var effects = ScimWriteEffects.ofGroupWrite(GROUP_ID,
+                group("Engineering", "ext", ALICE), group("Platform", "ext-2", ALICE),
+                Optional.empty());
+
+        assertThat(effects.stored()).isEqualTo(new Stored(true, true));
+        assertThat(effects.stored().aliasOnly()).isFalse();
+    }
+
+    @Test
+    void a_group_write_restating_the_stored_state_or_a_deletion_stores_nothing() {
+        var restated = ScimWriteEffects.ofGroupWrite(GROUP_ID,
+                group("Helpdesk", "ext", ALICE, BOB), group("Helpdesk", "ext", BOB, ALICE),
+                Optional.empty());
+        var deleted = ScimWriteEffects.ofGroupDeletion(
+                GROUP_ID, Set.of(ALICE), Optional.of(HELPDESK));
+
+        assertThat(List.of(restated, deleted)).allSatisfy(effects -> {
+            assertThat(effects.stored()).isEqualTo(Stored.NOTHING);
+            assertThat(effects.stored().aliasOnly()).isFalse();
+        });
+    }
+
     // ---- the values themselves ---------------------------------------------------------------------
 
     @Nested
@@ -435,6 +514,15 @@ class ScimWriteEffectsTests {
         void a_revocation_without_a_cause_is_refused() {
             assertThatThrownBy(() -> new SessionRevocation(USER_ID, EnumSet.noneOf(Cause.class)))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+
+        /** A use case reads what to store on every write, so effects always say. */
+        @Test
+        void effects_without_what_to_store_are_refused() {
+            assertThatThrownBy(() -> new ScimWriteEffects<>(
+                    EnumSet.noneOf(AuditUserAttribute.class), List.of(), List.of(), null))
+                    .isInstanceOf(NullPointerException.class)
+                    .hasMessage("stored");
         }
 
         /** The effects a use case carries out cannot be altered by it, nor by the inputs after. */
@@ -448,12 +536,14 @@ class ScimWriteEffectsTests {
             Set<Cause> causes = EnumSet.of(Cause.DELETED);
             SessionRevocation revocation = new SessionRevocation(USER_ID, causes);
             causes.add(Cause.LOCKED);
+            assertThat(revocation.userId()).isEqualTo(USER_ID);
             assertThat(revocation.causes()).containsExactly(Cause.DELETED);
 
             Set<AuditUserAttribute> audited = EnumSet.of(AuditUserAttribute.ACTIVE);
             List<SessionRevocation> revocations = new ArrayList<>(List.of(revocation));
             List<RoleChange> roleChanges = new ArrayList<>(List.of(revoked(ALICE)));
-            var effects = new ScimWriteEffects<>(audited, revocations, roleChanges);
+            var effects = new ScimWriteEffects<>(
+                    audited, revocations, roleChanges, Stored.NOTHING);
             audited.add(AuditUserAttribute.NAME);
             revocations.clear();
             roleChanges.clear();

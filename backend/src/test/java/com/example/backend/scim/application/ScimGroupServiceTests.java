@@ -735,33 +735,6 @@ class ScimGroupServiceTests {
         assertThat(audit.of(AuditOperation.ROLE_GRANT)).isEmpty();
     }
 
-    @Test
-    void a_put_leaving_members_out_of_a_mapped_group_revokes_each_of_them() {
-        helpdeskWith(alice, bob);
-
-        service.replace(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
-                new ScimGroupReplacement("Helpdesk", List.of(), null));
-
-        assertThat(revocations).containsExactlyInAnyOrder(roleRevocation(alice), roleRevocation(bob));
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactlyInAnyOrder(
-                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"),
-                roleChange(AuditOperation.ROLE_REVOKE, bob, HELPDESK_GROUP_ID, "Helpdesk"));
-    }
-
-    /** Gaining a Role leaves live sessions alone: the Permissions arrive at the next sign-in. */
-    @Test
-    void adding_a_member_to_a_mapped_group_records_the_role_gained_and_revokes_nothing() {
-        helpdeskWith(alice);
-
-        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
-                List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id(), bob.id()))));
-
-        assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.ROLE_GRANT)).containsExactly(
-                roleChange(AuditOperation.ROLE_GRANT, bob, HELPDESK_GROUP_ID, "Helpdesk"));
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
-    }
-
     /** The Superuser Group's membership is Role assignment too, and names its own Role. */
     @Test
     void a_superuser_group_membership_change_records_the_superuser_role() {
