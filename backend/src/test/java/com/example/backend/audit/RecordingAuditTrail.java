@@ -3,6 +3,7 @@ package com.example.backend.audit;
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
+import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.AuditRefusalReason;
@@ -72,9 +73,12 @@ public final class RecordingAuditTrail implements AuditTrail {
         recorded.add(new Recorded(AuditOperation.LOCKOUT_SET, null, accountId, null));
     }
 
+    /** The detail is the lifted lock's cause, or {@code null} when none stood. */
     @Override
-    public void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId) {
-        recorded.add(new Recorded(AuditOperation.LOCKOUT_LIFT, actorId, subjectId, null));
+    public void recordLockoutLiftedByUnlock(
+            UUID actorId, UUID subjectId, AuditLockCause lockCause) {
+        recorded.add(new Recorded(AuditOperation.LOCKOUT_LIFT, actorId, subjectId,
+                lockCause == null ? null : lockCause.name()));
     }
 
     @Override
@@ -220,7 +224,7 @@ public final class RecordingAuditTrail implements AuditTrail {
     @Override
     public void recordReservedMembershipRestored(UUID groupId, UUID userId) {
         recorded.add(new Recorded(
-                AuditOperation.SCIM_RESOURCE_SEED, null, groupId, "members-restored"));
+                AuditOperation.SCIM_RESOURCE_SEED, null, groupId, "members-restored " + userId));
     }
 
     /** The detail is the sorted changed attribute names, comma-joined; empty for a no-op. */
@@ -262,14 +266,15 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordInactivityDeactivation(UUID userId) {
-        recorded.add(new Recorded(AuditOperation.INACTIVITY_DEACTIVATION, null, userId, null));
+    public void recordDormancyLockout(UUID userId) {
+        recorded.add(new Recorded(AuditOperation.DORMANCY_LOCKOUT, null, userId, null));
     }
 
+    /** The detail is the Roles lost, by name, in the order given: {@code "Account admin,Superuser"}. */
     @Override
-    public void recordDormantAuthorityRevocation(UUID userId) {
-        recorded.add(new Recorded(
-                AuditOperation.DORMANT_AUTHORITY_REVOCATION, null, userId, null));
+    public void recordDormancyRoleRevocation(UUID userId, List<Role> roles) {
+        recorded.add(new Recorded(AuditOperation.DORMANCY_ROLE_REVOCATION, null, userId,
+                roles.stream().map(Role::name).collect(Collectors.joining(","))));
     }
 
     /** The detail is the Group then the Role: {@code "<groupId>:Account admin"}. */

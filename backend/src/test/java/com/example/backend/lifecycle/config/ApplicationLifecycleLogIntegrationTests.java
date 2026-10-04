@@ -72,7 +72,7 @@ class ApplicationLifecycleLogIntegrationTests {
                         "--spring.profiles.active=lifecycle-probe",
                         "--server.servlet.session.timeout=17m",
                         "--app.auth.lockout.max-attempts=4",
-                        "--app.dormancy.deactivation.window=61d",
+                        "--app.dormancy.lockout.window=61d",
                         "--app.audit.retention.period=400d");
         String jdbcUrl = application.getBean(JdbcConnectionDetails.class).getJdbcUrl();
 
@@ -96,8 +96,8 @@ class ApplicationLifecycleLogIntegrationTests {
         assertThat(record.at("/app/auth").isMissingNode())
                 .as("the lockout threshold is an authentication-flow value the standard keeps out")
                 .isTrue();
-        assertThat(record.at("/app/dormancy/deactivation/window").asText()).isEqualTo("PT1464H");
-        assertThat(record.at("/app/dormancy/authority_revocation/window").asText())
+        assertThat(record.at("/app/dormancy/lockout/window").asText()).isEqualTo("PT1464H");
+        assertThat(record.at("/app/dormancy/role_revocation/window").asText())
                 .as("unset, so the policy's 180-day default")
                 .isEqualTo("PT4320H");
         assertThat(record.at("/app/audit/retention/period").asText()).isEqualTo("PT9600H");

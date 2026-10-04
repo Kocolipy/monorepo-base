@@ -213,7 +213,7 @@ class AuditEventRecordingIntegrationTests {
         assertThat(event).containsEntry("subject_id", idOf(USER));
         assertThat(event).containsEntry("actor_id", null);
         assertThat(event).containsEntry(
-                "changed_paths", "failedLoginAttempts,lockedAt");
+                "changed_paths", "failedLoginAttempts,lockedAt,lockCause");
         assertThat(rows(AuditOperation.LOGIN_FAILURE)).hasSize(6);
         assertThat(rows(AuditOperation.LOGIN_FAILURE))
                 .extracting(row -> row.get("error_code"))

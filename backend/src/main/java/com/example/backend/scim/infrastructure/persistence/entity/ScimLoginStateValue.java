@@ -39,6 +39,15 @@ public class ScimLoginStateValue {
     private Instant lockedAt;
 
     /**
+     * Why the lock was imposed — {@code FAILURES} or {@code DORMANCY}, the names of
+     * {@code LockCause} — or null exactly when {@link #lockedAt} is. Stored as the name rather than
+     * mapped as an enum so the domain type stays free of persistence annotations; the adapter
+     * converts it.
+     */
+    @Column(name = "lock_cause", length = 16)
+    private String lockCause;
+
+    /**
      * When the User last authenticated or was explicitly reactivated, or null when neither has
      * happened — the dormancy basis, with the resource's creation time as the fallback.
      */
@@ -60,11 +69,13 @@ public class ScimLoginStateValue {
             String passwordHash,
             int failedLoginAttempts,
             Instant lockedAt,
+            String lockCause,
             Instant lastAuthenticatedAt,
             Instant passwordChangeRequiredSince) {
         this.passwordHash = passwordHash;
         this.failedLoginAttempts = failedLoginAttempts;
         this.lockedAt = lockedAt;
+        this.lockCause = lockCause;
         this.lastAuthenticatedAt = lastAuthenticatedAt;
         this.passwordChangeRequiredSince = passwordChangeRequiredSince;
     }
@@ -83,6 +94,10 @@ public class ScimLoginStateValue {
 
     public Instant getLockedAt() {
         return lockedAt;
+    }
+
+    public String getLockCause() {
+        return lockCause;
     }
 
     public Instant getLastAuthenticatedAt() {

@@ -113,11 +113,17 @@ public final class LogEvent {
     /** How many aged-out events one retention run removed. */
     public static final String RETENTION_DELETED_ROWS = "audit.retention.deleted_rows";
 
-    /** A dormancy job's configured window, as an ISO-8601 duration. */
-    public static final String DORMANCY_WINDOW = "dormancy.window";
+    /** The dormancy lockout window, as an ISO-8601 duration, on the job's startup record. */
+    public static final String DORMANCY_LOCKOUT_WINDOW = "dormancy.lockout.window";
 
-    /** How many Users one dormancy run changed. */
-    public static final String DORMANCY_PROCESSED = "dormancy.processed";
+    /** The dormancy role-revocation window, as an ISO-8601 duration, on the job's startup record. */
+    public static final String DORMANCY_ROLE_REVOCATION_WINDOW = "dormancy.role_revocation.window";
+
+    /** How many Users one dormancy run locked, on its {@code job-end} record. */
+    public static final String DORMANCY_LOCKED_COUNT = "dormancy.locked_count";
+
+    /** How many Users one dormancy run revoked the Roles of, on its {@code job-end} record. */
+    public static final String DORMANCY_ROLES_REVOKED_COUNT = "dormancy.roles_revoked_count";
 
     /**
      * The cron expression a scheduled job runs on, on its startup record.
@@ -275,9 +281,10 @@ public final class LogEvent {
         UNLOCK(Action.ACCESS_CONTROL, "identity.unlock"),
         FORCE_PASSWORD_CHANGE(Action.PASSWORD_CHANGE_ENFORCEMENT, null),
         PASSWORD_CHANGE(Action.USER_ADMINISTRATION, "identity.password_change"),
-        INACTIVITY_DEACTIVATION(Action.USER_ADMINISTRATION, "identity.inactivity_deactivation"),
-        DORMANT_AUTHORITY_REVOCATION(
-                Action.USER_ADMINISTRATION, "identity.dormant_authority_revocation"),
+        DORMANCY(Action.USER_ADMINISTRATION, "identity.dormancy"),
+        DORMANCY_LOCKOUT(Action.USER_ADMINISTRATION, "identity.dormancy_lockout"),
+        DORMANCY_ROLE_REVOCATION(
+                Action.USER_ADMINISTRATION, "identity.dormancy_role_revocation"),
         CONNECTOR_CREATE(Action.USER_PROVISIONING, "scim.connector.create"),
         CONNECTOR_DELETE(Action.USER_PROVISIONING, "scim.connector.delete"),
         CONNECTOR_TOKEN_ISSUE(Action.USER_ADMINISTRATION, "scim.connector.token.issue"),

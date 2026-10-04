@@ -32,10 +32,16 @@ public interface ScimUserSessions {
         DELETED,
         /**
          * The User lost a Role: its direct membership of a mapped Group was removed, by a
-         * connector's write or a scheduled dormancy job. Gaining one revokes nothing — the new
+         * connector's write or the dormancy job. Gaining one revokes nothing — the new
          * Permissions arrive at the next sign-in.
          */
-        ROLE_REVOKED
+        ROLE_REVOKED,
+        /**
+         * The dormancy job locked the User. No SCIM attribute changed; the revocation event is
+         * told apart by the {@code DORMANCY_LOCKOUT} event committed for the same subject before
+         * it.
+         */
+        LOCKED
     }
 
     /**

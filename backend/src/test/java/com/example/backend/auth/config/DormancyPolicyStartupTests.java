@@ -6,14 +6,16 @@ import com.example.backend.scim.domain.DormancyPolicy;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.convert.ApplicationConversionService;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 /**
- * That the two inactivity windows reach the rule from deployment configuration, and that an
- * unusable one stops startup.
+ * That the two dormancy windows reach the rule from deployment configuration, and that an
+ * unusable combination stops startup with a message naming the problem.
  *
  * <p>Driven through a real context refresh, with the conversion service Boot installs, so
  * {@code 60d} is parsed exactly as a deployment's environment variable would be.
@@ -32,22 +34,21 @@ class DormancyPolicyStartupTests {
         contexts.run(context -> {
             assertThat(context).hasNotFailed();
             DormancyPolicy policy = context.getBean(DormancyPolicy.class);
-            assertThat(policy.deactivationWindow()).isEqualTo(Duration.ofDays(90));
-            assertThat(policy.authorityRevocationWindow()).isEqualTo(Duration.ofDays(180));
+            assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(90));
+            assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
         });
     }
 
     @Test
     void configuredWindowsReachThePolicy() {
         contexts.withPropertyValues(
-                        "app.dormancy.deactivation.window=60d",
-                        "app.dormancy.authority.revocation.window=120d")
+                        "app.dormancy.lockout.window=60d",
+                        "app.dormancy.role.revocation.window=120d")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
-                    assertThat(policy.deactivationWindow()).isEqualTo(Duration.ofDays(60));
-                    assertThat(policy.authorityRevocationWindow())
-                            .isEqualTo(Duration.ofDays(120));
+                    assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(60));
+                    assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(120));
                 });
     }
 
@@ -56,25 +57,63 @@ class DormancyPolicyStartupTests {
     void theDocumentedEnvironmentVariablesReachThePolicy() {
         contexts.withInitializer(context -> context.getEnvironment().getPropertySources()
                         .addFirst(new SystemEnvironmentPropertySource("test-env", Map.<String, Object>of(
-                                "APP_DORMANCY_DEACTIVATION_WINDOW", "30d",
-                                "APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW", "45d"))))
+                                "APP_DORMANCY_LOCKOUT_WINDOW", "30d",
+                                "APP_DORMANCY_ROLE_REVOCATION_WINDOW", "45d"))))
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     DormancyPolicy policy = context.getBean(DormancyPolicy.class);
-                    assertThat(policy.deactivationWindow()).isEqualTo(Duration.ofDays(30));
-                    assertThat(policy.authorityRevocationWindow())
-                            .isEqualTo(Duration.ofDays(45));
+                    assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(30));
+                    assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(45));
                 });
     }
 
+    /** The settings the two removed jobs read are gone: setting them changes nothing. */
     @Test
-    void aZeroWindowFailsStartup() {
-        contexts.withPropertyValues("app.dormancy.deactivation.window=0d")
+    void theRemovedSettingsAreIgnored() {
+        contexts.withPropertyValues(
+                        "app.dormancy.deactivation.window=1d",
+                        "app.dormancy.authority.revocation.window=2d")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(DormancyPolicy.class))
+                            .isEqualTo(DormancyPolicy.defaults());
+                });
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "app.dormancy.lockout.window=0d,                 lockout window is configured at PT0S",
+            "app.dormancy.lockout.window=-1d,                lockout window is configured at PT-24H",
+            "app.dormancy.role.revocation.window=0d,         role revocation window is configured at PT0S",
+            "app.dormancy.role.revocation.window=-5d,        role revocation window is configured at PT-120H"
+    })
+    void aNonPositiveWindowFailsStartupNamingTheWindow(String setting, String message) {
+        contexts.withPropertyValues(setting)
                 .run(context -> assertThat(context)
                         .hasFailed()
                         .getFailure()
                         .hasRootCauseInstanceOf(IllegalArgumentException.class)
                         .rootCause()
+                        .hasMessageContaining(message)
                         .hasMessageContaining("must be positive"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "90d,  90d",
+            "90d,  60d",
+            "200d, 180d"
+    })
+    void aRoleRevocationWindowNotLongerThanTheLockoutWindowFailsStartup(
+            String lockout, String roleRevocation) {
+        contexts.withPropertyValues(
+                        "app.dormancy.lockout.window=" + lockout,
+                        "app.dormancy.role.revocation.window=" + roleRevocation)
+                .run(context -> assertThat(context)
+                        .hasFailed()
+                        .getFailure()
+                        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                        .rootCause()
+                        .hasMessageContaining("must be longer than the lockout window"));
     }
 }

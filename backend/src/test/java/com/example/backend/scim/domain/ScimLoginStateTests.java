@@ -201,4 +201,97 @@ class ScimLoginStateTests {
         assertThat(after.hasPassword()).isFalse();
         assertThat(after.passwordHash()).isNull();
     }
+
+    // ---- the lock's cause (ADR 0011) -------------------------------------------------------
+
+    /** A lock and its cause are set and cleared together; a state where they disagree is refused. */
+    @Test
+    void a_lock_and_its_cause_cannot_disagree() {
+        assertThatThrownBy(() -> new ScimLoginState("hash", 0, NOW, null, null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("set and cleared together");
+        assertThatThrownBy(() -> new ScimLoginState(
+                        "hash", 0, null, LockCause.DORMANCY, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(new ScimLoginState("hash", 0, NOW, LockCause.DORMANCY, null, null).lockCause())
+                .isEqualTo(LockCause.DORMANCY);
+        assertThat(new ScimLoginState("hash", 0, null, null, null, null).lockCause()).isNull();
+    }
+
+    /** The shapes predating the cause read a standing lock as a failure lock, the only kind. */
+    @Test
+    void a_state_built_without_a_cause_reads_a_lock_as_a_failure_lock() {
+        assertThat(new ScimLoginState("hash", 3, NOW).lockCause()).isEqualTo(LockCause.FAILURES);
+        assertThat(new ScimLoginState("hash", 3, NOW, null, null).lockCause())
+                .isEqualTo(LockCause.FAILURES);
+        assertThat(new ScimLoginState("hash", 0, null).lockCause()).isNull();
+        assertThat(ScimLoginState.CREDENTIALLESS.lockCause()).isNull();
+    }
+
+    @Test
+    void the_failure_that_locks_records_failures_as_the_cause() {
+        ScimLoginState locked = new ScimLoginState("hash", 2, null)
+                .withFailureRecorded(AFTER_THREE, NOW);
+
+        assertThat(locked.lockedAt()).isEqualTo(NOW);
+        assertThat(locked.lockCause()).isEqualTo(LockCause.FAILURES);
+        assertThat(new ScimLoginState("hash", 0, null).withFailureRecorded(AFTER_THREE, NOW)
+                .lockCause()).as("a failure that does not lock sets no cause").isNull();
+    }
+
+    /**
+     * The dormancy lock: the lock as of now with DORMANCY, and every other component — the
+     * failure run, the credential, the basis, the flag — exactly as it was.
+     */
+    @Test
+    void a_dormancy_lock_sets_the_lock_and_its_cause_and_nothing_else() {
+        Instant last = NOW.minusSeconds(60);
+        Instant flagged = NOW.minusSeconds(30);
+        ScimLoginState before = new ScimLoginState("hash", 2, null, null, last, flagged);
+
+        ScimLoginState locked = before.withDormancyLock(NOW);
+
+        assertThat(locked).isEqualTo(
+                new ScimLoginState("hash", 2, NOW, LockCause.DORMANCY, last, flagged));
+        assertThat(locked.isLocked()).isTrue();
+    }
+
+    /** An already locked User keeps its lock, its instant and its cause. */
+    @Test
+    void a_dormancy_lock_over_a_standing_lock_changes_nothing() {
+        ScimLoginState failureLock = new ScimLoginState("hash", 3, NOW.minusSeconds(5));
+
+        assertThat(failureLock.withDormancyLock(NOW)).isSameAs(failureLock);
+        assertThat(failureLock.withDormancyLock(NOW).lockCause()).isEqualTo(LockCause.FAILURES);
+    }
+
+    /** A failed attempt against a dormancy lock neither counts nor changes the cause. */
+    @Test
+    void a_dormancy_lock_survives_failed_attempts_and_clears_with_the_run() {
+        ScimLoginState locked = ScimLoginState.of("hash").withDormancyLock(NOW);
+
+        assertThat(locked.withFailureRecorded(AFTER_THREE, NOW.plusSeconds(1))).isSameAs(locked);
+        assertThat(locked.withFailureCounted().lockCause()).isEqualTo(LockCause.DORMANCY);
+        assertThat(locked.withPasswordChangeRequired(NOW).lockCause())
+                .isEqualTo(LockCause.DORMANCY);
+
+        ScimLoginState cleared = locked.withFailureRunCleared();
+        assertThat(cleared.lockedAt()).isNull();
+        assertThat(cleared.lockCause()).isNull();
+    }
+
+    /** Restarting the dormancy basis moves only the last authentication; the rest is kept. */
+    @Test
+    void restarting_the_dormancy_basis_keeps_everything_else() {
+        Instant required = NOW.minusSeconds(30);
+        ScimLoginState state = new ScimLoginState(
+                "hash", 2, NOW, LockCause.DORMANCY, NOW.minusSeconds(60), required);
+        Instant later = NOW.plusSeconds(10);
+
+        assertThat(state.withDormancyBasisReset(later)).isEqualTo(new ScimLoginState(
+                "hash", 2, NOW, LockCause.DORMANCY, later, required));
+        assertThatThrownBy(() -> state.withDormancyBasisReset(null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

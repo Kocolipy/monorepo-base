@@ -137,8 +137,8 @@ public class LoginAttemptService {
             if (cleared != user.login()) {
                 users.updateLoginState(user.id(), cleared);
             }
-            // A login moves the dormancy basis, the one thing the inactivity and dormant-authority
-            // jobs measure from — unless the User still owes a required password change. Such a
+            // A login moves the dormancy basis, the one thing the dormancy job measures from —
+            // unless the User still owes a required password change. Such a
             // session can do nothing but change the password or log out, so it is not use of the
             // account, and counting it would let an imposed credential that is never replaced
             // stay live for as long as somebody keeps logging in with it. The change itself moves

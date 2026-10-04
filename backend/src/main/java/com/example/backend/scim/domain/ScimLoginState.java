@@ -27,18 +27,25 @@ import java.time.Instant;
  *
  * <p>{@code lastAuthenticatedAt} is the dormancy basis: when the User last used the account —
  * a successful login while no password change was required of it, or a completed self-service
- * change — or was last explicitly reactivated. A login confined by a required change does not
- * move it, so an imposed credential nobody replaces still ages into deactivation. It is written by its own narrow port
- * operation ({@link ScimUserRepository#recordAuthentication}) and by a reactivation, never
+ * change — or was last explicitly reactivated or unlocked. A login confined by a required change does not
+ * move it, so an imposed credential nobody replaces still ages into the dormancy lockout. It is written by its own narrow port
+ * operations ({@link ScimUserRepository#recordAuthentication},
+ * {@link ScimUserRepository#resetDormancyBasis}) and by a reactivation, never
  * by {@link ScimUserRepository#updateLoginState}, and like the other components it is not a
  * SCIM attribute — recording a login does not move the version.
  *
  * @param passwordHash         the stored credential, or {@code null} for a
  *                             credentialless User
  * @param failedLoginAttempts  consecutive rejected attempts, never negative
+ * <p>{@code lockCause} says why the lock was imposed — a failure run or dormancy — and is
+ * present exactly when {@code lockedAt} is: the two are set together and cleared together, and a
+ * state where they disagree cannot be built.
+ *
  * @param lockedAt             when a lock was imposed, or {@code null} when none is
- * @param lastAuthenticatedAt  when the User last authenticated or was reactivated, or
- *                             {@code null} when neither has happened
+ * @param lockCause            why the lock was imposed, or {@code null} exactly when
+ *                             {@code lockedAt} is
+ * @param lastAuthenticatedAt  when the User last authenticated, was reactivated or was
+ *                             unlocked, or {@code null} when none of those has happened
  * @param passwordChangeRequiredSince when a password change was required of the User, or
  *                             {@code null} when none is — the change-required flag. Present when
  *                             the current credential was imposed on the User by somebody else (a
@@ -53,17 +60,36 @@ public record ScimLoginState(
         String passwordHash,
         int failedLoginAttempts,
         Instant lockedAt,
+        LockCause lockCause,
         Instant lastAuthenticatedAt,
         Instant passwordChangeRequiredSince) {
 
     /** A User that cannot authenticate and has no history: what a SCIM create yields. */
     public static final ScimLoginState CREDENTIALLESS =
-            new ScimLoginState(null, 0, null, null, null);
+            new ScimLoginState(null, 0, null, null, null, null);
 
     public ScimLoginState {
         if (failedLoginAttempts < 0) {
             throw new IllegalArgumentException("a failure run cannot be negative");
         }
+        if ((lockedAt == null) != (lockCause == null)) {
+            throw new IllegalArgumentException("a lock and its cause are set and cleared together");
+        }
+    }
+
+    /**
+     * A state whose lock, if any, came from a failure run — the shape every caller predating the
+     * cause builds, and the only cause a lock had before dormancy could impose one.
+     */
+    public ScimLoginState(
+            String passwordHash,
+            int failedLoginAttempts,
+            Instant lockedAt,
+            Instant lastAuthenticatedAt,
+            Instant passwordChangeRequiredSince) {
+        this(passwordHash, failedLoginAttempts, lockedAt,
+                lockedAt == null ? null : LockCause.FAILURES,
+                lastAuthenticatedAt, passwordChangeRequiredSince);
     }
 
     /**
@@ -133,10 +159,31 @@ public record ScimLoginState(
             return this;
         }
         int attempts = failedLoginAttempts + 1;
+        boolean locks = attempts >= policy.maxAttempts();
         return new ScimLoginState(
                 passwordHash,
                 attempts,
-                attempts >= policy.maxAttempts() ? now : null,
+                locks ? now : null,
+                locks ? LockCause.FAILURES : null,
+                lastAuthenticatedAt,
+                passwordChangeRequiredSince);
+    }
+
+    /**
+     * The state after the dormancy job found the User past the lockout window: locked as of
+     * {@code now} with {@link LockCause#DORMANCY}. A User already locked is returned unchanged,
+     * so the cause it was first locked for is the one the record keeps. The failure run is left
+     * as it stands — dormancy is not a failed attempt.
+     */
+    public ScimLoginState withDormancyLock(Instant now) {
+        if (isLocked()) {
+            return this;
+        }
+        return new ScimLoginState(
+                passwordHash,
+                failedLoginAttempts,
+                now,
+                LockCause.DORMANCY,
                 lastAuthenticatedAt,
                 passwordChangeRequiredSince);
     }
@@ -156,6 +203,7 @@ public record ScimLoginState(
                 passwordHash,
                 failedLoginAttempts + 1,
                 lockedAt,
+                lockCause,
                 lastAuthenticatedAt,
                 passwordChangeRequiredSince);
     }
@@ -176,7 +224,7 @@ public record ScimLoginState(
             return this;
         }
         return new ScimLoginState(
-                passwordHash, 0, null, lastAuthenticatedAt, passwordChangeRequiredSince);
+                passwordHash, 0, null, null, lastAuthenticatedAt, passwordChangeRequiredSince);
     }
 
     /**
@@ -189,6 +237,20 @@ public record ScimLoginState(
             throw new IllegalArgumentException("a required change has an instant");
         }
         return new ScimLoginState(
-                passwordHash, failedLoginAttempts, lockedAt, lastAuthenticatedAt, since);
+                passwordHash, failedLoginAttempts, lockedAt, lockCause, lastAuthenticatedAt, since);
+    }
+
+    /**
+     * The state with its dormancy basis restarted at {@code now}, as an Unlock does (ADR 0011): a
+     * User an administrator has just vouched for starts a fresh window, so the job does not lock it
+     * again on its next run. Everything else is kept.
+     */
+    public ScimLoginState withDormancyBasisReset(Instant now) {
+        if (now == null) {
+            throw new IllegalArgumentException("a restarted basis has an instant");
+        }
+        return new ScimLoginState(
+                passwordHash, failedLoginAttempts, lockedAt, lockCause, now,
+                passwordChangeRequiredSince);
     }
 }

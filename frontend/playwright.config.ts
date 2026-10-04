@@ -75,6 +75,18 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
+    {
+      name: "dormancy",
+      testMatch: /dormancy\.spec\.ts/,
+      // Last and alone: it signs in as the Account admin fixture User, as
+      // `token-permissions.spec.ts` does (#64), and consumes the `dormant`
+      // fixture's locked state, which only a backend restart re-arms.
+      dependencies: ["connector-tokens"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: { cookies: [], origins: [] },
+      },
+    },
   ],
 
   webServer: {

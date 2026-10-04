@@ -93,37 +93,35 @@ groups:
             the connector's job (find by filter, then PUT); deleting the existing
             identities to let the creates succeed destroys their history and ids.
 
-      # 4. The inactivity job failing to run. DormancyScheduleConfig registers it
-      #    with ScheduledJobMetrics under job="inactivity", so both series exist —
+      # 4. The dormancy job failing to run. DormancyScheduleConfig registers it
+      #    with ScheduledJobMetrics under job="dormancy", so both series exist —
       #    at zero, and at the scheduling time — from startup.
-      - alert: InactivityJobFailed
+      - alert: DormancyJobFailed
         expr: >
-          increase(app_job_runs_total{job="inactivity", outcome="failure"}[1h]) > 0
+          increase(app_job_runs_total{job="dormancy", outcome="failure"}[1h]) > 0
         labels:
           severity: critical
         annotations:
-          summary: The inactivity-governance job threw
+          summary: The dormancy job threw
           description: >
-            A run of the job that deactivates inactive Users and revokes dormant Admin
-            authority failed. Accounts that should have been deactivated are still
-            active.
+            A run of the job that locks dormant Users and revokes the Roles of long-dormant
+            ones failed. Accounts that should have been locked can still sign in.
           runbook: >
             Read the scheduler's ERROR record in the structured log for the failure's
             type and stack, fix the cause, and confirm the next scheduled run
             increments outcome="success".
-      - alert: InactivityJobNotRunning
+      - alert: DormancyJobNotRunning
         expr: >
-          time() - app_job_last_success_seconds{job="inactivity"} > 26 * 3600
+          time() - app_job_last_success_seconds{job="dormancy"} > 26 * 3600
         labels:
           severity: critical
         annotations:
-          summary: The inactivity-governance job has not succeeded in over a day
+          summary: The dormancy job has not succeeded in over a day
           description: >
             The daily job has gone 26 hours without a successful run — its schedule is
-            not firing, or every run fails. Inactive accounts are not being
-            deactivated.
+            not firing, or every run fails. Dormant accounts are not being locked.
           runbook: >
-            Check InactivityJobFailed first. If it is silent the trigger is not firing:
+            Check DormancyJobFailed first. If it is silent the trigger is not firing:
             confirm the instance is up and was not restarted into a configuration that
             no longer schedules the job.
 

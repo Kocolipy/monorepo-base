@@ -213,16 +213,24 @@ _Avoid_: sign-on, authenticate (as a noun for the operation)
 The consecutive rejected Logins recorded against one User.
 
 **Lockout**:
-The permanent state a User enters when its failure run reaches the limit; only an
-Admin's Unlock ends it.
+The permanent state a User enters for one of two causes — its failure run
+reaching the limit (`FAILURES`), or the dormancy job finding it past the lockout
+window (`DORMANCY`); only an Admin's Unlock ends it. A lock keeps the cause it was
+first imposed for, and the login refusal is the same bare `401` for either.
+
+**Lock cause**:
+Why a User is locked, `FAILURES` or `DORMANCY`, recorded beside the lock and
+shown in the Users projection so a forgotten password and an abandoned account
+can be told apart before unlocking.
 
 **Unlock**:
-An Admin holding `user:write` ending a User's lockout and failure run; it never
-changes `active`, just as deactivation never ends a lockout.
+An Admin holding `user:write` ending a User's lockout, whatever its cause, and
+its failure run, and restarting its dormancy basis; it never changes `active`,
+just as deactivation never ends a lockout.
 
 **Bootstrap Admin exemption**:
-The Bootstrap Admin's immunity from lockout, so the deployment always has a way
-back in.
+The Bootstrap Admin's immunity from lockout and from both dormancy steps, so the
+deployment always has a way back in.
 
 **Change-required flag**:
 The application's mark that a User's current password was imposed by someone
@@ -248,18 +256,21 @@ Superuser Group membership is what keeps a holder of every Permission.
 
 **Dormancy basis**:
 The instant a User's dormancy is measured from — its last real Login, completed
-password change or reactivation, or else its creation.
+password change, reactivation or Unlock, or else its creation.
 
 **Dormant User**:
-A User whose dormancy basis is older than a configured window.
+A User whose dormancy basis is older than one of the dormancy windows: the
+lockout window (90 days by default) or the longer role-revocation window (180).
 _Avoid_: inactive User (that is a deactivated one)
 
-**Inactivity deactivation**:
-The scheduled job that deactivates every dormant User.
-
-**Dormant-authority revocation**:
-The scheduled job that removes a dormant User from the Admin group, and nothing
-more.
+**Dormancy job**:
+The one scheduled job, daily at 04:00 Singapore time, that locks every unlocked
+User past the lockout window with cause `DORMANCY`, and removes the direct
+membership of every mapped Group from every User past the role-revocation
+window. It never writes `active` and never deletes; the Bootstrap Admin is
+exempt from both steps.
+_Avoid_: inactivity deactivation, dormant-authority revocation (the two jobs it
+replaced)
 
 **Scheduled job lock**:
 The per-job row a scheduled job run holds, so two runs of one job never overlap

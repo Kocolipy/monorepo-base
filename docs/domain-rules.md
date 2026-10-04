@@ -470,27 +470,32 @@ accepts ends the run and returns the count to zero; a login it rejects lengthens
 it, and so does a wrong current password on the self-service password change. An unknown username has no run, because nothing is recorded for a name that
 names no User.
 
-**Lockout** — the state a User enters once its failure run reaches the
-configured limit (`app.auth.lockout.max-attempts`, default 3), closing it to
-logins **permanently**: there is no duration, no configuration key expressing one,
-and no passage of time that lifts it. The only thing that ends it is an Admin
-performing Unlock (ADR 0007). The User's row records `locked_at`, the instant the lock was
-imposed, so "is it locked" is a question about the row rather than a comparison
-against a clock. A locked User is refused **with its correct password**, and
-refused the same way as a wrong one: a bare `401` with no body, so the response
+**Lockout** — the state a User enters for one of two causes, closing it to
+logins **permanently**: its failure run reaches the configured limit
+(`app.auth.lockout.max-attempts`, default 3) — cause `FAILURES` — or the dormancy
+job finds it past the lockout window — cause `DORMANCY` (ADR 0011). There is no
+duration, no configuration key expressing one, and no passage of time that lifts
+it. The only thing that ends it is an Admin performing Unlock (ADR 0007). The
+User's row records `locked_at`, the instant the lock was imposed, and `lock_cause`
+beside it, set and cleared together (a CHECK constraint refuses one without the
+other), so "is it locked" is a question about the row rather than a comparison
+against a clock. A lock keeps the cause it was first imposed for. A locked User is
+refused **with its correct password**, and refused the same way as a wrong one,
+whatever the cause: a bare `401` with no body, so the response
 never reveals that the User exists or that it is locked — a User who cannot get
 in learns nothing by waiting, which is intended. Attempts made while it holds
 neither count nor deepen it. Imposing it **revokes the User's live sessions**,
 after the transaction commits, so a locked User stops acting immediately rather
 than when the session it already held expires. Enforcement is Spring Security's,
 which checks the User's status before it compares passwords; the counting is the login
-path's. The lockout is the per-account half of brute-force deterrence on Login; the
+path's. The failure lockout is the per-account half of brute-force deterrence on Login; the
 deployment edge throttles the rest, because it cannot see the `userName` in a Login
 body (`infra/README.md`, "Edge throttling").
 
 **Bootstrap Admin exemption** — the seeded Admin
 (`app.auth.secondary-username`) is the deployment's local recovery identity and is
-the one principal lockout never applies to. Its failed attempts are counted and
+the one principal lockout never applies to — neither cause, and neither dormancy
+step. Its failed attempts are counted and
 audited as `LOGIN_FAILURE` like anyone's, but no run of them locks it. With no
 automatic lift, a lockable recovery account would let an unauthenticated attacker
 brick the deployment; the accepted cost is unbounded online guessing against that
@@ -498,7 +503,7 @@ single account, answered by the Argon2id verification cost every attempt pays, t
 uniform refusal, and the audited failures — not by a lock.
 
 **Deactivated User** — a User whose SCIM `active` attribute is false, set by a
-connector's SCIM write or by the inactivity-deactivation job. The Accounts page reports it and cannot change
+connector's SCIM write; the application itself never writes it. The Accounts page reports it and cannot change
 it: `active` is directory-owned. It is refused at login exactly as a locked User
 is: a bare `401`, indistinguishable from a wrong password, so the response reveals
 nothing. The flag is never merely reported.
@@ -518,9 +523,12 @@ logins right now, and is an Admin's. So:
 - Reactivating a User leaves a lockout it is serving in force. Restoring access
   is not a finding that the failed logins did not happen; the lockout still ends
   only when an Admin unlocks it.
-- Unlocking ends a lockout and clears the failure run with it, and says
-  nothing about the `active` flag. A deactivated User can be unlocked and stays
-  deactivated. Unlocking a User that has a password also sets its
+- Unlocking ends a lockout, whatever its cause, and clears the failure run with
+  it, and says nothing about the `active` flag. A deactivated User can be
+  unlocked and stays deactivated. Unlocking a locked User also restarts its
+  **dormancy basis**, so the next dormancy run does not lock it again before it
+  has had the chance to sign in, and records the lifted lock's cause on its
+  `LOCKOUT_LIFT` event. Unlocking a User that has a password also sets its
   **change-required flag** (below); an Admin cannot unlock their own account.
 
 **Change-required flag** — application-owned state on a User saying its current
@@ -589,7 +597,9 @@ can do neither. The same marker protects the resource from every SCIM write.
 row per User on the Accounts page (`GET /api/admin/accounts`): its stable resource
 id, `userName` and display name, whether it is the Bootstrap Admin, whether the
 **Admin group** confers administrative authority on it, its `active` flag, whether
-a credential is set at all, whether a lockout is in force, whether a change is
+a credential is set at all, whether a lockout is in force and its cause
+(`FAILURES` or `DORMANCY`, so an operator can tell a forgotten password from an
+abandoned account before unlocking), whether a change is
 required, its last authentication, its creation timestamp and its direct Groups.
 The directory-owned fields — identity, `active`, Groups — are read-only there.
 Never the password hash, which no projection type has a field for. There is no field for when a lockout lifts,
@@ -635,40 +645,53 @@ Permission regardless.
 
 **Dormancy basis** — the instant a User's dormancy is measured from: its
 `lastAuthenticatedAt` — set by every successful Login made while no password
-change is required, by a completed self-service change, and by an explicit
-reactivation — or, for a User that has had neither, its creation time. The
-fallback is what keeps a User provisioned without a password from being dormant
-the moment it exists. A confined session's Login does not move it, so a
-credential imposed on a User that is never replaced still ages into deactivation. Application-owned authentication state, like the failure
-run: not a SCIM attribute, absent from `/Schemas`, and writing it moves no version.
+change is required, by a completed self-service change, by an explicit
+reactivation and by an administrator's Unlock of a lock — or, for a User that has
+had none of those, its creation time. The fallback is what keeps a User
+provisioned without a password from being dormant the moment it exists. A
+confined session's Login does not move it, so a credential imposed on a User that
+is never replaced still ages into the dormancy lockout. Application-owned
+authentication state, like the failure run: not a SCIM attribute, absent from
+`/Schemas`, and writing it moves no version.
 
 **Dormant User** — a User whose dormancy basis is further in the past than a
-configured window. Dormancy is relative to a window, not a stored state: the same
-User can be dormant for deactivation (90 days by default,
-`APP_DORMANCY_DEACTIVATION_WINDOW`) and not yet for authority revocation (180 days,
-`APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW`). The Bootstrap Admin is never treated
-as dormant by either job, by its reservation marker, for the reason it is exempt
-from lockout. Avoid "inactive" for this: a deactivated User is one whose `active`
-flag is false, which a dormant User may or may not be.
+dormancy window. Dormancy is relative to a window, not a stored state: the same
+User can be dormant for the lockout (90 days by default,
+`APP_DORMANCY_LOCKOUT_WINDOW`) and not yet for role revocation (180 days,
+`APP_DORMANCY_ROLE_REVOCATION_WINDOW`). Startup fails on a non-positive window, or
+on a role-revocation window not longer than the lockout window. The Bootstrap
+Admin is never treated as dormant, by its reservation marker, for the reason it is
+exempt from lockout. Avoid "inactive" for this: a deactivated User is one whose
+`active` flag is false, which a dormant User may or may not be.
 
-**Inactivity deactivation** — the scheduled job that deactivates every active
-dormant User: `active=false`, the version advanced, its sessions revoked after
-commit, and an actorless `INACTIVITY_DEACTIVATION` event. It takes priority over
-the directory. A connector re-asserting `active=true` resets nothing — a write
-that changes nothing writes nothing — so it cannot hold a dormant User open; only
-an explicit reactivation, a stored transition of `active` from false to true
-through SCIM, resets the dormancy basis. A User reactivated
-while still dormant by a later run is deactivated again, by design.
+**Dormancy job** — the one scheduled job (ADR 0011), daily at 04:00
+`Asia/Singapore` on its own scheduled job lock row, in two steps:
 
-**Dormant-authority revocation** — the scheduled job that removes a dormant
-User's direct membership of the Admin group, and nothing else: baseline access is
-the inactivity job's business, and ordinary Group memberships confer no authority.
-The Admin group's and the User's versions advance, the User's sessions are revoked
-after commit, and an actorless `DORMANT_AUTHORITY_REVOCATION` event names the User.
-A connector may re-add the membership; while the User stays dormant the next run
-removes it again.
+- **Role revocation.** A User past the role-revocation window — active or not,
+  locked or not — loses its direct membership of every mapped Group. Each affected
+  Group's version and the User's advance, the User's sessions are revoked after
+  commit, and one actorless `DORMANCY_ROLE_REVOCATION` event names the User and
+  the Roles lost. Unmapped memberships confer nothing and are untouched. A
+  connector may re-add a membership; while the User stays dormant the next run
+  removes it again.
+- **Lockout.** An unlocked User past the lockout window — active or not — is
+  locked with lock cause `DORMANCY`, its sessions revoked after commit, and an
+  actorless `DORMANCY_LOCKOUT` event recorded and logged at `WARN` (inactivity,
+  not an attack). A User already locked keeps its lock and its cause. The lock
+  stands in for "disable": it never lifts on its own — a conscious deviation from
+  the standard's 20-minute automatic lift, which is written for failure lockouts —
+  and only an administrator's Unlock ends it.
 
-**Scheduled job lock** — how the two dormancy jobs and the audit retention job are
+The job never writes `active`, which stays the directory's, and never deletes:
+deprovisioning stays with SCIM `DELETE`. A connector re-asserting `active=true`
+resets nothing and lifts no lock. The Bootstrap Admin is exempt from both steps.
+Its runs are counted (`app.job.runs{job="dormancy"}`) and so are their changes
+(`app.dormancy.users.locked`, `app.dormancy.users.roles.revoked`), so a mass
+lockout or revocation shows as a spike. In the development profile only, the job
+also runs once at startup, so the backdated `dormant` fixture is locked without
+waiting for 04:00.
+
+**Scheduled job lock** — how the dormancy job and the audit retention job are
 serialized: each run takes its own job's row in `scheduled_job_locks` with
 `FOR UPDATE SKIP LOCKED` and holds it for the run's transaction. A second run of the
 same job, on any instance, skips; another job holds a different row and never waits. Inside a run, each User is
@@ -692,8 +715,8 @@ The triggers in force:
 - its own successful Login, which ends every other session it holds — one
   session per User;
 - its own successful self-service password change;
-- inactivity deactivation and dormant-authority revocation, by their scheduled
-  jobs — recorded with no actor, because the job is not a principal.
+- the dormancy job's lockout and role revocation — recorded with no actor,
+  because the job is not a principal.
 
 Every trigger defers the revocation until after its transaction commits, so a
 write that was refused, stale or rolled back revokes nothing, and one SCIM write

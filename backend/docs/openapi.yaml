@@ -556,11 +556,16 @@ paths:
       tags: [Administration]
       summary: End a lockout
       description: |
-        Clears the failure run and the recorded `locked_at`, which is the only way
-        a lockout ends: a lockout has no duration and never lifts on its own. Says
+        Clears the failure run and the recorded `locked_at` and `lock_cause`, which
+        is the only way a lockout ends, whatever its cause: a lockout has no
+        duration and never lifts on its own. Says
         nothing about `active`: an inactive User can be unlocked and stays
         inactive. Addressed by the User's stable id; a `userName` in its place is
         a malformed id and is answered `400`.
+
+        Lifting a lockout also restarts the dormancy window
+        (`lastAuthenticatedAt` becomes now), so the next dormancy run does not
+        lock again an account that has not yet had the chance to sign in.
 
         Lifting a lockout always sets the change-required flag on an account that
         has a password, because the credential that reached the threshold may be
@@ -2781,8 +2786,9 @@ components:
           format: date-time
           description: |
             When the caller last logged in successfully while no password change
-            was required of it, last completed a self-service change, or was last
-            reactivated, ISO-8601 in UTC; `null` when none has happened.
+            was required of it, last completed a self-service change, was last
+            reactivated or was last unlocked, ISO-8601 in UTC; `null` when none has
+            happened.
     SelfGroup:
       type: object
       additionalProperties: false
@@ -2841,7 +2847,7 @@ components:
         application-owned state. Returned by the listing and, for the User acted
         on, by `unlock` and `force-password-change`.
       required: [id, userName, displayName, admin, bootstrapAdmin, active, locked,
-        hasPassword, passwordChangeRequired, lastAuthenticatedAt, createdAt, groups]
+        lockCause, hasPassword, passwordChangeRequired, lastAuthenticatedAt, createdAt, groups]
       properties:
         id:
           type: string
@@ -2883,10 +2889,20 @@ components:
           type: boolean
           description: |
             Whether a lockout is in force. Independent of `active` — a lockout is
-            imposed automatically by a run of failed logins. It has no expiry and
-            there is no field for one: the lockout stands until an administrator
-            calls the unlock operation, so this flag is the whole lock state.
-            Always false for the Bootstrap Admin.
+            imposed automatically, by a run of failed logins or by the dormancy
+            job. It has no expiry and there is no field for one: the lockout stands
+            until an administrator calls the unlock operation. Always false for the
+            Bootstrap Admin.
+        lockCause:
+          type: [string, "null"]
+          enum: [FAILURES, DORMANCY, null]
+          description: |
+            Why the lockout was imposed: `FAILURES` when a run of failed logins
+            reached the limit, `DORMANCY` when the dormancy job found the identity
+            past the lockout window without authenticating. Lets an operator tell a
+            forgotten password from an abandoned account before unlocking. `null`
+            exactly when `locked` is false. The login refusal is the same bare `401`
+            for every cause.
         hasPassword:
           type: boolean
           description: |
@@ -2912,8 +2928,9 @@ components:
           format: date-time
           description: |
             The last successful login made while no password change was required,
-            completed self-service change, or explicit reactivation; null for an
-            identity that has had none. Application-owned; not a SCIM attribute.
+            completed self-service change, explicit reactivation or Unlock — the
+            dormancy basis; null for an identity that has had none.
+            Application-owned; not a SCIM attribute.
         createdAt:
           type: string
           format: date-time
@@ -3127,7 +3144,10 @@ components:
           enum: [ok, client_error, server_error]
         errorCode:
           type: [string, "null"]
-          description: A refusal reason from the service's own closed set (e.g. `BAD_CREDENTIALS`), never a message.
+          description: |
+            A refusal reason from the service's own closed set (e.g.
+            `BAD_CREDENTIALS`), never a message. On a `LOCKOUT_LIFT`, the cause of
+            the lock it lifted (`FAILURES` or `DORMANCY`).
         httpMethod:
           type: [string, "null"]
         httpPath:
@@ -3148,8 +3168,9 @@ components:
           type: [string, "null"]
           description: |
             The Role a `ROLE_GRANT` or `ROLE_REVOKE` gained or lost, by its name in
-            the deployment's role mapping when the change happened; `null` for
-            every other operation.
+            the deployment's role mapping when the change happened — or, on a
+            `DORMANCY_ROLE_REVOCATION`, every Role lost, sorted and comma-joined;
+            `null` for every other operation.
         permissions:
           type: array
           items:
@@ -3189,8 +3210,8 @@ components:
         - SCIM_GROUP_LIST
         - SCIM_RESOURCE_LIST
         - SCIM_RESOURCE_SEED
-        - INACTIVITY_DEACTIVATION
-        - DORMANT_AUTHORITY_REVOCATION
+        - DORMANCY_LOCKOUT
+        - DORMANCY_ROLE_REVOCATION
         - PASSWORD_CHANGE_REQUIRE
         - PASSWORD_CHANGE
         - ACCESS_DENIED
@@ -3198,7 +3219,12 @@ components:
         - ROLE_REVOKE
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
-        a lockout has no duration, so there is no expiry lift. `ACCESS_DENIED` is an
+        a lockout has no duration, so there is no expiry lift; its `errorCode` is
+        the cause of the lock it lifted (`FAILURES` or `DORMANCY`), or `null` when
+        the User was not locked. `DORMANCY_LOCKOUT` and `DORMANCY_ROLE_REVOCATION`
+        are the dormancy job's, with no actor: the first locked the User, the
+        second removed its direct membership of every mapped Group and names the
+        Roles lost in `role`, comma-joined. `ACCESS_DENIED` is an
         authorization refusal on the application chain: the refused User as actor
         and subject, the operation as `httpMethod` and `httpPath` (the route
         template, `unmatched` for a route nothing declares) and the one generic

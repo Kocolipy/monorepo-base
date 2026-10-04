@@ -4,6 +4,7 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimResourceType;
@@ -251,8 +252,12 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
     }
 
     @Override
-    public List<UUID> findDormantMemberIds(ReservedResourceName reservedName, Instant cutoff) {
-        return memberships.findDormantMemberIds(reservedName.storedValue(), cutoff);
+    public List<ScimGroupMembership> findDormantMemberships(
+            Collection<UUID> groupIds, Instant cutoff) {
+        // An empty IN list is not portable SQL; nothing can match it anyway.
+        return groupIds.isEmpty()
+                ? List.of()
+                : memberships.findDormantMemberships(groupIds, cutoff);
     }
 
     /**

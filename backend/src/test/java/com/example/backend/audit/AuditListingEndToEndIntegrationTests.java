@@ -12,8 +12,8 @@ import com.example.backend.InMemorySessionRegistryConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.DormancyTestClockConfiguration;
 import com.example.backend.auth.MutableClock;
-import com.example.backend.auth.application.DormantAuthorityRevocationService;
-import com.example.backend.auth.application.InactivityDeactivationService;
+import com.example.backend.auth.application.DormancyRun;
+import com.example.backend.auth.application.DormancyService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.domain.DormancyPolicy;
@@ -23,7 +23,9 @@ import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import jakarta.servlet.ServletContext;
+import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -61,8 +63,8 @@ import tools.jackson.databind.json.JsonMapper;
  * Unlock and forced-change operations and the self-service change are real requests through the
  * application chain with a real CSRF token; the User and Group writes and the bulk read are real
  * SCIM requests bearing the token the Admin just minted. The two scheduled jobs have no HTTP
- * surface — a cron trigger is their only entry point — so they are invoked as their scheduler
- * invokes them, under a clock moved past their windows.
+ * surface — a cron trigger is their only entry point — so the dormancy job is invoked as its
+ * scheduler invokes it, over two fixtures whose dormancy basis is backdated past its windows.
  *
  * <p>The redaction assertion is made against the listing's raw response text rather than against
  * chosen fields, because what must not be there must not be ANYWHERE: every password this test
@@ -70,9 +72,9 @@ import tools.jackson.databind.json.JsonMapper;
  * filter value, and every profile value it provisioned. Before searching for their absence it
  * asserts the text it searched holds the events that would have carried them.
  *
- * <p>Shares {@code InactivityGovernanceIntegrationTests}'s context — and so its Postgres and its
- * forward-moving clock — and follows its discipline: every User it asserts about is its own, and
- * the seeded ordinary User its job runs deactivate is put back afterwards.
+ * <p>Shares {@code DormancyIntegrationTests}'s context — and so its Postgres and its clock — and
+ * follows its discipline: every User it asserts about is its own, and dormancy is produced by
+ * backdating that User's basis, never by moving the clock.
  */
 @SpringBootTest
 @Import({
@@ -122,10 +124,7 @@ class AuditListingEndToEndIntegrationTests {
     private MutableClock clock;
 
     @Autowired
-    private InactivityDeactivationService deactivation;
-
-    @Autowired
-    private DormantAuthorityRevocationService authorityRevocation;
+    private DormancyService dormancy;
 
     @Autowired
     private ScimUserRepository users;
@@ -155,14 +154,11 @@ class AuditListingEndToEndIntegrationTests {
         for (UUID id : created) {
             jdbc.update("DELETE FROM scim_resources WHERE id = ? AND reserved_name IS NULL", id);
         }
-        UUID seeded = users.findByNormalizedUserName(NormalizedUserName.of("test-user"))
-                .orElseThrow().id();
-        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            users.updateActive(seeded, true, clock.instant());
-            // Reactivation requires a password change; the shared seeded baseline is unflagged.
-            users.completePasswordChange(seeded,
-                    users.findById(seeded).orElseThrow().login().passwordHash(), clock.instant());
-        });
+    }
+
+    private void backdateCreation(UUID user, Duration ago) {
+        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?",
+                Timestamp.from(clock.instant().minus(ago)), user);
     }
 
     @Test
@@ -221,10 +217,14 @@ class AuditListingEndToEndIntegrationTests {
         send(post("/api/admin/connectors/" + connectorId + "/tokens/" + tokenId + "/revoke")
                 .session(admin), null, 204);
 
-        // ---- #18 both governance jobs, past both windows ----
-        clock.advanceBy(DormancyPolicy.DEFAULT_AUTHORITY_REVOCATION_WINDOW.plusDays(1));
-        assertThat(authorityRevocation.revokeDormantAuthority().processed()).contains(dormantAdmin);
-        assertThat(deactivation.deactivateDormantUsers().processed()).contains(dormant);
+        // ---- #18 the dormancy job, past both windows ----
+        // The two fixtures' basis — their creation, since neither ever authenticated — is
+        // backdated rather than the clock moved, so no other User in the database is dormant.
+        backdateCreation(dormantAdmin, DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW.plusDays(1));
+        backdateCreation(dormant, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
+        DormancyRun run = dormancy.run();
+        assertThat(run.rolesRevoked()).contains(dormantAdmin);
+        assertThat(run.locked()).contains(dormant, dormantAdmin);
 
         // ---- read it all back ----
         MockHttpSession reader = logIn(BOOTSTRAP_ADMIN, BOOTSTRAP_PASSWORD);
@@ -244,8 +244,10 @@ class AuditListingEndToEndIntegrationTests {
                 connectorId, "User", deleted, "displayName");
         expect(single(deletedEvents, "SCIM_USER_DELETE", "SUCCESS"), connectorId, "User", deleted);
 
+        // The Admin group is shared with every class on this context, and with the clock no longer
+        // moved its other writes fall at this run's instant too: scope to this test's connector.
         List<JsonNode> groupEvents = listAll(reader,
-                "resourceId=%s&from=%s".formatted(adminGroup, start), listed);
+                "resourceId=%s&actorId=%s".formatted(adminGroup, connectorId), listed);
         expect(single(groupEvents, "SCIM_GROUP_REPLACE", "SUCCESS"),
                 connectorId, "Group", adminGroup, "members");
 
@@ -273,14 +275,18 @@ class AuditListingEndToEndIntegrationTests {
                 .as("every refused attempt, the one that locked it included")
                 .hasSize(5);
         expect(single(lockedEvents, "LOCKOUT_SET", "SUCCESS"),
-                null, "User", locked, "failedLoginAttempts", "lockedAt");
-        expect(single(lockedEvents, "LOCKOUT_LIFT", "SUCCESS"),
-                adminId, "User", locked, "failedLoginAttempts", "lockedAt");
+                null, "User", locked, "failedLoginAttempts", "lockedAt", "lockCause");
+        JsonNode lift = single(lockedEvents, "LOCKOUT_LIFT", "SUCCESS");
+        expect(lift, adminId, "User", locked, "failedLoginAttempts", "lockedAt", "lockCause");
+        assertThat(lift.get("errorCode").asText()).as("the cause of the lock lifted")
+                .isEqualTo("FAILURES");
 
-        expect(single(listAll(reader, "resourceId=" + dormantAdmin, listed),
-                "DORMANT_AUTHORITY_REVOCATION", "SUCCESS"), null, "User", dormantAdmin, "groups");
+        JsonNode roleRevocation = single(listAll(reader, "resourceId=" + dormantAdmin, listed),
+                "DORMANCY_ROLE_REVOCATION", "SUCCESS");
+        expect(roleRevocation, null, "User", dormantAdmin, "groups");
+        assertThat(roleRevocation.get("role").asText()).isEqualTo("Superuser");
         expect(single(listAll(reader, "resourceId=" + dormant, listed),
-                "INACTIVITY_DEACTIVATION", "SUCCESS"), null, "User", dormant, "active");
+                "DORMANCY_LOCKOUT", "SUCCESS"), null, "User", dormant, "lockedAt", "lockCause");
 
         // Everything this test caused, whatever it names, for the redaction sweep.
         List<JsonNode> everything = listAll(reader, "from=" + start, listed);
@@ -435,10 +441,10 @@ class AuditListingEndToEndIntegrationTests {
      * A session created at the TEST clock's instant rather than the wall clock's.
      *
      * <p>The absolute-lifetime filter compares a session's creation time with the application
-     * clock, and this context's clock is moved months ahead by the dormancy tests sharing it. A
-     * plain {@code MockHttpSession} is created at real time, so once the clock has moved every
-     * session would read as months old and be refused — depending only on which test class ran
-     * first.
+     * clock, and this context's clock is the test's own {@code MutableClock}, which a test sharing
+     * the context may move. A plain {@code MockHttpSession} is created at real time, so once the
+     * clock has moved every session could read as old and be refused — depending only on which
+     * test class ran first.
      */
     private static final class ClockedSession extends MockHttpSession {
 

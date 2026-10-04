@@ -5,8 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.audit.application.AuditRetentionService;
 import com.example.backend.audit.config.AuditRetentionScheduleConfig;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
-import com.example.backend.auth.application.DormantAuthorityRevocationService;
-import com.example.backend.auth.application.InactivityDeactivationService;
+import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.config.DormancyScheduleConfig;
 import com.example.backend.scim.domain.DormancyPolicy;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -55,10 +54,7 @@ class ScheduledJobScheduleTests {
     private Environment environment;
 
     @Autowired
-    private InactivityDeactivationService deactivation;
-
-    @Autowired
-    private DormantAuthorityRevocationService authorityRevocation;
+    private DormancyService dormancyJob;
 
     @Autowired
     private AuditRetentionService retentionJob;
@@ -75,7 +71,7 @@ class ScheduledJobScheduleTests {
     @Test
     void everyCronIsEvaluatedInSingaporeTime() {
         List<CronTask> crons = cronTasks();
-        assertThat(crons).as("the three scheduled jobs").hasSize(3);
+        assertThat(crons).as("the two scheduled jobs: audit retention and dormancy").hasSize(2);
 
         for (CronTask cron : crons) {
             CronExpression expression = CronExpression.parse(cron.getExpression());
@@ -97,9 +93,23 @@ class ScheduledJobScheduleTests {
      */
     @Test
     void everyJobRunsThroughTheInstrumentedWrapper() {
-        assertThat(List.of("audit-retention", "inactivity", "dormant-authority-revocation"))
+        assertThat(List.of("audit-retention", "dormancy"))
                 .allSatisfy(job -> assertThat(registry.find("app.job.runs").tag("job", job).counters())
                         .as(job).hasSize(2));
+        assertThat(registry.find("app.job.runs").tag("job", "inactivity").counters())
+                .as("the removed jobs are no longer scheduled").isEmpty();
+        assertThat(registry.find("app.job.runs").tag("job", "dormant-authority-revocation")
+                .counters()).isEmpty();
+    }
+
+    /**
+     * The dormancy job's change counters exist from scheduling, at zero, so an unexpected mass
+     * lockout or revocation is a spike on a series that was already there.
+     */
+    @Test
+    void theDormancyChangeCountersAreRegisteredFromScheduling() {
+        assertThat(registry.find("app.dormancy.users.locked").counter()).isNotNull();
+        assertThat(registry.find("app.dormancy.users.roles.revoked").counter()).isNotNull();
     }
 
     private List<CronTask> cronTasks() {
@@ -111,44 +121,44 @@ class ScheduledJobScheduleTests {
     }
 
     /**
-     * The two configurations built and driven here, against a registrar of the test's own, so
-     * what {@code configureTasks} registers and logs is observed while the test runs rather
-     * than inferred from a context started earlier. Each job is registered once, on its
-     * cron, in Singapore time; the startup record states its schedule and window; and
-     * running the registered task gives the run a trace, which only the instrumented wrapper
-     * opens — this thread is in no request.
+     * The configuration built and driven here, against a registrar of the test's own, so what
+     * {@code configureTasks} registers and logs is observed while the test runs rather than
+     * inferred from a context started earlier. The one dormancy job is registered once, on its
+     * cron, in Singapore time; the startup record states its name, schedule, zone and both
+     * windows; and running the registered task gives the run a trace, which only the instrumented
+     * wrapper opens — this thread is in no request.
      */
     @Test
-    void theDormancyConfigurationRegistersBothJobsInstrumentedInSingaporeTime() {
+    void theDormancyConfigurationRegistersOneJobInstrumentedInSingaporeTime() {
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
         try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
-            new DormancyScheduleConfig(deactivation, authorityRevocation, dormancy, jobs)
+            new DormancyScheduleConfig(dormancyJob, dormancy, jobs, registry)
                     .configureTasks(registrar);
 
             List<CronTask> crons = registrar.getCronTaskList();
-            assertThat(crons).extracting(CronTask::getExpression).containsExactly(
-                    DormancyScheduleConfig.DEACTIVATION_SCHEDULE,
-                    DormancyScheduleConfig.AUTHORITY_REVOCATION_SCHEDULE);
+            assertThat(crons).extracting(CronTask::getExpression)
+                    .containsExactly(DormancyScheduleConfig.SCHEDULE);
+            assertThat(DormancyScheduleConfig.SCHEDULE).as("daily at 04:00").isEqualTo("0 0 4 * * *");
             crons.forEach(ScheduledJobScheduleTests::assertEvaluatedInSingaporeTime);
+            assertThat(crons.getFirst().getTrigger().nextExecution(
+                            new SimpleTriggerContext(Clock.fixed(NOW, ZoneOffset.UTC))))
+                    .as("the next 04:00 in Singapore after 08:00 Singapore time")
+                    .isEqualTo(Instant.parse("2026-10-01T20:00:00Z"));
 
             List<JsonNode> scheduled = records(logs, "Dormancy job scheduled");
-            assertThat(scheduled).extracting(record -> record.at("/batch/job/name").asText())
-                    .containsExactly("inactivity", "dormant-authority-revocation");
-            assertThat(scheduled).extracting(record -> record.at("/trigger/cron/expression").asText())
-                    .containsExactly(DormancyScheduleConfig.DEACTIVATION_SCHEDULE,
-                            DormancyScheduleConfig.AUTHORITY_REVOCATION_SCHEDULE);
-            assertThat(scheduled).extracting(record -> record.at("/trigger/cron/timezone").asText())
-                    .containsOnly("Asia/Singapore");
-            assertThat(scheduled).extracting(record -> record.at("/app/job/description").asText())
-                    .containsExactly(DormancyScheduleConfig.DEACTIVATION_DESCRIPTION,
-                            DormancyScheduleConfig.AUTHORITY_REVOCATION_DESCRIPTION)
-                    .allSatisfy(description -> assertThat(description).isNotBlank());
-            assertThat(scheduled).extracting(record -> record.at("/app/event/action").asText())
-                    .containsExactly("identity.inactivity_deactivation",
-                            "identity.dormant_authority_revocation");
-            assertThat(scheduled).extracting(record -> record.at("/dormancy/window").asText())
-                    .containsExactly(dormancy.deactivationWindow().toString(),
-                            dormancy.authorityRevocationWindow().toString());
+            assertThat(scheduled).singleElement().satisfies(record -> {
+                assertThat(record.at("/batch/job/name").asText()).isEqualTo("dormancy");
+                assertThat(record.at("/trigger/cron/expression").asText())
+                        .isEqualTo(DormancyScheduleConfig.SCHEDULE);
+                assertThat(record.at("/trigger/cron/timezone").asText()).isEqualTo("Asia/Singapore");
+                assertThat(record.at("/app/job/description").asText())
+                        .isEqualTo(DormancyScheduleConfig.DESCRIPTION).isNotBlank();
+                assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
+                assertThat(record.at("/dormancy/lockout/window").asText())
+                        .isEqualTo(dormancy.lockoutWindow().toString());
+                assertThat(record.at("/dormancy/role_revocation/window").asText())
+                        .isEqualTo(dormancy.roleRevocationWindow().toString());
+            });
 
             for (CronTask cron : crons) {
                 logs.reset();

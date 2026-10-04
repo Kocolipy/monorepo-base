@@ -139,7 +139,7 @@ public interface ScimUserRepository {
      *
      * <p>A stored transition from inactive to active is a reactivation, and it resets the
      * dormancy window: {@code lastAuthenticatedAt} becomes {@code now}. Without that a
-     * reactivated User would still be dormant by its old basis and the next inactivity run
+     * reactivated User would still be dormant by its old basis and the next dormancy run
      * would deactivate it again. Writing {@code true} over {@code true} resets nothing.
      *
      * <p>A reactivation of a User that holds a credential also requires a password change as of
@@ -156,16 +156,38 @@ public interface ScimUserRepository {
     List<UUID> findAllIds();
 
     /**
-     * The ids of every active, unreserved User whose dormancy basis — {@code lastAuthenticatedAt},
+     * The ids of every unlocked, unreserved User whose dormancy basis — {@code lastAuthenticatedAt},
      * or the creation time when it has never authenticated — lies strictly before
-     * {@code cutoff}, ordered by id.
+     * {@code cutoff}, ordered by id. Active or not: the lock is the application's own, and
+     * {@code active} is the directory's.
      *
-     * <p>The inactivity job's candidate list. Candidates only: the job re-reads each under its
-     * resource lock and decides again, so a User that logged in or was reactivated between this
-     * read and that one is left alone. Reserved Users are excluded here so the Bootstrap Admin is
-     * never so much as locked by the job; the job checks the exemption again regardless.
+     * <p>The dormancy job's lockout candidates. Candidates only: the job re-reads each under its
+     * resource lock and decides again, so a User that logged in or was unlocked between this read
+     * and that one is left alone. Reserved Users are excluded here so the Bootstrap Admin is never
+     * so much as locked by the job; the job checks the exemption again regardless.
      */
-    List<UUID> findDormantActiveUserIds(Instant cutoff);
+    List<UUID> findDormantUnlockedUserIds(Instant cutoff);
+
+    /**
+     * Locks the User for dormancy as of {@code now} — {@code lockedAt} and
+     * {@code lockCause=DORMANCY} — when, and only when, it is not locked already, and writes
+     * nothing else.
+     *
+     * <p>Conditional in the statement itself, so a lock the login path imposed for failures in
+     * the meantime keeps its cause, and the failure run the login path writes without the
+     * resource lock is never overwritten. Not a SCIM attribute: the version does not move.
+     *
+     * @return whether this call imposed the lock
+     */
+    boolean lockForDormancy(UUID id, Instant now);
+
+    /**
+     * Restarts the dormancy window as of {@code at}: writes {@code lastAuthenticatedAt} and
+     * nothing else. An administrator's Unlock, so that the next dormancy run does not lock again
+     * a User that has not yet had the chance to sign in. Not a SCIM attribute: the version does
+     * not move. A write matching no row is silently nothing.
+     */
+    void resetDormancyBasis(UUID id, Instant at);
 
     /**
      * Sets the change-required flag as of {@code since}, and nothing else.

@@ -3,6 +3,7 @@ package com.example.backend.scim.config;
 import com.example.backend.scim.application.ScimSeedService;
 import com.example.backend.scim.application.ScimSeedService.DevFixture;
 import com.example.backend.scim.application.ScimSeedService.SeededIdentity;
+import com.example.backend.scim.domain.DormancyPolicy;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
@@ -36,14 +37,16 @@ import org.springframework.context.annotation.Configuration;
 public class ScimSeedConfig {
 
     /**
-     * Seeding, then the development fixtures when enabled, then the half of the role mapping's
-     * validation that needs the directory — in that order, in one runner, so the check sees
-     * exactly the Groups startup created and a failure of any step fails startup.
+     * Seeding, then the development fixtures when enabled — the dormant fixture last of them —
+     * then the half of the role mapping's validation that needs the directory — in that order, in
+     * one runner, so the check sees exactly the Groups startup created and a failure of any step
+     * fails startup.
      */
     @Bean
     ApplicationRunner seedScimDirectory(
             ScimSeedService seeding,
             DevFixtureProperties devFixtures,
+            DormancyPolicy dormancy,
             @Value("${app.auth.username}") String userName,
             @Value("${app.auth.password}") String password,
             @Value("${app.auth.secondary-username}") String recoveryUserName,
@@ -59,6 +62,11 @@ public class ScimSeedConfig {
                                         group.id(), group.displayName(), group.member()))
                                 .toList(),
                         devFixtures.password());
+                if (devFixtures.dormantMember() != null) {
+                    // A day past the window, so the startup dormancy run locks it.
+                    seeding.seedDormantDevFixture(devFixtures.dormantMember(),
+                            devFixtures.password(), dormancy.lockoutWindow().plusDays(1));
+                }
             }
             seeding.verifyMappedGroups();
         };

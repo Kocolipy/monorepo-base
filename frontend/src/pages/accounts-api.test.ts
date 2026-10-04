@@ -26,6 +26,7 @@ const USER_ROW = {
   bootstrapAdmin: false,
   active: true,
   locked: false,
+  lockCause: null,
   hasPassword: true,
   passwordChangeRequired: false,
   lastAuthenticatedAt: null,
@@ -129,6 +130,7 @@ describeDecoder("UserRow", decodeUserRow, USER_ROW, {
   bootstrapAdmin: BOOLEAN,
   active: BOOLEAN,
   locked: BOOLEAN,
+  lockCause: ["OTHER", "FAILURES | DORMANCY", "a string"],
   hasPassword: BOOLEAN,
   passwordChangeRequired: BOOLEAN,
   lastAuthenticatedAt: [0, "a string"],
@@ -193,6 +195,25 @@ const LISTINGS: [list: string, decode: (value: unknown) => unknown, row: object,
   ["GroupRow[]", decodeGroupRows, GROUP_ROW, "GroupRow"],
   ["Connector[]", decodeConnectors, CONNECTOR, "Connector"],
 ];
+
+describe("the lock cause", () => {
+  it.each(["FAILURES", "DORMANCY"] as const)("decodes a %s lock", (lockCause) => {
+    expect(decodeUserRow({ ...USER_ROW, locked: true, lockCause })).toMatchObject({
+      locked: true,
+      lockCause,
+    });
+  });
+
+  it.each([
+    ["a lock without a cause", { locked: true, lockCause: null }],
+    ["a cause without a lock", { locked: false, lockCause: "DORMANCY" }],
+  ])("refuses %s", (_, fields) => {
+    refusal(
+      () => decodeUserRow({ ...USER_ROW, ...fields }),
+      "UserRow.lockCause is not null exactly when locked is false",
+    );
+  });
+});
 
 describe("the listing decoders", () => {
   it.each(LISTINGS)("%s decodes every row", (_, decode, row) => {

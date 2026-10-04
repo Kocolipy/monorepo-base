@@ -51,12 +51,14 @@ test.describe("ADMIN directory projections", () => {
       "hasPassword",
       "id",
       "lastAuthenticatedAt",
+      "lockCause",
       "locked",
       "passwordChangeRequired",
       "userName",
     ]);
-    // It cannot be locked, and its direct Groups include the Admin group.
+    // It cannot be locked, so it has no lock cause, and its direct Groups include the Admin group.
     expect(admin!.locked).toBe(false);
+    expect(admin!.lockCause).toBeNull();
     expect((admin!.groups as unknown[]).length).toBeGreaterThanOrEqual(1);
     expect(Number.isNaN(Date.parse(String(admin!.createdAt)))).toBe(false);
   });

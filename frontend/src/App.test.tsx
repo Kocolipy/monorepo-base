@@ -176,6 +176,7 @@ describe("App", () => {
                   id: "00000000-0000-4000-8000-000000000001",
                   lastAuthenticatedAt: null,
                   locked: false,
+                  lockCause: null,
                   passwordChangeRequired: false,
                   userName: "grace",
                 },

@@ -324,46 +324,58 @@ alert table are in `/infra/README.md` under "Operational telemetry".
 
 A scheduled job reports its runs through `ScheduledJobMetrics`
 (`app_job_runs_total{job,outcome}`, `app_job_last_success_seconds{job}`). The audit
-retention job is `job="audit-retention"`, the inactivity job `job="inactivity"` (which
-the alert rules select on), and the dormant-authority job
-`job="dormant-authority-revocation"`. Each run is also its own trace, so every record
-a run emits carries one `trace.id`, and is timed as `app_job_run_seconds{job}`.
+retention job is `job="audit-retention"` and the dormancy job `job="dormancy"` (which
+the alert rules select on). Each run is also its own trace, so every record
+a run emits carries one `trace.id`, and is timed as `app_job_run_seconds{job}`. The
+dormancy job also counts what it changed: `app_dormancy_users_locked_total` and
+`app_dormancy_users_roles_revoked_total`, registered at zero from startup, so a mass
+lockout or revocation is a spike on an existing series.
 
-### Inactivity governance
+### Dormancy
 
-| Variable                                   | Default          | Meaning                                                                 |
-| ------------------------------------------ | ---------------- | ----------------------------------------------------------------------- |
-| `APP_DORMANCY_DEACTIVATION_WINDOW`         | `90d` (90 days)  | How long a User may go without logging in before it is deactivated     |
-| `APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW` | `180d` (180 days)| How long before its direct Admin group membership is removed            |
+| Variable                              | Default           | Meaning                                                                                   |
+| ------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
+| `APP_DORMANCY_LOCKOUT_WINDOW`         | `90d` (90 days)   | How long a User may go without logging in before it is locked for dormancy                |
+| `APP_DORMANCY_ROLE_REVOCATION_WINDOW` | `180d` (180 days) | How long before its direct membership of every mapped Group is removed; must be longer than the lockout window |
 
-Two daily jobs apply them, both measured from the User's last successful login —
-or from its creation, if it has never logged in. A login made while a password
-change is required of the User does not count; the completed change does (see
-[Required password change](#required-password-change)):
+One daily job (04:00 `Asia/Singapore`) applies them, both measured from the User's
+last successful login — or its last reactivation or Unlock, or its creation if it
+has had none of those. A login made while a password change is required of the
+User does not count; the completed change does (see
+[Required password change](#required-password-change)). Each run, in order:
 
-- **Inactivity deactivation** (04:00 daily) sets `active=false` on every dormant
-  User, advances its SCIM version, ends its sessions and records an
-  `INACTIVITY_DEACTIVATION` audit event.
-- **Dormant-authority revocation** (04:30 daily) removes a dormant User's direct
-  membership of the Admin group — nothing else: baseline `USER` access and
-  ordinary Group memberships stay — advances the Admin group's and the User's
-  versions, ends the User's sessions and records a
-  `DORMANT_AUTHORITY_REVOCATION` audit event.
+- **Role revocation** removes a User past the role-revocation window from every
+  Group the role mapping names — unmapped memberships stay — advances each Group's
+  and the User's versions, ends the User's sessions and records one
+  `DORMANCY_ROLE_REVOCATION` audit event naming the Roles lost.
+- **Lockout** locks every unlocked User past the lockout window with lock cause
+  `DORMANCY`, ends its sessions and records a `DORMANCY_LOCKOUT` audit event,
+  logged at `WARN`. A User already locked keeps its lock and its cause.
 
-The Bootstrap Admin is never processed by either. A connector re-asserting
-`active=true` does not reset the window; only an explicit reactivation (a write
-that takes `active` from false to true, over SCIM or the Accounts page) does. A
-connector that re-adds the Admin membership of a User that is still dormant
-sees it removed again on the next run.
+The job never writes `active` and never deletes anything. A dormancy lock never
+lifts on its own: only an Admin's **Unlock** ends it, which also restarts the
+dormancy window and requires a password change of a User that has one. The
+Accounts page shows the lock's cause. The Bootstrap Admin is never processed. A
+connector re-asserting `active=true` resets nothing, and a connector that re-adds
+a mapped membership of a User that is still dormant sees it removed again on the
+next run.
 
-Each job is serialized on its own row in `scheduled_job_locks`
+The job is serialized on its own row in `scheduled_job_locks`
 (`SELECT … FOR UPDATE SKIP LOCKED`, held for the run's transaction), so two runs
-of the same job never overlap across instances and a run that finds its job
-already running skips; the two jobs never wait for each other. A zero or negative
-window fails startup. Neither default appears in `application.yaml` — both belong
-to `DormancyPolicy`. Every run logs its outcome (`event.action:
-identity.inactivity_deactivation` / `identity.dormant_authority_revocation`),
-including a run that skipped or changed nobody.
+never overlap across instances and a run that finds the job already running skips.
+A zero or negative window, or a role-revocation window not longer than the lockout
+window, fails startup. Neither default appears in `application.yaml` — both belong
+to `DormancyPolicy`. The startup record states the job's cron, zone and both
+windows; every run logs `job-start` and `job-end` (`event.action:
+identity.dormancy`), the end carrying `dormancy.locked_count` and
+`dormancy.roles_revoked_count`, including a run that skipped or changed nobody.
+
+With the development fixtures on (`APP_DEV_FIXTURES_ENABLED=true`, as
+`.env.example` sets) the job also runs once at startup, after seeding has
+backdated the `dormant` fixture User past the lockout window, so a local run and
+the e2e suite see a dormancy lock without waiting for 04:00. That run applies to
+every User, as the nightly one would. The old `APP_DORMANCY_DEACTIVATION_WINDOW`
+and `APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW` settings are gone and ignored.
 
 ### Required password change
 
@@ -379,9 +391,9 @@ endpoint.
 
 There is no deadline for the change. Instead, a flagged User's logins do not move
 its dormancy basis, so a User that keeps logging in with an imposed credential
-and never replaces it is deactivated by the inactivity job once the window has
-passed since its creation, last real login or reactivation. The completed change
-moves the basis.
+and never replaces it is locked by the dormancy job once the lockout window has
+passed since its creation, last real login, reactivation or Unlock. The completed
+change moves the basis.
 
 ### Audit trail database roles
 

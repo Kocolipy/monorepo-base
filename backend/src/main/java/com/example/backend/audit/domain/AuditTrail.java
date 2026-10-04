@@ -2,6 +2,7 @@ package com.example.backend.audit.domain;
 
 import com.example.backend.authorization.domain.Role;
 import com.example.backend.authorization.domain.Permission;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -52,8 +53,12 @@ public interface AuditTrail {
      * that could record one. {@code actorId} is required by the signature for the
      * same reason — a lift that named no administrator would be describing
      * something this application cannot do.
+     *
+     * @param lockCause why the lifted lock had been imposed, or {@code null} when the User was not
+     *                  locked — an Unlock still clears its failure run and restarts its dormancy
+     *                  window
      */
-    void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId);
+    void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId, AuditLockCause lockCause);
 
     /**
      * Records a connector created.
@@ -290,19 +295,22 @@ public interface AuditTrail {
             UUID connectorId, UUID userId, Set<AuditUserAttribute> causes, boolean succeeded);
 
     /**
-     * Records the inactivity job deactivating a dormant User. Fail-closed: the append joins the
-     * job's transaction, so a deactivation the trail cannot record does not happen.
+     * Records the dormancy job locking a dormant User. Fail-closed: the append joins the job's
+     * transaction, so a lock the trail cannot record is not imposed.
      *
      * <p>No actor parameter, because there is none: the scheduled job is not a principal, and the
      * operation is what says the job did it.
      */
-    void recordInactivityDeactivation(UUID userId);
+    void recordDormancyLockout(UUID userId);
 
     /**
-     * Records the dormant-authority job removing a dormant User's Admin-group membership.
-     * Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
+     * Records the dormancy job removing a dormant User's direct membership of every mapped Group
+     * it held, as one event naming the User and the Roles it lost. Fail-closed, and actorless, for
+     * the reasons {@link #recordDormancyLockout} is.
+     *
+     * @param roles the Roles the removed memberships conferred; never empty
      */
-    void recordDormantAuthorityRevocation(UUID userId);
+    void recordDormancyRoleRevocation(UUID userId, List<Role> roles);
 
     /**
      * Records a User gaining a mapped Group's Role because a connector's write added it to the

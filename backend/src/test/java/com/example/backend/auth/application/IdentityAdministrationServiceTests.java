@@ -17,6 +17,7 @@ import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -79,10 +80,11 @@ class IdentityAdministrationServiceTests {
         ScimGroup admins = givenAdminGroup(ada);
 
         assertThat(service.listIdentities()).containsExactly(
-                new IdentitySummary(ada.id(), "ada", null, true, false, true, false, true, false,
-                        null, NOW, List.of(new IdentitySummary.DirectGroup(admins.id(), "Admins"))),
-                new IdentitySummary(bob.id(), "bob", null, false, false, true, false, true, false,
-                        null, NOW, List.of()));
+                new IdentitySummary(ada.id(), "ada", null, true, false, true, false, null, true,
+                        false, null, NOW,
+                        List.of(new IdentitySummary.DirectGroup(admins.id(), "Admins"))),
+                new IdentitySummary(bob.id(), "bob", null, false, false, true, false, null, true,
+                        false, null, NOW, List.of()));
     }
 
     /**
@@ -395,8 +397,99 @@ class IdentityAdministrationServiceTests {
         service.unlock(id("bob"), BOOTSTRAP);
 
         assertThat(audit.recorded()).containsExactly(
-                new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), null),
+                new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), bob.id(), "FAILURES"),
                 new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), bob.id(), null));
+    }
+
+    // Dormancy locks (ADR 0011)
+
+    /**
+     * The listing says why a User is locked, so an operator can tell a forgotten password from
+     * an abandoned account before unlocking; an unlocked User has no cause.
+     */
+    @Test
+    void theListingCarriesEachLocksCause() {
+        givenLocked("bob");
+        givenLockedForDormancy("carol");
+        given("dave");
+
+        assertThat(service.listIdentities())
+                .extracting(IdentitySummary::userName, IdentitySummary::locked,
+                        IdentitySummary::lockCause)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("bob", true, LockCause.FAILURES),
+                        org.assertj.core.groups.Tuple.tuple("carol", true, LockCause.DORMANCY),
+                        org.assertj.core.groups.Tuple.tuple("dave", false, null));
+    }
+
+    /**
+     * Unlock lifts a dormancy lock exactly as it lifts a failure lock — the lock and its cause
+     * cleared, a password change required of a credentialed User — and also restarts the
+     * dormancy window, so the next run does not lock the User again before it can sign in. The
+     * returned row shows the restarted basis; the version does not move.
+     */
+    @Test
+    void unlockingADormancyLockRestartsTheDormancyWindow() {
+        ScimUser recovery = given(BOOTSTRAP);
+        ScimUser carol = givenLockedForDormancy("carol");
+        clock.advanceBy(A_LONG_TIME);
+
+        IdentitySummary unlocked = service.unlock(carol.id(), BOOTSTRAP);
+
+        ScimLoginState after = users.require("carol").login();
+        assertThat(after.isLocked()).isFalse();
+        assertThat(after.lockCause()).isNull();
+        assertThat(after.lastAuthenticatedAt()).isEqualTo(clock.instant());
+        assertThat(after.passwordChangeRequiredSince()).isEqualTo(clock.instant());
+        assertThat(users.require("carol").version()).isEqualTo(carol.version());
+        assertThat(unlocked.locked()).isFalse();
+        assertThat(unlocked.lockCause()).isNull();
+        assertThat(unlocked.lastAuthenticatedAt()).isEqualTo(clock.instant());
+        assertThat(unlocked.passwordChangeRequired()).isTrue();
+        assertThat(audit.recorded()).containsExactly(
+                new Recorded(AuditOperation.LOCKOUT_LIFT, recovery.id(), carol.id(), "DORMANCY"),
+                new Recorded(AuditOperation.PASSWORD_CHANGE_REQUIRE, recovery.id(), carol.id(),
+                        null));
+    }
+
+    /** A failure lock's Unlock restarts the window too: the lift is one operation. */
+    @Test
+    void unlockingAFailureLockRestartsTheDormancyWindowToo() {
+        givenLocked("bob");
+        clock.advanceBy(A_LONG_TIME);
+
+        service.unlock(id("bob"), BOOTSTRAP);
+
+        assertThat(users.require("bob").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
+    }
+
+    /** An Unlock of a User that is not locked does not restart its window, and names no cause. */
+    @Test
+    void unlockingAnUnlockedUserLeavesItsDormancyBasisAndNamesNoCause() {
+        Instant lastLogin = NOW.minus(Duration.ofDays(80));
+        ScimUser dave = users.given(ScimIdentities.userAuthenticatedAt("dave", lastLogin));
+        clock.advanceBy(Duration.ofDays(1));
+
+        IdentitySummary result = service.unlock(dave.id(), BOOTSTRAP);
+
+        assertThat(users.require("dave").login().lastAuthenticatedAt()).isEqualTo(lastLogin);
+        assertThat(result.lastAuthenticatedAt()).isEqualTo(lastLogin);
+        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).singleElement()
+                .extracting(Recorded::detail).isNull();
+    }
+
+    /** A credentialless User locked for dormancy is unlocked without a change requirement. */
+    @Test
+    void unlockingACredentiallessDormancyLockRequiresNoChange() {
+        ScimUser idle = users.given(ScimIdentities.userWithLoginState("idle",
+                ScimLoginState.CREDENTIALLESS.withDormancyLock(NOW)));
+
+        IdentitySummary unlocked = service.unlock(idle.id(), BOOTSTRAP);
+
+        assertThat(unlocked.locked()).isFalse();
+        assertThat(unlocked.passwordChangeRequired()).isFalse();
+        assertThat(users.require("idle").login().lastAuthenticatedAt()).isEqualTo(clock.instant());
+        assertThat(audit.of(AuditOperation.PASSWORD_CHANGE_REQUIRE)).isEmpty();
     }
 
     /**
@@ -714,6 +807,11 @@ class IdentityAdministrationServiceTests {
     private ScimUser givenLocked(String userName) {
         return users.given(ScimIdentities.userWithLoginState(
                 userName, new ScimLoginState("hash", 3, NOW)));
+    }
+
+    private ScimUser givenLockedForDormancy(String userName) {
+        return users.given(ScimIdentities.userWithLoginState(
+                userName, ScimLoginState.of("hash").withDormancyLock(NOW)));
     }
 
     /**

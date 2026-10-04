@@ -62,8 +62,9 @@ public class ScimUserSessionRevocationService implements ScimUserSessions {
 
     /**
      * The attribute whose change each cause is, as the event's changed paths. A deletion changed
-     * no attribute — the whole User went — so it contributes none; the revocation event is told
-     * apart by the {@code SCIM_USER_DELETE} event committed for the same subject before it.
+     * no attribute — the whole User went — and a dormancy lock changed none a connector reads, so
+     * neither contributes one; each revocation event is told apart by the {@code SCIM_USER_DELETE}
+     * or {@code DORMANCY_LOCKOUT} event committed for the same subject before it.
      */
     private static Set<AuditUserAttribute> paths(Set<Cause> causes) {
         Set<AuditUserAttribute> paths = EnumSet.noneOf(AuditUserAttribute.class);
@@ -73,7 +74,7 @@ public class ScimUserSessionRevocationService implements ScimUserSessions {
                 case PASSWORD_CHANGED -> paths.add(AuditUserAttribute.PASSWORD);
                 case USER_NAME_CHANGED -> paths.add(AuditUserAttribute.USER_NAME);
                 case ROLE_REVOKED -> paths.add(AuditUserAttribute.GROUPS);
-                case DELETED -> { }
+                case DELETED, LOCKED -> { }
             }
         }
         return paths;

@@ -119,6 +119,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                         current.login().passwordHash(),
                         loginState.failedLoginAttempts(),
                         loginState.lockedAt(),
+                        loginState.lockCause(),
                         // Kept, as the adapter keeps it: this write is the failure run only.
                         current.login().lastAuthenticatedAt(),
                         current.login().passwordChangeRequiredSince()),
@@ -219,21 +220,46 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
     }
 
     /**
-     * Active, unreserved Users whose dormancy basis is strictly before the cutoff, by id — or, once
-     * {@link #answerDormancyCandidatesWith} has been called, exactly the ids given.
+     * Unlocked, unreserved Users whose dormancy basis is strictly before the cutoff, by id — or,
+     * once {@link #answerDormancyCandidatesWith} has been called, exactly the ids given.
      */
     @Override
-    public List<UUID> findDormantActiveUserIds(Instant cutoff) {
+    public List<UUID> findDormantUnlockedUserIds(Instant cutoff) {
         if (staleDormancyCandidates != null) {
             return staleDormancyCandidates;
         }
         return stored.values().stream()
-                .filter(user -> user.profile().active())
+                .filter(user -> !user.login().isLocked())
                 .filter(user -> user.reservedName() == null)
                 .filter(user -> user.isDormantAt(cutoff))
                 .map(ScimUser::id)
                 .sorted()
                 .toList();
+    }
+
+    /** The lock and its cause where none stands, as the adapter's conditional statement does. */
+    @Override
+    public boolean lockForDormancy(UUID id, Instant now) {
+        ScimUser current = stored.get(id);
+        if (current == null || current.login().isLocked()) {
+            return false;
+        }
+        stored.put(id, new ScimUser(
+                current.id(),
+                current.profile(),
+                current.login().withDormancyLock(now),
+                current.reservedName(),
+                current.version(),
+                current.createdAt(),
+                current.lastModifiedAt()));
+        writes++;
+        return true;
+    }
+
+    /** The dormancy basis alone, as {@link #recordAuthentication} writes it. */
+    @Override
+    public void resetDormancyBasis(UUID id, Instant at) {
+        recordAuthentication(id, at);
     }
 
     @Override
@@ -310,6 +336,7 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 login.passwordHash(),
                 login.failedLoginAttempts(),
                 login.lockedAt(),
+                login.lockCause(),
                 basis,
                 login.passwordChangeRequiredSince());
     }

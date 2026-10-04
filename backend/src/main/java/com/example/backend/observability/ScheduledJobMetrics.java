@@ -58,7 +58,8 @@ import org.springframework.transaction.TransactionException;
  * <ul>
  *   <li>a {@code job-start} record as the run begins;
  *   <li>a {@code job-end} record as it ends: {@code event.outcome} {@code success} and
- *       {@code event.duration_ms}; with {@code event.reason} {@code lock-held} in place of
+ *       {@code event.duration_ms}, plus whatever the run {@linkplain SkippableJobRun#counts
+ *       counted}; with {@code event.reason} {@code lock-held} in place of
  *       the work when a lock-serialized job found another run holding its lock; or, at
  *       {@code ERROR}, {@code failure} with the error fields and the exception attached;
  *   <li>the context keys removed again when the run ends, however it ends.
@@ -161,20 +162,21 @@ public class ScheduledJobMetrics {
                         long endedAt = clock.millis();
                         lastSuccessMillis.set(endedAt);
                         succeeded.increment();
-                        logEnd(operation, result.skipped(), endedAt - startedAt);
+                        logEnd(operation, result, endedAt - startedAt);
                     }
                 });
     }
 
-    private static void logEnd(Operation operation, boolean skipped, long durationMillis) {
+    private static void logEnd(Operation operation, SkippableJobRun result, long durationMillis) {
         LoggingEventBuilder end = LogEvent.classify(
                         log.atInfo(), operation, Category.BATCH, Type.JOB_END)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .addKeyValue(LogEvent.DURATION_MS, durationMillis);
-        if (skipped) {
+        if (result.skipped()) {
             end.addKeyValue(LogEvent.REASON, LogEvent.REASON_LOCK_HELD)
                     .log("Scheduled job skipped: another run holds its lock");
         } else {
+            result.counts().forEach(end::addKeyValue);
             end.log("Scheduled job completed");
         }
     }

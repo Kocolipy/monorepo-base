@@ -90,8 +90,7 @@ class AuditRetentionServiceTests {
         CountingRetention retention = new CountingRetention(2, Duration.ZERO, clock);
         AuditRetentionService service = new AuditRetentionService(
                 retention, new AuditRetentionPolicy(Duration.ofDays(365), null), lock, clock);
-        lock.holdElsewhere(ScheduledJob.INACTIVITY_DEACTIVATION);
-        lock.holdElsewhere(ScheduledJob.DORMANT_AUTHORITY_REVOCATION);
+        lock.holdElsewhere(ScheduledJob.DORMANCY);
 
         assertThat(service.deleteAgedOutEvents()).isEqualTo(new AuditRetentionRun(false, 2));
         assertThat(retention.calls).isEqualTo(1);

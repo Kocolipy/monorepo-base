@@ -11,7 +11,7 @@ import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.authorization.domain.Permission;
-import com.example.backend.auth.application.InactivityDeactivationService;
+import com.example.backend.auth.application.DormancyService;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
@@ -121,7 +121,7 @@ class PasswordChangeLifecycleIntegrationTests {
     private FindByIndexNameSessionRepository<? extends Session> sessionRepository;
 
     @Autowired
-    private InactivityDeactivationService deactivation;
+    private DormancyService dormancy;
 
     @Autowired
     private MutableClock clock;
@@ -341,81 +341,70 @@ class PasswordChangeLifecycleIntegrationTests {
     /**
      * A login confined by a required change is not use of the account, so it does not move the
      * dormancy basis: a User that keeps logging in with an imposed credential and never replaces
-     * it is still deactivated once the inactivity window has passed since it was created.
+     * it is still locked for dormancy once the lockout window has passed since it was created.
+     *
+     * <p>The User's creation is backdated rather than the clock advanced: the job measures every
+     * User in the database against the clock, and a session opened after an advance would already
+     * be past its absolute lifetime.
      */
     @Test
-    void confinedLoginsDoNotMoveTheDormancyBasisSoAnUnchangedCredentialStillDeactivates()
+    void confinedLoginsDoNotMoveTheDormancyBasisSoAnUnchangedCredentialIsStillLocked()
             throws Exception {
         String userId = provision("lifecycle-lapsed", CONNECTOR_PASSWORD);
-        Duration elapsed = Duration.ZERO;
-        try {
-            Duration first = DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW.minusDays(30);
-            clock.advanceBy(first);
-            elapsed = elapsed.plus(first);
-            logInWhileTheClockIsAhead("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
-            assertThat(lastAuthenticatedAt(userId))
-                    .as("a confined login leaves the dormancy basis where it was")
-                    .isNull();
+        backdateCreation(userId, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
+        logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+        logIn("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
+        assertThat(lastAuthenticatedAt(userId))
+                .as("a confined login leaves the dormancy basis where it was")
+                .isNull();
+        assertThat(sessionRepository.findByPrincipalName(userId)).isNotEmpty();
 
-            Duration second = Duration.ofDays(31);
-            clock.advanceBy(second);
-            elapsed = elapsed.plus(second);
-            logInWhileTheClockIsAhead("lifecycle-lapsed", CONNECTOR_PASSWORD, null, true);
-            assertThat(lastAuthenticatedAt(userId)).isNull();
+        DormancyRun run = dormancy.run();
 
-            DormancyRun run = deactivation.deactivateDormantUsers();
-
-            assertThat(run.processed()).contains(UUID.fromString(userId));
-            assertThat(jdbc.queryForObject(
-                    "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
-                    Boolean.class, userId)).isFalse();
-            assertThat(sessionRepository.findByPrincipalName(userId))
-                    .as("the deactivated User's confined sessions are revoked")
-                    .isEmpty();
-        } finally {
-            clock.advanceBy(elapsed.negated());
-        }
+        assertThat(run.locked()).contains(UUID.fromString(userId));
+        assertThat(jdbc.queryForObject(
+                "SELECT lock_cause FROM scim_users WHERE resource_id = ?::uuid",
+                String.class, userId)).isEqualTo("DORMANCY");
+        assertThat(jdbc.queryForObject(
+                "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
+                Boolean.class, userId)).as("active is never written").isTrue();
+        assertThat(sessionRepository.findByPrincipalName(userId))
+                .as("the locked User's confined sessions are revoked")
+                .isEmpty();
     }
 
     /**
      * The completed change is the first use of the account, so it moves the dormancy basis: a User
-     * that changed its password inside the window is not deactivated by the window that runs from
-     * its creation.
-     *
-     * <p>The User's creation is backdated rather than the clock advanced before the change: the
-     * change needs a live session, and the absolute session lifetime measures the session's real
-     * creation time against the simulated clock, so a session opened after an advance is already
-     * expired.
+     * that changed its password is not locked by the window that runs from its creation, and an
+     * unconfined login afterwards moves the basis as before.
      */
     @Test
     void theCompletedChangeMovesTheDormancyBasis() throws Exception {
         String userId = provision("lifecycle-settled", CONNECTOR_PASSWORD);
-        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?::uuid",
-                Timestamp.from(clock.instant()
-                        .minus(DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW.minusDays(30))),
-                userId);
+        backdateCreation(userId, DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1));
         Cookie confined = logIn("lifecycle-settled", CONNECTOR_PASSWORD, null, true);
         assertThat(changePassword(confined, CONNECTOR_PASSWORD, NEW_PASSWORD)
                 .getResponse().getStatus()).isEqualTo(204);
         assertThat(lastAuthenticatedAt(userId)).isEqualTo(Timestamp.from(clock.instant()));
 
-        Duration elapsed = Duration.ofDays(31);
-        clock.advanceBy(elapsed);
-        try {
-            assertThat(deactivation.deactivateDormantUsers().processed())
-                    .as("91 days since creation, but 31 since the change")
-                    .doesNotContain(UUID.fromString(userId));
-            assertThat(jdbc.queryForObject(
-                    "SELECT active FROM scim_users WHERE resource_id = ?::uuid",
-                    Boolean.class, userId)).isTrue();
+        assertThat(dormancy.run().locked())
+                .as("91 days since creation, but none since the change")
+                .doesNotContain(UUID.fromString(userId));
+        assertThat(jdbc.queryForObject(
+                "SELECT locked_at IS NULL FROM scim_users WHERE resource_id = ?::uuid",
+                Boolean.class, userId)).isTrue();
 
-            logInWhileTheClockIsAhead("lifecycle-settled", NEW_PASSWORD, "USER", false);
-            assertThat(lastAuthenticatedAt(userId))
-                    .as("an unconfined login moves the basis as before")
-                    .isEqualTo(Timestamp.from(clock.instant()));
-        } finally {
-            clock.advanceBy(elapsed.negated());
-        }
+        jdbc.update("UPDATE scim_users SET last_authenticated_at = ? WHERE resource_id = ?::uuid",
+                Timestamp.from(clock.instant().minus(Duration.ofDays(1))), userId);
+        logIn("lifecycle-settled", NEW_PASSWORD, "USER", false);
+        assertThat(lastAuthenticatedAt(userId))
+                .as("an unconfined login moves the basis as before")
+                .isEqualTo(Timestamp.from(clock.instant()));
+    }
+
+    private void backdateCreation(String userId, Duration ago) {
+        jdbc.update("UPDATE scim_resources SET created_at = ? WHERE id = ?::uuid",
+                Timestamp.from(clock.instant().minus(ago)), userId);
     }
 
     // ---- 4. one password acceptance behind both entry paths ---------------------------------
@@ -666,34 +655,6 @@ class PasswordChangeLifecycleIntegrationTests {
     private Cookie logIn(String userName, String password, String role, boolean confined)
             throws Exception {
         return logIn(withCsrf(post("/api/auth/login")), userName, password, role, confined);
-    }
-
-    /**
-     * {@link #logIn} for a moment after {@link #clock} has been advanced. The absolute session
-     * lifetime measures a session's creation time against the simulated clock, but the session
-     * store stamps it with the REAL one — so the guest session the token handshake opens would
-     * read as months old on the very next request and be invalidated, its token with it. (The
-     * same artifact is why {@link #theCompletedChangeMovesTheDormancyBasis} backdates the User
-     * rather than advancing before the change.) So the handshake is done by hand and the guest
-     * session re-stamped at the simulated instant in between: the Redis-backed counterpart of
-     * {@code AuditListingEndToEndIntegrationTests.ClockedSession}.
-     */
-    private Cookie logInWhileTheClockIsAhead(
-            String userName, String password, String role, boolean confined) throws Exception {
-        MvcResult fetched = mvc.perform(get(SessionCsrf.PATH)).andReturn();
-        assertThat(fetched.getResponse().getStatus()).isEqualTo(200);
-        Cookie issued = fetched.getResponse().getCookie(sessionCookieName);
-        assertThat(issued).as("the token fetch opened a guest session").isNotNull();
-        Cookie guest = new Cookie(issued.getName(), issued.getValue());
-        String sessionId = new String(
-                Base64.getDecoder().decode(guest.getValue()), StandardCharsets.UTF_8);
-        RedisIndexedSessionRepository store = (RedisIndexedSessionRepository) sessionRepository;
-        String key = ReflectionTestUtils.invokeMethod(store, "getSessionKey", sessionId);
-        store.getSessionRedisOperations().opsForHash().put(key, "creationTime", clock.millis());
-        JsonNode token = json.readTree(fetched.getResponse().getContentAsString());
-        return logIn(post("/api/auth/login").cookie(guest)
-                        .header(token.get("headerName").asText(), token.get("token").asText()),
-                userName, password, role, confined);
     }
 
     private Cookie logIn(MockHttpServletRequestBuilder request, String userName, String password,

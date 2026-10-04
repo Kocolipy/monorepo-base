@@ -95,7 +95,7 @@ class LogEventTests {
     }
 
     /**
-     * The mapping #95 changed: dormant-authority revocation is administration of a User's
+     * The mapping #95 changed: the dormancy role revocation is administration of a User's
      * standing, and a connector and its tokens are the provisioning channel's lifecycle —
      * except issuing and rotating a token, which grant Permissions and so are user
      * administration (#117, the spec's observability table). {@code access-control} is left to
@@ -103,7 +103,7 @@ class LogEventTests {
      */
     @Test
     void eachOperationCarriesItsNearestStandardAction() {
-        assertThat(Operation.DORMANT_AUTHORITY_REVOCATION.action())
+        assertThat(Operation.DORMANCY_ROLE_REVOCATION.action())
                 .isEqualTo(Action.USER_ADMINISTRATION);
         assertThat(List.of(Operation.CONNECTOR_CREATE, Operation.CONNECTOR_DELETE,
                         Operation.CONNECTOR_TOKEN_REVOKE))

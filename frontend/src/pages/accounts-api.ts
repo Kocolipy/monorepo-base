@@ -30,6 +30,8 @@ export interface DirectGroup {
  *
  * A lockout carries no expiry: it stands until an administrator unlocks the
  * identity, so there is nothing to count down to and no field for it.
+ * `lockCause` says why it was imposed — a run of failed logins or dormancy —
+ * and is `null` exactly when `locked` is false.
  * `bootstrapAdmin` marks the recovery identity, which can never be locked.
  */
 export interface UserRow {
@@ -40,12 +42,22 @@ export interface UserRow {
   bootstrapAdmin: boolean;
   active: boolean;
   locked: boolean;
+  lockCause: LockCause | null;
   hasPassword: boolean;
   passwordChangeRequired: boolean;
   lastAuthenticatedAt: string | null;
   createdAt: string;
   groups: DirectGroup[];
 }
+
+/**
+ * Why a User is locked (ADR 0011): `FAILURES` when its failed logins reached
+ * the limit, `DORMANCY` when the dormancy job found it unused past the lockout
+ * window. Either lock stands until Unlock.
+ */
+export const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
+
+export type LockCause = (typeof LOCK_CAUSES)[number];
 
 /** One row of the read-only **Groups projection**, from `GET /api/admin/groups`. */
 export interface GroupRow {
@@ -151,6 +163,11 @@ const decodeDirectGroup = (value: unknown): DirectGroup => {
 
 export const decodeUserRow = (value: unknown): UserRow => {
   const row = readObject(value, "UserRow");
+  const locked = row.boolean("locked");
+  const lockCause = row.nullableOneOf("lockCause", LOCK_CAUSES);
+  if (locked !== (lockCause !== null)) {
+    throw new DecodeError("UserRow.lockCause is not null exactly when locked is false");
+  }
   return {
     id: row.string("id"),
     userName: row.string("userName"),
@@ -158,7 +175,8 @@ export const decodeUserRow = (value: unknown): UserRow => {
     admin: row.boolean("admin"),
     bootstrapAdmin: row.boolean("bootstrapAdmin"),
     active: row.boolean("active"),
-    locked: row.boolean("locked"),
+    locked,
+    lockCause,
     hasPassword: row.boolean("hasPassword"),
     passwordChangeRequired: row.boolean("passwordChangeRequired"),
     lastAuthenticatedAt: row.nullableString("lastAuthenticatedAt"),

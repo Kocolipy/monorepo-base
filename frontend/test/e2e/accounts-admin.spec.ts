@@ -194,7 +194,7 @@ test.describe.serial("ADMIN accounts page", () => {
       // Unlock it from the page.
       await page.reload();
       const locked = rowOf(page, usersTable(page), LOCKED_USER);
-      await expect(locked.getByText("Locked", { exact: true })).toBeVisible();
+      await expect(locked.getByText("Locked: failed logins", { exact: true })).toBeVisible();
       await locked.getByRole("button", { name: `Unlock ${LOCKED_USER}` }).click();
       await expect(locked.getByText("Not locked")).toBeVisible();
       await expect(locked.getByText("Required")).toBeVisible();

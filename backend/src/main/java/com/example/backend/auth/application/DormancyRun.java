@@ -1,25 +1,44 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.SkippableJobRun;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * What one run of a dormancy job did: skipped because another run of the same job held its lock,
- * or ran and changed these Users.
+ * What one run of the dormancy job did: skipped because another run held its lock, or ran and
+ * locked these Users and revoked the Roles of those.
  *
- * @param skipped   whether another run of the same job held the lock, so this one did nothing
- * @param processed the Users this run changed, in the order it changed them; empty when it
- *                  skipped or found nobody dormant
+ * @param skipped      whether another run held the lock, so this one did nothing
+ * @param locked       the Users this run locked for dormancy, in id order; empty when it skipped
+ *                     or found nobody to lock
+ * @param rolesRevoked the Users this run removed mapped Group memberships from, in id order;
+ *                     empty when it skipped or found nobody past the role-revocation window
  */
-public record DormancyRun(boolean skipped, List<UUID> processed) implements SkippableJobRun {
+public record DormancyRun(boolean skipped, List<UUID> locked, List<UUID> rolesRevoked)
+        implements SkippableJobRun {
 
     public DormancyRun {
-        processed = List.copyOf(processed);
+        locked = List.copyOf(locked);
+        rolesRevoked = List.copyOf(rolesRevoked);
     }
 
     /** A run that found the job's lock held and did nothing. */
     static DormancyRun skippedRun() {
-        return new DormancyRun(true, List.of());
+        return new DormancyRun(true, List.of(), List.of());
+    }
+
+    /**
+     * The counts the run's {@code job-end} record carries: Users locked and Users whose Roles
+     * were revoked. Counts only — the stable ids are the audit trail's to carry.
+     */
+    @Override
+    public Map<String, Object> counts() {
+        Map<String, Object> counts = new LinkedHashMap<>();
+        counts.put(LogEvent.DORMANCY_LOCKED_COUNT, locked.size());
+        counts.put(LogEvent.DORMANCY_ROLES_REVOKED_COUNT, rolesRevoked.size());
+        return counts;
     }
 }

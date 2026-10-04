@@ -20,9 +20,11 @@ import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimSeedLock;
 import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
@@ -166,6 +168,7 @@ class ScimSeedServiceTests {
                     assertThat(seeded.lastModifiedAt()).isEqualTo(ScimIdentities.NOW);
                     assertThat(seeded.profile().displayName())
                             .isEqualTo(seeded.profile().userName());
+                    assertThat(seeded.profile().emails()).isEmpty();
                 });
     }
 
@@ -380,7 +383,9 @@ class ScimSeedServiceTests {
                 .as("restoring the recovery identity's Admin membership is an audited write")
                 .anySatisfy(recorded -> {
                     assertThat(recorded.subjectId()).isEqualTo(adminGroup.id());
-                    assertThat(recorded.detail()).isEqualTo("members-restored");
+                    // ...and names the User whose Admin membership was restored.
+                    assertThat(recorded.detail())
+                            .isEqualTo("members-restored " + bootstrapAdmin.id());
                 });
     }
 
@@ -395,7 +400,7 @@ class ScimSeedServiceTests {
         assertThat(audit.of(AuditOperation.SCIM_RESOURCE_SEED))
                 .as("an idempotent restart is not an authority change and must not read as one")
                 .noneSatisfy(recorded ->
-                        assertThat(recorded.detail()).isEqualTo("members-restored"));
+                        assertThat(recorded.detail()).startsWith("members-restored"));
     }
 
     /**
@@ -556,6 +561,63 @@ class ScimSeedServiceTests {
                 .isInstanceOf(IllegalStateException.class);
         assertThat(users.size()).isZero();
         assertThat(groups.size()).isZero();
+    }
+
+    // ---- the dormant fixture ----------------------------------------------------------------
+
+    /**
+     * Created on first use as a settled, credentialed User in no Group, with its basis put the
+     * given time in the past and no lock yet — the startup dormancy run imposes that.
+     */
+    @Test
+    void the_dormant_fixture_is_created_backdated_and_unlocked() {
+        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91));
+
+        ScimUser dormant = users.require("dormant");
+        assertThat(dormant.login().lastAuthenticatedAt())
+                .isEqualTo(ScimIdentities.NOW.minus(Duration.ofDays(91)));
+        assertThat(dormant.dormancyBasis()).isEqualTo(ScimIdentities.NOW.minus(Duration.ofDays(91)));
+        assertThat(dormant.login().isLocked()).isFalse();
+        assertThat(dormant.login().isPasswordChangeRequired()).isFalse();
+        assertThat(passwordEncoder.matches("fixture-password", dormant.login().passwordHash()))
+                .isTrue();
+        assertThat(dormant.isProtectedFromWrites()).isFalse();
+        assertThat(groups.size()).isZero();
+        assertThat(seedLock.usersSeenAtEachAcquire).containsExactly(0L);
+    }
+
+    /**
+     * Unlike the Role fixtures it is reset on every run: after the e2e journey unlocked it and it
+     * chose a password, the next startup puts back the fixture password, clears the lock and the
+     * flag, and backdates the basis again — so the journey can run after every restart.
+     */
+    @Test
+    void the_dormant_fixture_is_reset_on_every_run() {
+        users.given(ScimIdentities.userWithLoginState("dormant", ScimLoginState.of("chosen-hash")
+                .withDormancyLock(ScimIdentities.NOW)
+                .withPasswordChangeRequired(ScimIdentities.NOW)));
+
+        seeding.seedDormantDevFixture("dormant", "fixture-password", Duration.ofDays(91));
+
+        ScimUser dormant = users.require("dormant");
+        assertThat(dormant.login().isLocked()).isFalse();
+        assertThat(dormant.login().lockCause()).isNull();
+        assertThat(dormant.login().isPasswordChangeRequired()).isFalse();
+        assertThat(passwordEncoder.matches("fixture-password", dormant.login().passwordHash()))
+                .isTrue();
+        assertThat(dormant.login().lastAuthenticatedAt())
+                .isEqualTo(ScimIdentities.NOW.minus(Duration.ofDays(91)));
+        assertThat(users.size()).isEqualTo(1);
+    }
+
+    @Test
+    void the_dormant_fixture_is_refused_without_a_password() {
+        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", " ", Duration.ofDays(91)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
+        assertThatThrownBy(() -> seeding.seedDormantDevFixture("dormant", null, Duration.ofDays(91)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(users.size()).isZero();
     }
 
     private ScimSeedService seedingUnder(RoleMapping mapping) {

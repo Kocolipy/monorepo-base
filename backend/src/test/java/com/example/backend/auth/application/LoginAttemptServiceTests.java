@@ -11,6 +11,7 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -66,6 +67,8 @@ class LoginAttemptServiceTests {
         ScimUser locked = users.require("ada");
         assertThat(locked.login().isLocked()).isTrue();
         assertThat(locked.login().lockedAt()).isEqualTo(NOW);
+        assertThat(locked.login().lockCause())
+                .as("a failure lockout records its cause").isEqualTo(LockCause.FAILURES);
     }
 
     @Test

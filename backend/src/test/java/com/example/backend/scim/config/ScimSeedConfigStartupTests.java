@@ -13,6 +13,9 @@ import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.application.ScimSeedService;
+import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimUser;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -56,6 +59,7 @@ class ScimSeedConfigStartupTests {
                     users, groups, () -> { }, new RecordingAuditTrail(),
                     new MarkingPasswordEncoder(),
                     Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC), mapping))
+            .withBean(DormancyPolicy.class, DormancyPolicy::defaults)
             .withUserConfiguration(ScimSeedConfig.class)
             .withPropertyValues(
                     "app.auth.username=user", "app.auth.password=user-password",
@@ -86,6 +90,41 @@ class ScimSeedConfigStartupTests {
 
         assertThat(groups.findById(HELPDESK).orElseThrow().hasMember(users.require("helpdesk").id()))
                 .isTrue();
+    }
+
+    /**
+     * A configured dormant fixture is seeded with the fixture password and backdated one day past
+     * the lockout window, so the startup dormancy run that follows locks it.
+     */
+    @Test
+    void theDormantFixtureIsSeededADayPastTheLockoutWindow() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.dormant-member=dormant",
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        ScimUser dormant = users.require("dormant");
+        assertThat(dormant.login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(dormant.dormancyBasis()).isEqualTo(ScimIdentities.NOW
+                .minus(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW.plusDays(1)));
+    }
+
+    /** No dormant fixture configured: none is seeded. */
+    @Test
+    void noDormantFixtureIsSeededUnlessOneIsNamed() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("dormant"))).isEmpty();
     }
 
     /** Enabled with no password is refused rather than seeding Users with no usable credential. */

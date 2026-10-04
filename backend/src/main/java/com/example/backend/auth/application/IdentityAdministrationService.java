@@ -1,12 +1,14 @@
 package com.example.backend.auth.application;
 
 import com.example.backend.audit.domain.AuditAdministrativeRefusal;
+import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.auth.domain.AccountSessions;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
@@ -16,6 +18,7 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -130,8 +133,13 @@ public class IdentityAdministrationService {
      * about whether the identity is active — a deactivated identity can be unlocked, and stays
      * deactivated.
      *
-     * <p>The only way a lockout ends. Nothing expires it and no other operation lifts it, so an
-     * identity that locked itself out stays locked until an administrator performs exactly this.
+     * <p>The only way a lockout ends, whatever its cause — a failure run or dormancy. Nothing
+     * expires it and no other operation lifts it, so an identity that locked itself out, or that
+     * the dormancy job locked, stays locked until an administrator performs exactly this.
+     *
+     * <p>Lifting a lock also restarts the dormancy window ({@link ScimUserRepository#resetDormancyBasis}),
+     * so the next dormancy run does not lock again a User that has not yet had the chance to sign
+     * in. The audit event records the cause of the lock it lifted.
      *
      * <p>Lifting a lock always requires a change of password, because the credential that reached
      * the threshold may be the one an attacker was guessing: after Unlock the User authenticates
@@ -144,8 +152,9 @@ public class IdentityAdministrationService {
      * from a self-inflicted state takes a second administrator. The refusal is checked before
      * anything is written.
      *
-     * <p>Idempotent on an identity serving no lockout: it is returned unchanged, nothing is written
-     * and no change is required — there was no lockout for the credential to have reached.
+     * <p>Idempotent on an identity serving no lockout: it is returned unchanged, no change is
+     * required and the dormancy window is not restarted — there was no lockout for the credential
+     * to have reached, and an Unlock is not a way to keep an unused account from going dormant.
      */
     @Transactional
     public IdentitySummary unlock(UUID userId, String requestedBy) {
@@ -161,14 +170,30 @@ public class IdentityAdministrationService {
         if (after != before) {
             users.updateLoginState(user.id(), after);
         }
-        audit.recordLockoutLiftedByUnlock(actorId, user.id());
-        if (before.isLocked() && before.hasPassword()) {
-            after = after.withPasswordChangeRequired(clock.instant());
-            users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
-            audit.recordPasswordChangeRequired(actorId, user.id());
+        audit.recordLockoutLiftedByUnlock(actorId, user.id(), auditCause(before.lockCause()));
+        if (before.isLocked()) {
+            Instant now = clock.instant();
+            users.resetDormancyBasis(user.id(), now);
+            after = after.withDormancyBasisReset(now);
+            if (before.hasPassword()) {
+                after = after.withPasswordChangeRequired(now);
+                users.requirePasswordChange(user.id(), after.passwordChangeRequiredSince());
+                audit.recordPasswordChangeRequired(actorId, user.id());
+            }
         }
         succeeded(Operation.UNLOCK, user.id());
         return summarize(user, after);
+    }
+
+    /** The lifted lock's cause in the audit trail's own vocabulary, or none when none stood. */
+    private static AuditLockCause auditCause(LockCause cause) {
+        if (cause == null) {
+            return null;
+        }
+        return switch (cause) {
+            case FAILURES -> AuditLockCause.FAILURES;
+            case DORMANCY -> AuditLockCause.DORMANCY;
+        };
     }
 
     /**
@@ -356,6 +381,7 @@ public class IdentityAdministrationService {
                 user.reservedName() == ReservedResourceName.BOOTSTRAP_ADMIN,
                 user.profile().active(),
                 login.isLocked(),
+                login.lockCause(),
                 login.hasPassword(),
                 login.isPasswordChangeRequired(),
                 login.lastAuthenticatedAt(),

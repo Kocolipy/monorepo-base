@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Where the two inactivity windows enter the application.
+ * Where the two dormancy windows enter the application.
  *
  * <p>Neither default is written here or in {@code application.yaml}. Both live on
  * {@link DormancyPolicy}, as the audit retention defaults live on their policy, so an unset
@@ -21,16 +21,17 @@ import org.springframework.context.annotation.Configuration;
 public class DormancyPolicyConfig {
 
     /**
-     * Binds the configured windows — {@code APP_DORMANCY_DEACTIVATION_WINDOW} and
-     * {@code APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW} through relaxed binding — leaving both
-     * defaults to the policy. A zero or negative window makes this bean's creation throw, which
-     * fails startup rather than deactivating every User on the next run.
+     * Binds the configured windows — {@code APP_DORMANCY_LOCKOUT_WINDOW} and
+     * {@code APP_DORMANCY_ROLE_REVOCATION_WINDOW} through relaxed binding — leaving both defaults
+     * to the policy. A zero or negative window, or a role-revocation window not longer than the
+     * lockout window, makes this bean's creation throw, which fails startup rather than locking
+     * every User on the next run.
      */
     @Bean
     public DormancyPolicy dormancyPolicy(
-            @Value("${app.dormancy.deactivation.window:#{null}}") Duration deactivationWindow,
-            @Value("${app.dormancy.authority.revocation.window:#{null}}")
-                    Duration authorityRevocationWindow) {
-        return new DormancyPolicy(deactivationWindow, authorityRevocationWindow);
+            @Value("${app.dormancy.lockout.window:#{null}}") Duration lockoutWindow,
+            @Value("${app.dormancy.role.revocation.window:#{null}}")
+                    Duration roleRevocationWindow) {
+        return new DormancyPolicy(lockoutWindow, roleRevocationWindow);
     }
 }
