@@ -30,7 +30,6 @@ import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -419,9 +418,9 @@ public class ScimGroupService {
                 new ScimWriteEffects.GroupState(
                         written.displayName(), memberIdSet(written), edit.externalId()),
                 roleMapping.roleOf(id));
-        if (effects.audited().contains(AuditGroupAttribute.EXTERNAL_ID)) {
+        if (effects.stored().alias()) {
             writeAlias(connectorId, id, edit.externalId());
-            if (effects.audited().equals(EnumSet.of(AuditGroupAttribute.EXTERNAL_ID))) {
+            if (effects.stored().aliasOnly()) {
                 // The alias is not a Group column, so the replacement above saw no change and
                 // advanced nothing; the representation this connector reads did change, so its
                 // version and lastModified must. A write that also moved a column already did.

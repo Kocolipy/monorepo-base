@@ -21,7 +21,9 @@ import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DormancyPolicy;
+import com.example.backend.scim.domain.DormancyVerdict;
 import com.example.backend.scim.domain.ReservedResourceName;
+import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimUserProfile;
@@ -40,6 +42,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -222,6 +226,58 @@ class DormancyIntegrationTests {
         backdateCreation(never, PAST_LOCKOUT);
         assertThat(dormancy.run().locked()).contains(never);
         assertThat(lockCause(never)).isEqualTo("DORMANCY");
+    }
+
+    /**
+     * The candidate queries spell the verdict's boundary a second time, in SQL — the basis as
+     * {@code coalesce(last_authenticated_at, created_at)} and "strictly before the cutoff" as
+     * {@code <} — so this pins the two together where they could drift: on what Postgres stores,
+     * one microsecond either side of each window and exactly on it, for each basis. A query
+     * narrower than the verdict would leave a due User unprocessed; the job re-deciding on the
+     * locked read only guards the other direction.
+     */
+    @Test
+    void theCandidateQueriesSelectExactlyTheUsersTheVerdictFindsDue() {
+        DormancyPolicy policy = DormancyPolicy.defaults();
+        Instant now = clock.instant();
+        Duration microsecond = Duration.ofNanos(1_000);
+        List<UUID> fixtures = new ArrayList<>();
+        for (Duration window : List.of(policy.lockoutWindow(), policy.roleRevocationWindow())) {
+            for (Duration offset : List.of(microsecond.negated(), Duration.ZERO, microsecond)) {
+                Duration ago = window.plus(offset);
+                UUID authenticated = createSettledUser("dormancy-sql-" + fixtures.size());
+                backdateBasis(authenticated, ago);
+                fixtures.add(authenticated);
+                UUID never = createUser("dormancy-sql-" + fixtures.size(), null);
+                backdateCreation(never, ago);
+                fixtures.add(never);
+            }
+        }
+        UUID group = createGroup("Dormancy SQL boundary", fixtures.getFirst());
+        groupService.patch(connector, group, ifMatch(group), List.of(
+                new ScimGroupPatchOperation.AddMembers(fixtures.subList(1, fixtures.size()))));
+
+        TransactionTemplate read = new TransactionTemplate(transactionManager);
+        Map<UUID, DormancyVerdict> verdicts = read.execute(status -> fixtures.stream()
+                .collect(Collectors.toMap(Function.identity(),
+                        id -> policy.verdict(users.findById(id).orElseThrow(), now))));
+        List<UUID> lockoutCandidates = read.execute(status ->
+                users.findDormantUnlockedUserIds(policy.lockoutCutoff(now))).stream()
+                .filter(fixtures::contains)
+                .toList();
+        List<UUID> roleRevocationCandidates = read.execute(status ->
+                groups.findDormantMemberships(List.of(group), policy.roleRevocationCutoff(now)))
+                .stream()
+                .map(ScimGroupMembership::userId)
+                .toList();
+
+        List<UUID> lockedOut = fixtures.stream().filter(id -> verdicts.get(id).locksOut()).toList();
+        List<UUID> revoked = fixtures.stream().filter(id -> verdicts.get(id).revokesRoles()).toList();
+        // Past the lockout window by a microsecond, for each basis, and all six at the second.
+        assertThat(lockedOut).hasSize(8);
+        assertThat(revoked).hasSize(2);
+        assertThat(lockoutCandidates).containsExactlyInAnyOrderElementsOf(lockedOut);
+        assertThat(roleRevocationCandidates).containsExactlyInAnyOrderElementsOf(revoked);
     }
 
     /**
