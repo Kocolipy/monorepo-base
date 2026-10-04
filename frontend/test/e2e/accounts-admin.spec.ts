@@ -67,14 +67,16 @@ async function openAccounts(page: Page) {
   await expect(groupsTable(page).getByRole("row").nth(1)).toBeVisible();
 }
 
-/** Create a connector from the page and issue it a token of `scope`, read off the disclosure. */
-async function issueFromPage(page: Page, name: string, scope?: "READ_WRITE") {
+/** Create a connector from the page and issue it a token carrying `permissions`, read off the disclosure. */
+async function issueFromPage(page: Page, name: string, permissions: readonly string[]) {
   await page.getByLabel("New connector name").fill(name);
   await page.getByRole("button", { name: "Create connector" }).click();
   const section = page.getByRole("region", { name: `Connector ${name}` });
   await expect(section).toBeVisible();
-  // No selection means the selector's default, which is what a READ_ONLY test relies on.
-  if (scope !== undefined) await section.getByLabel(`Scope for ${name}`).selectOption(scope);
+  const choices = section.getByRole("group", { name: `Permissions for ${name}` });
+  for (const permission of permissions) {
+    await choices.getByRole("checkbox", { name: new RegExp(`^${permission} `) }).check();
+  }
   await section.getByRole("button", { name: `Issue token for ${name}` }).click();
   const value = await page.getByLabel("New token value").textContent();
   expect(value).toBeTruthy();
@@ -113,22 +115,27 @@ test.describe.serial("ADMIN accounts page", () => {
     await expect(bootstrap.getByRole("button", { name: /Unlock/ })).toHaveCount(0);
   });
 
-  test("issues a READ_ONLY token by default, which may read but not write", async ({ page }) => {
+  test("issues a read-only token, which may read but not write", async ({ page }) => {
     let client: APIRequestContext | undefined;
     try {
       await openAccounts(page);
-      const { section, value } = await issueFromPage(page, READ_ONLY_CONNECTOR);
+      const { section, value } = await issueFromPage(page, READ_ONLY_CONNECTOR, [
+        "user:read",
+        "group:read",
+      ]);
 
-      // The disclosure and the token row both name the scope that was issued.
-      await expect(page.getByText(/^READ_ONLY · expires /)).toBeVisible();
-      await expect(section.getByRole("cell", { name: "READ_ONLY", exact: true })).toHaveCount(1);
+      // The disclosure and the token row both name the Permissions that were issued.
+      await expect(page.getByText(/^group:read, user:read · expires /)).toBeVisible();
+      await expect(
+        section.getByRole("cell", { name: "group:read, user:read", exact: true }),
+      ).toHaveCount(1);
 
       client = await scimApi(value);
       expect((await client.get("/scim/v2/Users?count=1")).status()).toBe(200);
       const write = await client.post("/scim/v2/Users", {
         data: { schemas: [USER_SCHEMA], userName: `${E2E_PREFIX}ro-write-${RUN}` },
       });
-      // 403, not 401: the token authenticated, and its scope is what was refused.
+      // 403, not 401: the token authenticated, and it lacks user:write.
       expect(write.status()).toBe(403);
       expect(write.headers()["www-authenticate"]).toContain('error="insufficient_scope"');
 
@@ -150,14 +157,16 @@ test.describe.serial("ADMIN accounts page", () => {
     let scim: APIRequestContext | undefined;
 
     try {
-      // A connector and a READ_WRITE token, from the page. The value is read off
-      // the one-time disclosure — there is no other way to get it.
+      // A connector and a token carrying every directory Permission, from the
+      // page. The value is read off the one-time disclosure — there is no other
+      // way to get it.
       await openAccounts(page);
-      const { section, value: firstValue } = await issueFromPage(
-        page,
-        CONNECTOR_NAME,
-        "READ_WRITE",
-      );
+      const { section, value: firstValue } = await issueFromPage(page, CONNECTOR_NAME, [
+        "group:read",
+        "group:write",
+        "user:read",
+        "user:write",
+      ]);
       await expect(section.getByText("Active")).toHaveCount(1);
 
       // Two Users of this spec's own, each settled on a password it chose.

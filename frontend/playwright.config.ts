@@ -63,6 +63,18 @@ export default defineConfig({
         storageState: "test/e2e/.auth/admin.json",
       },
     },
+    {
+      name: "connector-tokens",
+      testMatch: /token-permissions\.spec\.ts/,
+      // After `guest`, never beside it: this spec signs in as the Connector admin
+      // and Account admin fixture Users, as `dev-roles.spec.ts` does, and a
+      // sign-in ends the User's every other session (#64).
+      dependencies: ["guest"],
+      use: {
+        ...devices["Desktop Chrome"],
+        storageState: { cookies: [], origins: [] },
+      },
+    },
   ],
 
   webServer: {

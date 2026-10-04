@@ -5,21 +5,29 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginIdentityService;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.contract.OpenApiContract.Access;
 import com.example.backend.contract.OpenApiContract.Operation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
+import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.NormalizedUserName;
+import com.example.backend.scim.domain.ScimConnectorToken;
+import com.example.backend.scim.domain.ScimConnectorTokenRepository;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -118,6 +126,18 @@ class AuthorizationContractTests {
 
     @Autowired
     private ConnectorAdministrationService connectors;
+
+    @Autowired
+    private ScimConnectorTokenRepository tokenStore;
+
+    /** Tokens minted so far by the Permissions they carry; each test class instance mints its own. */
+    private final Map<Set<Permission>, String> tokensByPermissions = new HashMap<>();
+
+    private UUID scimConnector;
+
+    /** The directory Permissions' spellings, the only ones a SCIM operation may name. */
+    private static final List<String> DIRECTORY =
+            TokenPermissions.ALL.stream().map(Permission::value).toList();
 
     @Autowired
     private RequestIdFilter requestIdFilter;
@@ -237,12 +257,8 @@ class AuthorizationContractTests {
 
     @Test
     void a_session_holding_every_permission_cannot_reach_scim() throws Exception {
-        // Every SCIM operation that takes a credential at all. Discovery is public today and
-        // answers anyone, a session included, without the session meaning anything to it.
-        List<Operation> scim = CONTRACT.operations().stream()
-                .filter(operation -> operation.template().startsWith("/scim/v2/"))
-                .filter(operation -> operation.requirement().access() == Access.BEARER)
-                .toList();
+        // Every SCIM operation takes a token, discovery included, so none answers a session.
+        List<Operation> scim = scimOperations();
         assertThat(scim).hasSizeGreaterThan(10);
         for (Operation operation : scim) {
             assertThat(call(operation, session(EVERY_PERMISSION)))
@@ -251,10 +267,117 @@ class AuthorizationContractTests {
         }
     }
 
+    // ---- the SCIM chain, per declaration ------------------------------------------------------
+
+    @Test
+    void every_scim_operation_declares_a_token_and_at_most_one_directory_permission() {
+        List<Operation> scim = scimOperations();
+        assertThat(scim).hasSizeGreaterThan(20);
+        for (Operation operation : scim) {
+            OpenApiContract.Requirement requirement = operation.requirement();
+            assertThat(requirement.access())
+                    .as("%s declares a connector token", operation)
+                    .isIn(Access.BEARER, Access.BEARER_ANY_OF);
+            List<String> named = requirement.access() == Access.BEARER_ANY_OF
+                    ? requirement.anyOf()
+                    : requirement.permission() == null ? List.of() : List.of(requirement.permission());
+            assertThat(named).as("%s names directory Permissions only", operation)
+                    .allSatisfy(permission -> assertThat(DIRECTORY).contains(permission));
+        }
+        assertThat(scim).filteredOn(operation -> operation.requirement().access() == Access.BEARER_ANY_OF)
+                .extracting(Operation::toString)
+                .containsExactly("POST /scim/v2/.search");
+    }
+
+    /**
+     * For every SCIM operation naming a Permission: a token holding every OTHER directory
+     * Permission is refused {@code 403}, and one holding ONLY the declared one is refused neither
+     * {@code 401} nor {@code 403}. Write does not imply read, nor read write.
+     */
+    @Test
+    void each_declared_token_permission_is_required_and_is_sufficient() throws Exception {
+        List<Operation> declared = scimOperations().stream()
+                .filter(operation -> operation.requirement().access() == Access.BEARER)
+                .filter(operation -> operation.requirement().permission() != null)
+                .toList();
+        assertThat(declared).hasSizeGreaterThan(10);
+        List<String> failures = new ArrayList<>();
+        for (Operation operation : declared) {
+            Permission permission = Permission.fromValue(operation.requirement().permission())
+                    .orElseThrow();
+            Set<Permission> allBut = EnumSet.copyOf(TokenPermissions.ALL);
+            allBut.remove(permission);
+
+            int lacking = callScim(operation, token(allBut));
+            if (lacking != 403) {
+                failures.add(operation + " without " + permission.value() + " -> " + lacking);
+            }
+            int holding = callScim(operation, token(Set.of(permission)));
+            if (holding == 401 || holding == 403) {
+                failures.add(operation + " holding only " + permission.value() + " -> " + holding);
+            }
+        }
+        assertThat(failures).isEmpty();
+    }
+
+    /** Discovery and {@code /Me} take a valid token holding no Permission at all. */
+    @Test
+    void a_token_holding_no_permission_reaches_discovery_and_me() throws Exception {
+        List<Operation> tokenOnly = scimOperations().stream()
+                .filter(operation -> operation.requirement().access() == Access.BEARER)
+                .filter(operation -> operation.requirement().permission() == null)
+                .toList();
+        assertThat(tokenOnly).extracting(Operation::template).contains(
+                "/scim/v2/ServiceProviderConfig", "/scim/v2/ResourceTypes", "/scim/v2/Schemas",
+                "/scim/v2/Me");
+        String none = token(Set.of());
+        for (Operation operation : tokenOnly) {
+            assertThat(callScim(operation, none)).as("%s with an empty token", operation)
+                    .isNotIn(401, 403);
+            assertThat(callScim(operation, null)).as("%s with no token", operation)
+                    .isEqualTo(401);
+        }
+    }
+
+    /** The base {@code /.search}: either read Permission suffices, the writes alone do not. */
+    @Test
+    void the_base_search_needs_one_read_permission() throws Exception {
+        Operation search = scimOperations().stream()
+                .filter(operation -> operation.requirement().access() == Access.BEARER_ANY_OF)
+                .findFirst().orElseThrow();
+        for (String alternative : search.requirement().anyOf()) {
+            assertThat(callScim(search,
+                    token(Set.of(Permission.fromValue(alternative).orElseThrow()))))
+                    .as("%s holding only %s", search, alternative)
+                    .isNotIn(401, 403);
+        }
+        assertThat(callScim(search, token(Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE))))
+                .as("%s holding only the write Permissions", search)
+                .isEqualTo(403);
+    }
+
+    /**
+     * A path no operation declares is not found — not refused — for a token holding no Permission
+     * at all: a {@code 403} would claim the endpoint exists. The contract tests above are what keep
+     * a real endpoint from hiding here: every mapped route is documented, and every documented
+     * operation's Permission is proved required.
+     */
+    @Test
+    void an_undeclared_scim_path_is_not_found_even_holding_no_permission() throws Exception {
+        String none = token(Set.of());
+        for (String path : List.of("/scim/v2/Devices", "/scim/v2/Bulk", "/scim/v2/users")) {
+            assertThat(mvc.perform(request(HttpMethod.GET, path)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + none))
+                    .andReturn().getResponse().getStatus())
+                    .as("GET %s", path)
+                    .isEqualTo(404);
+        }
+    }
+
     @Test
     void a_connector_token_cannot_reach_the_application_chain() throws Exception {
         UUID connector = connectors.create("authorization-contract", ADMIN).id();
-        String token = connectors.issueToken(connector, ConnectorTokenScope.READ_WRITE, null, ADMIN)
+        String token = connectors.issueToken(connector, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL)
                 .presentedValue();
         for (Operation operation : applicationOperations()) {
             if (operation.requirement().access() == Access.PUBLIC) {
@@ -356,6 +479,43 @@ class AuthorizationContractTests {
 
     // ---- helpers ------------------------------------------------------------------------------
 
+    private static List<Operation> scimOperations() {
+        return CONTRACT.operations().stream()
+                .filter(operation -> operation.template().startsWith("/scim/v2/"))
+                .toList();
+    }
+
+    /**
+     * A live token for one connector carrying exactly {@code permissions}, minted once per set.
+     * An EMPTY set cannot be issued — the service refuses it — so it is stored directly, as a
+     * token from before tokens carried Permissions would be.
+     */
+    private String token(Set<Permission> permissions) {
+        return tokensByPermissions.computeIfAbsent(Set.copyOf(permissions), wanted -> {
+            if (scimConnector == null) {
+                scimConnector = connectors.create("authorization-contract-scim", ADMIN).id();
+            }
+            if (!wanted.isEmpty()) {
+                return connectors.issueToken(
+                        scimConnector, wanted, null, ADMIN, TokenPermissions.ALL).presentedValue();
+            }
+            ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(new SecureRandom());
+            Instant now = Instant.now();
+            tokenStore.save(ScimConnectorToken.issue(UUID.randomUUID(), scimConnector,
+                    minted.lookupId(), minted.digest(), TokenPermissions.of(Set.of()), now,
+                    now.plus(Duration.ofDays(1))));
+            return minted.presentedValue();
+        });
+    }
+
+    /** The SCIM operation's status with this token ({@code null}: none). */
+    private int callScim(Operation operation, String token) throws Exception {
+        MockHttpServletRequestBuilder request = build(operation);
+        if (token != null) {
+            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        return mvc.perform(request).andReturn().getResponse().getStatus();
+    }
     private static List<Operation> applicationOperations() {
         return CONTRACT.operations().stream()
                 .filter(operation -> APPLICATION_NAMESPACES.stream()

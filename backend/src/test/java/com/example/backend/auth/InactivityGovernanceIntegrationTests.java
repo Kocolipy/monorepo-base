@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.auth.application.DormantAuthorityRevocationService;
 import com.example.backend.auth.application.InactivityDeactivationService;
@@ -18,7 +19,6 @@ import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.application.ScimUserReplacement;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
@@ -124,7 +124,7 @@ class InactivityGovernanceIntegrationTests {
     void setUp() {
         UUID connectorId = connectors.create("Dormancy Okta", "test-admin").id();
         connector = new AuthenticatedConnector(
-                connectorId, UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+                connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
     }
 
     @AfterEach

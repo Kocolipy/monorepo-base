@@ -25,7 +25,9 @@ info:
 
     **Authorization is declared per operation.** Every operation's own `security`
     requirement says what a caller needs, and the application enforces exactly
-    that (ADR 0010): `security: []` is public; `sessionCookie: []` is
+    that (ADR 0010): `security: []` is public — no SCIM operation is;
+    `connectorBearer: [<permission>]` names the one Permission a token needs, and
+    `connectorBearer: []` a valid token alone; `sessionCookie: []` is
     self-service — any signed-in session with baseline access, no Permission;
     `sessionCookie: [<permission>]` names the one Permission the operation
     requires, from the closed set `user:read`, `user:write`, `group:read`,
@@ -103,6 +105,8 @@ x-namespace-responses:
   /scim/v2:
     "401":
       $ref: "#/components/responses/ScimUnauthenticated"
+    "403":
+      $ref: "#/components/responses/ScimInsufficientPermissions"
     "404":
       $ref: "#/components/responses/ScimNoSuchEndpoint"
     "405":
@@ -725,7 +729,7 @@ paths:
       summary: Create a SCIM connector
       description: |
         Creates a connector holding no tokens. `displayName` is the
-        administrator's own label and carries no authority: scope is a property of
+        administrator's own label and carries no authority: Permissions are a property of
         each token, not of the connector.
       operationId: createConnector
       security:
@@ -805,6 +809,13 @@ paths:
         `lifetimeDays` defaults to 365 and may not exceed it. A longer request is
         400 rather than a silently shortened token, so an administrator never
         walks away believing their integration has longer than it does.
+
+        `permissions` is what the token may do over SCIM (see
+        `ConnectorTokenPermissions`). **No escalation:** every Permission asked for
+        must be one the calling administrator holds; otherwise `403`, and the
+        refusal is audited (`CONNECTOR_TOKEN_ISSUE`, `FAILURE`,
+        `PERMISSION_ESCALATION`) with the Permissions requested. The issue itself
+        is audited with the Permissions granted.
       operationId: issueConnectorToken
       security:
         - sessionCookie: [connector:token]
@@ -816,11 +827,13 @@ paths:
           $ref: "#/components/responses/IssuedConnectorToken"
         "400":
           description: |
-            `scope` is missing, or `lifetimeDays` is not positive or exceeds 365.
+            `permissions` is missing or empty, names something that is not a
+            Permission or a Permission a token cannot carry, or `lifetimeDays` is not
+            positive or exceeds 365. No body.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/PermissionRequired"
+          $ref: "#/components/responses/TokenPermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
       requestBody:
@@ -834,10 +847,15 @@ paths:
       tags: [Connectors]
       summary: Replace a connector token, with a bounded overlap
       description: |
-        Mints a replacement of the same scope with a fresh full lifetime, and
-        brings the OLD token's expiry forward to the end of the overlap window so
-        an integration can be redeployed before its current credential stops
-        working.
+        Mints a replacement with a fresh full lifetime, carrying the old token's
+        Permissions or the `permissions` given, and brings the OLD token's expiry
+        forward to the end of the overlap window so an integration can be
+        redeployed before its current credential stops working. The replacement's
+        Permissions — kept or new — must all be held by the calling administrator,
+        exactly as on issue: otherwise `403`, audited (`CONNECTOR_TOKEN_ROTATE`,
+        `FAILURE`, `PERMISSION_ESCALATION`) with the Permissions requested. A token
+        stored before tokens carried Permissions has none to keep and must be
+        rotated with `permissions`.
 
         The overlap ends at the EARLIER of the requested window and the expiry the
         old token already had, capped at 14 days. Three consequences worth
@@ -859,10 +877,14 @@ paths:
       responses:
         "201":
           $ref: "#/components/responses/IssuedConnectorToken"
+        "400":
+          description: |
+            `permissions` is given but empty or names something a token cannot
+            carry, or it is absent and the old token carries none. No body.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/PermissionRequired"
+          $ref: "#/components/responses/TokenPermissionRequired"
         "404":
           $ref: "#/components/responses/UnknownConnector"
       requestBody:
@@ -1010,7 +1032,7 @@ paths:
       tags: [SCIM]
       summary: Read the SCIM capabilities of this deployment
       description: |
-        Public: a connector reads this before it holds a credential. The document
+        Needs a valid connector token and no Permission (ADR 0010). The document
         describes what this deployment implements, not SCIM in general — `patch`,
         `filter` (with `maxResults` 200) and `sort` are supported, `bulk` is unsupported
         permanently with zero limits, and `etag` is supported. Discovery endpoints
@@ -1018,7 +1040,8 @@ paths:
         rather than ignoring it, because an ignored filter is indistinguishable from a
         match.
       operationId: getScimServiceProviderConfig
-      security: []
+      security:
+        - connectorBearer: []
       responses:
         "200":
           description: The capability document.
@@ -1032,16 +1055,17 @@ paths:
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "401":
-          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/ResourceTypes:
     get:
       tags: [SCIM]
       summary: List the SCIM resource types served
       description: |
-        Public. Both User and Group: a resource type in this list is a claim that its
+        Needs a valid connector token and no Permission. Both User and Group: a resource type in this list is a claim that its
         endpoint answers.
       operationId: listScimResourceTypes
-      security: []
+      security:
+        - connectorBearer: []
       responses:
         "200":
           description: A ListResponse of resource-type documents.
@@ -1055,13 +1079,14 @@ paths:
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "401":
-          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/ResourceTypes/{resourceType}:
     get:
       tags: [SCIM]
       summary: Read one SCIM resource type
       operationId: getScimResourceType
-      security: []
+      security:
+        - connectorBearer: []
       parameters:
         - name: resourceType
           in: path
@@ -1084,18 +1109,19 @@ paths:
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "401":
-          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/Schemas:
     get:
       tags: [SCIM]
       summary: List the SCIM schemas served
       description: |
-        Public. The core User and core Group schemas, each listing exactly the
+        Needs a valid connector token and no Permission. The core User and core Group schemas, each listing exactly the
         attributes this service stores — no unimplemented core attribute and no
         extension. `password` is declared `mutability: writeOnly` and
         `returned: never`.
       operationId: listScimSchemas
-      security: []
+      security:
+        - connectorBearer: []
       responses:
         "200":
           description: A ListResponse of schema documents.
@@ -1109,13 +1135,14 @@ paths:
         "403":
           $ref: "#/components/responses/ScimUnsupportedQuery"
         "401":
-          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/Schemas/{schemaUri}:
     get:
       tags: [SCIM]
       summary: Read one SCIM schema
       operationId: getScimSchema
-      security: []
+      security:
+        - connectorBearer: []
       parameters:
         - name: schemaUri
           in: path
@@ -1140,7 +1167,7 @@ paths:
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "401":
-          $ref: "#/components/responses/ScimDiscoveryCredentialRefused"
+          $ref: "#/components/responses/ScimUnauthenticated"
   /scim/v2/Users:
     get:
       tags: [SCIM]
@@ -1188,7 +1215,7 @@ paths:
         read nothing and records nothing. `GET /scim/v2/Users/{id}` is not audited.
       operationId: listScimUsers
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:read]
       parameters:
         - $ref: "#/components/parameters/ScimFilter"
         - $ref: "#/components/parameters/ScimSortBy"
@@ -1215,7 +1242,7 @@ paths:
       tags: [SCIM]
       summary: Create a User
       description: |
-        Requires a read-write token; a read-only one is refused with `403` and
+        Requires `user:write`; a token without it is refused with `403` and
         `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
 
         `password` is optional — a credentialless User is a supported state and
@@ -1235,7 +1262,7 @@ paths:
         independent aliases for one User and each sees only its own.
       operationId: createScimUser
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:write]
       parameters:
         - $ref: "#/components/parameters/ScimAttributes"
         - $ref: "#/components/parameters/ScimExcludedAttributes"
@@ -1275,9 +1302,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body — the refusal is about the
-            credential's scope, which RFC 6750 states in the challenge.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "409":
           description: A live User already holds that userName, case-insensitively.
           content:
@@ -1294,7 +1322,7 @@ paths:
         RFC 7644 §3.4.3. Exactly the query `GET /scim/v2/Users` answers — same filter
         grammar and limits, sorting, paging, projection and audit — written as a body, so
         the filter's personal values stay out of URLs and access logs. A `POST` that
-        reads: a `READ_ONLY` token may call it.
+        reads: it needs `user:read`, exactly as `GET` does.
 
         The body must declare exactly the `SearchRequest` schema and carry only its
         members, matched case-insensitively; an unknown member, a missing schema or a
@@ -1303,7 +1331,7 @@ paths:
         `excludedAttributes` are arrays of paths and are mutually exclusive.
       operationId: searchScimUsers
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:read]
       requestBody:
         required: true
         content:
@@ -1339,7 +1367,7 @@ paths:
         enumeration. An id that is not a UUID is a `404` like any other unknown id.
       operationId: getScimUser
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:read]
       parameters:
         - name: id
           in: path
@@ -1423,7 +1451,7 @@ paths:
         changed paths.
       operationId: replaceScimUser
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:write]
       parameters:
         - name: id
           in: path
@@ -1453,8 +1481,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "409":
@@ -1516,7 +1546,7 @@ paths:
         client learns the new ETag without re-reading.
       operationId: patchScimUser
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:write]
       parameters:
         - name: id
           in: path
@@ -1546,8 +1576,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "409":
@@ -1586,7 +1618,7 @@ paths:
         parameter.
       operationId: deleteScimUser
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:write]
       parameters:
         - name: id
           in: path
@@ -1605,8 +1637,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "412":
@@ -1624,7 +1658,7 @@ paths:
         can be sent to `POST /scim/v2/Groups/.search`.
       operationId: listScimGroups
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:read]
       parameters:
         - $ref: "#/components/parameters/ScimFilter"
         - $ref: "#/components/parameters/ScimSortBy"
@@ -1651,7 +1685,7 @@ paths:
       tags: [SCIM]
       summary: Create a Group
       description: |
-        Requires a read-write token; a read-only one is refused with `403` and
+        Requires `group:write`; a token without it is refused with `403` and
         `WWW-Authenticate: Bearer error="insufficient_scope"` before any handler runs.
 
         **A Group's membership is what confers application authority**, which is why
@@ -1679,7 +1713,7 @@ paths:
         `externalId` is scoped to the calling connector, exactly as it is for a User.
       operationId: createScimGroup
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:write]
       parameters:
         - $ref: "#/components/parameters/ScimAttributes"
         - $ref: "#/components/parameters/ScimExcludedAttributes"
@@ -1719,9 +1753,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body — the refusal is about the
-            credential's scope, which RFC 6750 states in the challenge.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "409":
           description: A live Group already holds that displayName, case-insensitively.
           content:
@@ -1737,10 +1772,10 @@ paths:
       description: |
         The Group counterpart of `POST /scim/v2/Users/.search`: exactly the query
         `GET /scim/v2/Groups` answers, written as a `SearchRequest` body, on the same
-        terms. A `READ_ONLY` token may call it.
+        terms. A `POST` that reads: it needs `group:read`, exactly as `GET` does.
       operationId: searchScimGroups
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:read]
       requestBody:
         required: true
         content:
@@ -1772,7 +1807,11 @@ paths:
       summary: Search Users and Groups together
       description: |
         RFC 7644 §3.4.3 at the service root: one `SearchRequest` over both resource
-        types, returned as one ListResponse. A `READ_ONLY` token may call it.
+        types, returned as one ListResponse. Needs at least one of `user:read` and
+        `group:read`, and returns only the types the token may read: a `user:read`-only
+        token gets Users and no Groups, `totalResults` counting Users alone — the answer
+        a directory holding no Groups would give, not a refusal. A token holding
+        neither read Permission is refused `403`.
 
         A path is valid when either type has it. Where one type lacks it, the filter
         treats it as having no value there — `userName pr` selects no Group,
@@ -1788,7 +1827,8 @@ paths:
         the number of resources returned and the filter's shape.
       operationId: searchScimResources
       security:
-        - connectorBearer: []
+        - connectorBearer: [user:read]
+        - connectorBearer: [group:read]
       requestBody:
         required: true
         content:
@@ -1825,7 +1865,7 @@ paths:
         an id that names a User — are both a `404` like any other unknown id.
       operationId: getScimGroup
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:read]
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
         - $ref: "#/components/parameters/ScimAttributes"
@@ -1865,7 +1905,7 @@ paths:
         the parameter.
       operationId: replaceScimGroup
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:write]
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
         - $ref: "#/components/parameters/ScimIfMatch"
@@ -1889,8 +1929,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "409":
@@ -1947,7 +1989,7 @@ paths:
         precondition, apply as for PUT.
       operationId: patchScimGroup
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:write]
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
         - $ref: "#/components/parameters/ScimIfMatch"
@@ -1971,8 +2013,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "409":
@@ -2005,7 +2049,7 @@ paths:
         the parameter.
       operationId: deleteScimGroup
       security:
-        - connectorBearer: []
+        - connectorBearer: [group:write]
       parameters:
         - $ref: "#/components/parameters/ScimGroupId"
         - $ref: "#/components/parameters/ScimIfMatch"
@@ -2018,8 +2062,10 @@ paths:
           $ref: "#/components/responses/ScimUnauthenticated"
         "403":
           description: |
-            The token is read-only. Carries `WWW-Authenticate: Bearer
-            error="insufficient_scope"` and no body.
+            The token lacks the operation's write Permission. Carries
+            `WWW-Authenticate: Bearer error="insufficient_scope"` and no body; the
+            refusal is audited (`ACCESS_DENIED`) with the generic reason, never the
+            missing Permission.
         "404":
           $ref: "#/components/responses/ScimNotFound"
         "412":
@@ -2181,9 +2227,13 @@ components:
       scheme: bearer
       description: |
         An opaque connector token issued by an administrator of this deployment,
-        presented as `Authorization: Bearer <value>` on every SCIM resource request.
-        Accepted in that header and nowhere else — never from a query string, a form
-        body or a cookie. There is no authorization server and no grant flow.
+        presented as `Authorization: Bearer <value>` on every SCIM request, discovery
+        included. Accepted in that header and nowhere else — never from a query
+        string, a form body or a cookie. There is no authorization server and no
+        grant flow. A token carries Permissions (`user:read`, `user:write`,
+        `group:read`, `group:write`); an operation's `connectorBearer` requirement
+        names the one it needs, `[]` meaning a valid token alone, and the base
+        `/.search` lists two alternatives, either of which suffices.
   parameters:
     ScimFilter:
       name: filter
@@ -2280,8 +2330,8 @@ components:
         a client that sends it gets exact lost-update protection; a client that does
         not gets last-writer-wins.
 
-        Checked AFTER authorization and existence — a read-only token is refused as
-        `403` and an unknown id is `404` whatever this header says — and BEFORE
+        Checked AFTER authorization and existence — a token without the write Permission
+        is refused as `403` and an unknown id is `404` whatever this header says — and BEFORE
         anything is computed or written, so a refused precondition changes nothing.
 
         | Sent | Result |
@@ -2399,6 +2449,14 @@ components:
         a Role or the rule that refused. The refusal is audited
         (`ACCESS_DENIED`) and logged at `WARN` with the caller, the operation and
         the reason `insufficient-permissions`.
+    TokenPermissionRequired:
+      description: |
+        Either the caller does not hold `connector:token` — the generic refusal
+        `PermissionRequired` describes — or it does, and the token would carry a
+        Permission the caller does not hold itself: no administrator can mint a
+        credential more powerful than itself. Bodiless in both cases. The second is
+        audited as a `FAILURE` of the issue or rotation with `errorCode`
+        `PERMISSION_ESCALATION` and the Permissions requested.
     ScimBadRequest:
       description: |
         The request was not acceptable SCIM: an unparseable or non-object body, a
@@ -2414,6 +2472,14 @@ components:
         application/scim+json:
           schema:
             $ref: "#/components/schemas/ScimError"
+    ScimInsufficientPermissions:
+      description: |
+        A valid token lacking the Permission the request needs — the one its
+        operation declares in `security` (for the base `/.search`, either read
+        Permission). `WWW-Authenticate: Bearer error="insufficient_scope"`
+        and no body. Decided from the method and path before any handler runs,
+        logged at `WARN` with the reason `insufficient-permissions` and audited
+        (`ACCESS_DENIED`, the connector as actor) — never naming the Permission.
     ScimUnauthenticated:
       description: |
         No bearer token, or one that is malformed, unknown, expired, revoked or whose
@@ -2503,10 +2569,10 @@ components:
         name for the Group, invisible to every other connector, and setting or
         removing it renames nothing and changes no one's authority.
 
-        `400` rather than `403` deliberately. The token may be a perfectly valid
-        read-write one; it is the TARGET that is refused, not the credential, and
-        answering `403` would send an integrator to re-check a token scope that is
-        fine.
+        `400` rather than `403` deliberately. The token may hold every Permission
+        it needs; it is the TARGET that is refused, not the credential, and
+        answering `403` would send an integrator to re-check token Permissions that
+        are fine.
 
         A refused write changes nothing: every check runs before anything is written,
         so the resource re-reads unchanged, version included.
@@ -2514,14 +2580,6 @@ components:
         application/scim+json:
           schema:
             $ref: "#/components/schemas/ScimError"
-    ScimDiscoveryCredentialRefused:
-      description: |
-        A discovery endpoint needs no credential, but one that IS presented is still
-        authenticated, and a malformed, unknown, expired or revoked token is refused
-        with `401` and `WWW-Authenticate: Bearer error="invalid_token"`, as RFC 6750
-        §3.1 specifies — the caller is told its credential is bad rather than having
-        it silently ignored. No body. Send no `Authorization` header to read
-        discovery anonymously.
     ScimUnsupportedMediaType:
       description: |
         The request body is neither `application/scim+json` nor `application/json`.
@@ -3016,7 +3074,7 @@ components:
         One recorded event, exactly as stored. There is no property a password,
         bearer value, hash, `userName`, profile value or literal filter value
         could occupy.
-      required: [id, occurredAt, operation, outcome, resourceType, changedPaths, statusClass]
+      required: [id, occurredAt, operation, outcome, resourceType, changedPaths, statusClass, permissions]
       properties:
         id:
           type: string
@@ -3092,6 +3150,15 @@ components:
             The Role a `ROLE_GRANT` or `ROLE_REVOKE` gained or lost, by its name in
             the deployment's role mapping when the change happened; `null` for
             every other operation.
+        permissions:
+          type: array
+          items:
+            type: string
+          description: |
+            The Permissions a `CONNECTOR_TOKEN_ISSUE` or `CONNECTOR_TOKEN_ROTATE`
+            granted the new token or — on a `FAILURE` with `errorCode`
+            `PERMISSION_ESCALATION` — that were asked for, sorted by name; empty
+            for every other event.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]
@@ -3136,18 +3203,30 @@ components:
         and subject, the operation as `httpMethod` and `httpPath` (the route
         template, `unmatched` for a route nothing declares) and the one generic
         `errorCode` `INSUFFICIENT_PERMISSIONS` — never the Permission, Role or rule
-        that refused, which the operation's own `security` declaration names.
+        that refused, which the operation's own `security` declaration names. On
+        the SCIM chain the same event names the refused token's CONNECTOR as actor,
+        subject and resource (`resourceType` `ScimConnector`).
         `ROLE_GRANT` and `ROLE_REVOKE` are a change of power through a mapped
         Group's membership — a connector adding a User to the Group, or removing
         it by `PATCH`, `PUT` or the Group's `DELETE` — with the connector as
         actor, the User as subject, the Group as resource and the Role as `role`.
-    ConnectorTokenScope:
-      type: string
-      enum: [READ_ONLY, READ_WRITE]
+    ConnectorTokenPermissions:
+      type: array
+      minItems: 1
+      items:
+        type: string
+        enum: [user:read, user:write, group:read, group:write]
       description: |
-        Directory-wide. `READ_WRITE` implies read, so there is no scope that can
-        mutate a resource it cannot retrieve. Enforced in the SCIM chain's filter
-        from the method and path alone, not by a check inside a handler.
+        What the token may do over SCIM, from the same Permission vocabulary a
+        User's Roles grant (ADR 0010): `user:read` for Users reads, `user:write`
+        for Users `POST`/`PUT`/`PATCH`/`DELETE`, `group:read` / `group:write`
+        likewise for Groups. Write does NOT imply read. Only these four can be
+        carried by a token; any other Permission, an unknown name or an empty list
+        is `400`. On issue and rotation each one must also be held by the calling
+        administrator — a token can never be more powerful than whoever minted it;
+        asking for more is `403`, audited with the Permissions requested. Returned
+        sorted by name. Enforced in the SCIM chain's filter from the method and
+        path alone, before any handler runs.
     CreateConnectorRequest:
       type: object
       required: [displayName]
@@ -3159,10 +3238,10 @@ components:
           description: The administrator's own label. Carries no authority.
     IssueTokenRequest:
       type: object
-      required: [scope]
+      required: [permissions]
       properties:
-        scope:
-          $ref: "#/components/schemas/ConnectorTokenScope"
+        permissions:
+          $ref: "#/components/schemas/ConnectorTokenPermissions"
         lifetimeDays:
           type: [integer, "null"]
           format: int32
@@ -3178,9 +3257,17 @@ components:
           description: |
             How long the old token keeps working. Clamped to 14 days and to the life
             the old token had left; absent or zero ends it immediately.
+        permissions:
+          description: |
+            The replacement's Permissions, on the terms an issue's are. Absent or
+            `null` keeps the old token's — which are then checked against the
+            caller's own, exactly as a requested set is.
+          oneOf:
+            - $ref: "#/components/schemas/ConnectorTokenPermissions"
+            - type: "null"
     ConnectorTokenSummary:
       type: object
-      required: [id, scope, issuedAt, expiresAt, originalExpiresAt, active]
+      required: [id, permissions, issuedAt, expiresAt, originalExpiresAt, active]
       description: |
         Has no property a token value or its hash could occupy, and that is
         deliberate: the serialised projection has no such field, so a listing cannot
@@ -3189,8 +3276,15 @@ components:
         id:
           type: string
           format: uuid
-        scope:
-          $ref: "#/components/schemas/ConnectorTokenScope"
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [user:read, user:write, group:read, group:write]
+          description: |
+            What the token may do, sorted by name. Empty only for a token stored
+            before tokens carried Permissions, which may read discovery and nothing
+            else.
         issuedAt:
           type: string
           format: date-time
@@ -3231,7 +3325,7 @@ components:
             $ref: "#/components/schemas/ConnectorTokenSummary"
     IssuedConnectorToken:
       type: object
-      required: [connectorId, tokenId, scope, issuedAt, expiresAt, presentedValue]
+      required: [connectorId, tokenId, permissions, issuedAt, expiresAt, presentedValue]
       description: |
         The only schema that carries a token value, returned only by issue and
         rotate. A type of its own rather than a nullable field on
@@ -3244,8 +3338,8 @@ components:
         tokenId:
           type: string
           format: uuid
-        scope:
-          $ref: "#/components/schemas/ConnectorTokenScope"
+        permissions:
+          $ref: "#/components/schemas/ConnectorTokenPermissions"
         issuedAt:
           type: string
           format: date-time

@@ -1,7 +1,7 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -19,7 +19,7 @@ import java.util.UUID;
  * account listing made about whether a lockout is in force.
  *
  * @param id                the token's stable id, which is what a revoke names
- * @param scope             what it authorises, directory-wide
+ * @param permissions       what it authorises, sorted by name
  * @param issuedAt          when it was minted
  * @param expiresAt         when it stops being accepted, as it currently stands
  * @param originalExpiresAt the expiry it was issued with, so a shortened overlap
@@ -29,7 +29,7 @@ import java.util.UUID;
  */
 public record ConnectorTokenSummary(
         UUID id,
-        ConnectorTokenScope scope,
+        List<String> permissions,
         Instant issuedAt,
         Instant expiresAt,
         Instant originalExpiresAt,

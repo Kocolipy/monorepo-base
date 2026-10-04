@@ -7,12 +7,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.controller.ScimDiscovery;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ScimPageRequest;
 import jakarta.servlet.Filter;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -100,27 +102,55 @@ class ScimDiscoveryIntegrationTests {
 
     private MockMvc mvc;
 
+    /** No default credential: what a caller that presents none is answered. */
+    private MockMvc anonymous;
+
     private String writeToken;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.webAppContextSetup(context)
-                .addFilters(requestIdFilter, springSecurityFilterChain)
-                .build();
         UUID connectorId = connectors.create("Okta", "test-admin").id();
         writeToken = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin")
+                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
                 .presentedValue();
+        // Discovery needs a valid token and no Permission (ADR 0010), so every request this class
+        // makes carries one by default: a token holding only group:read, which discovery does not
+        // look at. A request that names its own credential — asConnector — keeps that one.
+        String discoveryToken = connectors
+                .issueToken(connectorId, Set.of(Permission.GROUP_READ), null, "test-admin",
+                        TokenPermissions.ALL)
+                .presentedValue();
+        anonymous = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(requestIdFilter, springSecurityFilterChain)
+                .build();
+        mvc = MockMvcBuilders.webAppContextSetup(context)
+                .addFilters(requestIdFilter, springSecurityFilterChain)
+                .defaultRequest(get("/").header(HttpHeaders.AUTHORIZATION, "Bearer " + discoveryToken))
+                .build();
     }
 
-    /** Discovery is readable with no credential: a connector reads it before it has one. */
+    /** Discovery is challenged with no credential: it needs a valid token, though no Permission. */
     @ParameterizedTest
     @ValueSource(strings = {
         BASE + "/ServiceProviderConfig",
         BASE + "/ResourceTypes",
         BASE + "/Schemas",
     })
-    void discovery_is_public_and_answers_as_scim_json(String path) throws Exception {
+    void discovery_without_a_token_is_challenged(String path) throws Exception {
+        MvcResult result = anonymous.perform(get(path)).andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(401);
+        assertThat(result.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE)).isEqualTo("Bearer");
+    }
+
+    /** Discovery answers any valid token, whatever Permissions it carries. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+        BASE + "/ServiceProviderConfig",
+        BASE + "/ResourceTypes",
+        BASE + "/Schemas",
+    })
+    void discovery_answers_any_valid_token_as_scim_json(String path) throws Exception {
         MvcResult result = mvc.perform(get(path)).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -384,7 +414,7 @@ class ScimDiscoveryIntegrationTests {
 
     /**
      * The base comes from the request, as it does for Users and Groups, so a deployment reached
-     * on another scheme, host or port renders that one — and needs no credential to do it.
+     * on another scheme, host or port renders that one.
      */
     @Test
     void a_discovery_location_follows_the_scheme_host_and_port_the_request_arrived_on()

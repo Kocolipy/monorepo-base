@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -76,10 +77,11 @@ class ScimReleaseGateDefaultIntegrationTests {
     }
 
     /**
-     * Discovery answers, which is the observable half of an open gate: these paths are PUBLIC, so a
-     * connector reads them before it holds a credential at all.
+     * Discovery is reachable, which is the observable half of an open gate: a closed gate answers
+     * {@code 404} ahead of authentication, an open one lets the request reach the bearer chain,
+     * which challenges it — discovery needs a valid token like every SCIM path (ADR 0010).
      *
-     * <p>Asserted as a real {@code 200} through the real chain rather than by reading the bean
+     * <p>Asserted as a real {@code 401} through the real chain rather than by reading the bean
      * twice — the gate filter sits ahead of authentication, so "the flag is true" and "the namespace
      * answers" are two different claims and only the second one is what a connector experiences.
      */
@@ -91,10 +93,12 @@ class ScimReleaseGateDefaultIntegrationTests {
         "/scim/v2/ResourceTypes/Group",
         "/scim/v2/Schemas",
     })
-    void public_discovery_answers_by_default(String path) throws Exception {
-        assertThat(mvc.perform(get(path)).andReturn().getResponse().getStatus())
-                .as("an open gate serves discovery without a credential")
-                .isEqualTo(200);
+    void discovery_is_reachable_by_default_and_demands_a_token(String path) throws Exception {
+        MockHttpServletResponse response = mvc.perform(get(path)).andReturn().getResponse();
+        assertThat(response.getStatus())
+                .as("an open gate reaches the bearer chain, which challenges a missing token")
+                .isEqualTo(401);
+        assertThat(response.getHeader("WWW-Authenticate")).isEqualTo("Bearer");
     }
 
     /**

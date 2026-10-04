@@ -8,9 +8,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -110,10 +110,10 @@ class ScimAttributeProfileIntegrationTests {
                 .build();
         UUID connector = connectors.create("Attribute profile", "test-admin").id();
         token = connectors.issueToken(
-                connector, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connector, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         UUID other = connectors.create("Attribute profile, other", "test-admin").id();
         otherToken = connectors.issueToken(
-                other, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                other, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
 
         user("""
                 {"schemas":["%s"],"userName":"ap-ada","externalId":"ap-Ext-Ada",
@@ -144,7 +144,7 @@ class ScimAttributeProfileIntegrationTests {
     /** The User schema, as served, says these things of these representative attributes. */
     @Test
     void discovery_advertises_the_profile_of_representative_user_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(get(BASE + "/Schemas/" + USER_SCHEMA)).andReturn());
+        JsonNode schema = body(mvc.perform(as(token, get(BASE + "/Schemas/" + USER_SCHEMA))).andReturn());
 
         assertThat(names(schema.get("attributes"))).containsExactly(
                 "userName", "name", "displayName", "preferredLanguage", "locale", "timezone",
@@ -174,7 +174,7 @@ class ScimAttributeProfileIntegrationTests {
 
     @Test
     void discovery_advertises_the_profile_of_the_group_attributes() throws Exception {
-        JsonNode schema = body(mvc.perform(get(BASE + "/Schemas/" + GROUP_SCHEMA)).andReturn());
+        JsonNode schema = body(mvc.perform(as(token, get(BASE + "/Schemas/" + GROUP_SCHEMA))).andReturn());
 
         assertThat(names(schema.get("attributes"))).containsExactly("displayName", "members");
         assertCharacteristics(attribute(schema, "displayName"),

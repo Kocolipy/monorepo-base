@@ -21,7 +21,7 @@ import java.util.UUID;
  * @param connectorId       the connector this token authenticates
  * @param lookupId          the non-secret half of the presented value
  * @param digest            SHA-256 of the complete presented value
- * @param scope             what the token authorises, directory-wide
+ * @param permissions       what the token authorises
  * @param issuedAt          when it was minted
  * @param expiresAt         when it stops being accepted; may be brought forward by
  *                          rotation, never pushed back
@@ -35,7 +35,7 @@ public record ScimConnectorToken(
         UUID connectorId,
         String lookupId,
         ConnectorTokenDigest digest,
-        ConnectorTokenScope scope,
+        ConnectorTokenPermissions permissions,
         Instant issuedAt,
         Instant expiresAt,
         Instant originalExpiresAt,
@@ -55,11 +55,11 @@ public record ScimConnectorToken(
             UUID connectorId,
             String lookupId,
             ConnectorTokenDigest digest,
-            ConnectorTokenScope scope,
+            ConnectorTokenPermissions permissions,
             Instant issuedAt,
             Instant expiresAt) {
         return new ScimConnectorToken(
-                id, connectorId, lookupId, digest, scope, issuedAt, expiresAt, expiresAt,
+                id, connectorId, lookupId, digest, permissions, issuedAt, expiresAt, expiresAt,
                 null, null);
     }
 
@@ -95,7 +95,7 @@ public record ScimConnectorToken(
                     "Rotation may only bring a token's expiry forward");
         }
         return new ScimConnectorToken(
-                id, connectorId, lookupId, digest, scope, issuedAt, at, originalExpiresAt,
+                id, connectorId, lookupId, digest, permissions, issuedAt, at, originalExpiresAt,
                 revokedAt, replacement);
     }
 
@@ -105,7 +105,7 @@ public record ScimConnectorToken(
      */
     public ScimConnectorToken revoked(Instant at) {
         return isRevoked() ? this : new ScimConnectorToken(
-                id, connectorId, lookupId, digest, scope, issuedAt, expiresAt,
+                id, connectorId, lookupId, digest, permissions, issuedAt, expiresAt,
                 originalExpiresAt, at, replacedByTokenId);
     }
 }

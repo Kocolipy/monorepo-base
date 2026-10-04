@@ -298,8 +298,10 @@ puts the connector's id in the context for the rest of an authenticated SCIM req
 reasons are `no-session` and `session-expired` (application chain, `401`), `bearer-missing`
 and `bearer-invalid` (SCIM, `401`), `insufficient-permissions` (any authorization rule —
 a missing Permission, an undeclared route, the forced-password-change confinement; named
-`access-denied` until ADR 0010's Permissions replaced roles), `csrf` (a missing or invalid token — recorded
-apart from an authorization refusal) and `insufficient-scope` (a read-only token writing).
+`access-denied` until ADR 0010's Permissions replaced roles) and `csrf` (a missing or invalid
+token — recorded apart from an authorization refusal). A connector token lacking the
+Permission a SCIM request needs is `insufficient-permissions` too, the same reason a session
+gets; it was `insufficient-scope` while tokens had a read-only/read-write scope (#117).
 No reason names a role, a matcher or an authority, and no part of a presented token — not a
 prefix, not the lookup id — reaches a record.
 

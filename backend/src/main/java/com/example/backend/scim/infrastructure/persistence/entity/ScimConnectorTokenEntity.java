@@ -1,14 +1,13 @@
 package com.example.backend.scim.infrastructure.persistence.entity;
 
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Database representation of a connector token.
@@ -40,9 +39,14 @@ public class ScimConnectorTokenEntity {
     @Column(nullable = false, updatable = false)
     private byte[] tokenHash;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, updatable = false, length = 16)
-    private ConnectorTokenScope scope;
+    /**
+     * The Permissions the token carries, by their wire spelling, as a Postgres {@code text[]}.
+     * The database refuses any value outside the four directory Permissions
+     * ({@code ck_scim_connector_tokens_directory_permissions}), whatever this mapping permits.
+     */
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(nullable = false, updatable = false, columnDefinition = "text[]")
+    private String[] permissions;
 
     @Column(nullable = false, updatable = false)
     private Instant issuedAt;
@@ -68,7 +72,7 @@ public class ScimConnectorTokenEntity {
             UUID connectorId,
             String lookupId,
             byte[] tokenHash,
-            ConnectorTokenScope scope,
+            String[] permissions,
             Instant issuedAt,
             Instant expiresAt,
             Instant originalExpiresAt,
@@ -78,7 +82,7 @@ public class ScimConnectorTokenEntity {
         this.connectorId = connectorId;
         this.lookupId = lookupId;
         this.tokenHash = tokenHash;
-        this.scope = scope;
+        this.permissions = permissions.clone();
         this.issuedAt = issuedAt;
         this.expiresAt = expiresAt;
         this.originalExpiresAt = originalExpiresAt;
@@ -102,8 +106,8 @@ public class ScimConnectorTokenEntity {
         return tokenHash;
     }
 
-    public ConnectorTokenScope getScope() {
-        return scope;
+    public String[] getPermissions() {
+        return permissions.clone();
     }
 
     public Instant getIssuedAt() {

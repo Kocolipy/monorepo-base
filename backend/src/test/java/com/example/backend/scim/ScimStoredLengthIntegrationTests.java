@@ -8,9 +8,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
 import java.util.List;
@@ -121,8 +121,8 @@ class ScimStoredLengthIntegrationTests {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         connectorId = connectors.create("Length limits", "test-admin").id();
-        writeToken = connectors.issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
+        writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

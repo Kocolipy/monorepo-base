@@ -1,7 +1,7 @@
 package com.example.backend.scim.application;
 
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -20,7 +20,7 @@ import java.util.UUID;
  *
  * @param connectorId    the connector this token authenticates
  * @param tokenId        the token's stable id, for a later rotate or revoke
- * @param scope          what it authorises
+ * @param permissions    what it authorises, sorted by name
  * @param issuedAt       when it was minted
  * @param expiresAt      when it stops being accepted
  * @param presentedValue the complete opaque bearer value, to be sent as
@@ -30,7 +30,7 @@ import java.util.UUID;
 public record IssuedConnectorToken(
         UUID connectorId,
         UUID tokenId,
-        ConnectorTokenScope scope,
+        List<String> permissions,
         Instant issuedAt,
         Instant expiresAt,
         String presentedValue) {

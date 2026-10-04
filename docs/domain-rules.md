@@ -111,25 +111,53 @@ likelier to have the wrong id than to want a second no-op.
 **SCIM connector token** — a high-entropy opaque bearer credential restricted to
 the SCIM interface. The value is a non-secret lookup handle, a dot, and at least
 256 bits of `SecureRandom` material; only a SHA-256 digest of the **complete**
-value is stored, compared in constant time. A token is either directory-wide
-read-only or directory-wide read-write, with write implying read — and scope is
-enforced in the SCIM chain's filter from the request's method and path, so a
-`.search` POST remains a read and no handler carries a scope check of its own.
-Any Admin may mint, inspect, overlap, rotate, and revoke tokens; plaintext is
-disclosed once, on the issue and rotation responses alone, under
-`Cache-Control: no-store`. A token expires at most 365 days after issue, which is
-both the default and the hard maximum — a shorter lifetime may be chosen, a longer
-one is refused rather than silently clamped. Rotation mints a replacement of the
-same scope with a fresh full lifetime and brings the old token's expiry **forward**
+value is stored, compared in constant time. A token carries **Token Permissions**
+(ADR 0010): a non-empty set of `user:read`, `user:write`, `group:read` and
+`group:write`, and nothing else — every other Permission guards the application
+chain, which no token reaches, and is refused on a token with `400`, as are an
+empty list and a name that is no Permission. Over SCIM, Users reads (`GET`, and
+`POST /Users/.search`) need `user:read` and Users `POST`/`PUT`/`PATCH`/`DELETE`
+need `user:write`; Groups likewise with `group:read` / `group:write`. Write does
+not imply read. A base `/.search` needs at least one read Permission and returns
+only the resource types the token may read — a `user:read`-only token gets Users
+and no Groups, as if the directory held none. Discovery (`ServiceProviderConfig`,
+`Schemas`, `ResourceTypes`) needs a valid token and no Permission, and `/Me` is
+`501` to any valid token. All of it is decided in the SCIM chain's filter from
+the request's method and path, before any handler runs, so no handler carries a
+check of its own; a path no endpoint serves needs only a valid token and is a
+`404`. A refusal is `403` with `insufficient_scope` and no body, logged at `WARN`
+and audited as `ACCESS_DENIED` naming the connector, the operation and the
+generic reason — never the missing Permission.
+
+**No escalation** — a token may carry only Permissions the administrator minting
+it holds itself, by the Permissions its session was issued with. A request for
+anything more is `403` and audited as a failed `CONNECTOR_TOKEN_ISSUE` (or
+`_ROTATE`) with `PERMISSION_ESCALATION` and the Permissions requested; the check
+runs after the request's own shape and after the connector is found. Rotation is
+minting, so it is held to the same rule whether it keeps the old token's
+Permissions or is given new ones: a token a Superuser issued cannot be renewed
+by a Connector admin lacking any of its Permissions. A successful issue or
+rotation is audited with the Permissions granted. Whoever holds `connector:token`
+together with `group:write` can therefore issue a credential that assigns Roles,
+because `group:write` on a mapped Group is Role assignment.
+
+A holder of `connector:token` may mint, inspect, overlap, rotate, and revoke
+tokens; plaintext is disclosed once, on the issue and rotation responses alone,
+under `Cache-Control: no-store`. A token expires at most 365 days after issue,
+which is both the default and the hard maximum — a shorter lifetime may be
+chosen, a longer one is refused rather than silently clamped. Rotation mints a
+replacement carrying the old token's Permissions, or the ones it is given, with a
+fresh full lifetime and brings the old token's expiry **forward**
 to the end of an overlap window of at most 14 days, never past the expiry the old
 token already had; a second rotation therefore cannot undo the first one's
 shortening. Revocation and expiry are immediate and indistinguishable to the
 connector: the only credential refusals the interface makes are a bare `Bearer`
 challenge when no credential was presented, `invalid_token` for a malformed,
 unknown, expired or revoked one or one whose connector is deleted, and
-`insufficient_scope` for a read-only token attempting a mutation. The token is
-accepted from the `Authorization` header and from nowhere else — a query string, a
-form body and a cookie are not rejected but never consulted.
+`insufficient_scope` for a valid token lacking the request's Permission. The
+token is accepted from the `Authorization` header and from nowhere else — a query
+string, a form body and a cookie are not rejected but never consulted. A token
+cannot reach `/api/**`: the application chain does not read bearer credentials.
 
 **User** — the domain identity that replaces Account rather than wrapping it.
 It owns the selected core User profile, stable SCIM id and version, active state,
@@ -208,9 +236,9 @@ one by one would; the mapping still names its id, but it confers nothing until
 the deployment replaces the mapping. The Admin group never enters this state
 because it cannot be deleted.
 
-**Practical SCIM protocol profile** — public discovery at
-`/ServiceProviderConfig`, `/ResourceTypes`, and `/Schemas`, followed by
-token-authenticated User and Group CRUD, PATCH, filtering, sorting, pagination,
+**Practical SCIM protocol profile** — discovery at `/ServiceProviderConfig`,
+`/ResourceTypes`, and `/Schemas` for any valid connector token, whatever its
+Permissions, followed by Permission-checked User and Group CRUD, PATCH, filtering, sorting, pagination,
 conditional writes with ETags, and standard SCIM errors. A User may be created
 without `password`; its `active` value remains authoritative, but password Login
 returns the same bare `401` as any rejected credentials until a later SCIM write

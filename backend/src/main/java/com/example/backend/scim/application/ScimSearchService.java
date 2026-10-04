@@ -41,14 +41,19 @@ public class ScimSearchService {
     }
 
     /**
-     * The page of Users and Groups the query selects, in its order, and the total over both.
+     * The page of Users and Groups the query selects, in its order, and the total over both —
+     * narrowed to the types the connector's token may read (ADR 0010). A {@code user:read}-only
+     * token gets Users and no Groups: its answer is the one a directory holding no Groups would
+     * give, not a refusal, so a partially permitted connector still gets a conformant response.
+     * The authorization rule refuses a token that may read neither before this runs.
      *
      * <p>Audited as exactly one bulk read, on the terms a single-type query is.
      */
     @Transactional
     public ScimSearchListing search(
             AuthenticatedConnector connector, ScimQuery query, String baseUri) {
-        ScimQuery.Result result = queries.query(query, connector.connectorId(), baseUri);
+        ScimQuery readable = query.restrictedTo(connector.permissions().readableTypes());
+        ScimQuery.Result result = queries.query(readable, connector.connectorId(), baseUri);
         Map<UUID, ScimListedResource> byId = new HashMap<>();
         users.resources(connector, result.idsOf(ScimResourceType.USER))
                 .forEach(user -> byId.put(user.id(), user));

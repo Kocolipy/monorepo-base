@@ -84,20 +84,23 @@ export interface Connector {
   token: string;
 }
 
+/** Every Permission a connector token can carry: what a fixture connector is given by default. */
+export const ALL_TOKEN_PERMISSIONS = ["group:read", "group:write", "user:read", "user:write"];
+
 /** A connector and one token for it, through the admin API of `adminPage`'s session. */
 export async function createConnector(
   adminPage: Page,
   displayName: string,
-  scope: "READ_ONLY" | "READ_WRITE" = "READ_WRITE",
+  permissions: readonly string[] = ALL_TOKEN_PERMISSIONS,
 ): Promise<Connector> {
   expect(displayName.startsWith(E2E_PREFIX), "fixture names carry the e2e prefix").toBe(true);
   const created = await adminRequest(adminPage, "POST", "/api/admin/connectors", { displayName });
   expect(created.ok(), `creating connector ${displayName}`).toBe(true);
   const { id } = (await created.json()) as { id: string };
   const issued = await adminRequest(adminPage, "POST", `/api/admin/connectors/${id}/tokens`, {
-    scope,
+    permissions,
   });
-  expect(issued.ok(), `issuing a ${scope} token for ${displayName}`).toBe(true);
+  expect(issued.ok(), `issuing a ${permissions.join(",")} token for ${displayName}`).toBe(true);
   return { id, token: ((await issued.json()) as { presentedValue: string }).presentedValue };
 }
 
@@ -186,7 +189,7 @@ export function rowOf(page: Page, table: Locator, name: string): Locator {
 
 /**
  * Registers `beforeAll`/`afterAll` hooks giving every test a worker runs from
- * the calling file one shared READ_WRITE connector and its SCIM client, created
+ * the calling file one shared connector holding every token Permission and its SCIM client, created
  * through the project's own Admin session and deleted afterwards. Call it at
  * the top level of a spec in the `admin` project.
  *

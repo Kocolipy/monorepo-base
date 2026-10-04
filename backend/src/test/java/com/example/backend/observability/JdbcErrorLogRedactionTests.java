@@ -8,8 +8,8 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.net.URL;
 import java.util.ArrayList;
@@ -109,8 +109,8 @@ class JdbcErrorLogRedactionTests {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         UUID connectorId = connectors.create("Log redaction", "test-admin").id();
-        writeToken = connectors.issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
+        writeToken = connectors.issueToken(connectorId, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

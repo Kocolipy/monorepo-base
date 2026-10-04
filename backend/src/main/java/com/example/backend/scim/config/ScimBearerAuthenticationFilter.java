@@ -1,13 +1,17 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.audit.domain.AuditRequest;
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.AccessRefusalLog.Refusal;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.MetricTag;
 import com.example.backend.observability.RequestActor;
+import com.example.backend.observability.RequestIdFilter;
+import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ScimWriteScopeRule;
+import com.example.backend.scim.domain.ScimPermissionRule;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,11 +42,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * {@code semgrep/rules/service-security.yml} holds the property against future code
  * in this package.
  *
- * <p><strong>Scope is enforced here rather than in a handler.</strong> A read-only
- * token attempting a mutation is turned away before any handler runs, from the method
- * and the path alone ({@link ScimWriteScopeRule}). A per-handler check would cover
- * the handlers whose author remembered it; this covers every SCIM path that exists
- * and every one that will, including the mutating endpoints later tickets add.
+ * <p><strong>Permissions are enforced here rather than in a handler.</strong> A token lacking
+ * the Permission a request needs is turned away before any handler runs, from the method and the
+ * path alone ({@link ScimPermissionRule}). A per-handler check would cover the handlers whose
+ * author remembered it; this covers every SCIM path that exists, and refuses every one the rule
+ * does not name. The refusal is logged and audited with the connector, the operation and the one
+ * generic reason, never the Permission that was missing.
  *
  * <p><strong>Three outcomes, and the missing-credential one is not this filter's.</strong>
  * A request with no {@code Authorization} header is passed along unauthenticated, so
@@ -50,25 +55,30 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * unauthenticated SCIM request gets" in the chain configuration beside every other
  * access rule. A malformed, unknown, expired or revoked token is
  * {@code invalid_token} here, because the chain cannot tell those from a missing
- * credential. A read-only token on a mutating path is {@code insufficient_scope}.
+ * credential. A valid token lacking the request's Permission is {@code insufficient_scope},
+ * RFC 6750's name for exactly that.
  */
 class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
-    /** Authority granted to every authenticated connector. Write implies read. */
-    private static final String READ_AUTHORITY = "SCOPE_scim.read";
-
-    private static final String WRITE_AUTHORITY = "SCOPE_scim.write";
-
     private final ConnectorAuthenticationService connectors;
 
     private final AccessRefusalLog refusals;
 
+    private final AuditTrail audit;
+
+    private final RouteTemplates routes;
+
     ScimBearerAuthenticationFilter(
-            ConnectorAuthenticationService connectors, AccessRefusalLog refusals) {
+            ConnectorAuthenticationService connectors,
+            AccessRefusalLog refusals,
+            AuditTrail audit,
+            RouteTemplates routes) {
         this.connectors = connectors;
         this.refusals = refusals;
+        this.audit = audit;
+        this.routes = routes;
     }
 
     @Override
@@ -98,10 +108,16 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
         RequestActor.connector(request, connector.get().connectorId());
         try (LogContext.Scope scope =
                 LogContext.connectorId(connector.get().connectorId().toString())) {
-            if (ScimWriteScopeRule.requiresWriteScope(request.getMethod(), path(request))
-                    && !connector.get().scope().permitsWrite()) {
-                refusals.record(request, Refusal.INSUFFICIENT_SCOPE);
-                ScimBearerChallenge.insufficientScope(response);
+            if (!ScimPermissionRule.permits(
+                    request.getMethod(), path(request), connector.get().permissions())) {
+                if (refusals.record(request, Refusal.INSUFFICIENT_PERMISSIONS)) {
+                    // Only when the log took it, so one exchange is one record of each kind.
+                    audit.recordConnectorAccessDenied(
+                            connector.get().connectorId(),
+                            new AuditRequest(RequestIdFilter.method(request), routes.of(request),
+                                    RequestIdFilter.requestId(request)));
+                }
+                ScimBearerChallenge.insufficientPermissions(response);
                 return;
             }
             proceedAs(connector.get(), request, response, chain);
@@ -169,10 +185,11 @@ class ScimBearerAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private static List<SimpleGrantedAuthority> authorities(AuthenticatedConnector connector) {
-        return connector.scope().permitsWrite()
-                ? List.of(
-                        new SimpleGrantedAuthority(READ_AUTHORITY),
-                        new SimpleGrantedAuthority(WRITE_AUTHORITY))
-                : List.of(new SimpleGrantedAuthority(READ_AUTHORITY));
+        // The token's Permissions, spelled as a session's are. Nothing on this chain decides on
+        // them — the rule above already has — but a principal whose authorities said otherwise
+        // would be a second, disagreeing account of what the request may do.
+        return connector.permissions().sortedValues().stream()
+                .map(SimpleGrantedAuthority::new)
+                .toList();
     }
 }

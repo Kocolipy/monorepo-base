@@ -49,10 +49,11 @@ class AuditEventPersistenceAdapter implements AuditEventRepository {
                 event.requestId(),
                 event.resultCount(),
                 event.filterShape(),
-                event.role()));
+                event.role(),
+                joinPaths(event.permissions())));
     }
 
-    /** An empty list is stored as null, so "nothing changed" is one value. */
+    /** An empty list is stored as null, so "nothing changed" — or "none named" — is one value. */
     private static String joinPaths(List<String> paths) {
         return paths.isEmpty() ? null : String.join(PATH_SEPARATOR, paths);
     }

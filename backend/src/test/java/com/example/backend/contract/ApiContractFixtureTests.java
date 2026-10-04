@@ -5,9 +5,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.util.ArrayList;
@@ -122,7 +122,7 @@ class ApiContractFixtureTests {
                         springSecurityFilterChain)
                 .build();
         UUID connector = connectors.create("api-contract", ADMIN).id();
-        writeToken = connectors.issueToken(connector, ConnectorTokenScope.READ_WRITE, null, ADMIN)
+        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL)
                 .presentedValue();
     }
 
@@ -390,19 +390,23 @@ class ApiContractFixtureTests {
 
             String tokens = base + "/" + id + "/tokens";
             MvcResult issued = t.expect(t.json(t.csrf(t.post(tokens)).cookie(admin),
-                    "{\"scope\":\"READ_ONLY\"}"), 201);
+                    "{\"permissions\":" + TokenPermissions.READ_JSON + "}"), 201);
             assertThat(issued.getResponse().getHeader(HttpHeaders.CACHE_CONTROL))
                     .contains("no-store");
             String tokenId = json(issued).get("tokenId").asText();
             t.expect(t.json(t.csrf(t.post(tokens)).cookie(admin),
-                    "{\"scope\":\"READ_ONLY\",\"lifetimeDays\":366}"), 400);
-            t.expect(t.json(t.csrf(t.post(tokens)).cookie(user), "{\"scope\":\"READ_ONLY\"}"),
+                    "{\"permissions\":" + TokenPermissions.READ_JSON + ",\"lifetimeDays\":366}"), 400);
+            t.expect(t.json(t.csrf(t.post(tokens)).cookie(admin),
+                    "{\"permissions\":[\"audit:read\"]}"), 400);
+            t.expect(t.json(t.csrf(t.post(tokens)).cookie(user), "{\"permissions\":" + TokenPermissions.READ_JSON + "}"),
                     403);
-            t.expect(t.json(t.csrf(t.post(tokens)), "{\"scope\":\"READ_ONLY\"}"), 401);
+            t.expect(t.json(t.csrf(t.post(tokens)), "{\"permissions\":" + TokenPermissions.READ_JSON + "}"), 401);
             t.expect(t.json(t.csrf(t.post(base + "/" + UUID.randomUUID() + "/tokens"))
-                    .cookie(admin), "{\"scope\":\"READ_ONLY\"}"), 404);
+                    .cookie(admin), "{\"permissions\":" + TokenPermissions.READ_JSON + "}"), 404);
 
             String rotate = tokens + "/" + tokenId + "/rotate";
+            t.expect(t.json(t.csrf(t.post(rotate)).cookie(admin),
+                    "{\"permissions\":[]}"), 400);
             JsonNode rotated = json(t.expect(t.json(t.csrf(t.post(rotate)).cookie(admin),
                     "{\"overlapDays\":0}"), 201));
             t.expect(t.json(t.csrf(t.post(rotate)).cookie(user), "{}"), 403);

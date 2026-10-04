@@ -1,10 +1,13 @@
 package com.example.backend.scim.controller;
 
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ConnectorSummary;
+import com.example.backend.scim.application.ConnectorTokenEscalationException;
 import com.example.backend.scim.application.IssuedConnectorToken;
 import com.example.backend.scim.application.UnknownConnectorException;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
+import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -12,12 +15,17 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.security.Principal;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,7 +35,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 
 /**
  * Inbound HTTP adapter for connector and token administration.
@@ -66,12 +73,15 @@ public class AdminConnectorController {
     /**
      * A token to mint.
      *
+     * @param permissions  what it is to carry: Permission names, at least one, each of
+     *                     {@code user:read}, {@code user:write}, {@code group:read} and
+     *                     {@code group:write}, and each one the caller holds itself
      * @param lifetimeDays how long it should live, or {@code null} for the default of
      *                     365 days; the policy refuses more, so a request for two
      *                     years is a {@code 400} rather than a silently shortened token
      */
     public record IssueTokenRequest(
-            @NotNull ConnectorTokenScope scope,
+            @NotNull List<String> permissions,
             @Positive Integer lifetimeDays) {
     }
 
@@ -81,8 +91,10 @@ public class AdminConnectorController {
      * @param overlapDays how long the old token should keep working, clamped to 14 and
      *                    to whatever life the old token had left; {@code null} or zero
      *                    ends it immediately
+     * @param permissions what the replacement is to carry, on the terms an issue's are, or
+     *                    {@code null} to keep the old token's
      */
-    public record RotateTokenRequest(Integer overlapDays) {
+    public record RotateTokenRequest(Integer overlapDays, List<String> permissions) {
     }
 
     @GetMapping
@@ -119,9 +131,13 @@ public class AdminConnectorController {
     public ResponseEntity<IssuedConnectorToken> issueToken(
             @PathVariable UUID connectorId,
             @Valid @RequestBody IssueTokenRequest request,
-            Principal principal) {
+            Authentication caller) {
         return disclosed(connectors.issueToken(
-                connectorId, request.scope(), days(request.lifetimeDays()), principal.getName()));
+                connectorId,
+                permissions(request.permissions()),
+                days(request.lifetimeDays()),
+                caller.getName(),
+                held(caller)));
     }
 
     /**
@@ -134,10 +150,15 @@ public class AdminConnectorController {
             @PathVariable UUID connectorId,
             @PathVariable UUID tokenId,
             @Valid @RequestBody(required = false) RotateTokenRequest request,
-            Principal principal) {
+            Authentication caller) {
         Integer overlapDays = request == null ? null : request.overlapDays();
-        return disclosed(
-                connectors.rotateToken(tokenId, days(overlapDays), principal.getName()));
+        List<String> requested = request == null ? null : request.permissions();
+        return disclosed(connectors.rotateToken(
+                tokenId,
+                requested == null ? null : permissions(requested),
+                days(overlapDays),
+                caller.getName(),
+                held(caller)));
     }
 
     /** Revokes a token, effective immediately. */
@@ -168,6 +189,33 @@ public class AdminConnectorController {
         return days == null ? null : Duration.ofDays(days);
     }
 
+    /**
+     * The requested names as Permissions. A name that is no Permission is refused here, as the
+     * {@code 400} a malformed request gets — the same answer as a Permission no token can carry,
+     * which the domain refuses.
+     */
+    private static List<Permission> permissions(List<String> names) {
+        List<Permission> permissions = new ArrayList<>();
+        for (String name : names) {
+            permissions.add(Permission.fromValue(name).orElseThrow(() ->
+                    new InvalidConnectorTokenPermissionsException("Not a Permission")));
+        }
+        return permissions;
+    }
+
+    /**
+     * The Permissions the caller's session was issued with — what the no-escalation rule compares
+     * a requested token against. Authorities that are not Permissions (the baseline
+     * {@code ROLE_USER}) are not Permissions and are not held as one.
+     */
+    private static Set<Permission> held(Authentication caller) {
+        Set<Permission> held = EnumSet.noneOf(Permission.class);
+        for (GrantedAuthority authority : caller.getAuthorities()) {
+            Permission.fromValue(authority.getAuthority()).ifPresent(held::add);
+        }
+        return held;
+    }
+
     @ExceptionHandler(UnknownConnectorException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public void unknownConnector() {
@@ -183,5 +231,24 @@ public class AdminConnectorController {
     @ExceptionHandler(InvalidConnectorTokenLifetimeException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public void invalidLifetime() {
+    }
+
+    /**
+     * No Permission, a name that is no Permission, or one a token cannot carry: the request
+     * itself cannot be granted, whoever makes it.
+     */
+    @ExceptionHandler(InvalidConnectorTokenPermissionsException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public void invalidPermissions() {
+    }
+
+    /**
+     * A token carrying a Permission the caller does not hold. {@code 403}, bodiless like every
+     * refusal on this chain: the caller may mint tokens, but not this one. Already audited, with
+     * the Permissions requested, by the service.
+     */
+    @ExceptionHandler(ConnectorTokenEscalationException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public void escalation() {
     }
 }

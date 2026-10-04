@@ -6,10 +6,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import jakarta.servlet.http.Cookie;
 import java.sql.Timestamp;
@@ -106,7 +106,7 @@ class SelfReadIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("self-read-connector", "test-admin").id();
         writeToken = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin")
+                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
                 .presentedValue();
     }
 

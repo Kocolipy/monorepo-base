@@ -272,11 +272,11 @@ unset and write no file. The settings live in `src/main/resources/logging.yaml`.
 | ------------------ | ------- | ------------------------------------------ |
 | `APP_SCIM_ENABLED` | `true`  | Whether this deployment serves `/scim/v2`  |
 
-**On by default.** The discovery documents (`ServiceProviderConfig`,
-`ResourceTypes`, `Schemas`) are public; the `Users` and `Groups` resource
-endpoints still answer `401` without a connector token. Set
+**On by default.** Every path needs a connector token: the discovery documents
+(`ServiceProviderConfig`, `ResourceTypes`, `Schemas`) take any valid one, and the
+`Users` and `Groups` resource endpoints the token's Permissions (ADR 0010). Set
 `APP_SCIM_ENABLED=false` to turn the interface off: the whole `/scim/v2`
-namespace then answers `404` — public discovery included, and ahead of
+namespace then answers `404` — discovery included, and ahead of
 authentication, so a valid connector token gets the same answer as none at all.
 
 The value is not written in `application.yaml`: the default belongs to

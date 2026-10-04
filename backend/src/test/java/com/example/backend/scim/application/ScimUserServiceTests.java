@@ -3,6 +3,7 @@ package com.example.backend.scim.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
@@ -14,7 +15,6 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DuplicateUserNameException;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.PasswordPolicy;
@@ -68,10 +68,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 class ScimUserServiceTests {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
     private static final AuthenticatedConnector OTHER_CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
     private static final Instant LATER = ScimIdentities.NOW.plusSeconds(60);
 

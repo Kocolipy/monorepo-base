@@ -39,5 +39,12 @@ public enum AuditAdministrativeRefusal {
      * A forced password change aimed at a User with no credential, which already cannot log in and
      * has no password to replace.
      */
-    CREDENTIALLESS_TARGET
+    CREDENTIALLESS_TARGET,
+
+    /**
+     * A connector token issue or rotation asking for a Permission the administrator does not hold
+     * itself. Refused so that {@code connector:token} cannot mint a credential more powerful than
+     * whoever holds it; the event names the Permissions that were asked for.
+     */
+    PERMISSION_ESCALATION
 }

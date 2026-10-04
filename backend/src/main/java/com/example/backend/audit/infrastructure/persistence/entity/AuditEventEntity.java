@@ -90,6 +90,13 @@ public class AuditEventEntity {
     @Column(name = "role_name", updatable = false)
     private String roleName;
 
+    /**
+     * The Permissions a token was issued, rotated or refused with, comma-separated as
+     * {@code changedPaths} is; null for anything else.
+     */
+    @Column(updatable = false)
+    private String permissions;
+
     protected AuditEventEntity() {
     }
 
@@ -110,7 +117,8 @@ public class AuditEventEntity {
             String requestId,
             Integer resultCount,
             String filterShape,
-            String roleName) {
+            String roleName,
+            String permissions) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -128,6 +136,7 @@ public class AuditEventEntity {
         this.resultCount = resultCount;
         this.filterShape = filterShape;
         this.roleName = roleName;
+        this.permissions = permissions;
     }
 
     /*

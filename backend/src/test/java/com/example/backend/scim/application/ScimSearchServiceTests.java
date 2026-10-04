@@ -2,8 +2,10 @@ package com.example.backend.scim.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimPasswordHistoryRepository;
@@ -13,7 +15,6 @@ import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.config.ScimPasswordAcceptanceConfig;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.PasswordAcceptance;
 import com.example.backend.scim.domain.ScimFilterParser;
 import com.example.backend.scim.domain.ScimGroup;
@@ -41,7 +42,7 @@ import org.junit.jupiter.api.Test;
 class ScimSearchServiceTests {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_ONLY);
+            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.READ));
 
     private static final Set<ScimResourceType> BOTH =
             Set.of(ScimResourceType.USER, ScimResourceType.GROUP);
@@ -114,6 +115,33 @@ class ScimSearchServiceTests {
                     assertThat(event.detail()).isEqualTo("3 (displayName pr or userName pr)");
                 });
         assertThat(audit.recorded()).hasSize(1);
+    }
+
+    /**
+     * A token that may read Users alone searches Users alone (ADR 0010): the query reaching the
+     * port names only the type it may read, so the total and the page count Users and nothing else.
+     */
+    @Test
+    void a_search_is_narrowed_to_the_types_the_token_may_read() {
+        ScimUser ada = users.create(ScimIdentities.user("ada"));
+        groups.create(ScimIdentities.group("Engineering", ada));
+        List<ScimQuery> asked = new ArrayList<>();
+        ScimQueryRepository recording = (query, connectorId, baseUri) -> {
+            asked.add(query);
+            return defaultQueries.query(query, connectorId, baseUri);
+        };
+        AuthenticatedConnector userReader = new AuthenticatedConnector(UUID.randomUUID(),
+                UUID.randomUUID(), TokenPermissions.of(Set.of(Permission.USER_READ)));
+        ScimQuery query = new ScimQuery(BOTH, null, null, new ScimPageRequest(1, 10));
+
+        ScimSearchListing listing = search(recording).search(userReader, query, "u");
+
+        assertThat(asked).singleElement().satisfies(narrowed -> {
+            assertThat(narrowed.types()).containsExactly(ScimResourceType.USER);
+            assertThat(narrowed.page()).isEqualTo(query.page());
+        });
+        assertThat(listing.resources()).extracting(ScimListedResource::id).containsExactly(ada.id());
+        assertThat(listing.totalResults()).isEqualTo(1);
     }
 
     /** An empty result is still one bulk read, with no filter shape when there was no filter. */

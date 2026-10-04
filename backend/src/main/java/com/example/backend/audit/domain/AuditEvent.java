@@ -51,6 +51,9 @@ import java.util.UUID;
  * @param role          the Role a membership change on a mapped Group granted or revoked, by its
  *                      name in the deployment's role mapping — configuration, never a value a
  *                      caller submitted — or {@code null} for every other operation
+ * @param permissions   the Permissions a connector token was issued or rotated with or, on a
+ *                      refused escalation, was asked for — sorted wire spellings from the closed
+ *                      vocabulary in code; empty for every other operation
  */
 public record AuditEvent(
         UUID id,
@@ -69,7 +72,8 @@ public record AuditEvent(
         String requestId,
         Integer resultCount,
         String filterShape,
-        String role) {
+        String role,
+        List<String> permissions) {
 
     /**
      * A SCIM connector, as the audit trail names it.
@@ -124,5 +128,30 @@ public record AuditEvent(
 
     public AuditEvent {
         changedPaths = changedPaths == null ? List.of() : List.copyOf(changedPaths);
+        permissions = permissions == null ? List.of() : List.copyOf(permissions);
+    }
+
+    /** An event that names no Permissions, which is every event but a token's issue or rotation. */
+    public AuditEvent(
+            UUID id,
+            Instant occurredAt,
+            AuditOperation operation,
+            AuditOutcome outcome,
+            UUID actorId,
+            UUID subjectId,
+            String resourceType,
+            UUID resourceId,
+            List<String> changedPaths,
+            String statusClass,
+            String errorCode,
+            String httpMethod,
+            String httpPath,
+            String requestId,
+            Integer resultCount,
+            String filterShape,
+            String role) {
+        this(id, occurredAt, operation, outcome, actorId, subjectId, resourceType, resourceId,
+                changedPaths, statusClass, errorCode, httpMethod, httpPath, requestId, resultCount,
+                filterShape, role, List.of());
     }
 }

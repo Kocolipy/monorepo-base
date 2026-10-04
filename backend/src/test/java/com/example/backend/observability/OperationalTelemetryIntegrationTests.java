@@ -3,8 +3,8 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -119,7 +119,7 @@ class OperationalTelemetryIntegrationTests {
 
         connectorId = connectors.create("Telemetry probe " + suffix, ADMIN).id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, ADMIN).presentedValue();
+                connectorId, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL).presentedValue();
         forbidden.addAll(List.of(userName, externalId, filter, token));
 
         HttpClient connector = HttpClient.newHttpClient();
@@ -202,7 +202,7 @@ class OperationalTelemetryIntegrationTests {
         }
         if (scimUserId != null) {
             String token = connectors.issueToken(
-                    connectorId, ConnectorTokenScope.READ_WRITE, null, ADMIN).presentedValue();
+                    connectorId, TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL).presentedValue();
             HttpResponse<String> current = send(
                     HttpClient.newHttpClient(), scim("/Users/" + scimUserId, token).GET());
             String etag = current.headers().firstValue("ETag").orElseThrow();
