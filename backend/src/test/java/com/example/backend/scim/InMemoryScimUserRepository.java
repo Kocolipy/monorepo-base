@@ -231,7 +231,8 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
         return stored.values().stream()
                 .filter(user -> !user.login().isLocked())
                 .filter(user -> user.reservedName() == null)
-                .filter(user -> user.isDormantAt(cutoff))
+                // The candidate query's SQL predicate, basis < cutoff; the decision is the verdict's.
+                .filter(user -> user.dormancyBasis().isBefore(cutoff))
                 .map(ScimUser::id)
                 .sorted()
                 .toList();

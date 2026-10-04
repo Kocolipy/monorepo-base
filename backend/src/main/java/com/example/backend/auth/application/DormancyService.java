@@ -65,7 +65,8 @@ import org.springframework.transaction.annotation.Transactional;
  *   <li>The resource locks and a second look. Role revocation locks every affected Group before
  *       any User — the order a connector's write to a Group takes — and then each User; the
  *       lockout step re-reads each candidate under its User lock. Every candidate is decided again
- *       on the locked read, so a User that logged in or was unlocked since the candidate query is
+ *       on the locked read by the policy's {@link DormancyVerdict} — the job's only copy of the
+ *       rule — so a User that logged in or was unlocked since the candidate query is
  *       left alone. Role revocation runs first so that no Group lock is ever requested while this
  *       transaction already holds a User lock.
  * </ul>
@@ -135,9 +136,8 @@ public class DormancyService {
     }
 
     private List<UUID> revokeRoles(Instant now) {
-        Instant cutoff = policy.roleRevocationCutoff(now);
-        List<ScimGroupMembership> candidates =
-                groups.findDormantMemberships(roleMapping.mappedGroupIds(), cutoff);
+        List<ScimGroupMembership> candidates = groups.findDormantMemberships(
+                roleMapping.mappedGroupIds(), policy.roleRevocationCutoff(now));
         lockGroups(candidates);
         Map<UUID, List<UUID>> groupsByUser = new LinkedHashMap<>();
         for (ScimGroupMembership membership : candidates) {
@@ -147,7 +147,8 @@ public class DormancyService {
         List<UUID> revoked = new ArrayList<>();
         groupsByUser.forEach((userId, groupIds) -> {
             Optional<ScimUser> user = users.findByIdForUpdate(userId);
-            if (user.isEmpty() || !isStillDue(user.get(), cutoff)) {
+            // Decided again on the locked read; the verdict is NOT_DUE for the Bootstrap Admin.
+            if (user.isEmpty() || !policy.verdict(user.get(), now).revokesRoles()) {
                 return;
             }
             List<Role> lost = new ArrayList<>();
@@ -186,11 +187,10 @@ public class DormancyService {
     }
 
     private List<UUID> lockDormantUsers(Instant now) {
-        Instant cutoff = policy.lockoutCutoff(now);
         List<UUID> locked = new ArrayList<>();
-        for (UUID candidate : users.findDormantUnlockedUserIds(cutoff)) {
+        for (UUID candidate : users.findDormantUnlockedUserIds(policy.lockoutCutoff(now))) {
             Optional<ScimUser> user = users.findByIdForUpdate(candidate);
-            if (user.isEmpty() || !isStillDue(user.get(), cutoff)
+            if (user.isEmpty() || !policy.verdict(user.get(), now).locksOut()
                     || !users.lockForDormancy(candidate, now)) {
                 continue;
             }
@@ -200,11 +200,6 @@ public class DormancyService {
             locked.add(candidate);
         }
         return locked;
-    }
-
-    /** The decision, taken again on the locked read: still dormant, and not the Bootstrap Admin. */
-    private static boolean isStillDue(ScimUser user, Instant cutoff) {
-        return !user.isExemptFromDormancy() && user.isDormantAt(cutoff);
     }
 
     /** {@code WARN}: a dormancy lockout signals inactivity, not an attack — never {@code ERROR}. */
