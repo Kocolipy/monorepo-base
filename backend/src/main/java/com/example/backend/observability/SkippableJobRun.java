@@ -1,5 +1,7 @@
 package com.example.backend.observability;
 
+import java.util.Map;
+
 /**
  * What one run of a job that serializes on a lock reports back to
  * {@link ScheduledJobMetrics#instrumentLocked}: whether it found another run of the same
@@ -12,4 +14,13 @@ public interface SkippableJobRun {
 
     /** Whether another run of the same job held the lock, so this one did nothing. */
     boolean skipped();
+
+    /**
+     * What a run that did the work counted, keyed by log field — added to its {@code job-end}
+     * record, so the record that says the run ended also says what it did. Empty by default, and
+     * ignored for a skipped run.
+     */
+    default Map<String, Object> counts() {
+        return Map.of();
+    }
 }

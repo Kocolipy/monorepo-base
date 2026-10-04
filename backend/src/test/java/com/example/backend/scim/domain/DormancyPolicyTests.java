@@ -8,7 +8,7 @@ import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 /**
- * The two inactivity windows: what a deployment that configures nothing gets, what a configured
+ * The two dormancy windows: what a deployment that configures nothing gets, what a configured
  * value becomes, and which values stop startup. The startup half — that a refusal here actually
  * fails the context — is {@code DormancyPolicyStartupTests}.
  */
@@ -17,11 +17,11 @@ class DormancyPolicyTests {
     private static final Instant NOW = Instant.parse("2026-06-01T12:00:00Z");
 
     @Test
-    void anUnconfiguredPolicyDeactivatesAtNinetyDaysAndRevokesAuthorityAtOneHundredEighty() {
+    void anUnconfiguredPolicyLocksAtNinetyDaysAndRevokesRolesAtOneHundredEighty() {
         DormancyPolicy policy = new DormancyPolicy(null, null);
 
-        assertThat(policy.deactivationWindow()).isEqualTo(Duration.ofDays(90));
-        assertThat(policy.authorityRevocationWindow()).isEqualTo(Duration.ofDays(180));
+        assertThat(policy.lockoutWindow()).isEqualTo(Duration.ofDays(90));
+        assertThat(policy.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
         assertThat(DormancyPolicy.defaults()).isEqualTo(policy);
     }
 
@@ -31,49 +31,77 @@ class DormancyPolicyTests {
      */
     @Test
     void theDocumentedDefaultsAreTheOnesTheRuleUses() {
-        assertThat(DormancyPolicy.DEFAULT_DEACTIVATION_WINDOW).isEqualTo(Duration.ofDays(90));
-        assertThat(DormancyPolicy.DEFAULT_AUTHORITY_REVOCATION_WINDOW)
-                .isEqualTo(Duration.ofDays(180));
+        assertThat(DormancyPolicy.DEFAULT_LOCKOUT_WINDOW).isEqualTo(Duration.ofDays(90));
+        assertThat(DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW).isEqualTo(Duration.ofDays(180));
     }
 
     /** Asserted against literals: comparing two constructions would pass if both defaulted. */
     @Test
     void configuredWindowsAreKeptAsGivenAndIndependently() {
-        DormancyPolicy onlyDeactivation = new DormancyPolicy(Duration.ofDays(30), null);
-        assertThat(onlyDeactivation.deactivationWindow()).isEqualTo(Duration.ofDays(30));
-        assertThat(onlyDeactivation.authorityRevocationWindow()).isEqualTo(Duration.ofDays(180));
+        DormancyPolicy onlyLockout = new DormancyPolicy(Duration.ofDays(30), null);
+        assertThat(onlyLockout.lockoutWindow()).isEqualTo(Duration.ofDays(30));
+        assertThat(onlyLockout.roleRevocationWindow()).isEqualTo(Duration.ofDays(180));
 
-        DormancyPolicy onlyAuthority = new DormancyPolicy(null, Duration.ofDays(45));
-        assertThat(onlyAuthority.deactivationWindow()).isEqualTo(Duration.ofDays(90));
-        assertThat(onlyAuthority.authorityRevocationWindow()).isEqualTo(Duration.ofDays(45));
+        DormancyPolicy onlyRoles = new DormancyPolicy(null, Duration.ofDays(120));
+        assertThat(onlyRoles.lockoutWindow()).isEqualTo(Duration.ofDays(90));
+        assertThat(onlyRoles.roleRevocationWindow()).isEqualTo(Duration.ofDays(120));
     }
 
     @Test
     void eachCutoffIsNowMinusItsOwnWindow() {
         DormancyPolicy policy = new DormancyPolicy(Duration.ofDays(10), Duration.ofDays(20));
 
-        assertThat(policy.deactivationCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(10)));
-        assertThat(policy.authorityRevocationCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(20)));
+        assertThat(policy.lockoutCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(10)));
+        assertThat(policy.roleRevocationCutoff(NOW)).isEqualTo(NOW.minus(Duration.ofDays(20)));
     }
 
     /**
      * Zero or negative would make every User dormant on the next run, so it is refused, naming the
-     * stage and the value. The smallest positive window is allowed — there is no floor.
+     * window and the value. The smallest positive windows are allowed — there is no floor.
      */
     @Test
-    void aZeroOrNegativeWindowIsRefusedAndTheSmallestPositiveOneIsNot() {
+    void aZeroOrNegativeWindowIsRefusedAndTheSmallestPositiveOnesAreNot() {
         assertThatThrownBy(() -> new DormancyPolicy(Duration.ZERO, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("deactivation")
-                .hasMessageContaining(Duration.ZERO.toString());
+                .hasMessageContaining("lockout window")
+                .hasMessageContaining(Duration.ZERO.toString())
+                .hasMessageContaining("must be positive");
+        assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(-1), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("lockout window");
         assertThatThrownBy(() -> new DormancyPolicy(null, Duration.ofDays(-1)))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("authority revocation")
-                .hasMessageContaining(Duration.ofDays(-1).toString());
+                .hasMessageContaining("role revocation window")
+                .hasMessageContaining(Duration.ofDays(-1).toString())
+                .hasMessageContaining("must be positive");
         assertThatThrownBy(() -> new DormancyPolicy(null, Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("role revocation window");
+
+        DormancyPolicy smallest = new DormancyPolicy(Duration.ofNanos(1), Duration.ofNanos(2));
+        assertThat(smallest.lockoutWindow()).isEqualTo(Duration.ofNanos(1));
+        assertThat(smallest.roleRevocationWindow()).isEqualTo(Duration.ofNanos(2));
+    }
+
+    /**
+     * Role revocation is the later step: a window equal to or shorter than the lockout window is
+     * refused, naming both values; one nanosecond longer is accepted.
+     */
+    @Test
+    void aRoleRevocationWindowNotLongerThanTheLockoutWindowIsRefused() {
+        assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(90)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("must be longer than the lockout window")
+                .hasMessageContaining(Duration.ofDays(90).toString());
+        assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(60)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining(Duration.ofDays(60).toString())
+                .hasMessageContaining(Duration.ofDays(90).toString());
+        assertThatThrownBy(() -> new DormancyPolicy(Duration.ofDays(200), null))
+                .as("a lockout window past the default role revocation window")
                 .isInstanceOf(IllegalArgumentException.class);
 
-        assertThat(new DormancyPolicy(Duration.ofNanos(1), Duration.ofNanos(1))
-                .deactivationWindow()).isEqualTo(Duration.ofNanos(1));
+        assertThat(new DormancyPolicy(Duration.ofDays(90), Duration.ofDays(90).plusNanos(1))
+                .roleRevocationWindow()).isEqualTo(Duration.ofDays(90).plusNanos(1));
     }
 }

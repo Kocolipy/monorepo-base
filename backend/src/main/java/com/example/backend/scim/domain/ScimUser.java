@@ -111,8 +111,8 @@ public record ScimUser(
     }
 
     /**
-     * Whether the dormancy jobs must leave this User alone — neither deactivate it nor remove its
-     * Admin-group membership, however long it has gone without authenticating.
+     * Whether the dormancy job must leave this User alone — neither lock it nor remove its mapped
+     * Group memberships, however long it has gone without authenticating.
      *
      * <p>The Bootstrap Admin, read off the same marker as the lockout exemption and for the same
      * reason: it is the recovery path for exactly the moment the external directory is
@@ -123,8 +123,8 @@ public record ScimUser(
     }
 
     /**
-     * The instant dormancy is measured from: the last successful login or explicit
-     * reactivation, or — for a User that has had neither — its creation.
+     * The instant dormancy is measured from: the last successful login, explicit reactivation or
+     * administrator's Unlock, or — for a User that has had none of those — its creation.
      *
      * <p>The fallback is what keeps a User provisioned without a password from being dormant
      * the moment it exists: it has never authenticated, but it has also not had the chance to.

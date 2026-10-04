@@ -1,5 +1,6 @@
 package com.example.backend.auth.application;
 
+import com.example.backend.scim.domain.LockCause;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -48,13 +49,16 @@ import java.util.UUID;
  * @param active                 the directory's {@code active} attribute; read-only here
  * @param locked                 whether a lockout is in force, which stands until Unlock; always
  *                               false for the Bootstrap Admin
+ * @param lockCause              why the lockout was imposed — a failure run or dormancy — so an
+ *                               operator can tell a forgotten password from an abandoned account
+ *                               before unlocking; {@code null} exactly when {@code locked} is false
  * @param hasPassword            whether a credential is set at all; a credentialless User exists
  *                               and cannot log in, which is otherwise indistinguishable from a
  *                               forgotten password
  * @param passwordChangeRequired whether the User must replace its password before it may do
  *                               anything but submit that change or log out
- * @param lastAuthenticatedAt    the last successful login or explicit reactivation, or
- *                               {@code null} for a User that has had neither
+ * @param lastAuthenticatedAt    the last successful login, explicit reactivation or Unlock — the
+ *                               dormancy basis — or {@code null} for a User that has had none
  * @param createdAt              when the resource was created
  * @param groups                 the Groups this User is a DIRECT member of, by display name;
  *                               read-only here as it is over SCIM
@@ -67,6 +71,7 @@ public record IdentitySummary(
         boolean bootstrapAdmin,
         boolean active,
         boolean locked,
+        LockCause lockCause,
         boolean hasPassword,
         boolean passwordChangeRequired,
         Instant lastAuthenticatedAt,

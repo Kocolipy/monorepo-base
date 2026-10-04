@@ -1,5 +1,6 @@
 package com.example.backend.scim.infrastructure.persistence;
 
+import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMemberEntity;
 import com.example.backend.scim.infrastructure.persistence.entity.ScimGroupMemberId;
@@ -121,19 +122,19 @@ interface ScimGroupMemberJpaRepository
     int deleteMembership(@Param("groupId") UUID groupId, @Param("userId") UUID userId);
 
     /**
-     * The unreserved direct members of the reserved Group whose dormancy basis — the last
-     * authentication, or creation when there has been none — is strictly before the cutoff.
-     * Active or not: authority is revoked from a dormant User whatever its standing.
+     * The direct memberships of these Groups held by unreserved Users whose dormancy basis — the
+     * last authentication, or creation when there has been none — is strictly before the cutoff.
+     * Active or locked or not: Roles are revoked from a dormant User whatever its standing.
      */
     @Query("""
-            select u.resourceId
+            select new com.example.backend.scim.domain.ScimGroupMembership(
+                       u.resourceId, m.id.groupId)
               from ScimGroupMemberEntity m
-              join ScimGroupEntity g on g.resourceId = m.id.groupId
               join ScimUserEntity u on u.resourceId = m.id.userId
-             where g.resource.reservedName = :reservedName
+             where m.id.groupId in :groupIds
                and u.resource.reservedName is null
                and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
-             order by u.resourceId""")
-    List<UUID> findDormantMemberIds(
-            @Param("reservedName") String reservedName, @Param("cutoff") Instant cutoff);
+             order by u.resourceId, m.id.groupId""")
+    List<ScimGroupMembership> findDormantMemberships(
+            @Param("groupIds") Collection<UUID> groupIds, @Param("cutoff") Instant cutoff);
 }

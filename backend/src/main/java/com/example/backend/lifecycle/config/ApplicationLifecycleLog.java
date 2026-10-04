@@ -59,10 +59,10 @@ public class ApplicationLifecycleLog {
 
     static final String SCIM_ENABLED = "app.scim.enabled";
 
-    static final String DORMANCY_DEACTIVATION_WINDOW = "app.dormancy.deactivation.window";
+    static final String DORMANCY_LOCKOUT_WINDOW = "app.dormancy.lockout.window";
 
-    static final String DORMANCY_AUTHORITY_REVOCATION_WINDOW =
-            "app.dormancy.authority_revocation.window";
+    static final String DORMANCY_ROLE_REVOCATION_WINDOW =
+            "app.dormancy.role_revocation.window";
 
     static final String AUDIT_RETENTION_PERIOD = "app.audit.retention.period";
 
@@ -99,10 +99,10 @@ public class ApplicationLifecycleLog {
         record = withHost(record)
                 .addKeyValue(PROFILES, List.of(environment.getActiveProfiles()))
                 .addKeyValue(SCIM_ENABLED, scimGate.open())
-                .addKeyValue(DORMANCY_DEACTIVATION_WINDOW,
-                        dormancy.deactivationWindow().toString())
-                .addKeyValue(DORMANCY_AUTHORITY_REVOCATION_WINDOW,
-                        dormancy.authorityRevocationWindow().toString())
+                .addKeyValue(DORMANCY_LOCKOUT_WINDOW,
+                        dormancy.lockoutWindow().toString())
+                .addKeyValue(DORMANCY_ROLE_REVOCATION_WINDOW,
+                        dormancy.roleRevocationWindow().toString())
                 .addKeyValue(AUDIT_RETENTION_PERIOD, retention.period().toString());
         record.log("Application started");
     }

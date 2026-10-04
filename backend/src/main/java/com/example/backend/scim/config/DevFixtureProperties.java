@@ -5,17 +5,28 @@ import java.util.UUID;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * The {@code app.dev-fixtures} block: the Groups and Users seeded so the development role mapping
- * has a User per Role. Off unless {@code enabled}; see {@code authorization.yaml}.
+ * The development fixtures, bound from {@code app.dev-fixtures} in {@code authorization.yaml}:
+ * off unless {@code APP_DEV_FIXTURES_ENABLED} is set, with a password that has no published
+ * fallback.
  *
- * @param enabled  whether to seed the fixtures at all
- * @param password every fixture User's password; required when enabled, with no fallback
- * @param groups   each fixture Group's stable id, label and single member's userName
+ * @param enabled       whether to seed the fixtures at all
+ * @param password      every fixture User's password
+ * @param groups        one Group per non-Superuser Role, each with one User in it
+ * @param dormantMember the userName of a User in no Group whose dormancy basis is backdated past
+ *                      the lockout window at every startup, so the development profile's startup
+ *                      dormancy run locks it; {@code null} for none
  */
 @ConfigurationProperties("app.dev-fixtures")
-public record DevFixtureProperties(boolean enabled, String password, List<GroupFixture> groups) {
+public record DevFixtureProperties(
+        boolean enabled, String password, List<GroupFixture> groups, String dormantMember) {
 
-    /** One fixture Group. */
+    /**
+     * One Group fixture.
+     *
+     * @param id          the Group's fixed stable id, the one the role mapping names
+     * @param displayName its display name
+     * @param member      the userName of its one member
+     */
     public record GroupFixture(UUID id, String displayName, String member) {
     }
 }

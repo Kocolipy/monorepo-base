@@ -4,12 +4,14 @@ import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
+import com.example.backend.scim.domain.ScimGroupMembership;
 import com.example.backend.scim.domain.ScimGroupReference;
 import com.example.backend.scim.domain.ScimGroupRepository;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,7 +45,7 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     private final InMemoryScimUserRepository users;
 
-    private List<UUID> staleDormantMemberCandidates;
+    private List<ScimGroupMembership> staleDormantMemberCandidates;
 
     private final List<UUID> lockedReads = new java.util.ArrayList<>();
 
@@ -52,12 +54,12 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /**
-     * Makes the dormant-member candidate query answer with these ids, whatever the stored state
-     * says — the window between the candidate read and the locked read, for the reason
-     * {@link InMemoryScimUserRepository#answerDormancyCandidatesWith} gives.
+     * Makes the dormant-membership candidate query answer with these memberships, whatever the
+     * stored state says — the window between the candidate read and the locked read, for the
+     * reason {@link InMemoryScimUserRepository#answerDormancyCandidatesWith} gives.
      */
-    public void answerDormantMemberCandidatesWith(List<UUID> ids) {
-        staleDormantMemberCandidates = List.copyOf(ids);
+    public void answerDormantMemberCandidatesWith(List<ScimGroupMembership> memberships) {
+        staleDormantMemberCandidates = List.copyOf(memberships);
     }
 
     @Override
@@ -242,22 +244,26 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
     }
 
     /**
-     * Unreserved members of the reserved Group whose dormancy basis is before the cutoff, by id —
-     * or, once {@link #answerDormantMemberCandidatesWith} has been called, exactly the ids given.
+     * Memberships of these Groups held by unreserved Users whose dormancy basis is before the
+     * cutoff, by User then Group — or, once {@link #answerDormantMemberCandidatesWith} has been
+     * called, exactly the memberships given.
      */
     @Override
-    public List<UUID> findDormantMemberIds(ReservedResourceName reservedName, Instant cutoff) {
+    public List<ScimGroupMembership> findDormantMemberships(
+            Collection<UUID> groupIds, Instant cutoff) {
         if (staleDormantMemberCandidates != null) {
             return staleDormantMemberCandidates;
         }
-        return findByReservedName(reservedName).stream()
-                .flatMap(group -> group.members().stream())
-                .map(member -> users.findById(member.userId()))
-                .flatMap(Optional::stream)
-                .filter(user -> user.reservedName() == null)
-                .filter(user -> user.isDormantAt(cutoff))
-                .map(ScimUser::id)
-                .sorted()
+        return stored.values().stream()
+                .filter(group -> groupIds.contains(group.id()))
+                .flatMap(group -> group.members().stream()
+                        .map(member -> new ScimGroupMembership(member.userId(), group.id())))
+                .filter(membership -> users.findById(membership.userId())
+                        .filter(user -> user.reservedName() == null)
+                        .filter(user -> user.isDormantAt(cutoff))
+                        .isPresent())
+                .sorted(Comparator.comparing(ScimGroupMembership::userId)
+                        .thenComparing(ScimGroupMembership::groupId))
                 .toList();
     }
 

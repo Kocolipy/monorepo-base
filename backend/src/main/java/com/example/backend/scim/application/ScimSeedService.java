@@ -14,6 +14,7 @@ import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserProfile;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -162,6 +163,41 @@ public class ScimSeedService {
     }
 
     /**
+     * The development fixture for the dormancy lockout: a User whose dormancy basis is put
+     * {@code dormantFor} in the past on every startup, so the dormancy run the development
+     * profile makes at startup locks it, and the e2e suite can show a User locked for dormancy,
+     * refused at login, unlocked and signed in again.
+     *
+     * <p>Unlike the Role fixtures it is RESET, not merely created: the e2e journey ends with the
+     * User unlocked and holding a password it chose, so a fixture that kept that state would be
+     * usable once per database. Each startup therefore puts back the fixture password — with no
+     * change required — clears any lock, and backdates the basis. It belongs to no Group, so the
+     * Role it would lose at the role-revocation window is nobody's concern. Called only when
+     * {@code app.dev-fixtures.enabled} is set and a dormant fixture is named.
+     *
+     * @param userName   the fixture User's name
+     * @param password   its password, refused when blank for the reason {@link #seedDevFixtures}
+     *                   gives
+     * @param dormantFor how long before now its basis is put — past the lockout window
+     */
+    @Transactional
+    public void seedDormantDevFixture(String userName, String password, Duration dormantFor) {
+        if (password == null || password.isBlank()) {
+            throw new IllegalStateException(
+                    "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
+                            + " when the development fixtures are enabled");
+        }
+        seedLock.acquire();
+        Instant now = clock.instant();
+        ScimUser dormant = users.findByNormalizedUserName(NormalizedUserName.of(userName))
+                .orElseGet(() -> users.create(
+                        newUser(new SeededIdentity(userName, password), now)));
+        users.completePasswordChange(dormant.id(), passwordEncoder.encode(password), now);
+        users.updateLoginState(dormant.id(), dormant.login().withFailureRunCleared());
+        users.resetDormancyBasis(dormant.id(), now.minus(dormantFor));
+    }
+
+    /**
      * Refuses startup unless every Group the role mapping names exists, and the Superuser Group is
      * the reserved Admin group.
      *
@@ -223,19 +259,20 @@ public class ScimSeedService {
      * — and {@code application.yaml} carries working fallbacks on a public remote — so it is a
      * default credential known outside the User, which must be replaced before it is used for
      * anything else. Login confines the session until it is. The reserved User is exempt from
-     * inactivity deactivation, so an unchanged recovery credential never deactivates the recovery
-     * path.
+     * dormancy, so an unchanged recovery credential never locks the recovery path.
      */
     private ScimUser seedBootstrapAdmin(SeededIdentity recovery, Instant now) {
         ScimUser seeded = newUser(recovery, now);
+        // Built whole rather than by copying the new User's fields: it is a new User — version 1,
+        // created and last modified now — whose credential is already marked for replacement.
         ScimUser flagged = new ScimUser(
                 seeded.id(),
                 seeded.profile(),
                 seeded.login().withPasswordChangeRequired(now),
-                seeded.reservedName(),
-                seeded.version(),
-                seeded.createdAt(),
-                seeded.lastModifiedAt());
+                null,
+                ScimUser.INITIAL_VERSION,
+                now,
+                now);
         ScimUser created = users.createReserved(flagged, ReservedResourceName.BOOTSTRAP_ADMIN);
         audit.recordReservedResourceSeeded(created.id(), false);
         return created;

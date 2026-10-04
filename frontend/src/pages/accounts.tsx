@@ -49,7 +49,9 @@ function actionFailure(action: UserAction, userName: string, status?: number): s
 /**
  * The lockout cell. The Bootstrap Admin gets no state at all — it cannot be
  * locked, so "not locked" would describe a condition that could change — and
- * nobody gets an expiry, because a lockout has none.
+ * nobody gets an expiry, because a lockout has none. A lock says its cause, so
+ * an operator can tell a forgotten password from an abandoned account before
+ * unlocking.
  */
 function LockoutCell({ user }: { user: UserRow }) {
   if (user.bootstrapAdmin) {
@@ -59,10 +61,11 @@ function LockoutCell({ user }: { user: UserRow }) {
       </span>
     );
   }
-  return user.locked ? (
-    <span className="font-medium text-destructive">Locked</span>
-  ) : (
-    <span className="text-muted-foreground">Not locked</span>
+  if (!user.locked) return <span className="text-muted-foreground">Not locked</span>;
+  return (
+    <span className="font-medium text-destructive">
+      {user.lockCause === "DORMANCY" ? "Locked: dormant" : "Locked: failed logins"}
+    </span>
   );
 }
 

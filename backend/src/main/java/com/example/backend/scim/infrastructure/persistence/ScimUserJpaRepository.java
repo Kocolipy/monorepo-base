@@ -27,7 +27,7 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     Optional<ScimUserEntity> findByResource_ReservedName(String reservedName);
 
     /**
-     * Writes the three authentication-state columns and nothing else.
+     * Writes the failure run, the lock instant and the lock's cause, and nothing else.
      *
      * <p>Narrow for the reason the account port's writes were: the login path writes this
      * row on every rejected attempt, and a full-row write from a value read at the start
@@ -44,12 +44,34 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
     @Query("""
             update ScimUserEntity u
                set u.login.failedLoginAttempts = :failedLoginAttempts,
-                   u.login.lockedAt = :lockedAt
+                   u.login.lockedAt = :lockedAt,
+                   u.login.lockCause = :lockCause
              where u.resourceId = :id""")
     int updateLoginState(
             @Param("id") UUID id,
             @Param("failedLoginAttempts") int failedLoginAttempts,
-            @Param("lockedAt") Instant lockedAt);
+            @Param("lockedAt") Instant lockedAt,
+            @Param("lockCause") String lockCause);
+
+    /**
+     * Locks the User as of {@code now} with this cause where no lock stands, and writes nothing
+     * else — the dormancy job's lockout. The {@code lockedAt is null} condition is what keeps a
+     * lock imposed in the meantime, and its cause, as they are. Not a SCIM attribute, so the
+     * resource row and its version are untouched.
+     *
+     * @return how many rows were written; zero when the User is already locked or gone
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update ScimUserEntity u
+               set u.login.lockedAt = :now,
+                   u.login.lockCause = :lockCause
+             where u.resourceId = :id
+               and u.login.lockedAt is null""")
+    int lockForDormancy(
+            @Param("id") UUID id,
+            @Param("now") Instant now,
+            @Param("lockCause") String lockCause);
 
     /**
      * Writes the {@code active} column alone. Unlike {@link #updateLoginState} the
@@ -103,17 +125,17 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
             @Param("id") UUID id, @Param("authenticatedAt") Instant authenticatedAt);
 
     /**
-     * Active, unreserved Users whose dormancy basis — the last authentication, or creation when
-     * there has been none — is strictly before the cutoff.
+     * Unlocked, unreserved Users — active or not — whose dormancy basis, the last authentication
+     * or creation when there has been none, is strictly before the cutoff.
      */
     @Query("""
             select u.resourceId
               from ScimUserEntity u
-             where u.active = true
+             where u.login.lockedAt is null
                and u.resource.reservedName is null
                and coalesce(u.login.lastAuthenticatedAt, u.resource.createdAt) < :cutoff
              order by u.resourceId""")
-    List<UUID> findDormantActiveUserIds(@Param("cutoff") Instant cutoff);
+    List<UUID> findDormantUnlockedUserIds(@Param("cutoff") Instant cutoff);
 
     /** Every live User's stable id, in id order. */
     @Query("select u.resourceId from ScimUserEntity u order by u.resourceId")

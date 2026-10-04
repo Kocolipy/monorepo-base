@@ -42,7 +42,7 @@ class ScheduledJobMetricsTests {
     private static final Instant SCHEDULED = Instant.parse("2026-09-30T00:00:00Z");
 
     /** A job with both an action and a local name, so the classification is visible in full. */
-    private static final Operation OPERATION = Operation.INACTIVITY_DEACTIVATION;
+    private static final Operation OPERATION = Operation.DORMANCY;
 
     /** Records a job's body emits on its own, as a service's run summary does. */
     private static final Logger body = LoggerFactory.getLogger("job-body");
@@ -299,7 +299,7 @@ class ScheduledJobMetricsTests {
         assertThat(texts(start.at("/event/category"))).containsExactly("batch");
         assertThat(texts(start.at("/event/type"))).containsExactly("job-start");
         assertThat(start.at("/event/action").asText()).isEqualTo("user-administration");
-        assertThat(start.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+        assertThat(start.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
         assertThat(start.at("/event/outcome").isMissingNode()).isTrue();
 
         JsonNode end = records.get(2);
@@ -307,11 +307,57 @@ class ScheduledJobMetricsTests {
         assertThat(texts(end.at("/event/category"))).containsExactly("batch");
         assertThat(texts(end.at("/event/type"))).containsExactly("job-end");
         assertThat(end.at("/event/action").asText()).isEqualTo("user-administration");
-        assertThat(end.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+        assertThat(end.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
         assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
         assertThat(end.at("/event/duration_ms").asLong()).isEqualTo(250);
         assertThat(end.at("/event/reason").isMissingNode()).as("not a skip").isTrue();
         assertThat(end.has("error_code")).isFalse();
+    }
+
+    /**
+     * What a run counted rides on its {@code job-end} record, so the record that says the run
+     * ended also says what it did; a run that counted nothing adds nothing, and a skipped run's
+     * counts are never reported — it did no work.
+     */
+    @Test
+    void a_runs_counts_ride_on_its_job_end_and_a_skip_reports_none() {
+        SkippableJobRun counted = new SkippableJobRun() {
+            @Override
+            public boolean skipped() {
+                return false;
+            }
+
+            @Override
+            public Map<String, Object> counts() {
+                return Map.of("probe.locked_count", 3);
+            }
+        };
+        SkippableJobRun skippedWithCounts = new SkippableJobRun() {
+            @Override
+            public boolean skipped() {
+                return true;
+            }
+
+            @Override
+            public Map<String, Object> counts() {
+                return Map.of("probe.locked_count", 9);
+            }
+        };
+
+        jobs.instrumentLocked("probe", OPERATION, () -> counted).run();
+        JsonNode end = onlyRecord("Scheduled job completed");
+        assertThat(end.at("/probe/locked_count").asInt()).isEqualTo(3);
+        assertThat(end.at("/event/outcome").asText()).isEqualTo("success");
+
+        logs.reset();
+        jobs.instrumentLocked("probe", OPERATION, () -> RAN).run();
+        assertThat(onlyRecord("Scheduled job completed").at("/probe").isMissingNode()).isTrue();
+
+        logs.reset();
+        jobs.instrumentLocked("probe", OPERATION, () -> skippedWithCounts).run();
+        JsonNode skip = onlyRecord("Scheduled job skipped: another run holds its lock");
+        assertThat(skip.at("/probe").isMissingNode()).isTrue();
+        assertThat(skip.at("/event/reason").asText()).isEqualTo("lock-held");
     }
 
     @Test
@@ -473,7 +519,7 @@ class ScheduledJobMetricsTests {
         assertThat(texts(record.at("/event/category"))).containsExactly("configuration");
         assertThat(texts(record.at("/event/type"))).containsExactly("info");
         assertThat(record.at("/event/action").asText()).isEqualTo("user-administration");
-        assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.inactivity_deactivation");
+        assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
     }
 
     // ---- helpers ----------------------------------------------------------------------------

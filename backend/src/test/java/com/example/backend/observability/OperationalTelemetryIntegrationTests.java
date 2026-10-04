@@ -372,8 +372,8 @@ class OperationalTelemetryIntegrationTests {
                 "LoginAuthenticationFailuresSustained",
                 "ScimPreconditionFailuresSustained",
                 "ScimUniquenessConflictsSustained",
-                "InactivityJobFailed",
-                "InactivityJobNotRunning",
+                "DormancyJobFailed",
+                "DormancyJobNotRunning",
                 "scim:unconditional_writes:rate1h");
         assertThat(rules.get("ScimAuthenticationFailuresSustained")).contains("status=\"401\"");
         assertThat(rules.get("LoginAuthenticationFailuresSustained")).contains("status=\"401\"");
@@ -382,14 +382,14 @@ class OperationalTelemetryIntegrationTests {
         assertThat(rules.get("scim:unconditional_writes:rate1h"))
                 .contains("scim_precondition=\"unconditional\"").contains("scim_connector");
         assertThat(rules.get("ScimUniquenessConflictsSustained")).contains("status=\"409\"");
-        assertThat(rules.get("InactivityJobFailed")).contains("job=\"inactivity\"");
-        assertThat(rules.get("InactivityJobNotRunning")).contains("job=\"inactivity\"");
+        assertThat(rules.get("DormancyJobFailed")).contains("job=\"dormancy\"");
+        assertThat(rules.get("DormancyJobNotRunning")).contains("job=\"dormancy\"");
     }
 
     /**
      * Every selector in every rule matches a series the sample traffic produced, so a
      * renamed metric or tag breaks the build rather than silently disarming an alert. The
-     * inactivity rules are matched against the inactivity job's own series, which exist
+     * dormancy rules are matched against the dormancy job's own series, which exist
      * from the moment it is scheduled ({@link ScheduledJobMetrics}).
      */
     @Test

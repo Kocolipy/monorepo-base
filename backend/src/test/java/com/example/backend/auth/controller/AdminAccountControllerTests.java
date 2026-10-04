@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.backend.auth.application.GroupSummary;
 import com.example.backend.auth.application.IdentityAdministrationService;
 import com.example.backend.auth.application.IdentitySummary;
+import com.example.backend.scim.domain.LockCause;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.RecordComponent;
@@ -104,8 +105,8 @@ class AdminAccountControllerTests {
                 .extracting(RecordComponent::getName)
                 .containsExactly(
                         "id", "userName", "displayName", "admin", "bootstrapAdmin", "active",
-                        "locked", "hasPassword", "passwordChangeRequired", "lastAuthenticatedAt",
-                        "createdAt", "groups");
+                        "locked", "lockCause", "hasPassword", "passwordChangeRequired",
+                        "lastAuthenticatedAt", "createdAt", "groups");
         assertThat(IdentitySummary.DirectGroup.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly("id", "displayName");
@@ -132,12 +133,12 @@ class AdminAccountControllerTests {
     }
 
     private static IdentitySummary summary(UUID id, String userName, boolean admin, boolean locked) {
-        return new IdentitySummary(id, userName, null, admin, false, true, locked, true, false,
-                null, CREATED_AT, List.of());
+        return new IdentitySummary(id, userName, null, admin, false, true, locked,
+                locked ? LockCause.DORMANCY : null, true, false, null, CREATED_AT, List.of());
     }
 
     private static IdentitySummary flagged(UUID id, String userName) {
-        return new IdentitySummary(id, userName, null, false, false, true, false, true, true,
+        return new IdentitySummary(id, userName, null, false, false, true, false, null, true, true,
                 null, CREATED_AT, List.of());
     }
 

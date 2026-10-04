@@ -71,8 +71,8 @@ class ApplicationLifecycleLogTests {
                 .containsEntry(LogEvent.HOST_IP, host.getHostAddress())
                 .containsEntry(ApplicationLifecycleLog.PROFILES, List.of("prod", "feature-x"))
                 .containsEntry(ApplicationLifecycleLog.SCIM_ENABLED, true)
-                .containsEntry(ApplicationLifecycleLog.DORMANCY_DEACTIVATION_WINDOW, "PT1464H")
-                .containsEntry(ApplicationLifecycleLog.DORMANCY_AUTHORITY_REVOCATION_WINDOW,
+                .containsEntry(ApplicationLifecycleLog.DORMANCY_LOCKOUT_WINDOW, "PT1464H")
+                .containsEntry(ApplicationLifecycleLog.DORMANCY_ROLE_REVOCATION_WINDOW,
                         "PT2928H")
                 .containsEntry(ApplicationLifecycleLog.AUDIT_RETENTION_PERIOD, "PT9600H")
                 .doesNotContainKeys(AUTH_FLOW_KEYS.toArray(String[]::new));

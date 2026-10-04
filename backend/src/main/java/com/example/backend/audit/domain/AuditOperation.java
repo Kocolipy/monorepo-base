@@ -23,13 +23,17 @@ public enum AuditOperation {
     /** A session was ended by its holder. */
     LOGOUT,
 
-    /** A failure run reached the configured limit and closed the account. */
+    /**
+     * A lock was imposed: by a failure run reaching the configured limit. A lock the dormancy job
+     * imposes is {@link #DORMANCY_LOCKOUT} instead.
+     */
     LOCKOUT_SET,
 
     /**
-     * An administrator lifted a lockout. There is one cause and so no cause to
-     * carry: a lockout has no duration, so it never ends unrequested, and every
-     * event of this operation names the administrator who ended it.
+     * An administrator lifted a lockout. A lockout has no duration, so it never ends
+     * unrequested, and every event of this operation names the administrator who ended it. Its
+     * {@code errorCode} carries the cause of the lock it lifted — {@code FAILURES} or
+     * {@code DORMANCY} — or nothing when the User was not locked.
      */
     LOCKOUT_LIFT,
 
@@ -176,21 +180,22 @@ public enum AuditOperation {
     SCIM_RESOURCE_SEED,
 
     /**
-     * The inactivity job deactivated a User that had gone longer than the configured window
-     * without authenticating. Recorded with no actor, because the actor is the scheduled job
-     * rather than a principal — the operation itself is what names it. The changed path is
-     * {@code active}; the sessions it ended are recorded after the commit as
-     * {@link #USER_SESSIONS_REVOKE}, also with no actor.
+     * The dormancy job locked a User that had gone longer than the lockout window without
+     * authenticating. Recorded with no actor, because the actor is the scheduled job rather than a
+     * principal — the operation itself is what names it. The changed paths are the lock and its
+     * cause; the sessions it ended are recorded after the commit as {@link #USER_SESSIONS_REVOKE},
+     * also with no actor.
      */
-    INACTIVITY_DEACTIVATION,
+    DORMANCY_LOCKOUT,
 
     /**
-     * The dormant-authority job removed a User's direct membership of the Admin group, because it
-     * had gone longer than the configured window without authenticating. Recorded against the
-     * affected USER, with no actor and the changed path {@code groups}: the event is about whose
-     * authority ended, and the Group whose membership moved is always the Admin group.
+     * The dormancy job removed a User's direct membership of every mapped Group it held, because
+     * it had gone longer than the role-revocation window without authenticating. Recorded against
+     * the affected USER, with no actor, the changed path {@code groups} and the Roles lost in
+     * {@code role}, comma-joined: the event is about whose power ended, and one event per User is
+     * what reconciling the directory's memberships needs.
      */
-    DORMANT_AUTHORITY_REVOCATION,
+    DORMANCY_ROLE_REVOCATION,
 
     /**
      * A password change was required of a User by an administrator — directly, or by lifting a

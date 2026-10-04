@@ -8,17 +8,15 @@ package com.example.backend.scheduling.domain;
  * {@code scheduled_job_locks}, written by the migration that introduced it, and a job the
  * schema does not know cannot be serialized at all.
  *
- * <p>The lock lives in its own shared module rather than in any one job's: the dormancy jobs
- * belong to {@code auth} and the retention job to {@code audit}, and {@code audit} may depend on
+ * <p>The lock lives in its own shared module rather than in any one job's: the dormancy job
+ * belongs to {@code auth} and the retention job to {@code audit}, and {@code audit} may depend on
  * no business module. See {@code /docs/adr/0005-serialize-scheduled-jobs-on-per-job-lock-rows.md}.
  */
 public enum ScheduledJob {
 
-    /** Deactivates Users past the inactivity window. */
-    INACTIVITY_DEACTIVATION("inactivity-deactivation"),
-
-    /** Removes the Admin-group membership of Users past the dormant-authority window. */
-    DORMANT_AUTHORITY_REVOCATION("dormant-authority-revocation"),
+    /** Locks Users past the dormancy lockout window and revokes the Roles of those past the
+     *  role-revocation window. */
+    DORMANCY("dormancy"),
 
     /** Deletes audit events older than the retention period. */
     AUDIT_RETENTION("audit-retention");

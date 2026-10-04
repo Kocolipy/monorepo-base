@@ -640,3 +640,31 @@ carries a local name; the lifecycle record is the one `application-startup` reco
 with no `app.event.action`. `LogEventTests.everyOperationIsIdentifiableFromItsRecord`
 was restated to say exactly that: an operation without a local name has an action no
 other operation without a local name shares.
+
+## Addendum (2026-10-04): the dormancy job (#118, ADR 0011)
+
+One job replaces inactivity deactivation and dormant-authority revocation, so their
+operations `identity.inactivity_deactivation` and
+`identity.dormant_authority_revocation` — and the tables above that name them — are
+retired, as are the `dormancy.window` and `dormancy.processed` fields and the old
+jobs' per-run summary record. In their place, with the actions the
+permission-authorization spec's Observability table gives:
+
+| Operation                      | `event.action`        | `app.event.action`                  | `event.category` | `event.type`              | Level  |
+| ------------------------------ | --------------------- | ----------------------------------- | ---------------- | ------------------------- | ------ |
+| `DORMANCY`, schedule at startup | `user-administration` | `identity.dormancy`                | `configuration`  | `info`                    | `INFO` |
+| `DORMANCY`, run start / end     | `user-administration` | `identity.dormancy`                | `batch`          | `job-start` / `job-end`   | `INFO` |
+| `DORMANCY_LOCKOUT`, per User    | `user-administration` | `identity.dormancy_lockout`        | `process`        | `change`                  | `WARN` |
+| `DORMANCY_ROLE_REVOCATION`, per User | `user-administration` | `identity.dormancy_role_revocation` | `process`   | `change`                  | `INFO` |
+
+The startup record carries `dormancy.lockout.window` and
+`dormancy.role_revocation.window`. The run's `job-end` now carries what it counted —
+`dormancy.locked_count` and `dormancy.roles_revoked_count` — through
+`SkippableJobRun.counts()`, which any lock-serialized job may fill and a skipped run
+never reports; there is no separate summary record. The per-User records name the
+User as `user.target.id` and, for a revocation, the Roles lost as
+`app.authorization.role`, comma-joined; never a `userName`. A dormancy lockout is
+`WARN`, not the `ERROR` the authentication recipe gives a lockout, because it signals
+inactivity rather than an attack. The `application-startup` record's two window
+fields are now `app.dormancy.lockout.window` and
+`app.dormancy.role_revocation.window`.

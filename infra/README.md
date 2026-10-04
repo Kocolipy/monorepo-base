@@ -339,11 +339,11 @@ own runbook text:
 | `LoginAuthenticationFailuresSustained` | sustained Login `401` | a guessing campaign spread across accounts |
 | `ScimPreconditionFailuresSustained` | sustained SCIM `412` | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
 | `ScimUniquenessConflictsSustained` | sustained SCIM `409` | a connector re-creating identities it believes are missing |
-| `InactivityJobFailed` / `InactivityJobNotRunning` | the inactivity job throws, or has not succeeded for 26 h | inactive accounts are not being deactivated |
+| `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h | dormant accounts are not being locked, nor their Roles revoked |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
-The inactivity job publishes its series under `job="inactivity"` from startup.
-`InactivityJobNotRunning` measures from
+The dormancy job publishes its series under `job="dormancy"` from startup.
+`DormancyJobNotRunning` measures from
 the last success **or the last restart**, so an instance that restarts more often
 than daily masks a stuck job. Alert on restarts separately if that happens.
 

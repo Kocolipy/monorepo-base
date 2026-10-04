@@ -194,7 +194,7 @@ class AdminAccountEndpointTests {
         assertThat(listing.size()).isPositive();
         listing.valueStream().forEach(identity -> assertThat(identity.propertyNames())
                 .containsExactlyInAnyOrder("id", "userName", "displayName", "admin",
-                        "bootstrapAdmin", "active", "locked", "hasPassword",
+                        "bootstrapAdmin", "active", "locked", "lockCause", "hasPassword",
                         "passwordChangeRequired", "lastAuthenticatedAt", "createdAt", "groups"));
     }
 

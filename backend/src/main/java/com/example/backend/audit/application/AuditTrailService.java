@@ -5,6 +5,7 @@ import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditGroupAttribute;
+import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
 import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
@@ -21,6 +22,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -70,10 +72,10 @@ public class AuditTrailService implements AuditTrail {
 
     /** The lockout columns, as the paths an event reports as changed. */
     private static final List<String> LOCKOUT_PATHS =
-            List.of("failedLoginAttempts", "lockedAt");
+            List.of("failedLoginAttempts", "lockedAt", "lockCause");
 
-    /** The administrative standing column. */
-    private static final List<String> ENABLED_PATHS = List.of("active");
+    /** What a dormancy lockout sets: the lock and its cause; the failure run does not move. */
+    private static final List<String> DORMANCY_LOCK_PATHS = List.of("lockedAt", "lockCause");
 
     /** What requiring a password change sets: the flag, and nothing about the credential. */
     private static final List<String> PASSWORD_CHANGE_REQUIRED_PATHS =
@@ -236,11 +238,15 @@ public class AuditTrailService implements AuditTrail {
      * <p>No expiry counterpart exists. A lock has no duration, so the only lift is
      * this one and every {@code LOCKOUT_LIFT} event therefore carries the
      * administrator who performed it; the event needs no detail saying which kind
-     * of lift it was, because there is only one kind.
+     * of lift it was, because there is only one kind. It does carry the cause of the lock it
+     * lifted, as {@code errorCode} — the column every event's closed-set reason lives in — so a
+     * reviewer can tell a dormant account brought back from a forgotten password reset; an Unlock
+     * of a User that was not locked carries none.
      */
     @Transactional
     @Override
-    public void recordLockoutLiftedByUnlock(UUID actorId, UUID subjectId) {
+    public void recordLockoutLiftedByUnlock(
+            UUID actorId, UUID subjectId, AuditLockCause lockCause) {
         append(event(
                 AuditOperation.LOCKOUT_LIFT,
                 AuditOutcome.SUCCESS,
@@ -248,7 +254,7 @@ public class AuditTrailService implements AuditTrail {
                 subjectId,
                 LOCKOUT_PATHS,
                 AuditEvent.STATUS_OK,
-                null));
+                lockCause == null ? null : lockCause.name()));
     }
 
     /**
@@ -664,42 +670,62 @@ public class AuditTrailService implements AuditTrail {
     }
 
     /**
-     * Records the inactivity job deactivating a dormant User. Fail-closed: the append joins the
-     * job's transaction, so a deactivation this service cannot account for rolls back with it —
-     * and the after-commit revocation never fires.
+     * Records the dormancy job locking a dormant User. Fail-closed: the append joins the job's
+     * transaction, so a lock this service cannot account for rolls back with it — and the
+     * after-commit revocation never fires.
      *
      * <p>The actor is {@code null} because the scheduled job is not a principal; the operation is
-     * what names it, as seeding's does.
+     * what names it, as seeding's does. The changed paths are the lock instant and its cause — the
+     * failure run does not move.
      */
     @Transactional
     @Override
-    public void recordInactivityDeactivation(UUID userId) {
+    public void recordDormancyLockout(UUID userId) {
         append(event(
-                AuditOperation.INACTIVITY_DEACTIVATION,
+                AuditOperation.DORMANCY_LOCKOUT,
                 AuditOutcome.SUCCESS,
                 null,
                 userId,
-                ENABLED_PATHS,
+                DORMANCY_LOCK_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
 
     /**
-     * Records the dormant-authority job removing a dormant User's Admin-group membership.
-     * Fail-closed and actorless, as {@link #recordInactivityDeactivation} is: an unrecorded change
-     * to who holds Admin authority is the gap this trail exists to close.
+     * Records the dormancy job removing a dormant User's mapped Group memberships: one event, the
+     * User as subject and resource, {@code groups} as the changed path, and the Roles lost named in
+     * {@code role}, sorted and comma-joined as {@code changed_paths} is. Fail-closed and actorless,
+     * as {@link #recordDormancyLockout} is: an unrecorded change to who holds which Role is the
+     * gap this trail exists to close.
      */
     @Transactional
     @Override
-    public void recordDormantAuthorityRevocation(UUID userId) {
-        append(event(
-                AuditOperation.DORMANT_AUTHORITY_REVOCATION,
+    public void recordDormancyRoleRevocation(UUID userId, List<Role> roles) {
+        if (roles.isEmpty()) {
+            throw new IllegalArgumentException("a role revocation names the Roles lost");
+        }
+        // The one actorless User event that names a Role, so it is built here rather than by
+        // copying event()'s result — the request fields are the job's (empty) request all the same.
+        AuditRequest request = requests.current();
+        append(new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                AuditOperation.DORMANCY_ROLE_REVOCATION,
                 AuditOutcome.SUCCESS,
                 null,
                 userId,
+                AuditEvent.USER_RESOURCE_TYPE,
+                userId,
                 userPaths(Set.of(AuditUserAttribute.GROUPS)),
                 AuditEvent.STATUS_OK,
-                null));
+                null,
+                request.method(),
+                request.pathTemplate(),
+                request.requestId(),
+                null,
+                null,
+                roles.stream().map(Role::name).distinct().sorted()
+                        .collect(Collectors.joining(","))));
     }
 
     /** Records a User gaining a mapped Group's Role. Fail-closed. */

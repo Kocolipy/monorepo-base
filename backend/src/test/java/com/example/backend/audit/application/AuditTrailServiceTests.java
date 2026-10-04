@@ -8,6 +8,7 @@ import com.example.backend.audit.domain.AuditEvent;
 import com.example.backend.audit.domain.AuditFilterShape;
 import com.example.backend.audit.domain.AuditEventRepository;
 import com.example.backend.audit.domain.AuditGroupAttribute;
+import com.example.backend.audit.domain.AuditLockCause;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditOutcome;
@@ -207,20 +208,24 @@ class AuditTrailServiceTests {
     }
 
     /**
-     * There is one lift and so no cause to carry: an unlock is the only way a
-     * lockout ends, and the event names the administrator who performed it rather
-     * than which kind of lift it was.
+     * An unlock is the only way a lockout ends, so the event names the administrator who
+     * performed it — and carries, as its {@code errorCode}, the cause of the lock it lifted, or
+     * nothing when none stood.
      */
     @Test
-    void theOnlyLockoutLiftNamesItsAdministratorAndCarriesNoCause() {
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
+    void theOnlyLockoutLiftNamesItsAdministratorAndTheCauseItLifted() {
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.DORMANCY);
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, null);
 
-        AuditEvent event = events.only();
+        assertThat(events.appended).extracting(AuditEvent::errorCode)
+                .containsExactly("DORMANCY", "FAILURES", null);
+        AuditEvent event = events.appended.getFirst();
         assertThat(event.operation()).isEqualTo(AuditOperation.LOCKOUT_LIFT);
-        assertThat(event.errorCode()).isNull();
         assertThat(event.actorId()).isEqualTo(ACTOR);
         assertThat(event.subjectId()).isEqualTo(SUBJECT);
-        assertThat(event.changedPaths()).containsExactly("failedLoginAttempts", "lockedAt");
+        assertThat(event.changedPaths())
+                .containsExactly("failedLoginAttempts", "lockedAt", "lockCause");
     }
 
     /**
@@ -236,7 +241,7 @@ class AuditTrailServiceTests {
         trail.recordLoginFailure(SUBJECT, AuditRefusalReason.BAD_CREDENTIALS);
         trail.recordLogout(SUBJECT);
         trail.recordLockoutSet(SUBJECT);
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
         trail.recordPasswordChangeRequired(ACTOR, SUBJECT);
         trail.recordScimUserCreated(ACTOR, SUBJECT);
         trail.recordScimUsersQueried(ACTOR, 3, null);
@@ -254,7 +259,7 @@ class AuditTrailServiceTests {
      */
     @Test
     void theRequestIsRecordedAsItsRouteTemplate() {
-        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT);
+        trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES);
 
         AuditEvent event = events.only();
         assertThat(event.httpMethod()).isEqualTo("POST");
@@ -724,22 +729,60 @@ class AuditTrailServiceTests {
                 .containsExactly("displayName", "members", "externalId");
     }
 
-    /** The scheduled jobs act as nobody: no actor, the User as subject, what they changed. */
+    /**
+     * The dormancy job acts as nobody: no actor, the User as subject and resource, what it
+     * changed — and the role revocation names every Role lost, sorted, distinct and comma-joined.
+     */
     @Test
-    void theScheduledJobsRecordNoActor() {
-        trail.recordInactivityDeactivation(SUBJECT);
-        trail.recordDormantAuthorityRevocation(SUBJECT);
+    void theDormancyJobRecordsNoActor() {
+        trail.recordDormancyLockout(SUBJECT);
+        trail.recordDormancyRoleRevocation(SUBJECT, List.of(
+                new Role("Superuser", Set.of()), new Role("Account admin", Set.of()),
+                new Role("Superuser", Set.of())));
 
         assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
-                AuditOperation.INACTIVITY_DEACTIVATION, AuditOperation.DORMANT_AUTHORITY_REVOCATION);
+                AuditOperation.DORMANCY_LOCKOUT, AuditOperation.DORMANCY_ROLE_REVOCATION);
         assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
-                List.of("active"), List.of("groups"));
+                List.of("lockedAt", "lockCause"), List.of("groups"));
+        assertThat(events.appended).extracting(AuditEvent::role)
+                .containsExactly(null, "Account admin,Superuser");
         assertThat(events.appended).allSatisfy(event -> {
+            assertThat(event.id()).isNotNull();
+            assertThat(event.occurredAt()).isEqualTo(NOW);
             assertThat(event.actorId()).isNull();
             assertThat(event.subjectId()).isEqualTo(SUBJECT);
+            assertThat(event.resourceId()).isEqualTo(SUBJECT);
             assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
             assertThat(event.resourceType()).isEqualTo(AuditEvent.USER_RESOURCE_TYPE);
+            assertThat(event.statusClass()).isEqualTo(AuditEvent.STATUS_OK);
+            assertThat(event.errorCode()).isNull();
+            // Whatever request context is current is carried, as for every other event.
+            assertThat(event.httpMethod()).isEqualTo("POST");
+            assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
+            assertThat(event.requestId()).isEqualTo("req-1");
+            assertThat(event.resultCount()).isNull();
+            assertThat(event.filterShape()).isNull();
         });
+        assertThat(events.appended.get(0).id()).isNotEqualTo(events.appended.get(1).id());
+    }
+
+    @Test
+    void aDormancyRoleRevocationNamingNoRoleIsRefused() {
+        assertThatThrownBy(() -> trail.recordDormancyRoleRevocation(SUBJECT, List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(events.appended).isEmpty();
+    }
+
+    /** Both dormancy events are fail-closed: the job's change rolls back with a lost append. */
+    @Test
+    void theDormancyEventsAreFailClosed() {
+        events.failWith(new IllegalStateException("insert refused"));
+
+        assertThatThrownBy(() -> trail.recordDormancyLockout(SUBJECT))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> trail.recordDormancyRoleRevocation(
+                        SUBJECT, List.of(new Role("Superuser", Set.of()))))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -807,7 +850,7 @@ class AuditTrailServiceTests {
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordLogout(SUBJECT))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT))
+        assertThatThrownBy(() -> trail.recordLockoutLiftedByUnlock(ACTOR, SUBJECT, AuditLockCause.FAILURES))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> trail.recordScimGroupCreated(ACTOR, GROUP))
                 .isInstanceOf(IllegalStateException.class);

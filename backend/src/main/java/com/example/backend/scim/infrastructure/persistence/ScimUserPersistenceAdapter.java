@@ -1,6 +1,7 @@
 package com.example.backend.scim.infrastructure.persistence;
 
 import com.example.backend.scim.domain.DuplicateUserNameException;
+import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimEmail;
@@ -198,7 +199,8 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         users.updateLoginState(
                 id,
                 loginState.failedLoginAttempts(),
-                loginState.lockedAt());
+                loginState.lockedAt(),
+                loginState.lockCause() == null ? null : loginState.lockCause().name());
     }
 
     /**
@@ -233,8 +235,20 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
     }
 
     @Override
-    public List<UUID> findDormantActiveUserIds(Instant cutoff) {
-        return users.findDormantActiveUserIds(cutoff);
+    public List<UUID> findDormantUnlockedUserIds(Instant cutoff) {
+        return users.findDormantUnlockedUserIds(cutoff);
+    }
+
+    /** The lock instant and its cause, only where no lock stands; the version is untouched. */
+    @Override
+    public boolean lockForDormancy(UUID id, Instant now) {
+        return users.lockForDormancy(id, now, LockCause.DORMANCY.name()) == 1;
+    }
+
+    /** The dormancy basis alone; the resource row and its version are untouched. */
+    @Override
+    public void resetDormancyBasis(UUID id, Instant at) {
+        users.recordAuthentication(id, at);
     }
 
     @Override
@@ -335,6 +349,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                         login.passwordHash(),
                         login.failedLoginAttempts(),
                         login.lockedAt(),
+                        login.lockCause() == null ? null : login.lockCause().name(),
                         login.lastAuthenticatedAt(),
                         login.passwordChangeRequiredSince()),
                 profile.active(),
@@ -385,6 +400,9 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
                         login.getPasswordHash(),
                         login.getFailedLoginAttempts(),
                         login.getLockedAt(),
+                        login.getLockCause() == null
+                                ? null
+                                : LockCause.valueOf(login.getLockCause()),
                         login.getLastAuthenticatedAt(),
                         login.getPasswordChangeRequiredSince()),
                 ReservedResourceName.ofStoredValue(resource.getReservedName()).orElse(null),

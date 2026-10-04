@@ -69,6 +69,7 @@ const auth: AuthContextState = {
 
 const GRACE_ID = "00000000-0000-4000-8000-000000000001";
 
+/** A row; `lockCause` follows `locked` (a failure lock) unless the test names one. */
 const userRow = (overrides: Partial<UserRow> = {}): UserRow => ({
   active: true,
   admin: false,
@@ -83,6 +84,7 @@ const userRow = (overrides: Partial<UserRow> = {}): UserRow => ({
   passwordChangeRequired: false,
   userName: "grace",
   ...overrides,
+  lockCause: overrides.lockCause ?? (overrides.locked === true ? "FAILURES" : null),
 });
 
 const groupRow = (overrides: Partial<GroupRow> = {}): GroupRow => ({
@@ -215,8 +217,29 @@ describe("Accounts", () => {
     expect(row("closed").getByText("None")).toBeInTheDocument();
     expect(row("closed").getByText("Never")).toBeInTheDocument();
     expect(row("closed").getByText("—")).toBeInTheDocument();
-    expect(row("penalised").getByText("Locked")).toBeInTheDocument();
+    expect(row("penalised").getByText("Locked: failed logins")).toBeInTheDocument();
     expect(row("penalised").getByText("Required")).toBeInTheDocument();
+  });
+
+  it("says why each User is locked, so a forgotten password and an abandoned account differ", async () => {
+    routeApi({
+      users: {
+        kind: "ok",
+        data: [
+          userRow({ id: "f", locked: true, lockCause: "FAILURES", userName: "guessed" }),
+          userRow({ id: "d", locked: true, lockCause: "DORMANCY", userName: "dormant" }),
+          userRow({ id: "o", userName: "open" }),
+        ],
+      },
+    });
+    renderAccounts();
+
+    await screen.findByRole("rowheader", { name: /^dormant/ });
+    expect(row("guessed").getByText("Locked: failed logins")).toBeInTheDocument();
+    expect(row("guessed").queryByText("Locked: dormant")).not.toBeInTheDocument();
+    expect(row("dormant").getByText("Locked: dormant")).toBeInTheDocument();
+    expect(row("dormant").queryByText("Locked: failed logins")).not.toBeInTheDocument();
+    expect(row("open").getByText("Not locked")).toBeInTheDocument();
   });
 
   it("lists every Group with its member count and marks the protected Admin group", async () => {
@@ -386,7 +409,7 @@ describe("Accounts", () => {
     const root = row("root");
     expect(root.getByText("Bootstrap Admin")).toBeInTheDocument();
     expect(root.getByTitle("The Bootstrap Admin cannot be locked")).toHaveTextContent("—");
-    expect(root.queryByText("Locked")).not.toBeInTheDocument();
+    expect(root.queryByText(/^Locked/)).not.toBeInTheDocument();
     expect(root.queryByText("Not locked")).not.toBeInTheDocument();
     expect(root.queryByRole("button", { name: /Unlock/ })).not.toBeInTheDocument();
     // Only the Bootstrap Admin may force its own change, so another Admin is not offered it.
