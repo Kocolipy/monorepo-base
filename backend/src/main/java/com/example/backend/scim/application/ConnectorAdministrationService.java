@@ -1,12 +1,13 @@
 package com.example.backend.scim.application;
 
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
 import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
-import com.example.backend.scim.domain.ConnectorTokenScope;
+import com.example.backend.scim.domain.ConnectorTokenPermissions;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimConnector;
@@ -20,7 +21,9 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,12 +87,12 @@ public class ConnectorAdministrationService {
     /** Creates a connector holding no tokens yet. */
     @Transactional
     public ConnectorSummary create(String displayName, String requestedBy) {
-        ScimConnector connector =
-                ScimConnector.create(UUID.randomUUID(), displayName, clock.instant());
+        Instant now = clock.instant();
+        ScimConnector connector = ScimConnector.create(UUID.randomUUID(), displayName, now);
         connectors.save(connector);
         audit.recordConnectorCreated(actorId(requestedBy), connector.id());
         succeeded(Operation.CONNECTOR_CREATE, Type.CREATION);
-        return summarize(connector, clock.instant());
+        return summarize(connector, now);
     }
 
     /**
@@ -130,16 +133,37 @@ public class ConnectorAdministrationService {
     }
 
     /**
-     * Mints a token for a connector. The returned plaintext is the only copy that
-     * will ever exist.
+     * Mints a token for a connector, carrying {@code requested}. The returned plaintext is the
+     * only copy that will ever exist.
      *
-     * @param lifetime how long it should live, or {@code null} for the default;
-     *                 bounded by {@link ConnectorTokenPolicy}
+     * <p><strong>No escalation.</strong> Refused unless the administrator holds every Permission
+     * it asks for ({@code held}, the Permissions its session was issued with):
+     * {@code connector:token} lets an administrator mint credentials, never credentials more
+     * powerful than itself. The refusal is audited with the Permissions requested. Checked after
+     * the request's own shape — an empty list or a Permission no token can carry is refused
+     * whoever asks — and after the connector is found, so the refusal names a real connector.
+     *
+     * @param requested what the token is to carry: at least one, all directory Permissions
+     * @param lifetime  how long it should live, or {@code null} for the default;
+     *                  bounded by {@link ConnectorTokenPolicy}
+     * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
     public IssuedConnectorToken issueToken(
-            UUID connectorId, ConnectorTokenScope scope, Duration lifetime, String requestedBy) {
+            UUID connectorId,
+            Collection<Permission> requested,
+            Duration lifetime,
+            String requestedBy,
+            Set<Permission> held) {
+        ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(requested);
+        Duration validLifetime = ConnectorTokenPolicy.lifetime(lifetime);
         requireLive(connectorId);
+        UUID actor = actorId(requestedBy);
+        if (!permissions.heldWithin(held)) {
+            audit.recordConnectorTokenIssueRefused(actor, connectorId, permissions.values());
+            escalationRefused(Operation.CONNECTOR_TOKEN_ISSUE);
+            throw new ConnectorTokenEscalationException();
+        }
         Instant now = clock.instant();
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         ScimConnectorToken issued = ScimConnectorToken.issue(
@@ -147,18 +171,24 @@ public class ConnectorAdministrationService {
                 connectorId,
                 minted.lookupId(),
                 minted.digest(),
-                scope,
+                permissions,
                 now,
-                now.plus(ConnectorTokenPolicy.lifetime(lifetime)));
+                now.plus(validLifetime));
         tokens.save(issued);
-        audit.recordConnectorTokenIssued(actorId(requestedBy), connectorId);
+        audit.recordConnectorTokenIssued(actor, connectorId, permissions.values());
         succeeded(Operation.CONNECTOR_TOKEN_ISSUE, Type.CREATION);
         return disclose(issued, minted.presentedValue());
     }
 
     /**
-     * Replaces a token with a new one of the same scope, leaving the old one usable
-     * until the overlap window ends.
+     * Replaces a token with a new one, leaving the old one usable until the overlap window ends.
+     * The replacement carries the old token's Permissions, or {@code requested} when given.
+     *
+     * <p>The no-escalation rule applies to what the REPLACEMENT carries, kept or new: rotating is
+     * minting, so an administrator cannot renew a credential more powerful than itself because
+     * someone more powerful issued the original. A kept set is validated like a requested one,
+     * so a token stored before Permissions existed — which carries none — must be rotated with an
+     * explicit list.
      *
      * <p>The old token's expiry is brought forward to the end of the overlap and
      * never pushed back: the window ends at the earlier of the requested overlap and
@@ -170,13 +200,28 @@ public class ConnectorAdministrationService {
      * the old one's: rotation exists so an integration can keep running, and handing
      * it a replacement that expires next week would defeat that.
      *
-     * @param overlap how long the old token should keep working, clamped to
-     *                {@link ConnectorTokenPolicy#MAX_ROTATION_OVERLAP}
+     * @param requested the replacement's Permissions, or {@code null} to keep the old token's
+     * @param overlap   how long the old token should keep working, clamped to
+     *                  {@link ConnectorTokenPolicy#MAX_ROTATION_OVERLAP}
+     * @param held      the Permissions the requesting administrator holds
      */
     @Transactional
-    public IssuedConnectorToken rotateToken(UUID tokenId, Duration overlap, String requestedBy) {
+    public IssuedConnectorToken rotateToken(
+            UUID tokenId,
+            Collection<Permission> requested,
+            Duration overlap,
+            String requestedBy,
+            Set<Permission> held) {
         ScimConnectorToken existing = requireToken(tokenId);
+        ConnectorTokenPermissions permissions = ConnectorTokenPermissions.requested(
+                requested == null ? existing.permissions().values() : requested);
         ScimConnector connector = requireLive(existing.connectorId());
+        UUID actor = actorId(requestedBy);
+        if (!permissions.heldWithin(held)) {
+            audit.recordConnectorTokenRotateRefused(actor, connector.id(), permissions.values());
+            escalationRefused(Operation.CONNECTOR_TOKEN_ROTATE);
+            throw new ConnectorTokenEscalationException();
+        }
         Instant now = clock.instant();
 
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
@@ -185,7 +230,7 @@ public class ConnectorAdministrationService {
                 connector.id(),
                 minted.lookupId(),
                 minted.digest(),
-                existing.scope(),
+                permissions,
                 now,
                 now.plus(ConnectorTokenPolicy.DEFAULT_LIFETIME));
         tokens.save(replacement);
@@ -193,7 +238,7 @@ public class ConnectorAdministrationService {
                 ConnectorTokenPolicy.overlapEnd(now, overlap, existing.expiresAt()),
                 replacement.id()));
 
-        audit.recordConnectorTokenRotated(actorId(requestedBy), connector.id());
+        audit.recordConnectorTokenRotated(actor, connector.id(), permissions.values());
         succeeded(Operation.CONNECTOR_TOKEN_ROTATE, Type.CHANGE);
         return disclose(replacement, minted.presentedValue());
     }
@@ -260,7 +305,7 @@ public class ConnectorAdministrationService {
     private static ConnectorTokenSummary summarize(ScimConnectorToken token, Instant now) {
         return new ConnectorTokenSummary(
                 token.id(),
-                token.scope(),
+                token.permissions().sortedValues(),
                 token.issuedAt(),
                 token.expiresAt(),
                 token.originalExpiresAt(),
@@ -272,7 +317,7 @@ public class ConnectorAdministrationService {
         return new IssuedConnectorToken(
                 token.connectorId(),
                 token.id(),
-                token.scope(),
+                token.permissions().sortedValues(),
                 token.issuedAt(),
                 token.expiresAt(),
                 presentedValue);
@@ -293,5 +338,16 @@ public class ConnectorAdministrationService {
         LogEvent.classify(log.atInfo(), operation, Category.CONFIGURATION, Type.ADMIN, lifecycle)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .log("SCIM connector lifecycle change applied");
+    }
+
+    /**
+     * Records that a token issue or rotation was refused as an escalation, at {@code WARN}: the
+     * action and the outcome, never which Permissions — those are the audit trail's to name, and
+     * a log line listing them would be a map of who may mint what.
+     */
+    private static void escalationRefused(Operation operation) {
+        LogEvent.classify(log.atWarn(), operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                .log("SCIM connector issue refused: it would exceed the requester's Permissions");
     }
 }

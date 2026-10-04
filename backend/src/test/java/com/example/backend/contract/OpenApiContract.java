@@ -511,10 +511,15 @@ public final class OpenApiContract {
          *   <li>{@code - sessionCookie: []} — {@link Access#SELF_SERVICE}: authenticated, no
          *       Permission;
          *   <li>{@code - sessionCookie: [<permission>]} — {@link Access#PERMISSION}, exactly one;
-         *   <li>{@code - connectorBearer: [...]} — {@link Access#BEARER}, the SCIM chain's.
+         *   <li>{@code - connectorBearer: []} — {@link Access#BEARER}, the SCIM chain's: a valid
+         *       token and no Permission;
+         *   <li>{@code - connectorBearer: [<permission>]} — {@link Access#BEARER} naming the one
+         *       Permission the token needs;
+         *   <li>two or more {@code - connectorBearer: [<permission>]} alternatives —
+         *       {@link Access#BEARER_ANY_OF}: any one of them suffices (the base {@code /.search}).
          * </ul>
-         * Anything else — two requirements, two Permissions, an unknown scheme — is
-         * {@link Access#MALFORMED}.
+         * Anything else — a session requirement among alternatives, two Permissions in one
+         * requirement, an unknown scheme — is {@link Access#MALFORMED}.
          */
         public Requirement requirement() {
             JsonNode security = definition.get("security");
@@ -527,14 +532,22 @@ public final class OpenApiContract {
             if (security.isEmpty()) {
                 return new Requirement(Access.PUBLIC, null);
             }
-            if (security.size() != 1 || security.get(0).size() != 1) {
+            if (security.size() > 1) {
+                return alternatives(security);
+            }
+            if (security.get(0).size() != 1) {
                 return new Requirement(Access.MALFORMED, null);
             }
             Map.Entry<String, JsonNode> scheme = security.get(0).properties().iterator().next();
             JsonNode scopes = scheme.getValue();
             switch (scheme.getKey()) {
                 case "connectorBearer":
-                    return new Requirement(Access.BEARER, null);
+                    if (scopes.isEmpty()) {
+                        return new Requirement(Access.BEARER, null);
+                    }
+                    return scopes.size() == 1 && scopes.get(0).isTextual()
+                            ? new Requirement(Access.BEARER, scopes.get(0).asText())
+                            : new Requirement(Access.MALFORMED, null);
                 case "sessionCookie":
                     if (scopes.isEmpty()) {
                         return new Requirement(Access.SELF_SERVICE, null);
@@ -545,6 +558,20 @@ public final class OpenApiContract {
                 default:
                     return new Requirement(Access.MALFORMED, null);
             }
+        }
+
+        /** Alternatives, each one {@code connectorBearer} naming exactly one Permission. */
+        private static Requirement alternatives(JsonNode security) {
+            List<String> anyOf = new ArrayList<>();
+            for (JsonNode alternative : security) {
+                JsonNode scopes = alternative.get("connectorBearer");
+                if (alternative.size() != 1 || scopes == null || scopes.size() != 1
+                        || !scopes.get(0).isTextual()) {
+                    return new Requirement(Access.MALFORMED, null);
+                }
+                anyOf.add(scopes.get(0).asText());
+            }
+            return new Requirement(Access.BEARER_ANY_OF, null, List.copyOf(anyOf));
         }
 
         /** The statuses this operation documents. */
@@ -571,15 +598,29 @@ public final class OpenApiContract {
     }
 
     /** How an operation's {@code security} requirement classifies it. */
-    public enum Access { PUBLIC, SELF_SERVICE, PERMISSION, BEARER, UNDECLARED, MALFORMED }
+    public enum Access {
+        PUBLIC, SELF_SERVICE, PERMISSION, BEARER, BEARER_ANY_OF, UNDECLARED, MALFORMED
+    }
 
     /**
      * An operation's declared requirement.
      *
-     * @param permission the one Permission a {@link Access#PERMISSION} operation names, as spelled
-     *                   in the document; {@code null} for every other access
+     * @param permission the one Permission a {@link Access#PERMISSION} operation names, or a
+     *                   {@link Access#BEARER} operation needs beyond a valid token, as spelled in
+     *                   the document; {@code null} for every other access, and for a bearer
+     *                   operation needing a valid token alone
+     * @param anyOf      the alternatives of a {@link Access#BEARER_ANY_OF} operation; empty
+     *                   otherwise
      */
-    public record Requirement(Access access, String permission) {
+    public record Requirement(Access access, String permission, List<String> anyOf) {
+
+        public Requirement {
+            anyOf = anyOf == null ? List.of() : List.copyOf(anyOf);
+        }
+
+        public Requirement(Access access, String permission) {
+            this(access, permission, List.of());
+        }
     }
 
     /** The outcome of checking one exchange: what it covered, and how it departed. */

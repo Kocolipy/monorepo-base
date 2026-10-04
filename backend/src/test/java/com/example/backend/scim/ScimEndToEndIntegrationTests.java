@@ -8,10 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,7 +113,7 @@ class ScimEndToEndIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("e2e-connector", BOOTSTRAP_ADMIN).id();
         writeToken = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, BOOTSTRAP_ADMIN)
+                .issueToken(connectorId, TokenPermissions.ALL, null, BOOTSTRAP_ADMIN, TokenPermissions.ALL)
                 .presentedValue();
     }
 
@@ -124,13 +124,13 @@ class ScimEndToEndIntegrationTests {
      */
     @Test
     void aFreshBootServesDiscoveryThenCreationThenGroupMembership() throws Exception {
-        // 1. Discovery, with no credential at all: this is what a connector reads first.
-        JsonNode config = okBody(get(BASE + "/ServiceProviderConfig"));
+        // 1. Discovery, with the token alone: this is what a connector reads first (ADR 0010).
+        JsonNode config = okBody(asConnector(get(BASE + "/ServiceProviderConfig")));
         assertThat(config.get("patch").get("supported").booleanValue())
                 .as("the connector is about to rely on PATCH for the membership change below")
                 .isTrue();
 
-        JsonNode types = okBody(get(BASE + "/ResourceTypes"));
+        JsonNode types = okBody(asConnector(get(BASE + "/ResourceTypes")));
         assertThat(types.get("Resources"))
                 .as("Users and Groups are one capability; a connector needs both advertised")
                 .hasSize(2)

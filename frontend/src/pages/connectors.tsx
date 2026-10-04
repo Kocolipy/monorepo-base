@@ -18,7 +18,8 @@ import {
   type Connector,
   type ConnectorToken,
   type IssuedToken,
-  type TokenScope,
+  type TokenPermission,
+  TOKEN_PERMISSIONS,
 } from "./accounts-api";
 
 /** Module-level, so each is one stable function across renders and hook dependencies. */
@@ -44,6 +45,19 @@ function tokenStatus(token: ConnectorToken): string {
   if (token.revokedAt !== null) return `Revoked ${formatDate(token.revokedAt)}`;
   return token.active ? "Active" : "Expired";
 }
+
+/** A token's Permissions as one line; a token from before Permissions carries none. */
+function permissionList(permissions: readonly TokenPermission[]): string {
+  return permissions.length === 0 ? "No permissions" : permissions.join(", ");
+}
+
+/** What each token Permission lets a connector do, shown beside its checkbox. */
+const PERMISSION_HINTS: Record<TokenPermission, string> = {
+  "group:read": "read Groups",
+  "group:write": "create, change and delete Groups",
+  "user:read": "read Users",
+  "user:write": "create, change and delete Users",
+};
 
 /** Copy for a refused request, keyed on what the backend refused. */
 function failure(what: string, status?: number): string {
@@ -78,7 +92,8 @@ function TokenDisclosure({
         {disclosure.token.presentedValue}
       </code>
       <p className="text-sm text-muted-foreground">
-        {disclosure.token.scope} · expires {formatDate(disclosure.token.expiresAt)}
+        {permissionList(disclosure.token.permissions)} · expires{" "}
+        {formatDate(disclosure.token.expiresAt)}
       </p>
       <Button className="self-start" onClick={onDismiss} size="sm" variant="outline">
         Dismiss token
@@ -91,6 +106,7 @@ function ConnectorSection({
   canIssue,
   canManage,
   connector,
+  grantable,
   onDelete,
   onIssue,
   onRevoke,
@@ -102,20 +118,31 @@ function ConnectorSection({
   /** `connector:write`: delete is offered. */
   canManage: boolean;
   connector: Connector;
+  /**
+   * The token Permissions this session holds itself — the only ones the backend
+   * lets it put on a token. The others are shown but cannot be chosen.
+   */
+  grantable: readonly TokenPermission[];
   onDelete: () => void;
-  onIssue: (scope: TokenScope, lifetimeDays: number | null) => void;
+  onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
   onRevoke: (token: ConnectorToken) => void;
   onRotate: (token: ConnectorToken) => void;
   pending: boolean;
 }) {
-  const [scope, setScope] = useState<TokenScope>("READ_ONLY");
+  const [chosen, setChosen] = useState<readonly TokenPermission[]>([]);
   const [lifetime, setLifetime] = useState("");
-  const scopeId = `scope-${connector.id}`;
   const lifetimeId = `lifetime-${connector.id}`;
+
+  const toggle = (permission: TokenPermission, checked: boolean) =>
+    setChosen((current) =>
+      checked ? [...current, permission] : current.filter((held) => held !== permission),
+    );
 
   const issue = (event: FormEvent) => {
     event.preventDefault();
-    onIssue(scope, lifetime === "" ? null : Number(lifetime));
+    // In the backend's order, so the request reads like the response.
+    const permissions = TOKEN_PERMISSIONS.filter((permission) => chosen.includes(permission));
+    onIssue(permissions, lifetime === "" ? null : Number(lifetime));
   };
 
   return (
@@ -142,7 +169,7 @@ function ConnectorSection({
           <caption className="sr-only">Tokens of {connector.displayName}</caption>
           <thead>
             <tr className="border-b text-muted-foreground">
-              {["Token", "Scope", "Issued", "Expires", "Status", "Actions"].map((heading) => (
+              {["Token", "Permissions", "Issued", "Expires", "Status", "Actions"].map((heading) => (
                 <th className="py-2 pr-4 font-medium" key={heading} scope="col">
                   {heading}
                 </th>
@@ -155,7 +182,7 @@ function ConnectorSection({
                 <th className="py-2 pr-4 font-mono font-normal" scope="row">
                   {token.id.slice(0, 8)}
                 </th>
-                <td className="py-2 pr-4">{token.scope}</td>
+                <td className="py-2 pr-4">{permissionList(token.permissions)}</td>
                 <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.issuedAt)}</td>
                 <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
                 <td className="py-2 pr-4">{tokenStatus(token)}</td>
@@ -190,20 +217,28 @@ function ConnectorSection({
 
       {canIssue ? (
         <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium" htmlFor={scopeId}>
-              Scope for {connector.displayName}
-            </label>
-            <select
-              className={INPUT_CLASS}
-              id={scopeId}
-              onChange={(event) => setScope(event.target.value as TokenScope)}
-              value={scope}
-            >
-              <option value="READ_ONLY">Read only</option>
-              <option value="READ_WRITE">Read and write</option>
-            </select>
-          </div>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
+            {TOKEN_PERMISSIONS.map((permission) => {
+              const allowed = grantable.includes(permission);
+              return (
+                <label className="flex items-center gap-2 text-sm" key={permission}>
+                  <input
+                    checked={chosen.includes(permission)}
+                    disabled={!allowed}
+                    onChange={(event) => toggle(permission, event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span className="font-mono">{permission}</span>
+                  <span className="text-muted-foreground">
+                    {allowed
+                      ? PERMISSION_HINTS[permission]
+                      : `${PERMISSION_HINTS[permission]} — you do not hold it`}
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium" htmlFor={lifetimeId}>
               Lifetime in days for {connector.displayName} (default 365)
@@ -219,7 +254,7 @@ function ConnectorSection({
               value={lifetime}
             />
           </div>
-          <Button disabled={pending} size="sm" type="submit">
+          <Button disabled={pending || chosen.length === 0} size="sm" type="submit">
             Issue token for {connector.displayName}
           </Button>
         </form>
@@ -231,7 +266,7 @@ function ConnectorSection({
 /** The four operations on one connector, as its section invokes them. */
 interface ConnectorActions {
   onDelete: () => void;
-  onIssue: (scope: TokenScope, lifetimeDays: number | null) => void;
+  onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
   onRevoke: (token: ConnectorToken) => void;
   onRotate: (token: ConnectorToken) => void;
 }
@@ -320,13 +355,13 @@ function useConnectors() {
         void mutate(`Deleting ${connector.displayName}`, () =>
           request(connectorPath(connector.id), { method: "DELETE" }),
         ),
-      onIssue: (scope, lifetimeDays) =>
+      onIssue: (permissions, lifetimeDays) =>
         void mutate(
           `Issuing a token for ${connector.displayName}`,
           () =>
             request(
               tokensPath(connector.id),
-              jsonBody("POST", { scope, lifetimeDays }),
+              jsonBody("POST", { lifetimeDays, permissions }),
               readIssuedToken,
             ),
           disclose,
@@ -407,14 +442,18 @@ function CreateConnectorForm({
  * Rendered only for a session holding `connector:read`. Creating and deleting
  * a connector is offered only with `connector:write`, and issuing, rotating
  * and revoking a token only with `connector:token` — each its own Permission
- * on the backend, which refuses them independently.
+ * on the backend, which refuses them independently. A token may carry only
+ * Permissions the session holds itself (`grantablePermissions`); the backend
+ * refuses anything more, so the form offers nothing more.
  */
 export function Connectors({
   canIssueTokens,
   canManageConnectors,
+  grantablePermissions,
 }: {
   canIssueTokens: boolean;
   canManageConnectors: boolean;
+  grantablePermissions: readonly TokenPermission[];
 }) {
   const { actionsFor, connectors, create, disclosure, dismiss, error, pending, unread } =
     useConnectors();
@@ -430,6 +469,7 @@ export function Connectors({
         canIssue={canIssueTokens}
         canManage={canManageConnectors}
         connector={connector}
+        grantable={grantablePermissions}
         key={connector.id}
         pending={pending}
         {...actionsFor(connector)}

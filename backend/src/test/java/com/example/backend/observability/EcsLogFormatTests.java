@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.audit.domain.OperationalAlerts;
@@ -15,7 +16,6 @@ import com.example.backend.counter.controller.FaultInjectionController;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.config.ScimErrorDocumentRecords;
 import com.example.backend.scim.controller.ScimFaultRecords;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimAttributeLimits;
 import com.example.backend.scim.domain.ScimUserRepository;
@@ -352,7 +352,7 @@ class EcsLogFormatTests {
                                 post("/api/admin/connectors/{c}/tokens", connectorId))
                         .session(admin)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"scope\":\"READ_WRITE\"}"))
+                        .content("{\"permissions\":" + TokenPermissions.ALL_JSON + "}"))
                 .andExpect(status().isCreated())).at("/tokenId").asText();
         String rotatedId = json(mvc.perform(withCsrf(
                                 post("/api/admin/connectors/{c}/tokens/{t}/rotate",
@@ -381,10 +381,12 @@ class EcsLogFormatTests {
         });
         assertThatClassifiedAs(lifecycle.get(0),
                 "user-provisioning", "configuration", "admin", "creation");
+        // Issue and rotation grant Permissions, so they are user administration (#117); the
+        // connector's own lifecycle and a revocation remain the provisioning channel's.
         assertThatClassifiedAs(lifecycle.get(1),
-                "user-provisioning", "configuration", "admin", "creation");
+                "user-administration", "configuration", "admin", "creation");
         assertThatClassifiedAs(lifecycle.get(2),
-                "user-provisioning", "configuration", "admin", "change");
+                "user-administration", "configuration", "admin", "change");
         assertThatClassifiedAs(lifecycle.get(3),
                 "user-provisioning", "configuration", "admin", "deletion");
         assertThatClassifiedAs(lifecycle.get(4),
@@ -520,7 +522,7 @@ class EcsLogFormatTests {
     void recordTimestampsArePlusEightWhileScimWireTimesStayUtc() throws Exception {
         UUID connectorId = connectors.create("ecs-timestamp-connector", "test-admin").id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         logIn("test-user", "test-password").andExpect(status().isOk());
 
         JsonNode user = json(mvc.perform(get("/scim/v2/Users/{id}", userId("test-user"))
@@ -635,7 +637,7 @@ class EcsLogFormatTests {
     void aScimBearerRequestsRecordCarriesTheConnectorIdAndNoTokenMaterial() throws Exception {
         UUID connectorId = connectors.create("ecs-actor-connector", "test-admin").id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         logs.reset();
 
         mvc.perform(get("/scim/v2/Users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -658,7 +660,7 @@ class EcsLogFormatTests {
     void aRefusedBearerRequestsRecordCarriesNoConnectorId() throws Exception {
         UUID connectorId = connectors.create("ecs-refused-connector", "test-admin").id();
         String issued = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         String presented = issued.substring(0, issued.length() - 4) + "XXXX";
         logs.reset();
 
@@ -704,7 +706,7 @@ class EcsLogFormatTests {
     void aScimReadIsRecordedByTemplateWithoutItsIdOrFilterText() throws Exception {
         UUID connectorId = connectors.create("ecs-route-connector", "test-admin").id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         String id = userId("test-user").toString();
         String filterText = "ecs-route-filter-probe";
         logs.reset();
@@ -860,7 +862,7 @@ class EcsLogFormatTests {
     void aScimCallWithABadOrMissingBearerIsOneWarnRecordCarryingNoTokenValue() throws Exception {
         UUID connectorId = connectors.create("ecs-refusal-connector", "test-admin").id();
         String issued = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         // A real token with its secret half altered: the lookup half still names a token, so
         // the refusal is the "presented and not accepted" path, and the prefix a leak would show
         // is a real one.
@@ -1048,7 +1050,7 @@ class EcsLogFormatTests {
     void everyErrorRecordCarriesTheErrorFieldsNestedUnderError() throws Exception {
         UUID connectorId = connectors.create("ecs-error-fields-connector", "test-admin").id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         MockMvc failing = applicationRouteFailing();
         logs.reset();
 
@@ -1105,7 +1107,7 @@ class EcsLogFormatTests {
     void aScimRefusalIsStillTheScimErrorDocument() throws Exception {
         UUID connectorId = connectors.create("ecs-scim-document-connector", "test-admin").id();
         String token = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
 
         MvcResult result = mvc.perform(get("/scim/v2/Me")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))

@@ -16,6 +16,7 @@ import {
   formatInstant,
   GROUPS_PATH,
   namesSameUser,
+  TOKEN_PERMISSIONS,
   userActionPath,
   USERS_PATH,
   type GroupRow,
@@ -483,6 +484,7 @@ export function Accounts() {
         <Connectors
           canIssueTokens={holds(user, "connector:token")}
           canManageConnectors={holds(user, "connector:write")}
+          grantablePermissions={TOKEN_PERMISSIONS.filter((permission) => holds(user, permission))}
         />
       ) : null}
 

@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.example.backend.SessionCsrf;
+import com.example.backend.TokenPermissions;
 import com.example.backend.authorization.TestRoleMappings;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
@@ -176,7 +177,7 @@ class ScimConnectorLifecycleIntegrationTests {
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
 
         UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, "READ_WRITE");
+        String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         // As that connector: past authentication, so no longer a 401. The path has no
         // handler yet, which is what a 404 here means — and a 404 is only reachable
@@ -230,7 +231,7 @@ class ScimConnectorLifecycleIntegrationTests {
     void a_token_is_never_accepted_from_a_query_string_a_form_body_or_a_cookie()
             throws Exception {
         UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, "READ_WRITE");
+        String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         mvc.perform(get(SCIM_PATH).param("access_token", presentedValue))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
@@ -252,7 +253,7 @@ class ScimConnectorLifecycleIntegrationTests {
 
         MvcResult issued = mvc.perform(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"scope\":\"READ_ONLY\"}"))
+                        .content("{\"permissions\":" + TokenPermissions.READ_JSON + "}"))
                 .andReturn();
 
         assertThat(issued.getResponse().getStatus()).isEqualTo(201);
@@ -265,7 +266,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void the_listing_never_discloses_a_token_value() throws Exception {
         UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, "READ_ONLY");
+        String presentedValue = issueToken(connectorId, TokenPermissions.READ_JSON);
 
         MvcResult listed = mvc.perform(asAdmin(get(CONNECTORS))).andReturn();
 
@@ -279,8 +280,8 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void deleting_a_connector_revokes_its_tokens_and_removes_its_aliases() throws Exception {
         UUID connectorId = createConnector("Okta");
-        issueToken(connectorId, "READ_ONLY");
-        issueToken(connectorId, "READ_WRITE");
+        issueToken(connectorId, TokenPermissions.READ_JSON);
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
         insertAliasForNewResource(connectorId, "okta-user-1");
         insertAliasForNewResource(connectorId, "okta-user-2");
 
@@ -309,7 +310,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void every_lifecycle_event_is_shaped_correctly_and_holds_no_token_value() throws Exception {
         UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, "READ_WRITE");
+        String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
         rotateFirstToken(connectorId);
         revokeFirstToken(connectorId);
         mvc.perform(asAdmin(delete(CONNECTORS + "/" + connectorId)));
@@ -348,7 +349,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void rotation_records_its_event_and_never_lengthens_the_old_token() throws Exception {
         UUID connectorId = createConnector("Okta");
-        issueToken(connectorId, "READ_WRITE");
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         rotateFirstToken(connectorId);
 
@@ -371,7 +372,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void the_requested_overlap_is_the_one_the_old_token_keeps() throws Exception {
         UUID connectorId = createConnector("Okta");
-        issueToken(connectorId, "READ_WRITE");
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
         Instant beforeRotation = Instant.now();
 
         rotateFirstToken(connectorId);
@@ -398,8 +399,8 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void the_cascade_reports_how_many_tokens_and_aliases_it_touched() throws Exception {
         UUID connectorId = createConnector("Okta");
-        issueToken(connectorId, "READ_ONLY");
-        issueToken(connectorId, "READ_WRITE");
+        issueToken(connectorId, TokenPermissions.READ_JSON);
+        issueToken(connectorId, TokenPermissions.ALL_JSON);
         insertAliasForNewResource(connectorId, "okta-user-1");
         insertAliasForNewResource(connectorId, "okta-user-2");
 
@@ -414,13 +415,16 @@ class ScimConnectorLifecycleIntegrationTests {
         });
     }
 
-    /** Discovery is readable without a credential; the resource endpoints are not. */
+    /**
+     * Discovery and the resource endpoints alike are challenged without a credential (ADR
+     * 0010): discovery needs a valid token, though no Permission.
+     */
     @Test
-    void discovery_is_public_while_a_resource_path_is_not() throws Exception {
+    void discovery_needs_a_credential_like_every_other_scim_path() throws Exception {
         mvc.perform(get("/scim/v2/ServiceProviderConfig"))
                 .andExpect(result -> assertThat(result.getResponse().getStatus())
-                        .as("public, so not a 401; no handler yet, so a 404")
-                        .isNotEqualTo(401));
+                        .as("no token, so challenged")
+                        .isEqualTo(401));
 
         mvc.perform(get(SCIM_PATH))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
@@ -455,7 +459,7 @@ class ScimConnectorLifecycleIntegrationTests {
     @Test
     void a_connector_token_does_not_authenticate_the_administration_api() throws Exception {
         UUID connectorId = createConnector("Okta");
-        String presentedValue = issueToken(connectorId, "READ_WRITE");
+        String presentedValue = issueToken(connectorId, TokenPermissions.ALL_JSON);
 
         mvc.perform(get(CONNECTORS).header(HttpHeaders.AUTHORIZATION, "Bearer " + presentedValue))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(401));
@@ -467,7 +471,7 @@ class ScimConnectorLifecycleIntegrationTests {
 
         mvc.perform(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"scope\":\"READ_ONLY\",\"lifetimeDays\":400}"))
+                        .content("{\"permissions\":" + TokenPermissions.READ_JSON + ",\"lifetimeDays\":400}"))
                 .andExpect(result -> assertThat(result.getResponse().getStatus()).isEqualTo(400));
     }
 
@@ -480,10 +484,10 @@ class ScimConnectorLifecycleIntegrationTests {
         return UUID.fromString(body(created).get("id").asText());
     }
 
-    private String issueToken(UUID connectorId, String scope) throws Exception {
+    private String issueToken(UUID connectorId, String permissionsJson) throws Exception {
         MvcResult issued = mvc.perform(asAdmin(post(CONNECTORS + "/" + connectorId + "/tokens"))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"scope\":\"" + scope + "\"}"))
+                        .content("{\"permissions\":" + permissionsJson + "}"))
                 .andReturn();
         assertThat(issued.getResponse().getStatus()).isEqualTo(201);
         return body(issued).get("presentedValue").asText();

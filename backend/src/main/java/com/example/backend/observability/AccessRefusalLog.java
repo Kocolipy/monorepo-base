@@ -83,15 +83,14 @@ public class AccessRefusalLog {
         BEARER_INVALID(401, "bearer-invalid"),
         /**
          * An authenticated caller the authorization rules do not admit to the operation: a
-         * Permission it does not hold, a route nothing declares, or a session confined by a
-         * required password change. One reason for all of them, so the record is no map of
-         * which rule refused.
+         * Permission it does not hold — a session's on the application chain, a connector token's
+         * on the SCIM chain — a route nothing declares, or a session confined by a required
+         * password change. One reason for all of them, so the record is no map of which rule
+         * refused.
          */
         INSUFFICIENT_PERMISSIONS(403, "insufficient-permissions"),
         /** An unsafe request without the session's CSRF token. Not an authorization decision. */
-        CSRF(403, "csrf"),
-        /** A read-only SCIM credential attempting a write. */
-        INSUFFICIENT_SCOPE(403, "insufficient-scope");
+        CSRF(403, "csrf");
 
         private final int status;
         private final String reason;

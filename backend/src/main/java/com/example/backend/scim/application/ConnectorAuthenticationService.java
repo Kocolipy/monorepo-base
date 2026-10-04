@@ -77,6 +77,6 @@ public class ConnectorAuthenticationService {
     }
 
     private static AuthenticatedConnector asPrincipal(ScimConnectorToken token) {
-        return new AuthenticatedConnector(token.connectorId(), token.id(), token.scope());
+        return new AuthenticatedConnector(token.connectorId(), token.id(), token.permissions());
     }
 }

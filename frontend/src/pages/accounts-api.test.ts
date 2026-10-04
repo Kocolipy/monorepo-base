@@ -37,7 +37,7 @@ const GROUP_ROW = { id: "g-1", displayName: "Engineering", memberCount: 2, admin
 
 const CONNECTOR_TOKEN = {
   id: "t-1",
-  scope: "READ_WRITE",
+  permissions: ["group:read", "group:write", "user:read", "user:write"],
   issuedAt: "2026-01-02T03:04:05Z",
   expiresAt: "2026-04-02T03:04:05Z",
   originalExpiresAt: "2026-04-02T03:04:05Z",
@@ -55,7 +55,7 @@ const CONNECTOR = {
 const ISSUED_TOKEN = {
   connectorId: "c-1",
   tokenId: "t-1",
-  scope: "READ_ONLY",
+  permissions: ["user:read"],
   issuedAt: "2026-01-02T03:04:05Z",
   expiresAt: "2026-04-02T03:04:05Z",
   presentedValue: "scim_plaintext",
@@ -153,7 +153,7 @@ describeDecoder("Connector", decodeConnector, CONNECTOR, {
 describeDecoder("IssuedToken", decodeIssuedToken, ISSUED_TOKEN, {
   connectorId: STRING,
   tokenId: STRING,
-  scope: ["ADMIN", "READ_ONLY | READ_WRITE", "a string"],
+  permissions: [null, "an array"],
   issuedAt: STRING,
   expiresAt: STRING,
   presentedValue: [null, "a string"],
@@ -178,7 +178,7 @@ describeDecoder(
   CONNECTOR_TOKEN,
   {
     id: STRING,
-    scope: ["read_write", "READ_ONLY | READ_WRITE", "a string"],
+    permissions: ["user:read", "an array"],
     issuedAt: STRING,
     expiresAt: STRING,
     originalExpiresAt: [undefined, "a string"],
@@ -209,4 +209,28 @@ describe("the listing decoders", () => {
     refusal(() => decode(row), `${list} is not an array`);
     refusal(() => decode(null), `${list} is not an array`);
   });
+});
+
+describe("token permissions", () => {
+  it("decodes an empty list, which a token from before Permissions carries", () => {
+    expect(
+      decodeConnector({ ...CONNECTOR, tokens: [{ ...CONNECTOR_TOKEN, permissions: [] }] }).tokens[0]
+        .permissions,
+    ).toStrictEqual([]);
+  });
+
+  it.each([["audit:read"], ["READ_WRITE"], ["User:Read"], [7], [null]])(
+    "refuses %s, which no token can carry",
+    (value) => {
+      refusal(
+        () => decodeIssuedToken({ ...ISSUED_TOKEN, permissions: ["user:read", value] }),
+        "token permissions hold an unknown value",
+      );
+      refusal(
+        () =>
+          decodeConnector({ ...CONNECTOR, tokens: [{ ...CONNECTOR_TOKEN, permissions: [value] }] }),
+        "token permissions hold an unknown value",
+      );
+    },
+  );
 });

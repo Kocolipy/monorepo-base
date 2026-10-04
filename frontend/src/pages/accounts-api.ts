@@ -9,7 +9,8 @@
  * operation lives.
  */
 
-import { decodeArray, readObject } from "@/lib/decode";
+import type { Permission } from "@/auth/api";
+import { decodeArray, DecodeError, readObject } from "@/lib/decode";
 
 /** A Group a User belongs to directly, as its row reports it. */
 export interface DirectGroup {
@@ -54,9 +55,19 @@ export interface GroupRow {
   adminGroup: boolean;
 }
 
-const TOKEN_SCOPES = ["READ_ONLY", "READ_WRITE"] as const;
+/**
+ * The Permissions a connector token can carry: the four directory ones, in
+ * the order the backend reports them (sorted by name). A token carrying any
+ * other value is refused on decode rather than passed through.
+ */
+export const TOKEN_PERMISSIONS = [
+  "group:read",
+  "group:write",
+  "user:read",
+  "user:write",
+] as const satisfies readonly Permission[];
 
-export type TokenScope = (typeof TOKEN_SCOPES)[number];
+export type TokenPermission = (typeof TOKEN_PERMISSIONS)[number];
 
 /**
  * A token's metadata. There is no field for its value: a listing cannot return
@@ -65,7 +76,8 @@ export type TokenScope = (typeof TOKEN_SCOPES)[number];
  */
 export interface ConnectorToken {
   id: string;
-  scope: TokenScope;
+  /** What it may do over SCIM. Empty only for a token from before tokens carried Permissions. */
+  permissions: TokenPermission[];
   issuedAt: string;
   expiresAt: string;
   originalExpiresAt: string;
@@ -87,7 +99,7 @@ export interface Connector {
 export interface IssuedToken {
   connectorId: string;
   tokenId: string;
-  scope: TokenScope;
+  permissions: TokenPermission[];
   issuedAt: string;
   expiresAt: string;
   presentedValue: string;
@@ -165,11 +177,18 @@ export const decodeGroupRow = (value: unknown): GroupRow => {
   };
 };
 
+/** One token Permission, checked against `TOKEN_PERMISSIONS` rather than trusted. */
+const decodeTokenPermission = (value: unknown): TokenPermission => {
+  const permission = TOKEN_PERMISSIONS.find((candidate) => candidate === value);
+  if (permission === undefined) throw new DecodeError("token permissions hold an unknown value");
+  return permission;
+};
+
 const decodeConnectorToken = (value: unknown): ConnectorToken => {
   const token = readObject(value, "ConnectorToken");
   return {
     id: token.string("id"),
-    scope: token.oneOf("scope", TOKEN_SCOPES),
+    permissions: token.array("permissions", decodeTokenPermission),
     issuedAt: token.string("issuedAt"),
     expiresAt: token.string("expiresAt"),
     originalExpiresAt: token.string("originalExpiresAt"),
@@ -193,7 +212,7 @@ export const decodeIssuedToken = (value: unknown): IssuedToken => {
   return {
     connectorId: issued.string("connectorId"),
     tokenId: issued.string("tokenId"),
-    scope: issued.oneOf("scope", TOKEN_SCOPES),
+    permissions: issued.array("permissions", decodeTokenPermission),
     issuedAt: issued.string("issuedAt"),
     expiresAt: issued.string("expiresAt"),
     presentedValue: issued.string("presentedValue"),

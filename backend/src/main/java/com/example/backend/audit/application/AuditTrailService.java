@@ -15,6 +15,7 @@ import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.OperationalAlerts;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.Role;
 import java.time.Clock;
 import java.util.List;
@@ -103,7 +104,7 @@ public class AuditTrailService implements AuditTrail {
      * questions an administrator reading the trail is actually asking. It never
      * names the digest, and there is no path for a value that was not stored.
      */
-    private static final List<String> TOKEN_ISSUE_PATHS = List.of("scope", "expiresAt");
+    private static final List<String> TOKEN_ISSUE_PATHS = List.of("permissions", "expiresAt");
 
     /** Rotation shortens the old token and records which token replaced it. */
     private static final List<String> TOKEN_ROTATE_PATHS =
@@ -111,6 +112,13 @@ public class AuditTrailService implements AuditTrail {
 
     /** Revocation touches one column. */
     private static final List<String> TOKEN_REVOKE_PATHS = List.of("revokedAt");
+
+    /**
+     * The path list of an event that changed nothing — a read, a refusal, a creation recorded as
+     * the appearance of a whole resource. One constant rather than an empty list built at each
+     * call site, so "nothing changed" is spelled once.
+     */
+    private static final List<String> NO_PATHS = List.of();
 
     /**
      * The one reason an authorization refusal is recorded with, whichever rule refused: generic,
@@ -161,7 +169,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.SUCCESS,
                 accountId,
                 accountId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
@@ -199,7 +207,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.SUCCESS,
                 accountId,
                 accountId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
@@ -256,7 +264,7 @@ public class AuditTrailService implements AuditTrail {
     @Override
     public void recordConnectorCreated(UUID actorId, UUID connectorId) {
         append(connectorEvent(
-                AuditOperation.CONNECTOR_CREATE, actorId, connectorId, List.of()));
+                AuditOperation.CONNECTOR_CREATE, actorId, connectorId, NO_PATHS));
     }
 
     /** Records a connector deleted, with its tokens and aliases. Fail-closed. */
@@ -270,17 +278,35 @@ public class AuditTrailService implements AuditTrail {
     /** Records a token minted for a connector. Fail-closed. */
     @Transactional
     @Override
-    public void recordConnectorTokenIssued(UUID actorId, UUID connectorId) {
-        append(connectorEvent(
-                AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, TOKEN_ISSUE_PATHS));
+    public void recordConnectorTokenIssued(
+            UUID actorId, UUID connectorId, Set<Permission> granted) {
+        append(tokenEvent(AuditOperation.CONNECTOR_TOKEN_ISSUE, true, actorId, connectorId,
+                TOKEN_ISSUE_PATHS, granted));
     }
 
     /** Records a connector's token replaced. Fail-closed. */
     @Transactional
     @Override
-    public void recordConnectorTokenRotated(UUID actorId, UUID connectorId) {
-        append(connectorEvent(
-                AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, TOKEN_ROTATE_PATHS));
+    public void recordConnectorTokenRotated(
+            UUID actorId, UUID connectorId, Set<Permission> granted) {
+        append(tokenEvent(AuditOperation.CONNECTOR_TOKEN_ROTATE, true, actorId, connectorId,
+                TOKEN_ROTATE_PATHS, granted));
+    }
+
+    /** Records a token issue refused as an escalation. Fail-open with an alert. */
+    @Override
+    public void recordConnectorTokenIssueRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested) {
+        appendRaisingAlertOnFailure(tokenEvent(AuditOperation.CONNECTOR_TOKEN_ISSUE, false,
+                actorId, connectorId, TOKEN_ISSUE_PATHS, requested));
+    }
+
+    /** Records a rotation refused as an escalation. Fail-open with an alert. */
+    @Override
+    public void recordConnectorTokenRotateRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested) {
+        appendRaisingAlertOnFailure(tokenEvent(AuditOperation.CONNECTOR_TOKEN_ROTATE, false,
+                actorId, connectorId, TOKEN_ROTATE_PATHS, requested));
     }
 
     /**
@@ -370,7 +396,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.SUCCESS,
                 connectorId,
                 groupId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
@@ -387,7 +413,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 connectorId,
                 null,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -424,7 +450,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 connectorId,
                 groupId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -491,7 +517,7 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 resourceId,
                 group ? AuditEvent.GROUP_RESOURCE_TYPE : AuditEvent.USER_RESOURCE_TYPE,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
@@ -559,7 +585,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 connectorId,
                 userId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -577,7 +603,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.SUCCESS,
                 connectorId,
                 userId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null));
     }
@@ -591,7 +617,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 connectorId,
                 userId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -742,7 +768,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 actorId,
                 subjectId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -756,7 +782,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 actorId,
                 subjectId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -786,7 +812,7 @@ public class AuditTrailService implements AuditTrail {
                 AuditOutcome.FAILURE,
                 userId,
                 userId,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 reason.name()));
     }
@@ -850,7 +876,7 @@ public class AuditTrailService implements AuditTrail {
                 connectorId,
                 userId,
                 AuditEvent.USER_RESOURCE_TYPE,
-                List.of(),
+                NO_PATHS,
                 statusClass,
                 errorCode);
     }
@@ -920,6 +946,41 @@ public class AuditTrailService implements AuditTrail {
                 null);
     }
 
+    /**
+     * A token issue or rotation, granted or refused: named by the connector, carrying the
+     * Permissions the token was given or asked for, by their sorted wire spelling. The spelling
+     * is rendered here, inside the audit slice, from a closed enum — so the stored names cannot be
+     * anything a caller wrote. A refusal is an escalation, changes nothing, and has one reason.
+     */
+    private AuditEvent tokenEvent(
+            AuditOperation operation,
+            boolean granted,
+            UUID actorId,
+            UUID connectorId,
+            List<String> changedPaths,
+            Set<Permission> permissions) {
+        AuditRequest request = requests.current();
+        return new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                operation,
+                granted ? AuditOutcome.SUCCESS : AuditOutcome.FAILURE,
+                actorId,
+                connectorId,
+                AuditEvent.CONNECTOR_RESOURCE_TYPE,
+                connectorId,
+                granted ? changedPaths : NO_PATHS,
+                granted ? AuditEvent.STATUS_OK : AuditEvent.STATUS_CLIENT_ERROR,
+                granted ? null : AuditAdministrativeRefusal.PERMISSION_ESCALATION.name(),
+                request.method(),
+                request.pathTemplate(),
+                request.requestId(),
+                null,
+                null,
+                null,
+                permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value).toList());
+    }
+
     private AuditEvent event(
             AuditOperation operation,
             AuditOutcome outcome,
@@ -967,7 +1028,34 @@ public class AuditTrailService implements AuditTrail {
                 userId,
                 AuditEvent.USER_RESOURCE_TYPE,
                 userId,
-                List.of(),
+                NO_PATHS,
+                AuditEvent.STATUS_CLIENT_ERROR,
+                INSUFFICIENT_PERMISSIONS,
+                operation.method(),
+                operation.pathTemplate(),
+                operation.requestId(),
+                null,
+                null,
+                null));
+    }
+
+    /**
+     * Records an authorization refusal on the SCIM chain. Fail-open with an alert. The connector
+     * is the actor and the subject, as a User is on the application chain's refusal, and the
+     * reason is the same generic one.
+     */
+    @Override
+    public void recordConnectorAccessDenied(UUID connectorId, AuditRequest operation) {
+        appendRaisingAlertOnFailure(new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                AuditOperation.ACCESS_DENIED,
+                AuditOutcome.FAILURE,
+                connectorId,
+                connectorId,
+                AuditEvent.CONNECTOR_RESOURCE_TYPE,
+                connectorId,
+                NO_PATHS,
                 AuditEvent.STATUS_CLIENT_ERROR,
                 INSUFFICIENT_PERMISSIONS,
                 operation.method(),
@@ -999,7 +1087,7 @@ public class AuditTrailService implements AuditTrail {
                 null,
                 resourceType,
                 null,
-                List.of(),
+                NO_PATHS,
                 AuditEvent.STATUS_OK,
                 null,
                 request.method(),

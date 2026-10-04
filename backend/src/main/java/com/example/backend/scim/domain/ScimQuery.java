@@ -1,5 +1,6 @@
 package com.example.backend.scim.domain;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -41,6 +42,22 @@ public record ScimQuery(
             ScimPageRequest page) {
         ScimFilter parsed = filter == null ? null : ScimFilterParser.parse(filter, types);
         return new ScimQuery(types, parsed, ScimSort.of(sortBy, sortOrder, types), page);
+    }
+
+    /**
+     * This query over only those of its types that are also in {@code permitted} — how a base
+     * search returns only what the token may read. The filter and sort stay as parsed against
+     * every type the request named, so a path valid for a type the token may not read still
+     * means "no value" rather than becoming a malformed filter: the answer is the one the
+     * service would give if the unreadable type held no resources.
+     *
+     * @throws IllegalArgumentException when no type is left, which the caller's authorization
+     *                                  rule exists to prevent
+     */
+    public ScimQuery restrictedTo(Set<ScimResourceType> permitted) {
+        Set<ScimResourceType> kept = new HashSet<>(types);
+        kept.retainAll(permitted);
+        return new ScimQuery(kept, filter, sort, page);
     }
 
     /**

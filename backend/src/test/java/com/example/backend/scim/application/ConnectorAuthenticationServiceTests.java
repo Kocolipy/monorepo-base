@@ -2,11 +2,11 @@ package com.example.backend.scim.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorToken;
@@ -50,31 +50,31 @@ class ConnectorAuthenticationServiceTests {
     }
 
     @Test
-    void a_live_token_resolves_to_its_connector_token_and_scope() {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+    void a_live_token_resolves_to_its_connector_token_and_permissions() {
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
 
         Optional<AuthenticatedConnector> authenticated = service.authenticate(value);
 
         assertThat(authenticated).isPresent();
         assertThat(authenticated.get().connectorId()).isEqualTo(connector.id());
-        assertThat(authenticated.get().scope()).isEqualTo(ConnectorTokenScope.READ_WRITE);
+        assertThat(authenticated.get().permissions()).isEqualTo(TokenPermissions.of(TokenPermissions.ALL));
         assertThat(authenticated.get().tokenId())
                 .isEqualTo(tokens.all().getFirst().id());
     }
 
     @Test
-    void a_read_only_token_resolves_with_read_only_scope() {
-        String value = mint(ConnectorTokenScope.READ_ONLY, NOW.plus(Duration.ofDays(365)));
+    void a_read_only_token_resolves_with_its_read_permissions() {
+        String value = mint(TokenPermissions.READ, NOW.plus(Duration.ofDays(365)));
 
         assertThat(service.authenticate(value))
                 .get()
-                .extracting(AuthenticatedConnector::scope)
-                .isEqualTo(ConnectorTokenScope.READ_ONLY);
+                .extracting(AuthenticatedConnector::permissions)
+                .isEqualTo(TokenPermissions.of(TokenPermissions.READ));
     }
 
     @Test
     void an_expired_token_resolves_to_nothing() {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(1)));
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(1)));
 
         clock.advanceBy(Duration.ofDays(2));
 
@@ -83,7 +83,7 @@ class ConnectorAuthenticationServiceTests {
 
     @Test
     void a_revoked_token_resolves_to_nothing() {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
         ScimConnectorToken stored = tokens.all().getFirst();
         tokens.save(stored.revoked(NOW));
 
@@ -92,7 +92,7 @@ class ConnectorAuthenticationServiceTests {
 
     @Test
     void a_token_whose_connector_was_deleted_resolves_to_nothing() {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
         connectors.save(connector.deleted(NOW));
 
         assertThat(service.authenticate(value)).isEmpty();
@@ -105,7 +105,7 @@ class ConnectorAuthenticationServiceTests {
      */
     @Test
     void a_real_lookup_id_with_a_wrong_secret_resolves_to_nothing() {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
         String lookupId = value.substring(0, value.indexOf('.'));
 
         assertThat(service.authenticate(lookupId + ".not-the-secret")).isEmpty();
@@ -113,14 +113,14 @@ class ConnectorAuthenticationServiceTests {
 
     @Test
     void an_unknown_lookup_id_resolves_to_nothing() {
-        mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+        mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
 
         assertThat(service.authenticate("no-such-lookup.whatever")).isEmpty();
     }
 
     @Test
     void a_malformed_value_resolves_to_nothing_without_reaching_a_lookup() {
-        mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(365)));
+        mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(365)));
 
         assertThat(service.authenticate("")).isEmpty();
         assertThat(service.authenticate("nodot")).isEmpty();
@@ -129,14 +129,14 @@ class ConnectorAuthenticationServiceTests {
     }
 
     /** Mints a token for the seeded connector and returns its plaintext. */
-    private String mint(ConnectorTokenScope scope, Instant expiresAt) {
+    private String mint(java.util.Set<com.example.backend.authorization.domain.Permission> scope, Instant expiresAt) {
         ConnectorTokenSecret.Minted minted = ConnectorTokenSecret.mint(random);
         tokens.save(ScimConnectorToken.issue(
                 UUID.randomUUID(),
                 connector.id(),
                 minted.lookupId(),
                 minted.digest(),
-                scope,
+                TokenPermissions.of(scope),
                 NOW,
                 expiresAt));
         return minted.presentedValue();

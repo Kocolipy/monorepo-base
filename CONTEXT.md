@@ -77,9 +77,9 @@ authenticated by its own tokens.
 _Avoid_: client, integration, IdP (the IdP is what drives a connector)
 
 **SCIM connector token**:
-An opaque bearer credential issued to one connector, read-only or read-write
-across the whole directory, usable only on the SCIM interface.
-_Avoid_: API key
+An opaque bearer credential issued to one connector, carrying Token Permissions,
+usable only on the SCIM interface.
+_Avoid_: API key, scope (no token has one), read-only or read-write token
 
 **Connector external identifier**:
 One connector's own `externalId` alias for a User or Group, invisible to every
@@ -170,6 +170,20 @@ The one mapped Group whose Role holds every Permission: the Admin group. It
 cannot be renamed or deleted and the Bootstrap Admin's membership of it is
 frozen; every other mapped Group is writable and deletable.
 _Avoid_: enabling
+
+**Token Permissions**:
+The Permissions a connector token carries, from the same vocabulary a Role
+grants but only the four directory ones — `user:read`, `user:write`,
+`group:read`, `group:write` — each enforced per resource type on the SCIM
+interface. Write does not imply read. A token holding none, from before tokens
+carried Permissions, reaches discovery and nothing else.
+_Avoid_: scope, `scim.read`, `scim.write` (they no longer exist)
+
+**No escalation**:
+The rule that a token may carry only Permissions its creator holds itself, on
+issue and on rotation alike, so `connector:token` mints credentials but never
+more power than its holder has; a refused attempt is audited with the
+Permissions asked for.
 
 **Baseline access**:
 What every active User holds without any Role and without a required

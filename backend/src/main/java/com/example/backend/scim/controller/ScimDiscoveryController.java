@@ -10,13 +10,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * The public discovery endpoints: what this service can do, and the resources and schemas
- * it serves.
+ * The discovery endpoints: what this service can do, and the resources and schemas it serves.
  *
- * <p>Public because a connector must read them before it holds a credential — that is what
- * they are for. They disclose capabilities and schemas and no directory content, and they
- * are GET-only, so nothing reachable without a token can write. The access rule itself
- * lives in {@code ScimSecurityConfig} beside every other rule for this namespace.
+ * <p>Readable with any valid connector token and no Permission (ADR 0010): a connector reads
+ * them before it knows which Permissions it was given. They disclose capabilities and schemas
+ * and no directory content, and they are GET-only. The access rule itself lives in
+ * {@code ScimPermissionRule}, applied by the chain's bearer filter, beside every other rule for
+ * this namespace.
  *
  * <p>Every handler refuses a {@code filter} parameter. RFC 7644 has a provider IGNORE
  * filtering on discovery endpoints, and ignoring it is the one answer a client cannot tell

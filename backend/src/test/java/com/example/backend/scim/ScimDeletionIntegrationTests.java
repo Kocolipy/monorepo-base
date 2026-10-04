@@ -9,11 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
@@ -126,10 +126,10 @@ class ScimDeletionIntegrationTests {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         connectorA = connectors.create("Deleting Okta", "test-admin").id();
-        tokenA = connectors.issueToken(connectorA, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
-        readOnlyToken = connectors.issueToken(connectorA, ConnectorTokenScope.READ_ONLY, null,
-                "test-admin").presentedValue();
+        tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach
@@ -501,7 +501,7 @@ class ScimDeletionIntegrationTests {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             assertThat(userService.delete(
                     new AuthenticatedConnector(connectorA, UUID.randomUUID(),
-                            ConnectorTokenScope.READ_WRITE),
+                            TokenPermissions.of(TokenPermissions.ALL)),
                     user,
                     ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\""))))
                     .isTrue();

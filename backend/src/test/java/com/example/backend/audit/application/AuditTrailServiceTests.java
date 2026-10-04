@@ -16,11 +16,16 @@ import com.example.backend.audit.domain.AuditRequest;
 import com.example.backend.audit.domain.AuditRequestContext;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.audit.domain.AuditPasswordChangeRefusal;
 import com.example.backend.audit.domain.OperationalAlerts;
+import com.example.backend.authorization.domain.Permission;
+import com.example.backend.authorization.domain.Role;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -514,6 +519,280 @@ class AuditTrailServiceTests {
         trail.recordAccessDenied(ACTOR, new AuditRequest("GET", "/api/count", null));
 
         assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
+    }
+
+    /** On the SCIM chain the refused caller is a connector, named as actor, subject and resource. */
+    @Test
+    void aScimAuthorizationRefusalNamesTheConnectorTheOperationAndTheGenericReason() {
+        trail.recordConnectorAccessDenied(
+                GROUP, new AuditRequest("POST", "/scim/v2/Users", "req-scim-refused"));
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.ACCESS_DENIED);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(event.actorId()).isEqualTo(GROUP);
+        assertThat(event.subjectId()).isEqualTo(GROUP);
+        assertThat(event.resourceId()).isEqualTo(GROUP);
+        assertThat(event.resourceType()).isEqualTo(AuditEvent.CONNECTOR_RESOURCE_TYPE);
+        assertThat(event.errorCode()).isEqualTo("INSUFFICIENT_PERMISSIONS");
+        assertThat(event.statusClass()).isEqualTo("client_error");
+        assertThat(event.httpMethod()).isEqualTo("POST");
+        assertThat(event.httpPath()).isEqualTo("/scim/v2/Users");
+        assertThat(event.requestId()).isEqualTo("req-scim-refused");
+        assertThat(event.occurredAt()).isEqualTo(NOW);
+        assertThat(event.id()).isNotNull();
+        assertThat(event.permissions()).as("never the missing Permission").isEmpty();
+        assertThat(event.changedPaths()).isEmpty();
+    }
+
+    @Test
+    void aScimAuthorizationRefusalFailsOpenWithAnAlert() {
+        events.failWith(new IllegalStateException("insert refused"));
+
+        trail.recordConnectorAccessDenied(GROUP, new AuditRequest("GET", "/scim/v2/Users", null));
+
+        assertThat(alerts.raised).containsExactly(AuditOperation.ACCESS_DENIED);
+    }
+
+    /** Issue and rotation name the Permissions granted, sorted by their wire spelling. */
+    @Test
+    void aTokenIssueAndRotationRecordThePermissionsGranted() {
+        // An EnumSet iterates in declaration order (user:write first), not name order.
+        trail.recordConnectorTokenIssued(ACTOR, GROUP,
+                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ));
+        trail.recordConnectorTokenRotated(ACTOR, GROUP, Set.of(Permission.GROUP_WRITE));
+
+        assertThat(events.appended).hasSize(2);
+        AuditEvent issued = events.appended.get(0);
+        assertThat(issued.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ISSUE);
+        assertThat(issued.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(issued.actorId()).isEqualTo(ACTOR);
+        assertThat(issued.resourceId()).isEqualTo(GROUP);
+        assertThat(issued.resourceType()).isEqualTo(AuditEvent.CONNECTOR_RESOURCE_TYPE);
+        assertThat(issued.permissions()).containsExactly("group:read", "user:write");
+        assertThat(issued.changedPaths()).containsExactly("permissions", "expiresAt");
+        assertThat(issued.statusClass()).isEqualTo("ok");
+        assertThat(issued.errorCode()).isNull();
+        // Everything but the Permissions is the connector event's own: identity, time, request.
+        assertThat(issued.id()).isNotNull();
+        assertThat(issued.occurredAt()).isEqualTo(NOW);
+        assertThat(issued.httpMethod()).isEqualTo("POST");
+        assertThat(issued.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
+        assertThat(issued.requestId()).isEqualTo("req-1");
+        AuditEvent rotated = events.appended.get(1);
+        assertThat(rotated.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
+        assertThat(rotated.permissions()).containsExactly("group:write");
+        assertThat(rotated.changedPaths()).containsExactly("expiresAt", "replacedByTokenId");
+    }
+
+    /** A refused escalation names the connector and the Permissions requested, and changes nothing. */
+    @Test
+    void aRefusedEscalationRecordsThePermissionsRequested() {
+        trail.recordConnectorTokenIssueRefused(ACTOR, GROUP,
+                EnumSet.of(Permission.USER_WRITE, Permission.GROUP_READ));
+        trail.recordConnectorTokenRotateRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
+
+        assertThat(events.appended).hasSize(2);
+        for (AuditEvent refused : events.appended) {
+            assertThat(refused.outcome()).isEqualTo(AuditOutcome.FAILURE);
+            assertThat(refused.actorId()).isEqualTo(ACTOR);
+            assertThat(refused.subjectId()).isEqualTo(GROUP);
+            assertThat(refused.resourceId()).isEqualTo(GROUP);
+            assertThat(refused.resourceType()).isEqualTo(AuditEvent.CONNECTOR_RESOURCE_TYPE);
+            assertThat(refused.errorCode()).isEqualTo("PERMISSION_ESCALATION");
+            assertThat(refused.statusClass()).isEqualTo("client_error");
+            assertThat(refused.changedPaths()).isEmpty();
+        }
+        assertThat(events.appended.get(0).operation())
+                .isEqualTo(AuditOperation.CONNECTOR_TOKEN_ISSUE);
+        assertThat(events.appended.get(0).permissions())
+                .containsExactly("group:read", "user:write");
+        assertThat(events.appended.get(1).operation())
+                .isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
+        assertThat(events.appended.get(1).permissions()).containsExactly("user:read");
+    }
+
+    /** The refusal is already the caller's 403: fail-open, with an alert, like every refusal. */
+    @Test
+    void aRefusedEscalationFailsOpenAndAGrantFailsClosed() {
+        events.failWith(new IllegalStateException("insert refused"));
+
+        trail.recordConnectorTokenIssueRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
+        trail.recordConnectorTokenRotateRefused(ACTOR, GROUP, Set.of(Permission.USER_READ));
+        assertThatThrownBy(() -> trail.recordConnectorTokenIssued(
+                ACTOR, GROUP, Set.of(Permission.USER_READ)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(alerts.raised).containsExactly(
+                AuditOperation.CONNECTOR_TOKEN_ISSUE, AuditOperation.CONNECTOR_TOKEN_ROTATE);
+    }
+
+    // Every recorder, field by field: an append removed or a field built wrong fails here
+
+    /** The connector lifecycle events name the connector, the actor and what changed. */
+    @Test
+    void theConnectorLifecycleEventsNameTheConnectorAndWhatChanged() {
+        trail.recordConnectorCreated(ACTOR, GROUP);
+        trail.recordConnectorDeleted(ACTOR, GROUP);
+        trail.recordConnectorTokenRevoked(null, GROUP);
+
+        assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
+                AuditOperation.CONNECTOR_CREATE, AuditOperation.CONNECTOR_DELETE,
+                AuditOperation.CONNECTOR_TOKEN_REVOKE);
+        assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
+                List.of(), List.of("deletedAt"), List.of("revokedAt"));
+        assertThat(events.appended).extracting(AuditEvent::actorId)
+                .containsExactly(ACTOR, ACTOR, null);
+        assertThat(events.appended).allSatisfy(event -> {
+            assertThat(event.subjectId()).isEqualTo(GROUP);
+            assertThat(event.resourceId()).isEqualTo(GROUP);
+            assertThat(event.resourceType()).isEqualTo(AuditEvent.CONNECTOR_RESOURCE_TYPE);
+            assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+            assertThat(event.statusClass()).isEqualTo(AuditEvent.STATUS_OK);
+            assertThat(event.errorCode()).isNull();
+        });
+    }
+
+    @Test
+    void aCreatedUserAndADeletedGroupAreEachOneSuccess() {
+        trail.recordScimUserCreated(ACTOR, SUBJECT);
+        trail.recordScimGroupDeleted(ACTOR, GROUP);
+
+        assertThat(events.appended).hasSize(2);
+        AuditEvent created = events.appended.get(0);
+        assertThat(created.operation()).isEqualTo(AuditOperation.SCIM_USER_CREATE);
+        assertThat(created.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(created.actorId()).isEqualTo(ACTOR);
+        assertThat(created.resourceId()).isEqualTo(SUBJECT);
+        assertThat(created.resourceType()).isEqualTo(AuditEvent.USER_RESOURCE_TYPE);
+        AuditEvent deleted = events.appended.get(1);
+        assertThat(deleted.operation()).isEqualTo(AuditOperation.SCIM_GROUP_DELETE);
+        assertThat(deleted.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(deleted.resourceId()).isEqualTo(GROUP);
+        assertThat(deleted.resourceType()).isEqualTo(AuditEvent.GROUP_RESOURCE_TYPE);
+        assertThat(deleted.changedPaths()).containsExactly("members");
+    }
+
+    @Test
+    void aRefusedUserWriteNamesTheUserAndTheRefusal() {
+        trail.recordScimUserWriteRejected(ACTOR, SUBJECT, AuditScimRefusal.MUTABILITY);
+
+        AuditEvent event = events.only();
+        assertThat(event.operation()).isEqualTo(AuditOperation.SCIM_USER_REPLACE);
+        assertThat(event.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(event.actorId()).isEqualTo(ACTOR);
+        assertThat(event.subjectId()).isEqualTo(SUBJECT);
+        assertThat(event.statusClass()).isEqualTo(AuditEvent.STATUS_CLIENT_ERROR);
+        assertThat(event.errorCode()).isEqualTo("MUTABILITY");
+    }
+
+    /**
+     * A revocation names its causes in a stable order whatever order the set iterates in, and a
+     * failed one is a server-side failure rather than a refusal of the caller.
+     */
+    @Test
+    void aSessionRevocationNamesItsCausesInOrderAndClassifiesItsOutcome() {
+        Set<AuditUserAttribute> causes = new LinkedHashSet<>(List.of(
+                AuditUserAttribute.PASSWORD, AuditUserAttribute.ACTIVE, AuditUserAttribute.USER_NAME));
+        trail.recordUserSessionsRevoked(ACTOR, SUBJECT, causes, true);
+        trail.recordUserSessionsRevoked(null, SUBJECT, Set.of(AuditUserAttribute.GROUPS), false);
+
+        AuditEvent revoked = events.appended.get(0);
+        assertThat(revoked.operation()).isEqualTo(AuditOperation.USER_SESSIONS_REVOKE);
+        assertThat(revoked.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(revoked.statusClass()).isEqualTo(AuditEvent.STATUS_OK);
+        assertThat(revoked.actorId()).isEqualTo(ACTOR);
+        assertThat(revoked.subjectId()).isEqualTo(SUBJECT);
+        assertThat(revoked.changedPaths()).containsExactly("userName", "active", "password");
+        AuditEvent failed = events.appended.get(1);
+        assertThat(failed.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(failed.statusClass()).isEqualTo(AuditEvent.STATUS_SERVER_ERROR);
+        assertThat(failed.actorId()).isNull();
+        assertThat(failed.changedPaths()).containsExactly("groups");
+    }
+
+    /** A Group replacement names its moved attributes in a stable order, too. */
+    @Test
+    void aGroupReplacementNamesItsChangedPathsInOrderWhateverTheSetsOrder() {
+        Set<AuditGroupAttribute> changed = new LinkedHashSet<>(List.of(
+                AuditGroupAttribute.EXTERNAL_ID, AuditGroupAttribute.MEMBERS,
+                AuditGroupAttribute.DISPLAY_NAME));
+
+        trail.recordScimGroupReplaced(ACTOR, GROUP, changed);
+
+        assertThat(events.only().changedPaths())
+                .containsExactly("displayName", "members", "externalId");
+    }
+
+    /** The scheduled jobs act as nobody: no actor, the User as subject, what they changed. */
+    @Test
+    void theScheduledJobsRecordNoActor() {
+        trail.recordInactivityDeactivation(SUBJECT);
+        trail.recordDormantAuthorityRevocation(SUBJECT);
+
+        assertThat(events.appended).extracting(AuditEvent::operation).containsExactly(
+                AuditOperation.INACTIVITY_DEACTIVATION, AuditOperation.DORMANT_AUTHORITY_REVOCATION);
+        assertThat(events.appended).extracting(AuditEvent::changedPaths).containsExactly(
+                List.of("active"), List.of("groups"));
+        assertThat(events.appended).allSatisfy(event -> {
+            assertThat(event.actorId()).isNull();
+            assertThat(event.subjectId()).isEqualTo(SUBJECT);
+            assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+            assertThat(event.resourceType()).isEqualTo(AuditEvent.USER_RESOURCE_TYPE);
+        });
+    }
+
+    @Test
+    void passwordEventsNameTheCredentialPathsOrTheRefusal() {
+        trail.recordPasswordChanged(SUBJECT);
+        trail.recordPasswordChangeRefused(SUBJECT, AuditPasswordChangeRefusal.TOO_SHORT);
+        trail.recordPasswordChangeRequirementRefused(
+                ACTOR, SUBJECT, AuditAdministrativeRefusal.SELF_TARGET);
+
+        AuditEvent changed = events.appended.get(0);
+        assertThat(changed.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE);
+        assertThat(changed.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+        assertThat(changed.actorId()).isEqualTo(SUBJECT);
+        assertThat(changed.subjectId()).isEqualTo(SUBJECT);
+        assertThat(changed.changedPaths())
+                .containsExactly("password", "passwordChangeRequiredSince");
+        AuditEvent refused = events.appended.get(1);
+        assertThat(refused.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE);
+        assertThat(refused.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(refused.actorId()).isEqualTo(SUBJECT);
+        assertThat(refused.errorCode()).isEqualTo("TOO_SHORT");
+        assertThat(refused.statusClass()).isEqualTo(AuditEvent.STATUS_CLIENT_ERROR);
+        AuditEvent requirement = events.appended.get(2);
+        assertThat(requirement.operation()).isEqualTo(AuditOperation.PASSWORD_CHANGE_REQUIRE);
+        assertThat(requirement.outcome()).isEqualTo(AuditOutcome.FAILURE);
+        assertThat(requirement.actorId()).isEqualTo(ACTOR);
+        assertThat(requirement.subjectId()).isEqualTo(SUBJECT);
+        assertThat(requirement.errorCode()).isEqualTo("SELF_TARGET");
+    }
+
+    /** A Role change names the User as subject, the Group as resource, and the Role by name. */
+    @Test
+    void aRoleChangeNamesTheUserTheGroupAndTheRole() {
+        Role role = new Role("Account admin", Set.of(Permission.USER_READ));
+        trail.recordRoleGranted(ACTOR, SUBJECT, GROUP, role);
+        trail.recordRoleRevoked(ACTOR, SUBJECT, GROUP, role);
+
+        assertThat(events.appended).extracting(AuditEvent::operation)
+                .containsExactly(AuditOperation.ROLE_GRANT, AuditOperation.ROLE_REVOKE);
+        assertThat(events.appended).allSatisfy(event -> {
+            assertThat(event.id()).isNotNull();
+            assertThat(event.occurredAt()).isEqualTo(NOW);
+            assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+            assertThat(event.actorId()).isEqualTo(ACTOR);
+            assertThat(event.subjectId()).isEqualTo(SUBJECT);
+            assertThat(event.resourceId()).isEqualTo(GROUP);
+            assertThat(event.resourceType()).isEqualTo(AuditEvent.GROUP_RESOURCE_TYPE);
+            assertThat(event.changedPaths()).containsExactly("members");
+            assertThat(event.role()).isEqualTo("Account admin");
+            assertThat(event.httpMethod()).isEqualTo("POST");
+            assertThat(event.httpPath()).isEqualTo("/api/admin/accounts/{id}/unlock");
+            assertThat(event.requestId()).isEqualTo("req-1");
+        });
     }
 
     // The two failure semantics

@@ -9,9 +9,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ReservedResourceName;
 import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
@@ -116,7 +116,7 @@ class ScimGroupProvisioningIntegrationTests {
                 .build();
         UUID connectorId = connectors.create("Okta", "test-admin").id();
         writeToken = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin")
+                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
                 .presentedValue();
     }
 

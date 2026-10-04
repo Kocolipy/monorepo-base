@@ -13,7 +13,8 @@ import java.util.UUID;
  *
  * @param connectorId the acting connector's stable id
  * @param tokenId     the token it presented
- * @param scope       what that token authorises, directory-wide
+ * @param permissions what that token authorises
  */
-public record AuthenticatedConnector(UUID connectorId, UUID tokenId, ConnectorTokenScope scope) {
+public record AuthenticatedConnector(
+        UUID connectorId, UUID tokenId, ConnectorTokenPermissions permissions) {
 }

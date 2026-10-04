@@ -15,9 +15,17 @@ public final class InMemoryScimConnectorTokenRepository implements ScimConnector
 
     private final Map<UUID, ScimConnectorToken> tokens = new LinkedHashMap<>();
 
+    private int saves;
+
     @Override
     public void save(ScimConnectorToken token) {
+        saves++;
         tokens.put(token.id(), token);
+    }
+
+    /** How many writes have been made, so a test can assert that a use case wrote nothing. */
+    public int saves() {
+        return saves;
     }
 
     @Override

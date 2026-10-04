@@ -8,10 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import jakarta.servlet.Filter;
 import java.util.ArrayList;
@@ -114,7 +114,7 @@ class ScimUserProvisioningIntegrationTests {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         connectorId = connectors.create("Okta", "test-admin").id();
-        writeToken = issueTokenFor(connectorId, ConnectorTokenScope.READ_WRITE);
+        writeToken = issueTokenFor(connectorId, TokenPermissions.ALL);
     }
 
     /**
@@ -373,7 +373,7 @@ class ScimUserProvisioningIntegrationTests {
      */
     @Test
     void a_read_only_token_cannot_create_and_creates_nothing() throws Exception {
-        String readOnly = issueTokenFor(connectorId, ConnectorTokenScope.READ_ONLY);
+        String readOnly = issueTokenFor(connectorId, TokenPermissions.READ);
         long before = users();
 
         MvcResult refused = mvc.perform(post(USERS)
@@ -415,7 +415,7 @@ class ScimUserProvisioningIntegrationTests {
         UUID id = UUID.fromString(body(created).get("id").asText());
 
         UUID otherConnector = connectors.create("Entra", "test-admin").id();
-        String otherToken = issueTokenFor(otherConnector, ConnectorTokenScope.READ_WRITE);
+        String otherToken = issueTokenFor(otherConnector, TokenPermissions.ALL);
         aliases.put(otherConnector, id, "entra-1");
 
         assertThat(readAs(writeToken, id).get("externalId").asText()).isEqualTo("okta-1");
@@ -427,7 +427,7 @@ class ScimUserProvisioningIntegrationTests {
 
         // A third connector set none, and sees none rather than inheriting one.
         UUID thirdConnector = connectors.create("Ping", "test-admin").id();
-        String thirdToken = issueTokenFor(thirdConnector, ConnectorTokenScope.READ_WRITE);
+        String thirdToken = issueTokenFor(thirdConnector, TokenPermissions.ALL);
         assertThat(readAs(thirdToken, id).get("externalId")).isNull();
     }
 
@@ -744,8 +744,8 @@ class ScimUserProvisioningIntegrationTests {
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + writeToken);
     }
 
-    private String issueTokenFor(UUID connector, ConnectorTokenScope scope) {
-        return connectors.issueToken(connector, scope, null, "test-admin").presentedValue();
+    private String issueTokenFor(UUID connector, java.util.Set<com.example.backend.authorization.domain.Permission> scope) {
+        return connectors.issueToken(connector, scope, null, "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     private JsonNode body(MvcResult result) throws Exception {

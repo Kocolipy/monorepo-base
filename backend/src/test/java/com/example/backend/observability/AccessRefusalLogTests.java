@@ -170,8 +170,7 @@ class AccessRefusalLogTests {
                         org.assertj.core.groups.Tuple.tuple("bearer-missing", 401),
                         org.assertj.core.groups.Tuple.tuple("bearer-invalid", 401),
                         org.assertj.core.groups.Tuple.tuple("insufficient-permissions", 403),
-                        org.assertj.core.groups.Tuple.tuple("csrf", 403),
-                        org.assertj.core.groups.Tuple.tuple("insufficient-scope", 403));
+                        org.assertj.core.groups.Tuple.tuple("csrf", 403));
     }
 
     /**

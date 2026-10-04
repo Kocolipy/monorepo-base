@@ -92,9 +92,8 @@ app:
     #
     # It defaulted to CLOSED while only the User half of the model existed. Users
     # and Groups are one release capability, and the Group half now exists, so the
-    # gate opened. An open gate does not mean an open service: the resource
-    # endpoints are reachable but still answer 401 without a connector token, and
-    # only the discovery documents are public.
+    # gate opened. An open gate does not mean an open service: every path in the
+    # namespace, discovery included, still answers 401 without a connector token.
     #
     # Turn SCIM off with APP_SCIM_ENABLED=false; see README.md's Configuration
     # section.

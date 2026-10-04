@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.authorization.domain.Role;
 import java.util.ArrayList;
 import java.util.List;
@@ -87,15 +88,37 @@ public final class RecordingAuditTrail implements AuditTrail {
     }
 
     @Override
-    public void recordConnectorTokenIssued(UUID actorId, UUID connectorId) {
+    public void recordConnectorTokenIssued(
+            UUID actorId, UUID connectorId, Set<Permission> granted) {
         recorded.add(new Recorded(
-                AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, null));
+                AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId, names(granted)));
     }
 
     @Override
-    public void recordConnectorTokenRotated(UUID actorId, UUID connectorId) {
+    public void recordConnectorTokenRotated(
+            UUID actorId, UUID connectorId, Set<Permission> granted) {
         recorded.add(new Recorded(
-                AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, null));
+                AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId, names(granted)));
+    }
+
+    @Override
+    public void recordConnectorTokenIssueRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested) {
+        recorded.add(new Recorded(AuditOperation.CONNECTOR_TOKEN_ISSUE, actorId, connectorId,
+                AuditAdministrativeRefusal.PERMISSION_ESCALATION.name() + " " + names(requested)));
+    }
+
+    @Override
+    public void recordConnectorTokenRotateRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested) {
+        recorded.add(new Recorded(AuditOperation.CONNECTOR_TOKEN_ROTATE, actorId, connectorId,
+                AuditAdministrativeRefusal.PERMISSION_ESCALATION.name() + " " + names(requested)));
+    }
+
+    /** Permissions by their sorted wire spelling, comma-joined: {@code group:read,user:read}. */
+    private static String names(Set<Permission> permissions) {
+        return permissions.stream().sorted(Permission.BY_VALUE).map(Permission::value)
+                .collect(Collectors.joining(","));
     }
 
     @Override
@@ -292,6 +315,14 @@ public final class RecordingAuditTrail implements AuditTrail {
 
     private final List<com.example.backend.audit.domain.AuditRequest> accessDeniedRequests =
             new ArrayList<>();
+
+    @Override
+    public void recordConnectorAccessDenied(
+            UUID connectorId, com.example.backend.audit.domain.AuditRequest operation) {
+        accessDeniedRequests.add(operation);
+        recorded.add(new Recorded(AuditOperation.ACCESS_DENIED, connectorId, connectorId,
+                operationOf(operation)));
+    }
 
     /** The operation each authorization refusal was recorded with, request id included. */
     public List<com.example.backend.audit.domain.AuditRequest> accessDeniedRequests() {

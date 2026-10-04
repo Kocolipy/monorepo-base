@@ -3,6 +3,7 @@ package com.example.backend.scim.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.TokenPermissions;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -88,7 +89,7 @@ class ScimConnectorTokenTests {
                         CONNECTOR,
                         "lookup",
                         ConnectorTokenDigest.of("lookup.secret"),
-                        ConnectorTokenScope.READ_ONLY,
+                        TokenPermissions.of(TokenPermissions.READ),
                         ISSUED,
                         EXPIRES.plusSeconds(1),
                         EXPIRES,
@@ -116,7 +117,7 @@ class ScimConnectorTokenTests {
                 CONNECTOR,
                 "lookup",
                 ConnectorTokenDigest.of("lookup.secret"),
-                ConnectorTokenScope.READ_WRITE,
+                TokenPermissions.of(TokenPermissions.ALL),
                 ISSUED,
                 EXPIRES);
     }

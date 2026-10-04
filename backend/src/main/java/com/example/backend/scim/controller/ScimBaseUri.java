@@ -11,8 +11,8 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
  * {@code meta.location} and {@code $ref} the service emits is built the same way and honours the
  * same forwarded-header handling.
  *
- * <p>Depends on the request alone, never on a connector principal, so the public discovery
- * endpoints can call it before any credential is presented.
+ * <p>Depends on the request alone, never on a connector principal, so the discovery endpoints —
+ * which need no Permission — render it exactly as the resource endpoints do.
  */
 final class ScimBaseUri {
 

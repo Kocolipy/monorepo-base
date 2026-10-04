@@ -52,12 +52,13 @@ final class ScimBearerChallenge {
     }
 
     /**
-     * The refusal for a valid read-only token attempting a mutation: {@code 403},
-     * because the credential is genuine and it is the action that is not permitted.
-     * A {@code 401} here would send a working integration into a credential-refresh
-     * loop over a request that will never be allowed.
+     * The refusal for a valid token lacking the Permission the request needs: {@code 403},
+     * because the credential is genuine and it is the action that is not permitted. A
+     * {@code 401} here would send a working integration into a credential-refresh loop over a
+     * request that will never be allowed. RFC 6750's {@code insufficient_scope} is the error
+     * code for exactly this, and the header names no Permission.
      */
-    static void insufficientScope(HttpServletResponse response) {
+    static void insufficientPermissions(HttpServletResponse response) {
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, INSUFFICIENT_SCOPE);
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
     }

@@ -96,18 +96,22 @@ class LogEventTests {
 
     /**
      * The mapping #95 changed: dormant-authority revocation is administration of a User's
-     * standing, and a connector and its tokens are the provisioning channel's lifecycle.
-     * {@code access-control} is left to the access decisions themselves.
+     * standing, and a connector and its tokens are the provisioning channel's lifecycle —
+     * except issuing and rotating a token, which grant Permissions and so are user
+     * administration (#117, the spec's observability table). {@code access-control} is left to
+     * the access decisions themselves.
      */
     @Test
     void eachOperationCarriesItsNearestStandardAction() {
         assertThat(Operation.DORMANT_AUTHORITY_REVOCATION.action())
                 .isEqualTo(Action.USER_ADMINISTRATION);
         assertThat(List.of(Operation.CONNECTOR_CREATE, Operation.CONNECTOR_DELETE,
-                        Operation.CONNECTOR_TOKEN_ISSUE, Operation.CONNECTOR_TOKEN_ROTATE,
                         Operation.CONNECTOR_TOKEN_REVOKE))
                 .extracting(Operation::action)
                 .containsOnly(Action.USER_PROVISIONING);
+        assertThat(List.of(Operation.CONNECTOR_TOKEN_ISSUE, Operation.CONNECTOR_TOKEN_ROTATE))
+                .extracting(Operation::action)
+                .containsOnly(Action.USER_ADMINISTRATION);
         assertThat(Arrays.stream(Operation.values())
                         .filter(operation -> operation.action() == Action.ACCESS_CONTROL))
                 .containsExactlyInAnyOrder(

@@ -1,13 +1,14 @@
 package com.example.backend.scim.config;
 
+import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.observability.AccessRefusalLog;
+import com.example.backend.observability.RouteTemplates;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import java.security.SecureRandom;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -44,21 +45,6 @@ public class ScimSecurityConfig {
 
     /** The namespace this chain owns, exact path and everything beneath it. */
     private static final String SCIM_NAMESPACE = "/scim/v2/**";
-
-    /**
-     * Discovery, which a connector must read before it holds a token at all — that is
-     * the point of the endpoints, so they are public. They disclose this service's
-     * SCIM capabilities and schemas and no directory content; GET only, so nothing
-     * public can write. The handlers are {@code ScimDiscoveryController}; the rules are
-     * here, beside every other access rule for this namespace.
-     */
-    private static final String[] PUBLIC_DISCOVERY_PATHS = {
-        "/scim/v2/ServiceProviderConfig",
-        "/scim/v2/ResourceTypes",
-        "/scim/v2/ResourceTypes/**",
-        "/scim/v2/Schemas",
-        "/scim/v2/Schemas/**",
-    };
 
     /**
      * The one source of random material for connector tokens.
@@ -114,7 +100,9 @@ public class ScimSecurityConfig {
             HttpSecurity http,
             ConnectorAuthenticationService connectors,
             ScimReleaseGate releaseGate,
-            AccessRefusalLog accessRefusalLog) {
+            AccessRefusalLog accessRefusalLog,
+            AuditTrail audit,
+            RouteTemplates routeTemplates) {
         AuthenticationEntryPoint challenge = new ScimBearerEntryPoint(accessRefusalLog);
 
         // A stateless bearer API has no CSRF exposure to protect, because the
@@ -163,12 +151,15 @@ public class ScimSecurityConfig {
                 .addFilterBefore(new ScimRequestBodyLimitFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(new ScimDispatcherErrorFilter(), HeaderWriterFilter.class)
                 .addFilterBefore(
-                        new ScimBearerAuthenticationFilter(connectors, accessRefusalLog),
+                        new ScimBearerAuthenticationFilter(
+                                connectors, accessRefusalLog, audit, routeTemplates),
                         AuthorizationFilter.class)
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(challenge))
+                // Every request needs a valid token, discovery included (ADR 0010): what a
+                // request needs BEYOND a token is the bearer filter's decision, made from the
+                // token's Permissions before this rule is reached. No route is public here.
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.GET, PUBLIC_DISCOVERY_PATHS).permitAll()
                         .anyRequest().authenticated())
                 .build();
     }

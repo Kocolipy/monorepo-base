@@ -6,9 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,8 +79,8 @@ class ScimReleaseGateIntegrationTests {
     /**
      * Every path in the namespace, discovery included, is simply not there.
      *
-     * <p>Discovery is the interesting one: it is PUBLIC when the gate is open, so a closed
-     * gate that only covered the authenticated endpoints would leave the service advertising
+     * <p>Discovery is the interesting one: it needs no Permission when the gate is open, so a
+     * closed gate that only covered the resource endpoints would leave the service advertising
      * a SCIM interface it does not serve.
      */
     @ParameterizedTest
@@ -143,7 +143,7 @@ class ScimReleaseGateIntegrationTests {
     void a_valid_write_token_creates_nothing_while_the_gate_is_closed() throws Exception {
         UUID connectorId = connectors.create("Okta", "test-admin").id();
         String token = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin")
+                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
                 .presentedValue();
         long before = users();
 

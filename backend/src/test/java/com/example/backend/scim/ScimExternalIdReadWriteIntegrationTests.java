@@ -8,9 +8,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ScimExternalIdRepository;
 import jakarta.servlet.Filter;
 import java.time.Instant;
@@ -133,11 +133,11 @@ class ScimExternalIdReadWriteIntegrationTests {
                 .addFilters(requestIdFilter, springSecurityFilterChain)
                 .build();
         connectorA = connectors.create("Entra-extid", "test-admin").id();
-        tokenA = connectors.issueToken(connectorA, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
+        tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
         connectorB = connectors.create("Okta-extid", "test-admin").id();
-        tokenB = connectors.issueToken(connectorB, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
+        tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     /**

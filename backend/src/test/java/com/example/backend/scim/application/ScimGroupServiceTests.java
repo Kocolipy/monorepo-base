@@ -3,6 +3,7 @@ package com.example.backend.scim.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
@@ -18,7 +19,6 @@ import com.example.backend.scim.InMemoryScimTombstoneRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.PreconditionFailedException;
 import com.example.backend.scim.domain.ProtectedResourceException;
@@ -57,7 +57,7 @@ import tools.jackson.databind.JsonNode;
 class ScimGroupServiceTests {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
     /** An ordinary mapped Group: writable and deletable, its membership conferring a Role. */
     private static final UUID HELPDESK_GROUP_ID =
@@ -520,7 +520,7 @@ class ScimGroupServiceTests {
     // ---- externalId -----------------------------------------------------------------------------
 
     private static final AuthenticatedConnector OTHER_CONNECTOR = new AuthenticatedConnector(
-            UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+            UUID.randomUUID(), UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL));
 
     private ScimGroupResource aliased() {
         ScimGroupResource created = service.create(

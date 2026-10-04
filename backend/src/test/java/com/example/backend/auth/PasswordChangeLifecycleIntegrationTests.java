@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.DormancyRun;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.auth.application.InactivityDeactivationService;
@@ -17,7 +18,6 @@ import com.example.backend.scim.ScimConditionalWrites;
 import com.example.backend.scim.application.ConnectorAdministrationService;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.DormancyPolicy;
 import com.example.backend.scim.domain.ScimPasswordHistoryRepository;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
@@ -160,7 +160,7 @@ class PasswordChangeLifecycleIntegrationTests {
         UUID connectorId = connectors.create("lifecycle-connector", BOOTSTRAP_ADMIN).id();
         this.connectorId = connectorId;
         writeToken = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, BOOTSTRAP_ADMIN)
+                .issueToken(connectorId, TokenPermissions.ALL, null, BOOTSTRAP_ADMIN, TokenPermissions.ALL)
                 .presentedValue();
     }
 
@@ -510,7 +510,7 @@ class PasswordChangeLifecycleIntegrationTests {
 
         transaction.executeWithoutResult(status -> {
             scimUsers.patch(new AuthenticatedConnector(
-                            connectorId, UUID.randomUUID(), ConnectorTokenScope.READ_WRITE),
+                            connectorId, UUID.randomUUID(), TokenPermissions.of(TokenPermissions.ALL)),
                     id, ScimVersionPrecondition.ofIfMatch(List.of()),
                     List.of(new ScimUserPatchOperation.SetPassword("rolled-back-connector-1")));
             assertThat(passwordHistory.findRecentHashes(id))

@@ -63,7 +63,7 @@ final class ScimConformanceCases {
 
     static void discovery(List<Fixture> all) {
         add(all, "discovery: ServiceProviderConfig advertises exactly what is implemented", t -> {
-            JsonNode spc = json(t.expect(t.as(null, HttpMethod.GET,
+            JsonNode spc = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET,
                     BASE + "/ServiceProviderConfig"), 200));
             assertThat(texts(spc.get("schemas"))).containsExactly(SPC_SCHEMA);
             assertThat(spc.at("/patch/supported").asBoolean()).isTrue();
@@ -81,7 +81,7 @@ final class ScimConformanceCases {
         });
 
         add(all, "discovery: ResourceTypes lists User and Group with their endpoints", t -> {
-            JsonNode list = json(t.expect(t.as(null, HttpMethod.GET, BASE + "/ResourceTypes"),
+            JsonNode list = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, BASE + "/ResourceTypes"),
                     200));
             assertThat(texts(list.get("schemas"))).containsExactly(LIST_SCHEMA);
             assertThat(list.get("totalResults").asInt()).isEqualTo(2);
@@ -92,7 +92,7 @@ final class ScimConformanceCases {
 
         for (Kind kind : Kind.values()) {
             add(all, "discovery: ResourceTypes/" + kind.resourceType() + " is retrievable", t -> {
-                JsonNode type = json(t.expect(t.as(null, HttpMethod.GET,
+                JsonNode type = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET,
                         BASE + "/ResourceTypes/" + kind.resourceType()), 200));
                 assertThat(type.get("id").asText()).isEqualTo(kind.resourceType());
                 assertThat(type.get("schema").asText()).isEqualTo(kind.schema);
@@ -100,23 +100,23 @@ final class ScimConformanceCases {
             });
             add(all, "discovery: Schemas/" + kind.resourceType() + " is retrievable by its URI",
                     t -> {
-                        JsonNode schema = json(t.expect(t.as(null, HttpMethod.GET,
+                        JsonNode schema = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET,
                                 BASE + "/Schemas/" + kind.schema), 200));
                         assertThat(schema.get("id").asText()).isEqualTo(kind.schema);
                         assertThat(schema.get("attributes").isArray()).isTrue();
                     });
             add(all, "discovery: a schema URI is compared exactly (" + kind.resourceType() + ")",
-                    t -> t.expectError(t.as(null, HttpMethod.GET,
+                    t -> t.expectError(t.as(t.writeOnlyToken, HttpMethod.GET,
                             BASE + "/Schemas/" + kind.schema.toUpperCase()), 404, null));
         }
 
         add(all, "discovery: Schemas lists the User and Group schemas and nothing else", t -> {
-            JsonNode list = json(t.expect(t.as(null, HttpMethod.GET, BASE + "/Schemas"), 200));
+            JsonNode list = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, BASE + "/Schemas"), 200));
             assertThat(listed(list, "id")).containsExactlyInAnyOrder(USER_SCHEMA, GROUP_SCHEMA);
         });
 
         add(all, "discovery: the User schema advertises exactly the implemented attributes", t -> {
-            JsonNode schema = json(t.expect(t.as(null, HttpMethod.GET,
+            JsonNode schema = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET,
                     BASE + "/Schemas/" + USER_SCHEMA), 200));
             Map<String, JsonNode> attributes = byName(schema.get("attributes"));
             assertThat(attributes.keySet()).containsExactlyInAnyOrder(
@@ -136,7 +136,7 @@ final class ScimConformanceCases {
         });
 
         add(all, "discovery: the Group schema advertises exactly the implemented attributes", t -> {
-            JsonNode schema = json(t.expect(t.as(null, HttpMethod.GET,
+            JsonNode schema = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET,
                     BASE + "/Schemas/" + GROUP_SCHEMA), 200));
             Map<String, JsonNode> attributes = byName(schema.get("attributes"));
             assertThat(attributes.keySet()).containsExactlyInAnyOrder("displayName", "members");
@@ -144,15 +144,15 @@ final class ScimConformanceCases {
         });
 
         add(all, "discovery: unknown resource type and unknown schema are 404", t -> {
-            t.expectError(t.as(null, HttpMethod.GET, BASE + "/ResourceTypes/Device"), 404, null);
-            t.expectError(t.as(null, HttpMethod.GET,
+            t.expectError(t.as(t.writeOnlyToken, HttpMethod.GET, BASE + "/ResourceTypes/Device"), 404, null);
+            t.expectError(t.as(t.writeOnlyToken, HttpMethod.GET,
                     BASE + "/Schemas/urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"),
                     404, null);
         });
 
         for (String path : DISCOVERY) {
             add(all, "discovery: a filter on " + path.substring(BASE.length()) + " is 403", t ->
-                    t.expectError(t.as(null, HttpMethod.GET, path)
+                    t.expectError(t.as(t.writeOnlyToken, HttpMethod.GET, path)
                             .param("filter", "id eq \"User\""), 403, null));
             add(all, "discovery: an invalid token on " + path.substring(BASE.length())
                     + " is 401", t -> {
@@ -165,16 +165,23 @@ final class ScimConformanceCases {
         }
 
         add(all, "discovery: paging parameters are ignored, as RFC 7644 §4 requires", t -> {
-            JsonNode plain = json(t.expect(t.as(null, HttpMethod.GET, BASE + "/ResourceTypes"),
+            JsonNode plain = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, BASE + "/ResourceTypes"),
                     200));
-            JsonNode paged = json(t.expect(t.as(null, HttpMethod.GET, BASE + "/ResourceTypes")
+            JsonNode paged = json(t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, BASE + "/ResourceTypes")
                     .param("startIndex", "2").param("count", "0"), 200));
             assertThat(paged.get("totalResults")).isEqualTo(plain.get("totalResults"));
             assertThat(paged.get("Resources")).isEqualTo(plain.get("Resources"));
         });
 
-        add(all, "discovery: needs no credential", t ->
-                t.expect(t.as(null, HttpMethod.GET, BASE + "/ServiceProviderConfig"), 200));
+        // ADR 0010: discovery needs a valid token and no Permission. Every discovery case here
+        // reads with a token holding the write Permissions alone, so none of them needs a read.
+        add(all, "discovery: needs a token", t -> {
+            MvcResult refused = t.expect(
+                    t.as(null, HttpMethod.GET, BASE + "/ServiceProviderConfig"), 401);
+            assertThat(refused.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE))
+                    .isEqualTo("Bearer");
+            assertThat(refused.getResponse().getContentAsByteArray()).isEmpty();
+        });
 
         // RFC 7643 §3.1: meta.location is the URI of the resource — absolute, and the URL it is
         // served at, on the list responses as well as the by-id ones.
@@ -186,7 +193,7 @@ final class ScimConformanceCases {
                 BASE + "/Schemas/" + GROUP_SCHEMA)) {
             add(all, "discovery: " + path.substring(BASE.length())
                     + " is located at its absolute URL", t -> {
-                        MvcResult result = t.expect(t.as(null, HttpMethod.GET, path), 200);
+                        MvcResult result = t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, path), 200);
                         assertThat(json(result).at("/meta/location").asText())
                                 .startsWith("http")
                                 .isEqualTo(result.getRequest().getRequestURL().toString());
@@ -195,7 +202,7 @@ final class ScimConformanceCases {
         for (String path : List.of(BASE + "/ResourceTypes", BASE + "/Schemas")) {
             add(all, "discovery: every resource listed by " + path.substring(BASE.length())
                     + " is located at its absolute by-id URL", t -> {
-                        MvcResult result = t.expect(t.as(null, HttpMethod.GET, path), 200);
+                        MvcResult result = t.expect(t.as(t.writeOnlyToken, HttpMethod.GET, path), 200);
                         String collection = result.getRequest().getRequestURL().toString();
                         for (JsonNode resource : json(result).get("Resources")) {
                             assertThat(resource.at("/meta/location").asText())
@@ -414,7 +421,7 @@ final class ScimConformanceCases {
             });
         }
 
-        // -- 403: a read-only token attempting a mutation --
+        // -- 403: a token without the type's write Permission attempting a mutation --
         add(all, k + " 403: a read-only token cannot create", t -> {
             MvcResult refused = t.expect(body(t.as(t.readOnlyToken, HttpMethod.POST,
                     kind.collection()), kind.create(name())), 403);
@@ -1424,6 +1431,34 @@ final class ScimConformanceCases {
             MvcResult unauthenticated = t.expect(body(t.as(null, HttpMethod.POST,
                     BASE + "/.search"), "{\"schemas\":[\"" + SEARCH_REQUEST + "\"]}"), 401);
             assertThat(unauthenticated.getResponse().getContentAsByteArray()).isEmpty();
+        });
+
+        // ADR 0010: the base search returns only the types the token may read.
+        add(all, "Base search: a user:read-only token gets Users and no Groups", t -> {
+            Resource user = t.create(Kind.USER);
+            Resource group = t.create(Kind.GROUP);
+            String filter = "id eq \\\"" + user.id() + "\\\" or id eq \\\"" + group.id() + "\\\"";
+            String request = "{\"schemas\":[\"" + SEARCH_REQUEST + "\"],\"filter\":\"" + filter
+                    + "\"}";
+            JsonNode both = json(t.expect(body(t.as(t.readOnlyToken, HttpMethod.POST,
+                    BASE + "/.search"), request), 200));
+            assertThat(both.get("totalResults").asInt()).as("both types match").isEqualTo(2);
+
+            JsonNode usersOnly = json(t.expect(body(t.as(t.userReadToken, HttpMethod.POST,
+                    BASE + "/.search"), request), 200));
+            assertThat(usersOnly.get("totalResults").asInt()).isEqualTo(1);
+            assertThat(usersOnly.get("Resources")).singleElement().satisfies(resource -> {
+                assertThat(resource.get("id").asText()).isEqualTo(user.id().toString());
+                assertThat(resource.at("/meta/resourceType").asText()).isEqualTo("User");
+            });
+        });
+
+        add(all, "Base search: a token holding no read Permission is 403", t -> {
+            MvcResult refused = t.expect(body(t.as(t.writeOnlyToken, HttpMethod.POST,
+                    BASE + "/.search"), "{\"schemas\":[\"" + SEARCH_REQUEST + "\"]}"), 403);
+            assertThat(refused.getResponse().getHeader(HttpHeaders.WWW_AUTHENTICATE))
+                    .isEqualTo("Bearer error=\"insufficient_scope\"");
+            assertThat(refused.getResponse().getContentAsByteArray()).isEmpty();
         });
 
         List<String> invalid = List.of(

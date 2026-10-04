@@ -4,10 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import jakarta.servlet.Filter;
+import com.example.backend.authorization.domain.Permission;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
@@ -122,6 +123,12 @@ class ScimConformanceFixtureTests {
 
     String readOnlyToken;
 
+    /** {@code user:read} alone: the base search returns it Users and no Groups. */
+    String userReadToken;
+
+    /** Both write Permissions and no read: discovery answers it, every read refuses it. */
+    String writeOnlyToken;
+
     private final List<UUID> created = new ArrayList<>();
 
     @BeforeEach
@@ -131,12 +138,17 @@ class ScimConformanceFixtureTests {
                 .build();
         UUID connector = connectors.create("conformance", "test-admin").id();
         UUID other = connectors.create("conformance-other", "test-admin").id();
-        writeToken = connectors.issueToken(connector, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
-        readOnlyToken = connectors.issueToken(connector, ConnectorTokenScope.READ_ONLY, null,
-                "test-admin").presentedValue();
-        otherConnectorToken = connectors.issueToken(other, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
+        writeToken = connectors.issueToken(connector, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        readOnlyToken = connectors.issueToken(connector, TokenPermissions.READ, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        userReadToken = connectors.issueToken(connector, Set.of(Permission.USER_READ), null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        writeOnlyToken = connectors.issueToken(connector,
+                Set.of(Permission.USER_WRITE, Permission.GROUP_WRITE), null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        otherConnectorToken = connectors.issueToken(other, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach

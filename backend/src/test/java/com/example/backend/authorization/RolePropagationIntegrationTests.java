@@ -9,11 +9,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.SessionCsrf;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimUserRepository;
 import jakarta.servlet.Filter;
@@ -134,7 +134,7 @@ class RolePropagationIntegrationTests {
                 .build();
         connectorId = connectors.create("Role propagation", "test-admin").id();
         token = connectors
-                .issueToken(connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin")
+                .issueToken(connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL)
                 .presentedValue();
     }
 

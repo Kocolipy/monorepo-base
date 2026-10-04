@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.CapturedLog;
+import com.example.backend.audit.RecordingAuditTrail;
+import com.example.backend.audit.domain.AuditOperation;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.observability.AccessRefusalLog;
 import com.example.backend.observability.LogContext;
@@ -16,7 +20,6 @@ import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.application.ConnectorAuthenticationService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.ScimConnector;
 import com.example.backend.scim.domain.ScimConnectorToken;
@@ -28,6 +31,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,11 +77,15 @@ class ScimBearerAuthenticationFilterTests {
 
     private MockFilterChain chain;
 
+    private final RecordingAuditTrail audit = new RecordingAuditTrail();
+
     @BeforeEach
     void setUp() {
         filter = new ScimBearerAuthenticationFilter(
                 new ConnectorAuthenticationService(connectors, tokens, clock),
-                new AccessRefusalLog(new RouteTemplates(() -> null)));
+                new AccessRefusalLog(new RouteTemplates(() -> null)),
+                audit,
+                new RouteTemplates(() -> null));
         connector = connectors.seed("Okta", NOW);
         response = new MockHttpServletResponse();
         chain = new MockFilterChain();
@@ -91,7 +99,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void a_valid_write_token_authenticates_and_the_request_proceeds() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -104,25 +112,25 @@ class ScimBearerAuthenticationFilterTests {
         assertThat(authentication.getPrincipal())
                 .isEqualTo(new AuthenticatedConnector(
                         connector.id(), tokens.all().getFirst().id(),
-                        ConnectorTokenScope.READ_WRITE));
+                        TokenPermissions.of(TokenPermissions.ALL)));
         assertThat(authorities(authentication))
-                .containsExactlyInAnyOrder("SCOPE_scim.read", "SCOPE_scim.write");
+                .containsExactly("group:read", "group:write", "user:read", "user:write");
     }
 
     @Test
-    void a_read_only_token_authenticates_with_the_read_authority_alone() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_ONLY);
+    void a_read_only_token_authenticates_with_its_read_permissions_alone() throws Exception {
+        String value = mint(TokenPermissions.READ);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
         assertThat(authorities(authenticationSeenBy(request)))
-                .containsExactly("SCOPE_scim.read");
+                .containsExactly("group:read", "user:read");
     }
 
     /** The presented value must not be carried past its verification. */
     @Test
     void the_authentication_carries_no_credentials() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -132,7 +140,7 @@ class ScimBearerAuthenticationFilterTests {
     /** The thread-local must not survive, or a pooled thread would carry the authority on. */
     @Test
     void the_security_context_is_cleared_once_the_request_is_served() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -185,7 +193,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void an_expired_token_is_an_invalid_token() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE, NOW.plus(Duration.ofDays(1)));
+        String value = mint(TokenPermissions.ALL, NOW.plus(Duration.ofDays(1)));
         clock.advanceBy(Duration.ofDays(2));
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
@@ -197,7 +205,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void a_revoked_token_is_an_invalid_token() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         tokens.save(tokens.all().getFirst().revoked(NOW));
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
@@ -210,7 +218,7 @@ class ScimBearerAuthenticationFilterTests {
     /** Both refusals carry the same header, so nothing distinguishes the reasons. */
     @Test
     void every_rejected_token_gets_the_same_refusal() throws Exception {
-        String revokedValue = mint(ConnectorTokenScope.READ_WRITE);
+        String revokedValue = mint(TokenPermissions.ALL);
         tokens.save(tokens.all().getFirst().revoked(NOW));
 
         MockHttpServletResponse toRevoked = new MockHttpServletResponse();
@@ -229,22 +237,85 @@ class ScimBearerAuthenticationFilterTests {
     }
 
     @Test
-    void a_read_only_token_mutating_is_refused_for_insufficient_scope() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_ONLY);
+    void a_read_only_token_mutating_is_refused_for_insufficient_permissions() throws Exception {
+        String value = mint(TokenPermissions.READ);
         MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
-        filter.doFilter(request, response, chain);
+        // Inside the request-id filter, as in the running chain, so the refusal's correlation id
+        // is the request's own.
+        new RequestIdFilter().doFilter(request, response,
+                (req, res) -> filter.doFilter(req, res, chain));
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getHeader(HttpHeaders.WWW_AUTHENTICATE))
                 .isEqualTo("Bearer error=\"insufficient_scope\"");
         assertThat(chain.getRequest()).as("the handler must not run").isNull();
+        assertThat(audit.recorded()).singleElement().satisfies(event -> {
+            assertThat(event.operation()).isEqualTo(AuditOperation.ACCESS_DENIED);
+            assertThat(event.actorId()).isEqualTo(connector.id());
+            assertThat(event.subjectId()).isEqualTo(connector.id());
+        });
+        assertThat(audit.accessDeniedRequests()).singleElement().satisfies(operation -> {
+            assertThat(operation.method()).isEqualTo("POST");
+            // No handler mapping in this unit, so the template is the unmatched marker — but the
+            // refusal carries the route the log record names, never a null.
+            assertThat(operation.pathTemplate())
+                    .isEqualTo(new RouteTemplates(() -> null).of(request));
+            assertThat(operation.requestId()).isEqualTo(RequestIdFilter.requestId(request))
+                    .isNotNull();
+        });
+    }
+
+    /**
+     * A Groups-only token: Group writes proceed, a User write and a Group read — which it was
+     * not given — are refused before any handler runs.
+     */
+    @Test
+    void a_group_write_only_token_writes_groups_and_nothing_else() throws Exception {
+        String value = mint(Set.of(Permission.GROUP_WRITE));
+        for (String[] admitted : List.of(
+                new String[] {"POST", "/scim/v2/Groups"},
+                new String[] {"PATCH", "/scim/v2/Groups/" + UUID.randomUUID()})) {
+            MockHttpServletResponse answered = new MockHttpServletResponse();
+            MockFilterChain proceeded = new MockFilterChain();
+            MockHttpServletRequest request = scimRequest(admitted[0], admitted[1]);
+            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+            filter.doFilter(request, answered, proceeded);
+            assertThat(proceeded.getRequest()).as("%s %s", admitted[0], admitted[1]).isNotNull();
+        }
+        for (String[] refused : List.of(
+                new String[] {"POST", "/scim/v2/Users"},
+                new String[] {"GET", "/scim/v2/Groups"})) {
+            MockHttpServletResponse answered = new MockHttpServletResponse();
+            MockFilterChain proceeded = new MockFilterChain();
+            MockHttpServletRequest request = scimRequest(refused[0], refused[1]);
+            request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+            filter.doFilter(request, answered, proceeded);
+            assertThat(answered.getStatus()).as("%s %s", refused[0], refused[1]).isEqualTo(403);
+            assertThat(proceeded.getRequest()).isNull();
+        }
+    }
+
+    /**
+     * A refusal is recorded once per exchange: an error dispatch of the same request refused
+     * again gets neither a second log record nor a second audit event.
+     */
+    @Test
+    void a_refusal_already_recorded_for_the_exchange_is_not_audited_again() throws Exception {
+        String value = mint(TokenPermissions.READ);
+        MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
+        request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
+
+        filter.doFilter(request, response, chain);
+        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+        assertThat(audit.of(AuditOperation.ACCESS_DENIED)).hasSize(1);
     }
 
     @Test
     void a_read_only_token_may_call_a_search_post() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_ONLY);
+        String value = mint(TokenPermissions.READ);
         MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users/.search");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -256,7 +327,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void a_write_token_may_mutate() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -274,7 +345,7 @@ class ScimBearerAuthenticationFilterTests {
      */
     @Test
     void a_token_in_the_query_string_is_not_a_credential() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.setQueryString("access_token=" + value);
         request.setParameter("access_token", value);
@@ -287,7 +358,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void a_token_in_a_form_body_is_not_a_credential() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
         request.setContentType("application/x-www-form-urlencoded");
         request.setParameter("access_token", value);
@@ -300,7 +371,7 @@ class ScimBearerAuthenticationFilterTests {
 
     @Test
     void a_token_in_a_cookie_is_not_a_credential() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.setCookies(new Cookie("access_token", value));
 
@@ -324,7 +395,7 @@ class ScimBearerAuthenticationFilterTests {
     @Test
     void the_scope_rule_sees_the_path_within_the_application_not_the_deployed_uri()
             throws Exception {
-        String value = mint(ConnectorTokenScope.READ_ONLY);
+        String value = mint(TokenPermissions.READ);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/app/scim/v2/Users");
         request.setContextPath("/app");
         request.setRequestURI("/app/scim/v2/Users");
@@ -365,7 +436,7 @@ class ScimBearerAuthenticationFilterTests {
                 .isEqualTo("Bearer error=\"invalid_token\"");
 
         MockHttpServletResponse scope = new MockHttpServletResponse();
-        ScimBearerChallenge.insufficientScope(scope);
+        ScimBearerChallenge.insufficientPermissions(scope);
         assertThat(scope.getStatus()).isEqualTo(403);
         assertThat(scope.getHeader(HttpHeaders.WWW_AUTHENTICATE))
                 .isEqualTo("Bearer error=\"insufficient_scope\"");
@@ -380,8 +451,8 @@ class ScimBearerAuthenticationFilterTests {
      */
     @Test
     void the_request_record_names_the_authenticated_connector() throws Exception {
-        String write = mint(ConnectorTokenScope.READ_WRITE);
-        String readOnly = mint(ConnectorTokenScope.READ_ONLY);
+        String write = mint(TokenPermissions.ALL);
+        String readOnly = mint(TokenPermissions.READ);
 
         assertThat(requestRecordContext("GET", write))
                 .containsEntry(LogContext.CONNECTOR_ID, connector.id().toString());
@@ -392,7 +463,7 @@ class ScimBearerAuthenticationFilterTests {
     /** A token that was not accepted authenticated nobody, and its record names no connector. */
     @Test
     void the_request_record_of_a_refused_token_names_no_connector() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         tokens.save(tokens.all().getFirst().revoked(NOW));
 
         assertThat(requestRecordContext("GET", value)).doesNotContainKey(LogContext.CONNECTOR_ID);
@@ -422,7 +493,7 @@ class ScimBearerAuthenticationFilterTests {
      */
     @Test
     void an_invalid_token_is_one_warn_record_carrying_nothing_of_the_value() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         tokens.save(tokens.all().getFirst().revoked(NOW));
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
@@ -449,8 +520,8 @@ class ScimBearerAuthenticationFilterTests {
 
     /** A read-only token's refused write names the connector — by id — and its reason. */
     @Test
-    void insufficient_scope_is_one_warn_record_naming_the_connector() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_ONLY);
+    void insufficient_permissions_is_one_warn_record_naming_the_connector() throws Exception {
+        String value = mint(TokenPermissions.READ);
         MockHttpServletRequest request = scimRequest("POST", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
 
@@ -464,7 +535,7 @@ class ScimBearerAuthenticationFilterTests {
         assertThat(records).singleElement().satisfies(record -> {
             assertThat(record.getLevel()).isEqualTo(Level.WARN);
             assertThat(CapturedLog.fields(record))
-                    .containsEntry(LogEvent.REASON, "insufficient-scope")
+                    .containsEntry(LogEvent.REASON, "insufficient-permissions")
                     .containsEntry(LogEvent.HTTP_STATUS_CODE, 403);
             assertThat(record.getMDCPropertyMap())
                     .containsEntry(LogContext.CONNECTOR_ID, connector.id().toString());
@@ -480,7 +551,7 @@ class ScimBearerAuthenticationFilterTests {
      */
     @Test
     void an_accepted_request_carries_its_connector_id_and_is_not_recorded() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
         String[] seen = new String[1];
@@ -512,7 +583,7 @@ class ScimBearerAuthenticationFilterTests {
      */
     @Test
     void an_accepted_request_tags_the_request_metric_with_its_connector() throws Exception {
-        String value = mint(ConnectorTokenScope.READ_WRITE);
+        String value = mint(TokenPermissions.ALL);
         MockHttpServletRequest request = scimRequest("GET", "/scim/v2/Users");
         request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + value);
         ServerRequestObservationContext observation =
@@ -604,11 +675,11 @@ class ScimBearerAuthenticationFilterTests {
         return request;
     }
 
-    private String mint(ConnectorTokenScope scope) {
+    private String mint(Set<Permission> scope) {
         return mint(scope, NOW.plus(Duration.ofDays(365)));
     }
 
-    private String mint(ConnectorTokenScope scope, Instant expiresAt) {
+    private String mint(Set<Permission> scope, Instant expiresAt) {
         ConnectorTokenSecret.Minted minted =
                 ConnectorTokenSecret.mint(new SecureRandom());
         tokens.save(ScimConnectorToken.issue(
@@ -616,7 +687,7 @@ class ScimBearerAuthenticationFilterTests {
                 connector.id(),
                 minted.lookupId(),
                 minted.digest(),
-                scope,
+                TokenPermissions.of(scope),
                 NOW,
                 expiresAt));
         return minted.presentedValue();

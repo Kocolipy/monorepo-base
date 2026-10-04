@@ -1,6 +1,7 @@
 package com.example.backend.audit.domain;
 
 import com.example.backend.authorization.domain.Role;
+import com.example.backend.authorization.domain.Permission;
 import java.util.Set;
 import java.util.UUID;
 
@@ -71,11 +72,35 @@ public interface AuditTrail {
      */
     void recordConnectorDeleted(UUID actorId, UUID connectorId);
 
-    /** Records a token minted for a connector. */
-    void recordConnectorTokenIssued(UUID actorId, UUID connectorId);
+    /**
+     * Records a token minted for a connector, with the Permissions it carries.
+     *
+     * @param granted what the new token may do — the question an administrator reading the trail
+     *                is asking of a credential
+     */
+    void recordConnectorTokenIssued(UUID actorId, UUID connectorId, Set<Permission> granted);
 
-    /** Records a connector's token replaced, the old one ending at the overlap. */
-    void recordConnectorTokenRotated(UUID actorId, UUID connectorId);
+    /**
+     * Records a connector's token replaced, the old one ending at the overlap, with the
+     * Permissions the replacement carries.
+     */
+    void recordConnectorTokenRotated(UUID actorId, UUID connectorId, Set<Permission> granted);
+
+    /**
+     * Records a token issue refused because the administrator asked for a Permission it does not
+     * hold itself. Fail-open with an alert, as every refusal is. Unlike an authorization refusal
+     * this one DOES name Permissions — the ones requested — because an attempt to mint a
+     * credential more powerful than oneself is exactly what an auditor looks for, and the caller
+     * already knows what it asked for.
+     *
+     * @param requested every Permission the refused token would have carried
+     */
+    void recordConnectorTokenIssueRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested);
+
+    /** Records a rotation refused for the reason, and on the terms, an issue is. */
+    void recordConnectorTokenRotateRefused(
+            UUID actorId, UUID connectorId, Set<Permission> requested);
 
     /**
      * Records a connector token revoked.
@@ -322,6 +347,16 @@ public interface AuditTrail {
      *                  could report.
      */
     void recordAccessDenied(UUID userId, AuditRequest operation);
+
+    /**
+     * Records an authorization refusal on the SCIM chain: a valid connector token lacking the
+     * Permission the request needs. Fail-open with an alert, on the terms and with the one generic
+     * reason {@link #recordAccessDenied} uses — never naming the Permission that was missing.
+     *
+     * @param connectorId the refused token's connector
+     * @param operation   the refused request: method, route template, correlation id
+     */
+    void recordConnectorAccessDenied(UUID connectorId, AuditRequest operation);
 
     /**
      * Records a User replacing its own password. Fail-closed: a credential change this service

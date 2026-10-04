@@ -19,8 +19,8 @@ import tools.jackson.databind.JsonNode;
  * RFC 7644 §3.4.3 defines a search at the service's root.
  *
  * <p>A path valid for either type is valid here; where one type lacks it, the filter treats it
- * as having no value and the projection does not apply to that type. Read-only tokens may call
- * it, and the request is audited as one bulk read spanning both types.
+ * as having no value and the projection does not apply to that type. A token needs at least one
+ * read Permission, and gets only the types it may read; the request is audited as one bulk read.
  */
 @RestController
 class ScimSearchController {

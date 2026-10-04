@@ -4,25 +4,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
+import com.example.backend.TokenPermissions;
 import com.example.backend.audit.CapturedLog;
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.auth.MutableClock;
+import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.scim.InMemoryScimConnectorRepository;
 import com.example.backend.scim.InMemoryScimConnectorTokenRepository;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
+import com.example.backend.scim.domain.ConnectorTokenDigest;
 import com.example.backend.scim.domain.ConnectorTokenPolicy;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ConnectorTokenSecret;
 import com.example.backend.scim.domain.InvalidConnectorTokenLifetimeException;
+import com.example.backend.scim.domain.InvalidConnectorTokenPermissionsException;
 import com.example.backend.scim.domain.ScimConnectorToken;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -116,8 +120,8 @@ class ConnectorAdministrationServiceTests {
         @Test
         void deleting_a_connector_revokes_every_token_and_removes_every_alias() {
             ConnectorSummary connector = service.create("Okta", ADMIN);
-            service.issueToken(connector.id(), ConnectorTokenScope.READ_ONLY, null, ADMIN);
-            service.issueToken(connector.id(), ConnectorTokenScope.READ_WRITE, null, ADMIN);
+            service.issueToken(connector.id(), TokenPermissions.READ, null, ADMIN, TokenPermissions.ALL);
+            service.issueToken(connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
             aliases.seed(connector.id(), "okta-user-1");
             aliases.seed(connector.id(), "okta-user-2");
 
@@ -150,8 +154,8 @@ class ConnectorAdministrationServiceTests {
         @Test
         void deletion_records_the_delete_and_one_revocation_per_token_it_took_down() {
             ConnectorSummary connector = service.create("Okta", ADMIN);
-            service.issueToken(connector.id(), ConnectorTokenScope.READ_ONLY, null, ADMIN);
-            service.issueToken(connector.id(), ConnectorTokenScope.READ_WRITE, null, ADMIN);
+            service.issueToken(connector.id(), TokenPermissions.READ, null, ADMIN, TokenPermissions.ALL);
+            service.issueToken(connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
             audit.reset();
 
             service.delete(connector.id(), ADMIN);
@@ -192,11 +196,11 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", ADMIN);
 
             IssuedConnectorToken issued = service.issueToken(
-                    connector.id(), ConnectorTokenScope.READ_WRITE, null, ADMIN);
+                    connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
 
             assertThat(issued.presentedValue()).isNotBlank();
             assertThat(issued.connectorId()).isEqualTo(connector.id());
-            assertThat(issued.scope()).isEqualTo(ConnectorTokenScope.READ_WRITE);
+            assertThat(issued.permissions()).containsExactly("group:read", "group:write", "user:read", "user:write");
             assertThat(issued.issuedAt()).isEqualTo(NOW);
             assertThat(issued.expiresAt())
                     .isEqualTo(NOW.plus(ConnectorTokenPolicy.DEFAULT_LIFETIME));
@@ -218,7 +222,7 @@ class ConnectorAdministrationServiceTests {
         void no_token_projection_field_can_hold_the_plaintext() {
             ConnectorSummary connector = service.create("Okta", ADMIN);
             IssuedConnectorToken issued = service.issueToken(
-                    connector.id(), ConnectorTokenScope.READ_ONLY, null, ADMIN);
+                    connector.id(), TokenPermissions.READ, null, ADMIN, TokenPermissions.ALL);
 
             ConnectorSummary listed = service.listConnectors().getFirst();
 
@@ -236,14 +240,15 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", ADMIN);
 
             IssuedConnectorToken short30 = service.issueToken(
-                    connector.id(), ConnectorTokenScope.READ_ONLY, Duration.ofDays(30), ADMIN);
+                    connector.id(), TokenPermissions.READ, Duration.ofDays(30), ADMIN, TokenPermissions.ALL);
             assertThat(short30.expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(30)));
 
             assertThatThrownBy(() -> service.issueToken(
                             connector.id(),
-                            ConnectorTokenScope.READ_ONLY,
+                            TokenPermissions.READ,
                             Duration.ofDays(400),
-                            ADMIN))
+                            ADMIN,
+                            TokenPermissions.ALL))
                     .isInstanceOf(InvalidConnectorTokenLifetimeException.class);
         }
 
@@ -252,7 +257,7 @@ class ConnectorAdministrationServiceTests {
             ConnectorSummary connector = service.create("Okta", ADMIN);
             audit.reset();
 
-            service.issueToken(connector.id(), ConnectorTokenScope.READ_ONLY, null, ADMIN);
+            service.issueToken(connector.id(), TokenPermissions.READ, null, ADMIN, TokenPermissions.ALL);
 
             assertThat(audit.of(AuditOperation.CONNECTOR_TOKEN_ISSUE)).singleElement()
                     .satisfies(event -> {
@@ -267,7 +272,7 @@ class ConnectorAdministrationServiceTests {
             service.delete(connector.id(), ADMIN);
 
             assertThatThrownBy(() -> service.issueToken(
-                            connector.id(), ConnectorTokenScope.READ_ONLY, null, ADMIN))
+                            connector.id(), TokenPermissions.READ, null, ADMIN, TokenPermissions.ALL))
                     .isInstanceOf(UnknownConnectorException.class);
         }
 
@@ -276,10 +281,10 @@ class ConnectorAdministrationServiceTests {
             IssuedConnectorToken original = issuedReadWriteToken();
 
             IssuedConnectorToken replacement =
-                    service.rotateToken(original.tokenId(), Duration.ofDays(7), ADMIN);
+                    service.rotateToken(original.tokenId(), null, Duration.ofDays(7), ADMIN, TokenPermissions.ALL);
 
             assertThat(replacement.tokenId()).isNotEqualTo(original.tokenId());
-            assertThat(replacement.scope()).isEqualTo(ConnectorTokenScope.READ_WRITE);
+            assertThat(replacement.permissions()).containsExactly("group:read", "group:write", "user:read", "user:write");
             assertThat(replacement.presentedValue()).isNotEqualTo(original.presentedValue());
             assertThat(replacement.expiresAt())
                     .isEqualTo(NOW.plus(ConnectorTokenPolicy.DEFAULT_LIFETIME));
@@ -289,7 +294,7 @@ class ConnectorAdministrationServiceTests {
         void rotation_ends_the_old_token_at_the_requested_overlap() {
             IssuedConnectorToken original = issuedReadWriteToken();
 
-            service.rotateToken(original.tokenId(), Duration.ofDays(7), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(7), ADMIN, TokenPermissions.ALL);
 
             ScimConnectorToken old = tokens.findById(original.tokenId()).orElseThrow();
             assertThat(old.expiresAt()).isEqualTo(NOW.plus(Duration.ofDays(7)));
@@ -301,7 +306,7 @@ class ConnectorAdministrationServiceTests {
         void an_overlap_past_fourteen_days_is_clamped_to_fourteen() {
             IssuedConnectorToken original = issuedReadWriteToken();
 
-            service.rotateToken(original.tokenId(), Duration.ofDays(90), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(90), ADMIN, TokenPermissions.ALL);
 
             assertThat(tokens.findById(original.tokenId()).orElseThrow().expiresAt())
                     .isEqualTo(NOW.plus(ConnectorTokenPolicy.MAX_ROTATION_OVERLAP));
@@ -312,9 +317,9 @@ class ConnectorAdministrationServiceTests {
         void an_overlap_never_outlives_the_old_tokens_original_expiry() {
             ConnectorSummary connector = service.create("Okta", ADMIN);
             IssuedConnectorToken shortLived = service.issueToken(
-                    connector.id(), ConnectorTokenScope.READ_ONLY, Duration.ofDays(3), ADMIN);
+                    connector.id(), TokenPermissions.READ, Duration.ofDays(3), ADMIN, TokenPermissions.ALL);
 
-            service.rotateToken(shortLived.tokenId(), Duration.ofDays(14), ADMIN);
+            service.rotateToken(shortLived.tokenId(), null, Duration.ofDays(14), ADMIN, TokenPermissions.ALL);
 
             ScimConnectorToken old = tokens.findById(shortLived.tokenId()).orElseThrow();
             assertThat(old.expiresAt()).isEqualTo(shortLived.expiresAt());
@@ -324,9 +329,9 @@ class ConnectorAdministrationServiceTests {
         @Test
         void a_second_rotation_cannot_give_the_old_token_time_back() {
             IssuedConnectorToken original = issuedReadWriteToken();
-            service.rotateToken(original.tokenId(), Duration.ofDays(1), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(1), ADMIN, TokenPermissions.ALL);
 
-            service.rotateToken(original.tokenId(), Duration.ofDays(14), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(14), ADMIN, TokenPermissions.ALL);
 
             assertThat(tokens.findById(original.tokenId()).orElseThrow().expiresAt())
                     .isEqualTo(NOW.plus(Duration.ofDays(1)));
@@ -336,7 +341,7 @@ class ConnectorAdministrationServiceTests {
         void no_overlap_ends_the_old_token_at_the_rotation() {
             IssuedConnectorToken original = issuedReadWriteToken();
 
-            service.rotateToken(original.tokenId(), null, ADMIN);
+            service.rotateToken(original.tokenId(), null, null, ADMIN, TokenPermissions.ALL);
 
             ScimConnectorToken old = tokens.findById(original.tokenId()).orElseThrow();
             assertThat(old.expiresAt()).isEqualTo(NOW);
@@ -348,7 +353,7 @@ class ConnectorAdministrationServiceTests {
             IssuedConnectorToken original = issuedReadWriteToken();
 
             IssuedConnectorToken replacement =
-                    service.rotateToken(original.tokenId(), Duration.ofDays(1), ADMIN);
+                    service.rotateToken(original.tokenId(), null, Duration.ofDays(1), ADMIN, TokenPermissions.ALL);
 
             assertThat(tokens.findById(original.tokenId()).orElseThrow().replacedByTokenId())
                     .isEqualTo(replacement.tokenId());
@@ -359,7 +364,7 @@ class ConnectorAdministrationServiceTests {
             IssuedConnectorToken original = issuedReadWriteToken();
             audit.reset();
 
-            service.rotateToken(original.tokenId(), Duration.ofDays(1), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(1), ADMIN, TokenPermissions.ALL);
 
             assertThat(audit.of(AuditOperation.CONNECTOR_TOKEN_ROTATE)).singleElement()
                     .satisfies(event -> {
@@ -379,7 +384,10 @@ class ConnectorAdministrationServiceTests {
             assertThat(revoked.revokedAt()).isEqualTo(NOW);
             assertThat(revoked.isUsable(NOW)).isFalse();
             assertThat(audit.of(AuditOperation.CONNECTOR_TOKEN_REVOKE)).singleElement()
-                    .satisfies(event -> assertThat(event.actorId()).isEqualTo(adminId));
+                    .satisfies(event -> {
+                        assertThat(event.actorId()).isEqualTo(adminId);
+                        assertThat(event.subjectId()).isEqualTo(issued.connectorId());
+                    });
         }
 
         @Test
@@ -388,9 +396,12 @@ class ConnectorAdministrationServiceTests {
             service.revokeToken(issued.tokenId(), ADMIN);
             clock.advanceBy(Duration.ofMinutes(5));
             audit.reset();
+            int writesBefore = tokens.saves();
 
             service.revokeToken(issued.tokenId(), ADMIN);
 
+            assertThat(tokens.saves()).as("an already-revoked token is not written again")
+                    .isEqualTo(writesBefore);
             assertThat(tokens.findById(issued.tokenId()).orElseThrow().revokedAt())
                     .isEqualTo(NOW);
             assertThat(audit.of(AuditOperation.CONNECTOR_TOKEN_REVOKE)).hasSize(1);
@@ -400,7 +411,7 @@ class ConnectorAdministrationServiceTests {
         void an_unknown_token_id_is_refused_by_both_rotate_and_revoke() {
             UUID unknown = UUID.randomUUID();
 
-            assertThatThrownBy(() -> service.rotateToken(unknown, null, ADMIN))
+            assertThatThrownBy(() -> service.rotateToken(unknown, null, null, ADMIN, TokenPermissions.ALL))
                     .isInstanceOf(UnknownConnectorException.class);
             assertThatThrownBy(() -> service.revokeToken(unknown, ADMIN))
                     .isInstanceOf(UnknownConnectorException.class);
@@ -413,7 +424,7 @@ class ConnectorAdministrationServiceTests {
             List<ConnectorTokenSummary> before = service.listConnectors().getFirst().tokens();
             assertThat(before).singleElement().satisfies(token -> {
                 assertThat(token.id()).isEqualTo(issued.tokenId());
-                assertThat(token.scope()).isEqualTo(ConnectorTokenScope.READ_WRITE);
+                assertThat(token.permissions()).containsExactly("group:read", "group:write", "user:read", "user:write");
                 assertThat(token.issuedAt()).isEqualTo(NOW);
                 assertThat(token.expiresAt()).isEqualTo(issued.expiresAt());
                 assertThat(token.originalExpiresAt()).isEqualTo(issued.expiresAt());
@@ -438,7 +449,7 @@ class ConnectorAdministrationServiceTests {
         @Test
         void the_listing_shows_a_shortened_overlap_beside_the_issued_expiry() {
             IssuedConnectorToken original = issuedReadWriteToken();
-            service.rotateToken(original.tokenId(), Duration.ofDays(7), ADMIN);
+            service.rotateToken(original.tokenId(), null, Duration.ofDays(7), ADMIN, TokenPermissions.ALL);
 
             assertThat(service.listConnectors().getFirst().tokens())
                     .filteredOn(token -> token.id().equals(original.tokenId()))
@@ -480,9 +491,9 @@ class ConnectorAdministrationServiceTests {
         try (CapturedLog log = CapturedLog.attach()) {
             ConnectorSummary connector = service.create("Okta", ADMIN);
             IssuedConnectorToken issued = service.issueToken(
-                    connector.id(), ConnectorTokenScope.READ_WRITE, null, ADMIN);
+                    connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
             IssuedConnectorToken rotated =
-                    service.rotateToken(issued.tokenId(), Duration.ofDays(1), ADMIN);
+                    service.rotateToken(issued.tokenId(), null, Duration.ofDays(1), ADMIN, TokenPermissions.ALL);
             service.revokeToken(rotated.tokenId(), ADMIN);
             service.delete(connector.id(), ADMIN);
 
@@ -516,6 +527,42 @@ class ConnectorAdministrationServiceTests {
     }
 
     /**
+     * A refused escalation is one {@code WARN} record classified as a denied administrative
+     * change, naming no Permission — the audit trail names them, the log stream does not.
+     */
+    @Test
+    void a_refused_escalation_is_one_warn_record_naming_no_permission() {
+        ConnectorSummary connector = service.create("Okta", ADMIN);
+        IssuedConnectorToken issued = service.issueToken(
+                connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
+        Set<Permission> held = Set.of(Permission.CONNECTOR_TOKEN, Permission.GROUP_READ);
+        try (CapturedLog log = CapturedLog.attach()) {
+            assertThatThrownBy(() -> service.issueToken(
+                    connector.id(), List.of(Permission.USER_WRITE), null, ADMIN, held))
+                    .isInstanceOf(ConnectorTokenEscalationException.class);
+            assertThatThrownBy(() -> service.rotateToken(
+                    issued.tokenId(), null, null, ADMIN, held))
+                    .isInstanceOf(ConnectorTokenEscalationException.class);
+
+            for (String action : List.of("scim.connector.token.issue", "scim.connector.token.rotate")) {
+                assertThat(log.withAction(Level.TRACE, LogEvent.LOCAL_ACTION, action))
+                        .as("%s", action)
+                        .singleElement()
+                        .satisfies(record -> {
+                            assertThat(record.getLevel()).isEqualTo(Level.WARN);
+                            assertThat(CapturedLog.fields(record))
+                                    .containsEntry(LogEvent.OUTCOME, LogEvent.FAILURE)
+                                    .containsEntry(LogEvent.ACTION, "user-administration")
+                                    .containsEntry(LogEvent.TYPE, List.of("admin", "denied"));
+                            assertThat(record.getFormattedMessage() + CapturedLog.fields(record))
+                                    .doesNotContain("user:")
+                                    .doesNotContain("group:");
+                        });
+            }
+        }
+    }
+
+    /**
      * An administrator whose username resolves to no account still gets the event,
      * with no actor. The alternative — refusing the operation — would make a rename
      * between authentication and this call fail an administrative action.
@@ -534,6 +581,195 @@ class ConnectorAdministrationServiceTests {
     private IssuedConnectorToken issuedReadWriteToken() {
         ConnectorSummary connector = service.create("Okta", ADMIN);
         return service.issueToken(
-                connector.id(), ConnectorTokenScope.READ_WRITE, null, ADMIN);
+                connector.id(), TokenPermissions.ALL, null, ADMIN, TokenPermissions.ALL);
+    }
+
+    /**
+     * The stored row is the one the disclosed value names: its lookup id is the value's non-secret
+     * half, and its digest is the value's — so the connector holding the value can authenticate.
+     */
+    private void assertStoredAs(IssuedConnectorToken issued) {
+        ScimConnectorToken stored = tokens.findById(issued.tokenId()).orElseThrow();
+        ConnectorTokenSecret.Presented presented =
+                ConnectorTokenSecret.parse(issued.presentedValue()).orElseThrow();
+        assertThat(stored.lookupId()).isEqualTo(presented.lookupId());
+        assertThat(stored.digest().matches(presented.digest())).isTrue();
+    }
+
+    /** What a token carries, and the no-escalation rule on issue and rotation (ADR 0010). */
+    @Nested
+    class Permissions {
+
+        /** A Connector admin's own directory Permissions, plus the right to mint tokens. */
+        private static final Set<Permission> GROUPS_ADMIN = Set.of(
+                Permission.CONNECTOR_TOKEN, Permission.GROUP_READ, Permission.GROUP_WRITE);
+
+        @Test
+        void an_issued_token_carries_and_records_exactly_the_permissions_asked_for() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            audit.reset();
+
+            IssuedConnectorToken issued = service.issueToken(connector.id(),
+                    List.of(Permission.GROUP_WRITE), null, ADMIN, GROUPS_ADMIN);
+
+            assertThat(issued.permissions()).containsExactly("group:write");
+            assertThat(tokens.findById(issued.tokenId()).orElseThrow().permissions().values())
+                    .containsExactly(Permission.GROUP_WRITE);
+            assertStoredAs(issued);
+            assertThat(service.listConnectors().getFirst().tokens()).singleElement()
+                    .satisfies(token -> assertThat(token.permissions())
+                            .containsExactly("group:write"));
+            assertThat(audit.recorded()).singleElement().satisfies(event -> {
+                assertThat(event.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ISSUE);
+                assertThat(event.actorId()).isEqualTo(adminId);
+                assertThat(event.subjectId()).isEqualTo(connector.id());
+                assertThat(event.detail()).isEqualTo("group:write");
+            });
+        }
+
+        @Test
+        void an_issue_asking_for_a_permission_the_caller_lacks_is_refused_and_audited() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            audit.reset();
+
+            assertThatThrownBy(() -> service.issueToken(connector.id(),
+                    List.of(Permission.GROUP_WRITE, Permission.USER_WRITE), null, ADMIN,
+                    GROUPS_ADMIN))
+                    .isInstanceOf(ConnectorTokenEscalationException.class);
+
+            assertThat(tokens.all()).isEmpty();
+            assertThat(audit.recorded()).singleElement().satisfies(event -> {
+                assertThat(event.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ISSUE);
+                assertThat(event.actorId()).isEqualTo(adminId);
+                assertThat(event.subjectId()).isEqualTo(connector.id());
+                assertThat(event.detail())
+                        .isEqualTo("PERMISSION_ESCALATION group:write,user:write");
+            });
+        }
+
+        /** Holding {@code connector:token} itself is not a Permission a token can be given. */
+        @Test
+        void holding_every_permission_does_not_make_a_non_directory_one_issuable() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            audit.reset();
+            Set<Permission> everything = Set.of(Permission.values());
+
+            assertThatThrownBy(() -> service.issueToken(connector.id(),
+                    List.of(Permission.CONNECTOR_TOKEN), null, ADMIN, everything))
+                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
+            assertThatThrownBy(() -> service.issueToken(connector.id(),
+                    List.of(), null, ADMIN, everything))
+                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
+
+            assertThat(tokens.all()).isEmpty();
+            assertThat(audit.recorded()).as("a malformed request is not an escalation").isEmpty();
+        }
+
+        /** The request's own shape is checked before the connector is looked up. */
+        @Test
+        void a_malformed_request_is_refused_before_the_connector_is_looked_up() {
+            assertThatThrownBy(() -> service.issueToken(UUID.randomUUID(),
+                    List.of(), null, ADMIN, TokenPermissions.ALL))
+                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
+            assertThatThrownBy(() -> service.issueToken(UUID.randomUUID(),
+                    TokenPermissions.READ, Duration.ofDays(400), ADMIN, TokenPermissions.ALL))
+                    .isInstanceOf(InvalidConnectorTokenLifetimeException.class);
+        }
+
+        @Test
+        void an_escalation_on_an_unknown_connector_is_unknown_not_audited() {
+            assertThatThrownBy(() -> service.issueToken(UUID.randomUUID(),
+                    List.of(Permission.USER_WRITE), null, ADMIN, GROUPS_ADMIN))
+                    .isInstanceOf(UnknownConnectorException.class);
+            assertThat(audit.recorded()).isEmpty();
+        }
+
+        @Test
+        void rotation_without_permissions_keeps_the_old_tokens_and_records_them() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            IssuedConnectorToken original = service.issueToken(connector.id(),
+                    List.of(Permission.GROUP_READ, Permission.GROUP_WRITE), null, ADMIN,
+                    GROUPS_ADMIN);
+            audit.reset();
+
+            IssuedConnectorToken replacement =
+                    service.rotateToken(original.tokenId(), null, null, ADMIN, GROUPS_ADMIN);
+
+            assertThat(replacement.permissions()).containsExactly("group:read", "group:write");
+            assertStoredAs(replacement);
+            assertThat(audit.of(AuditOperation.CONNECTOR_TOKEN_ROTATE)).singleElement()
+                    .satisfies(event -> {
+                        assertThat(event.actorId()).isEqualTo(adminId);
+                        assertThat(event.subjectId()).isEqualTo(connector.id());
+                        assertThat(event.detail()).isEqualTo("group:read,group:write");
+                    });
+        }
+
+        @Test
+        void rotation_with_permissions_replaces_them() {
+            IssuedConnectorToken original = issuedReadWriteToken();
+
+            IssuedConnectorToken replacement = service.rotateToken(original.tokenId(),
+                    List.of(Permission.USER_READ), null, ADMIN, TokenPermissions.ALL);
+
+            assertThat(replacement.permissions()).containsExactly("user:read");
+            assertThat(tokens.findById(original.tokenId()).orElseThrow().permissions().values())
+                    .as("the old token keeps what it was issued with")
+                    .containsExactlyInAnyOrderElementsOf(TokenPermissions.ALL);
+        }
+
+        /**
+         * Rotating is minting: a token a Superuser issued cannot be renewed with its Permissions
+         * by a caller who does not hold them, and the old token is left exactly as it was.
+         */
+        @Test
+        void rotation_keeping_permissions_the_caller_lacks_is_refused_and_audited() {
+            IssuedConnectorToken original = issuedReadWriteToken();
+            ScimConnectorToken before = tokens.findById(original.tokenId()).orElseThrow();
+            audit.reset();
+
+            assertThatThrownBy(() -> service.rotateToken(
+                    original.tokenId(), null, Duration.ofDays(7), ADMIN, GROUPS_ADMIN))
+                    .isInstanceOf(ConnectorTokenEscalationException.class);
+
+            assertThat(tokens.all()).singleElement().isEqualTo(before);
+            assertThat(audit.recorded()).singleElement().satisfies(event -> {
+                assertThat(event.operation()).isEqualTo(AuditOperation.CONNECTOR_TOKEN_ROTATE);
+                assertThat(event.actorId()).isEqualTo(adminId);
+                assertThat(event.subjectId()).isEqualTo(original.connectorId());
+                assertThat(event.detail()).isEqualTo(
+                        "PERMISSION_ESCALATION group:read,group:write,user:read,user:write");
+            });
+        }
+
+        @Test
+        void rotation_asking_for_a_permission_the_caller_lacks_is_refused() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            IssuedConnectorToken original = service.issueToken(connector.id(),
+                    List.of(Permission.GROUP_READ), null, ADMIN, GROUPS_ADMIN);
+
+            assertThatThrownBy(() -> service.rotateToken(original.tokenId(),
+                    List.of(Permission.USER_READ), null, ADMIN, GROUPS_ADMIN))
+                    .isInstanceOf(ConnectorTokenEscalationException.class);
+            assertThat(tokens.all()).hasSize(1);
+        }
+
+        /** A token stored before Permissions existed has none to keep. */
+        @Test
+        void a_token_carrying_no_permissions_must_be_rotated_with_some() {
+            ConnectorSummary connector = service.create("Okta", ADMIN);
+            ScimConnectorToken legacy = ScimConnectorToken.issue(UUID.randomUUID(),
+                    connector.id(), "legacy", ConnectorTokenDigest.of("legacy.secret"),
+                    TokenPermissions.of(Set.of()), NOW, NOW.plus(Duration.ofDays(30)));
+            tokens.save(legacy);
+
+            assertThatThrownBy(() -> service.rotateToken(
+                    legacy.id(), null, null, ADMIN, TokenPermissions.ALL))
+                    .isInstanceOf(InvalidConnectorTokenPermissionsException.class);
+
+            IssuedConnectorToken replacement = service.rotateToken(legacy.id(),
+                    List.of(Permission.USER_READ), null, ADMIN, TokenPermissions.ALL);
+            assertThat(replacement.permissions()).containsExactly("user:read");
+        }
     }
 }

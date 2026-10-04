@@ -5,7 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext, type AuthContextState } from "@/auth/auth-context-value";
 import { apiFetch } from "@/lib/http";
 
-import type { Connector, ConnectorToken, IssuedToken } from "./accounts-api";
+import {
+  TOKEN_PERMISSIONS,
+  type Connector,
+  type ConnectorToken,
+  type IssuedToken,
+  type TokenPermission,
+} from "./accounts-api";
 import { Connectors } from "./connectors";
 
 vi.mock("@/lib/http", async (importOriginal) => ({
@@ -42,8 +48,8 @@ const token = (overrides: Partial<ConnectorToken> = {}): ConnectorToken => ({
   id: TOKEN_ID,
   issuedAt: "2026-01-02T00:00:00Z",
   originalExpiresAt: "2027-01-02T00:00:00Z",
+  permissions: ["group:read", "group:write", "user:read", "user:write"],
   revokedAt: null,
-  scope: "READ_WRITE",
   ...overrides,
 });
 
@@ -59,8 +65,8 @@ const issued = (overrides: Partial<IssuedToken> = {}): IssuedToken => ({
   connectorId: CONNECTOR_ID,
   expiresAt: "2027-01-02T00:00:00Z",
   issuedAt: "2026-01-02T00:00:00Z",
+  permissions: ["group:read", "group:write", "user:read", "user:write"],
   presentedValue: "scim_plaintext_value_shown_once",
-  scope: "READ_WRITE",
   tokenId: TOKEN_ID,
   ...overrides,
 });
@@ -83,14 +89,23 @@ function routeApi({ actions = [], listings }: { actions?: object[]; listings: ob
 }
 
 function renderConnectors(
-  { canIssueTokens = true, canManageConnectors = true } = {} as {
+  {
+    canIssueTokens = true,
+    canManageConnectors = true,
+    grantablePermissions = TOKEN_PERMISSIONS,
+  } = {} as {
     canIssueTokens?: boolean;
     canManageConnectors?: boolean;
+    grantablePermissions?: readonly TokenPermission[];
   },
 ) {
   return render(
     <AuthContext.Provider value={auth}>
-      <Connectors canIssueTokens={canIssueTokens} canManageConnectors={canManageConnectors} />
+      <Connectors
+        canIssueTokens={canIssueTokens}
+        canManageConnectors={canManageConnectors}
+        grantablePermissions={grantablePermissions}
+      />
     </AuthContext.Provider>,
   );
 }
@@ -146,7 +161,7 @@ describe("Connectors", () => {
     apiFetchMock.mockReset();
   });
 
-  it("lists every connector with its tokens' scope, dates and status", async () => {
+  it("lists every connector with its tokens' Permissions, dates and status", async () => {
     routeApi({
       listings: [
         {
@@ -155,8 +170,13 @@ describe("Connectors", () => {
             connector({
               tokens: [
                 token(),
-                token({ active: false, id: "e0000000-x", scope: "READ_ONLY" }),
-                token({ active: false, id: "r0000000-x", revokedAt: "2026-02-03T00:00:00Z" }),
+                token({ active: false, id: "e0000000-x", permissions: ["user:read"] }),
+                token({
+                  active: false,
+                  id: "r0000000-x",
+                  permissions: [],
+                  revokedAt: "2026-02-03T00:00:00Z",
+                }),
               ],
             }),
           ],
@@ -169,7 +189,7 @@ describe("Connectors", () => {
     const okta = section("Okta");
     expect(okta.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
       "Token",
-      "Scope",
+      "Permissions",
       "Issued",
       "Expires",
       "Status",
@@ -177,11 +197,15 @@ describe("Connectors", () => {
     ]);
     expect(okta.getByText("Created 2026-01-01")).toBeInTheDocument();
     const active = within(okta.getByRole("rowheader", { name: "a1b2c3d4" }).closest("tr")!);
-    expect(active.getByText("READ_WRITE")).toBeInTheDocument();
+    expect(active.getByText("group:read, group:write, user:read, user:write")).toBeInTheDocument();
     expect(active.getByText("2026-01-02")).toBeInTheDocument();
     expect(active.getByText("2027-01-02")).toBeInTheDocument();
     expect(active.getByText("Active")).toBeInTheDocument();
+    const expired = within(okta.getByRole("rowheader", { name: "e0000000" }).closest("tr")!);
+    expect(expired.getByText("user:read")).toBeInTheDocument();
     expect(okta.getByText("Expired")).toBeInTheDocument();
+    const revoked = within(okta.getByRole("rowheader", { name: "r0000000" }).closest("tr")!);
+    expect(revoked.getByText("No permissions")).toBeInTheDocument();
     expect(okta.getByText("Revoked 2026-02-03")).toBeInTheDocument();
     // Rotate and revoke only for a token that would still be accepted.
     expect(okta.getAllByRole("button", { name: /^Rotate token/ })).toHaveLength(1);
@@ -302,14 +326,17 @@ describe("Connectors", () => {
     renderConnectors();
 
     await screen.findByRole("heading", { name: "Okta" });
-    await user.selectOptions(screen.getByLabelText("Scope for Okta"), "READ_WRITE");
+    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    // Chosen out of order: the request lists them in the backend's order regardless.
+    await user.click(permissions.getByRole("checkbox", { name: /user:read/ }));
+    await user.click(permissions.getByRole("checkbox", { name: /group:write/ }));
     await user.type(screen.getByLabelText("Lifetime in days for Okta (default 365)"), "30");
     await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
       {
-        body: JSON.stringify({ scope: "READ_WRITE", lifetimeDays: 30 }),
+        body: JSON.stringify({ lifetimeDays: 30, permissions: ["group:write", "user:read"] }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
       },
@@ -320,7 +347,11 @@ describe("Connectors", () => {
       "scim_plaintext_value_shown_once",
     );
     expect(disclosure).toHaveTextContent("cannot be retrieved again");
-    expect(within(disclosure).getByText("READ_WRITE · expires 2027-01-02")).toBeInTheDocument();
+    expect(
+      within(disclosure).getByText(
+        "group:read, group:write, user:read, user:write · expires 2027-01-02",
+      ),
+    ).toBeInTheDocument();
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
 
@@ -328,23 +359,58 @@ describe("Connectors", () => {
     expect(screen.queryByText("scim_plaintext_value_shown_once")).not.toBeInTheDocument();
   });
 
-  it("issues a read-only token with the default lifetime when none is given", async () => {
+  it("issues nothing until a Permission is chosen, then with the default lifetime", async () => {
     routeApi({
-      actions: [{ kind: "ok", data: issued({ scope: "READ_ONLY" }) }],
+      actions: [{ kind: "ok", data: issued({ permissions: ["group:read"] }) }],
       listings: [{ kind: "ok", data: [connector()] }],
     });
     const user = userEvent.setup();
     renderConnectors();
 
-    await user.click(await screen.findByRole("button", { name: "Issue token for Okta" }));
+    const issue = await screen.findByRole("button", { name: "Issue token for Okta" });
+    expect(issue).toBeDisabled();
+    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    const groupRead = permissions.getByRole("checkbox", { name: /group:read/ });
+    const userWrite = permissions.getByRole("checkbox", { name: /user:write/ });
+    await user.click(groupRead);
+    await user.click(userWrite);
+    // Unchecking takes a Permission back off the request.
+    await user.click(userWrite);
+    expect(groupRead).toBeChecked();
+    expect(userWrite).not.toBeChecked();
+    expect(issue).toBeEnabled();
+    await user.click(issue);
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       `/api/admin/connectors/${CONNECTOR_ID}/tokens`,
       expect.objectContaining({
-        body: JSON.stringify({ scope: "READ_ONLY", lifetimeDays: null }),
+        body: JSON.stringify({ lifetimeDays: null, permissions: ["group:read"] }),
       }),
       expect.any(Function),
     );
+    expect(await screen.findByText("group:read · expires 2027-01-02")).toBeInTheDocument();
+  });
+
+  /** A token may carry only what the session holds itself: the rest is shown, not offered. */
+  it("offers only the Permissions the session holds", async () => {
+    routeApi({ listings: [{ kind: "ok", data: [connector()] }] });
+    renderConnectors({ grantablePermissions: ["group:read", "group:write"] });
+
+    await screen.findByRole("heading", { name: "Okta" });
+    const permissions = within(screen.getByRole("group", { name: "Permissions for Okta" }));
+    for (const permission of ["group:read", "group:write"]) {
+      expect(permissions.getByRole("checkbox", { name: new RegExp(permission) })).toBeEnabled();
+    }
+    for (const permission of ["user:read", "user:write"]) {
+      expect(permissions.getByRole("checkbox", { name: new RegExp(permission) })).toBeDisabled();
+    }
+    expect(permissions.getByText("read Users — you do not hold it")).toBeInTheDocument();
+    expect(
+      permissions.getByText("create, change and delete Users — you do not hold it"),
+    ).toBeInTheDocument();
+    expect(permissions.getByText("read Groups")).toBeInTheDocument();
+    expect(permissions.getByText("create, change and delete Groups")).toBeInTheDocument();
+    expect(permissions.getAllByRole("checkbox")).toHaveLength(4);
   });
 
   it("rotates a token and discloses the replacement once", async () => {
@@ -427,7 +493,8 @@ describe("Connectors", () => {
     const user = userEvent.setup();
     renderConnectors();
 
-    await user.click(await screen.findByRole("button", { name: "Issue token for Okta" }));
+    await user.click(await screen.findByRole("checkbox", { name: /user:read/ }));
+    await user.click(screen.getByRole("button", { name: "Issue token for Okta" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Refused: Issuing a token for Okta — check the values and try again.",

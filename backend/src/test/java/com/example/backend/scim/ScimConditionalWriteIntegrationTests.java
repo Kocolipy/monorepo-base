@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.application.LoginService;
 import com.example.backend.observability.RequestIdFilter;
 import com.example.backend.scim.application.ConnectorAdministrationService;
@@ -17,7 +18,6 @@ import com.example.backend.scim.application.ScimGroupPatchOperation;
 import com.example.backend.scim.application.ScimGroupService;
 import com.example.backend.scim.application.ScimUserService;
 import com.example.backend.scim.domain.AuthenticatedConnector;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import com.example.backend.scim.domain.ScimUserPatchOperation;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import jakarta.servlet.Filter;
@@ -136,12 +136,12 @@ class ScimConditionalWriteIntegrationTests {
                 .build();
         connectorA = connectors.create("Okta", "test-admin").id();
         UUID connectorB = connectors.create("Entra", "test-admin").id();
-        tokenA = connectors.issueToken(connectorA, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
-        tokenB = connectors.issueToken(connectorB, ConnectorTokenScope.READ_WRITE, null,
-                "test-admin").presentedValue();
-        readOnlyToken = connectors.issueToken(connectorA, ConnectorTokenScope.READ_ONLY, null,
-                "test-admin").presentedValue();
+        tokenA = connectors.issueToken(connectorA, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        tokenB = connectors.issueToken(connectorB, TokenPermissions.ALL, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
+        readOnlyToken = connectors.issueToken(connectorA, TokenPermissions.READ, null,
+                "test-admin", TokenPermissions.ALL).presentedValue();
     }
 
     @AfterEach
@@ -697,7 +697,7 @@ class ScimConditionalWriteIntegrationTests {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             userService.patch(
                     new AuthenticatedConnector(connectorA, UUID.randomUUID(),
-                            ConnectorTokenScope.READ_WRITE),
+                            TokenPermissions.of(TokenPermissions.ALL)),
                     user,
                     ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\"")),
                     List.of(new ScimUserPatchOperation.SetPassword("rolled-back-horse")));
@@ -836,7 +836,7 @@ class ScimConditionalWriteIntegrationTests {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             groupService.patch(
                     new AuthenticatedConnector(connectorA, UUID.randomUUID(),
-                            ConnectorTokenScope.READ_WRITE),
+                            TokenPermissions.of(TokenPermissions.ALL)),
                     adminGroup,
                     ScimVersionPrecondition.ofIfMatch(List.of("\"" + version + "\"")),
                     List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(member))));

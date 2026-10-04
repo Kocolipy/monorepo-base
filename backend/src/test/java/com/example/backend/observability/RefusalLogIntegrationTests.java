@@ -3,8 +3,8 @@ package com.example.backend.observability;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.backend.ContainerTestConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.scim.application.ConnectorAdministrationService;
-import com.example.backend.scim.domain.ConnectorTokenScope;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.URI;
@@ -71,7 +71,7 @@ class RefusalLogIntegrationTests {
     void setUp() {
         UUID connectorId = connectors.create("refusal-log-connector", "test-admin").id();
         writeToken = connectors.issueToken(
-                connectorId, ConnectorTokenScope.READ_WRITE, null, "test-admin").presentedValue();
+                connectorId, TokenPermissions.ALL, null, "test-admin", TokenPermissions.ALL).presentedValue();
         logs = EcsLogCapture.attach(environment);
     }
 

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import com.example.backend.SessionCsrf;
 import com.example.backend.ContainerTestConfiguration;
 import com.example.backend.InMemorySessionRegistryConfiguration;
+import com.example.backend.TokenPermissions;
 import com.example.backend.auth.DormancyTestClockConfiguration;
 import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.application.DormantAuthorityRevocationService;
@@ -175,7 +176,7 @@ class AuditListingEndToEndIntegrationTests {
                 "{\"displayName\":\"Audit Listing Connector\"}", 201);
         UUID connectorId = UUID.fromString(connector.get("id").asText());
         JsonNode issued = send(post("/api/admin/connectors/" + connectorId + "/tokens")
-                .session(admin), "{\"scope\":\"READ_WRITE\"}", 201);
+                .session(admin), "{\"permissions\":" + TokenPermissions.ALL_JSON + "}", 201);
         bearer = issued.get("presentedValue").asText();
         UUID tokenId = UUID.fromString(issued.get("tokenId").asText());
 
@@ -233,7 +234,7 @@ class AuditListingEndToEndIntegrationTests {
         expect(single(connectorEvents, "CONNECTOR_CREATE", "SUCCESS"),
                 adminId, "ScimConnector", connectorId);
         expect(single(connectorEvents, "CONNECTOR_TOKEN_ISSUE", "SUCCESS"),
-                adminId, "ScimConnector", connectorId, "scope", "expiresAt");
+                adminId, "ScimConnector", connectorId, "permissions", "expiresAt");
         expect(single(connectorEvents, "CONNECTOR_TOKEN_REVOKE", "SUCCESS"),
                 adminId, "ScimConnector", connectorId, "revokedAt");
 
