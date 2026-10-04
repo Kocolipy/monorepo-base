@@ -263,6 +263,12 @@ A User whose dormancy basis is older than one of the dormancy windows: the
 lockout window (90 days by default) or the longer role-revocation window (180).
 _Avoid_: inactive User (that is a deactivated one)
 
+**Dormancy verdict**:
+What the dormancy job owes one User at one instant, decided from its dormancy
+basis and "now" alone: not due, Lockout, or Lockout + Role revocation. It owns
+the basis choice and both cutoffs, answers not due for the Bootstrap Admin, and
+is the only place the job compares a basis with a window.
+
 **Dormancy job**:
 The one scheduled job, daily at 04:00 Singapore time, that locks every unlocked
 User past the lockout window with cause `DORMANCY`, and removes the direct

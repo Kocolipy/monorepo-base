@@ -260,7 +260,8 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
                         .map(member -> new ScimGroupMembership(member.userId(), group.id())))
                 .filter(membership -> users.findById(membership.userId())
                         .filter(user -> user.reservedName() == null)
-                        .filter(user -> user.isDormantAt(cutoff))
+                        // The candidate query's SQL predicate, basis < cutoff.
+                        .filter(user -> user.dormancyBasis().isBefore(cutoff))
                         .isPresent())
                 .sorted(Comparator.comparing(ScimGroupMembership::userId)
                         .thenComparing(ScimGroupMembership::groupId))

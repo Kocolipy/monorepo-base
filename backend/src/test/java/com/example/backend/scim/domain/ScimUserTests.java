@@ -181,16 +181,6 @@ class ScimUserTests {
         assertThat(authenticatedAt(last, null).dormancyBasis()).isEqualTo(last);
     }
 
-    /** Strictly before the cutoff is dormant; exactly at it is not yet. */
-    @Test
-    void a_user_is_dormant_only_when_its_basis_is_strictly_before_the_cutoff() {
-        ScimUser user = authenticatedAt(null, null);
-
-        assertThat(user.isDormantAt(CREATED.plusNanos(1))).isTrue();
-        assertThat(user.isDormantAt(CREATED)).isFalse();
-        assertThat(user.isDormantAt(CREATED.minusNanos(1))).isFalse();
-    }
-
     /**
      * Only the Bootstrap Admin is exempt from the dormancy jobs; an unreserved User is not, and
      * neither is a resource carrying some other reservation.

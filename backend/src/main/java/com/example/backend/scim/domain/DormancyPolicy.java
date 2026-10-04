@@ -7,8 +7,9 @@ import java.time.Instant;
  * How long a User may go without authenticating before each step of the dormancy job applies to
  * it (ADR 0011).
  *
- * <p>Two windows, both measured on the same basis — {@link ScimUser#dormancyBasis()}, the last
- * successful login, explicit reactivation or Unlock, falling back to creation:
+ * <p>Two windows, both measured on the same basis — {@link #basis}, the last successful login,
+ * completed password change, explicit reactivation or Unlock, falling back to creation — and
+ * folded into one {@link DormancyVerdict} by {@link #verdict}:
  *
  * <ul>
  *   <li><strong>lockout</strong> — past it, the User is locked with {@link LockCause#DORMANCY}
@@ -61,14 +62,63 @@ public record DormancyPolicy(Duration lockoutWindow, Duration roleRevocationWind
         return new DormancyPolicy(null, null);
     }
 
-    /** The instant a User's dormancy basis must lie before for the lockout to apply at {@code now}. */
+    /**
+     * The dormancy verdict for this User at {@code now}: {@link DormancyVerdict#NOT_DUE} for the
+     * Bootstrap Admin whatever its basis, and otherwise {@link #verdict(Instant, Instant, Instant)}
+     * on the User's creation and last authentication.
+     */
+    public DormancyVerdict verdict(ScimUser user, Instant now) {
+        if (user.isExemptFromDormancy()) {
+            return DormancyVerdict.NOT_DUE;
+        }
+        return verdict(user.createdAt(), user.login().lastAuthenticatedAt(), now);
+    }
+
+    /**
+     * The dormancy verdict at {@code now} for a User created at {@code createdAt} that last
+     * authenticated — logged in, changed its password, was reactivated or was unlocked — at
+     * {@code lastAuthenticatedAt}, or never ({@code null}).
+     *
+     * <p>The basis is {@link #basis}; a window applies once the basis lies strictly before its
+     * cutoff, so a basis exactly one window old is not yet due for that step.
+     */
+    public DormancyVerdict verdict(Instant createdAt, Instant lastAuthenticatedAt, Instant now) {
+        Instant basis = basis(createdAt, lastAuthenticatedAt);
+        if (basis.isBefore(roleRevocationCutoff(now))) {
+            return DormancyVerdict.LOCKOUT_AND_ROLE_REVOCATION;
+        }
+        if (basis.isBefore(lockoutCutoff(now))) {
+            return DormancyVerdict.LOCKOUT;
+        }
+        return DormancyVerdict.NOT_DUE;
+    }
+
+    /**
+     * The instant dormancy is measured from: the last authentication — a successful login, a
+     * completed password change, a reactivation or an Unlock, all of which write it — or, for a
+     * User that has had none of those, its creation.
+     *
+     * <p>The fallback is what keeps a User provisioned without a password from being dormant the
+     * moment it exists: it has never authenticated, but it has also not had the chance to. The
+     * candidate queries spell the same choice in SQL as
+     * {@code coalesce(last_authenticated_at, created_at)}.
+     */
+    public static Instant basis(Instant createdAt, Instant lastAuthenticatedAt) {
+        return lastAuthenticatedAt == null ? createdAt : lastAuthenticatedAt;
+    }
+
+    /**
+     * The instant a User's dormancy basis must lie before for the lockout to apply at {@code now}.
+     * The decision is {@link #verdict}'s; this is exposed for the candidate query, which narrows
+     * the Users the job reads before it decides each one again on the locked read.
+     */
     public Instant lockoutCutoff(Instant now) {
         return now.minus(lockoutWindow);
     }
 
     /**
      * The instant a User's dormancy basis must lie before for its mapped Group memberships to be
-     * removed at {@code now}.
+     * removed at {@code now}. Exposed, like {@link #lockoutCutoff}, for the candidate query only.
      */
     public Instant roleRevocationCutoff(Instant now) {
         return now.minus(roleRevocationWindow);

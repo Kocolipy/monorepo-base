@@ -43,6 +43,12 @@ import tools.jackson.databind.JsonNode;
  * The dormancy job against the in-memory directory: whom it locks, whose mapped Group memberships
  * it removes, what it leaves in place, and what each change records. The same rules against
  * Postgres, with the real seeded Bootstrap Admin, are {@code DormancyIntegrationTests}.
+ *
+ * <p>Which step a User is due for is the {@link com.example.backend.scim.domain.DormancyVerdict}'s
+ * decision, tested without a clock in {@code DormancyVerdictTests}. Here the clock stands still at
+ * {@link #RUN_AT} and a User is made dormant by backdating its basis; the clock moves only in the
+ * tests about the window boundaries — that the candidate queries and the verdict agree exactly at
+ * them — and about what one run leaves for the next.
  */
 class DormancyServiceTests {
 
@@ -51,6 +57,9 @@ class DormancyServiceTests {
     private static final Duration LOCKOUT = DormancyPolicy.DEFAULT_LOCKOUT_WINDOW;
 
     private static final Duration ROLE_REVOCATION = DormancyPolicy.DEFAULT_ROLE_REVOCATION_WINDOW;
+
+    /** When the job runs: far enough past {@link #CREATED} that a creation basis is long dormant. */
+    private static final Instant RUN_AT = CREATED.plus(ROLE_REVOCATION.multipliedBy(10));
 
     /** Sorts before {@link #SUPERUSER_GROUP}, so the Roles lost read in a fixed order. */
     private static final UUID ACCOUNT_ADMINS =
@@ -74,7 +83,7 @@ class DormancyServiceTests {
     private final PendingCommit transaction = new PendingCommit();
     private final RecordingAuditTrail audit = new RecordingAuditTrail();
     private final InMemoryScheduledJobLock lock = new InMemoryScheduledJobLock();
-    private final MutableClock clock = new MutableClock(CREATED);
+    private final MutableClock clock = new MutableClock(RUN_AT);
 
     private DormancyService job;
 
@@ -96,9 +105,9 @@ class DormancyServiceTests {
      */
     @Test
     void aUserPastTheLockoutWindowIsLockedForDormancy() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(LOCKOUT.plusSeconds(1))));
         accountSessions.open(ada.id(), "ada-session");
-        clock.advanceBy(LOCKOUT.plusSeconds(1));
 
         DormancyRun run = job.run();
 
@@ -123,9 +132,13 @@ class DormancyServiceTests {
                 new Recorded(AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:"));
     }
 
+    /**
+     * A boundary case, so the clock moves: the candidate query and the verdict agree that a basis
+     * exactly one window old is not yet due and one nanosecond more is.
+     */
     @Test
     void theLockoutWindowIsExclusiveAtItsBoundary() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", RUN_AT));
 
         clock.advanceBy(LOCKOUT);
         assertThat(job.run().locked()).isEmpty();
@@ -135,22 +148,12 @@ class DormancyServiceTests {
         assertThat(job.run().locked()).containsExactly(ada.id());
     }
 
-    /** A User never authenticated is measured from its creation. */
-    @Test
-    void aUserThatNeverAuthenticatedIsMeasuredFromCreation() {
-        ScimUser idle = users.given(ScimIdentities.user("idle"));
-        clock.advanceBy(LOCKOUT.plusSeconds(1));
-
-        assertThat(job.run().locked()).containsExactly(idle.id());
-    }
-
     /** An already locked User keeps its lock and the cause it was first locked for. */
     @Test
     void aUserLockedForFailuresKeepsItsCause() {
         Instant lockedAt = CREATED.plusSeconds(60);
         users.given(ScimIdentities.userWithLoginState(
                 "ada", new ScimLoginState("hash", 5, lockedAt, CREATED)));
-        clock.advanceBy(LOCKOUT.plusDays(1));
 
         DormancyRun run = job.run();
 
@@ -172,7 +175,6 @@ class DormancyServiceTests {
         Instant lockedAt = CREATED.plusSeconds(60);
         ScimUser ada = users.given(ScimIdentities.userWithLoginState(
                 "ada", new ScimLoginState("hash", 5, lockedAt, CREATED)));
-        clock.advanceBy(LOCKOUT.plusDays(1));
         users.answerDormancyCandidatesWith(List.of(ada.id()));
 
         DormancyRun run = job.run();
@@ -189,7 +191,6 @@ class DormancyServiceTests {
     @Test
     void anInactiveDormantUserIsLockedAndStaysInactive() {
         ScimUser gone = users.given(ScimIdentities.inactiveUser("gone"));
-        clock.advanceBy(LOCKOUT.plusSeconds(1));
 
         assertThat(job.run().locked()).containsExactly(gone.id());
         ScimUser after = users.require("gone");
@@ -200,9 +201,9 @@ class DormancyServiceTests {
     /** Past the lockout window but not the role-revocation window: locked, Roles kept. */
     @Test
     void aUserLockedButNotYetPastTheRoleRevocationWindowKeepsItsRoles() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(LOCKOUT.plusDays(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
-        clock.advanceBy(LOCKOUT.plusDays(1));
 
         DormancyRun run = job.run();
 
@@ -222,14 +223,14 @@ class DormancyServiceTests {
      */
     @Test
     void aUserPastTheRoleRevocationWindowLosesEveryMappedMembershipAndOnlyThose() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(ROLE_REVOCATION.plusSeconds(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
         ScimGroup accountAdmins = groups.create(
                 ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
         ScimGroup engineering = groups.create(ScimIdentities.group("Engineering", ada));
         long adaVersion = users.require("ada").version();
         accountSessions.open(ada.id(), "ada-session");
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         DormancyRun run = job.run();
 
@@ -260,9 +261,10 @@ class DormancyServiceTests {
                 new Recorded(AuditOperation.USER_SESSIONS_REVOKE, null, ada.id(), "SUCCESS:"));
     }
 
+    /** A boundary case, so the clock moves, as for the lockout window. */
     @Test
     void theRoleRevocationWindowIsExclusiveAtItsBoundary() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", RUN_AT));
         superuserGroupOf(bootstrap, ada);
 
         clock.advanceBy(ROLE_REVOCATION);
@@ -274,13 +276,14 @@ class DormancyServiceTests {
 
     /**
      * The job takes priority over the directory: a membership a connector re-adds while the User
-     * stays dormant is removed again by the next run, though the User is already locked.
+     * stays dormant is removed again by the next run, a day later, though the User is already
+     * locked. What one run leaves for the next, so the clock moves.
      */
     @Test
     void aReAddedMembershipIsRemovedAgainWhileTheUserStaysDormant() {
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(ROLE_REVOCATION.plusSeconds(1))));
         ScimGroup superusers = superuserGroupOf(bootstrap, ada);
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
         job.run();
         ScimGroup afterFirst = groups.findById(superusers.id()).orElseThrow();
         groups.replace(new ScimGroup(
@@ -311,7 +314,6 @@ class DormancyServiceTests {
         ScimUser gone = users.given(ScimIdentities.userWithLoginState(
                 "gone", new ScimLoginState("hash", 5, CREATED, CREATED)));
         superuserGroupOf(bootstrap, gone);
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         DormancyRun run = job.run();
 
@@ -325,7 +327,6 @@ class DormancyServiceTests {
     void aUserInOnlyUnmappedGroupsHasNothingRevoked() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         ScimGroup engineering = groups.create(ScimIdentities.group("Engineering", ada));
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         DormancyRun run = job.run();
 
@@ -345,7 +346,6 @@ class DormancyServiceTests {
         ScimUser bob = users.given(ScimIdentities.userAuthenticatedAt("bob", CREATED));
         superuserGroupOf(bootstrap, ada);
         groups.create(ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(bob), CREATED));
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         job.run();
 
@@ -359,7 +359,6 @@ class DormancyServiceTests {
     void theBootstrapAdminIsExemptFromBothSteps() {
         ScimGroup superusers = superuserGroupOf(bootstrap);
         accountSessions.open(bootstrap.id(), "root-session");
-        clock.advanceBy(ROLE_REVOCATION.multipliedBy(10));
 
         DormancyRun run = job.run();
         transaction.commit();
@@ -381,9 +380,7 @@ class DormancyServiceTests {
     @Test
     void aStaleCandidateIsDecidedAgainOnTheLockedRead() {
         ScimUser outsider = users.given(ScimIdentities.userAuthenticatedAt("outsider", CREATED));
-        clock.advanceBy(ROLE_REVOCATION.multipliedBy(2));
-        ScimUser fresh = users.given(
-                ScimIdentities.userAuthenticatedAt("fresh", clock.instant()));
+        ScimUser fresh = users.given(ScimIdentities.userAuthenticatedAt("fresh", RUN_AT));
         ScimGroup superusers = superuserGroupOf(bootstrap, fresh);
         UUID nobody = UUID.randomUUID();
         users.answerDormancyCandidatesWith(List.of(bootstrap.id(), fresh.id(), nobody));
@@ -407,19 +404,26 @@ class DormancyServiceTests {
         assertThat(transaction.pending()).isZero();
     }
 
+    /**
+     * The job asks the policy it was given, not the defaults: under 5- and 10-day windows a User
+     * six days dormant is locked and keeps its Roles, one eleven days dormant loses them too.
+     * Where exactly each window falls is {@code DormancyVerdictTests}'.
+     */
     @Test
     void configuredWindowsAreTheOnesApplied() {
         job = job(new DormancyPolicy(Duration.ofDays(5), Duration.ofDays(10)));
-        ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        superuserGroupOf(bootstrap, ada);
+        ScimUser ada = users.given(
+                ScimIdentities.userAuthenticatedAt("ada", ago(Duration.ofDays(6))));
+        ScimUser bob = users.given(
+                ScimIdentities.userAuthenticatedAt("bob", ago(Duration.ofDays(11))));
+        ScimUser cy = users.given(
+                ScimIdentities.userAuthenticatedAt("cy", ago(Duration.ofDays(4))));
+        superuserGroupOf(bootstrap, ada, bob, cy);
 
-        clock.advanceBy(Duration.ofDays(6));
-        DormancyRun first = job.run();
-        assertThat(first.locked()).containsExactly(ada.id());
-        assertThat(first.rolesRevoked()).isEmpty();
+        DormancyRun run = job.run();
 
-        clock.advanceBy(Duration.ofDays(5));
-        assertThat(job.run().rolesRevoked()).containsExactly(ada.id());
+        assertThat(run.locked()).containsExactlyInAnyOrder(ada.id(), bob.id());
+        assertThat(run.rolesRevoked()).containsExactly(bob.id());
     }
 
     // ---- serialization ---------------------------------------------------------------------
@@ -427,7 +431,6 @@ class DormancyServiceTests {
     @Test
     void aRunSkipsWhileAnotherRunHoldsTheJobsLock() {
         users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
         lock.holdElsewhere(ScheduledJob.DORMANCY);
 
         DormancyRun run = job.run();
@@ -443,7 +446,6 @@ class DormancyServiceTests {
     @Test
     void anotherJobHoldingItsLockDoesNotStopThisOne() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        clock.advanceBy(LOCKOUT.plusSeconds(1));
         lock.holdElsewhere(ScheduledJob.AUDIT_RETENTION);
 
         assertThat(job.run().locked()).containsExactly(ada.id());
@@ -454,7 +456,6 @@ class DormancyServiceTests {
     void aSecondRunDoesNotProcessTheSameUserAgain() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         superuserGroupOf(bootstrap, ada);
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
         job.run();
         int writes = users.writes();
         audit.reset();
@@ -477,7 +478,6 @@ class DormancyServiceTests {
     void eachChangeIsLoggedOnceAtItsLevel() {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         superuserGroupOf(bootstrap, ada);
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
             job.run();
@@ -512,7 +512,6 @@ class DormancyServiceTests {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         superuserGroupOf(bootstrap, ada);
         groups.create(ScimGroup.created(ACCOUNT_ADMINS, "Account admins", members(ada), CREATED));
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
         groups.answerDormantMemberCandidatesWith(List.of(
                 new ScimGroupMembership(ada.id(), SUPERUSER_GROUP),
                 new ScimGroupMembership(ada.id(), ACCOUNT_ADMINS)));
@@ -538,7 +537,6 @@ class DormancyServiceTests {
         ScimUser ada = users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
         superuserGroupOf(bootstrap, ada);
         users.given(ScimIdentities.userAuthenticatedAt("bob", CREATED));
-        clock.advanceBy(ROLE_REVOCATION.plusSeconds(1));
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
             scheduled().run();
@@ -570,7 +568,6 @@ class DormancyServiceTests {
     @Test
     void aScheduledRunThatFindsTheLockHeldLogsTheSkipAndDoesNoWork() {
         users.given(ScimIdentities.userAuthenticatedAt("ada", CREATED));
-        clock.advanceBy(LOCKOUT.plusSeconds(1));
         lock.holdElsewhere(ScheduledJob.DORMANCY);
 
         try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
@@ -583,6 +580,11 @@ class DormancyServiceTests {
             assertThat(records.get(1).at("/dormancy").isMissingNode()).isTrue();
         }
         assertThat(audit.recorded()).isEmpty();
+    }
+
+    /** A basis {@code dormantFor} before the run — how a User is made dormant here. */
+    private static Instant ago(Duration dormantFor) {
+        return RUN_AT.minus(dormantFor);
     }
 
     private DormancyService job(DormancyPolicy policy) {

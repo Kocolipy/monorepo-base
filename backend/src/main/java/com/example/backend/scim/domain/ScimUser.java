@@ -123,23 +123,10 @@ public record ScimUser(
     }
 
     /**
-     * The instant dormancy is measured from: the last successful login, explicit reactivation or
-     * administrator's Unlock, or — for a User that has had none of those — its creation.
-     *
-     * <p>The fallback is what keeps a User provisioned without a password from being dormant
-     * the moment it exists: it has never authenticated, but it has also not had the chance to.
+     * The instant dormancy is measured from, as {@link DormancyPolicy#basis} chooses it. Whether
+     * that makes the User dormant is {@link DormancyPolicy#verdict}'s to decide.
      */
     public Instant dormancyBasis() {
-        Instant lastAuthenticatedAt = login.lastAuthenticatedAt();
-        return lastAuthenticatedAt == null ? createdAt : lastAuthenticatedAt;
-    }
-
-    /**
-     * Whether this User's dormancy basis lies strictly before {@code cutoff} — that is, whether
-     * it has gone longer than the window {@code cutoff} was computed from without
-     * authenticating. A basis exactly at the cutoff is not yet dormant.
-     */
-    public boolean isDormantAt(Instant cutoff) {
-        return dormancyBasis().isBefore(cutoff);
+        return DormancyPolicy.basis(createdAt, login.lastAuthenticatedAt());
     }
 }
