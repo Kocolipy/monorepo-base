@@ -498,30 +498,6 @@ class ScheduledJobMetricsTests {
                 .containsKey(LogContext.JOB_RUN_ID));
     }
 
-    // ---- the schedule record ----------------------------------------------------------------
-
-    /**
-     * A job's startup record names the job, says what it does, and states its cron with the
-     * zone the cron is evaluated in, classified as the job's operation.
-     */
-    @Test
-    void the_schedule_record_names_the_job_its_description_cron_and_zone() {
-        ScheduledJobMetrics.scheduled(
-                        LoggerFactory.getLogger("schedule").atInfo(), OPERATION, "probe",
-                        "0 0 4 * * *", "Does the probe's work")
-                .log("Probe scheduled");
-
-        JsonNode record = onlyRecord("Probe scheduled");
-        assertThat(record.at("/batch/job/name").asText()).isEqualTo("probe");
-        assertThat(record.at("/app/job/description").asText()).isEqualTo("Does the probe's work");
-        assertThat(record.at("/trigger/cron/expression").asText()).isEqualTo("0 0 4 * * *");
-        assertThat(record.at("/trigger/cron/timezone").asText()).isEqualTo("Asia/Singapore");
-        assertThat(texts(record.at("/event/category"))).containsExactly("configuration");
-        assertThat(texts(record.at("/event/type"))).containsExactly("info");
-        assertThat(record.at("/event/action").asText()).isEqualTo("user-administration");
-        assertThat(record.at("/app/event/action").asText()).isEqualTo("identity.dormancy");
-    }
-
     // ---- helpers ----------------------------------------------------------------------------
 
     private void advance(Duration by) {

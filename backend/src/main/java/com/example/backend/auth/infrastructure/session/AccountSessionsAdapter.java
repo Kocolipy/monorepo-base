@@ -84,11 +84,10 @@ public class AccountSessionsAdapter implements AccountSessions {
      * No session id is named; an id is the session's bearer credential.
      */
     private static void recordEnded(UUID accountId, String cause, int ended) {
-        LogEvent.classify(log.atInfo(), Operation.SESSION_END, Category.PROCESS, Type.END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.success(log, Operation.SESSION_END, Category.PROCESS, Type.END)
                 .addKeyValue(LogEvent.REASON, cause)
                 .addKeyValue(LogEvent.USER_TARGET_ID, accountId.toString())
                 .addKeyValue(LogEvent.SESSIONS_ENDED, ended)
-                .log("Sessions ended");
+                .log();
     }
 }

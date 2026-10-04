@@ -47,13 +47,12 @@ class LoggingOperationalAlertsAdapter implements OperationalAlerts {
     public void auditAppendFailed(AuditOperation operation, Class<? extends Throwable> failure) {
         // High severity: a missing audit record is a compliance gap whoever reads the alert,
         // so it is routed as one independently of the level.
-        LogEvent.classify(LogEvent.atError(log, ERROR_CODE, ErrorCategory.DATABASE, true),
-                        Operation.AUDIT_APPEND, Category.DATABASE, Type.ERROR)
+        LogEvent.error(log, Operation.AUDIT_APPEND, ERROR_CODE, ErrorCategory.DATABASE,
+                        Category.DATABASE, Type.ERROR)
                 .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON, failure.getSimpleName())
                 .addKeyValue(LogEvent.AUDIT_OPERATION, operation.name())
                 .addKeyValue(LogEvent.ERROR_CAUSE_OMITTED, CAUSE_OMITTED)
-                .log("Audit event could not be appended; the request was not altered");
+                .log();
     }
 }

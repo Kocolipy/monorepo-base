@@ -668,3 +668,54 @@ User as `user.target.id` and, for a revocation, the Roles lost as
 inactivity rather than an attack. The `application-startup` record's two window
 fields are now `app.dormancy.lockout.window` and
 `app.dormancy.role_revocation.window`.
+
+## Addendum (2026-10-04): records built per outcome, not at the call site (#128)
+
+The Decision and the addenda above made `LogEvent` the one place that NAMES an event. Each call
+site still built the rest of the record by hand: the outcome, the duration, and a message chosen
+there — about ninety hand-added fields in 22 files. Adding one standard field to every refusal
+meant editing every file that wrote one. `LogEvent` now builds the whole record.
+
+**The shapes.** Each is a public method that opens the record at its level, classifies it, sets
+`event.outcome` and `event.duration_ms` where the shape has them, and sets the operation's fixed
+message for that shape. The caller names the operation, adds only the ids and counts it alone can
+supply, and calls `log()`.
+
+| Shape | Level | Sets |
+| ----- | ----- | ---- |
+| `success` | `INFO` | `event.outcome` `success` (an overload adds `event.duration_ms`) |
+| `successAtWarn` | `WARN` | the same, for the dormancy lockout the #118 addendum puts at `WARN` |
+| `refused` | `WARN` | `event.outcome` `failure`; the caller adds `event.reason` |
+| `error` | `ERROR` | the §Error fields with follow-up `true`, `event.outcome` `failure` |
+| `jobScheduled` | `INFO` | `batch.job.name`, `app.job.description`, `trigger.cron.*` |
+| `jobStart` | `INFO` | — |
+| `jobEnd` | `INFO` | `success`, `event.duration_ms`, and `event.reason` `lock-held` when skipped |
+| `jobFailed` | `ERROR` | `error.code` `500`, `failure`, `event.severity` `high`, `event.duration_ms` |
+| `jobSummary` | `INFO` | nothing: a run's outcome is its `job-end`'s |
+| `requestEnd` | by status | `http.response.status_code`, `event.duration_ms`, `event.outcome` |
+
+`classify` and `atError` are no longer public: every record starts in a shape. `withError` stays
+public, for the one refusal that carries a `data` error classification (`http.request.refusal`).
+`ScheduledJobMetrics.scheduled` became `LogEvent.jobScheduled`, and the request record's level
+rule moved from `RequestIdFilter` into `requestEnd`.
+
+**One message per operation per shape.** The messages are tables in `LogEvent`, one per shape.
+An operation a shape has no entry for gets that shape's generic message ("Operation completed")
+rather than an exception, because a record is never worth failing the path that writes it.
+Field names, values and levels are unchanged. One operation is keyed by type as well: the
+role-mapping startup pass writes a `change` record for the sessions it ended beside the `info`
+record of the validated hash, both under `authorization.role_mapping` as the spec's table
+requires, so the `change` record keeps its own message ("Sessions issued under another role
+mapping ended") rather than reading as a routine validation. One message changed, because one
+operation wrote two different messages for one shape:
+
+| Record | Was | Now |
+| ------ | --- | --- |
+| `session-end` from a revocation (`AccountSessions`) | `Sessions ended` | `Session ended`, as the absolute-lifetime `session-end` already said |
+
+**The rule.** Semgrep `be-log-record-outside-log-event` refuses, in production code outside
+`LogEvent`, any record opened on a logger at a level below `ERROR` (`be-log-error-without-error-fields`
+already holds `ERROR`), the classic `info(...)`/`warn(...)`/`debug(...)`/`trace(...)` calls, a
+write of `event.outcome` or `event.duration_ms`, `setMessage(...)`, and a `log(...)` call that
+passes a message. Run against the code before this change it reported 100 findings across the 22
+files. The redaction rules and the field names are unchanged.

@@ -64,9 +64,9 @@ public class AuditRetentionScheduleConfig implements SchedulingConfigurer {
                 jobs.instrumentLocked(RETENTION_JOB, AuditRetentionService.OPERATION,
                         retention::deleteAgedOutEvents),
                 new CronTrigger(policy.schedule(), ServiceTimeZone.ZONE)));
-        ScheduledJobMetrics.scheduled(log.atInfo(), AuditRetentionService.OPERATION,
+        LogEvent.jobScheduled(log, AuditRetentionService.OPERATION,
                         RETENTION_JOB, policy.schedule(), RETENTION_DESCRIPTION)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
-                .log("Audit retention job scheduled");
+                .log();
     }
 }

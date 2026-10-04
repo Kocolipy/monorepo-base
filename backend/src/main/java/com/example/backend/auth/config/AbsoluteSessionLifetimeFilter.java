@@ -85,10 +85,9 @@ public class AbsoluteSessionLifetimeFilter extends OncePerRequestFilter {
      */
     private static void recordEnded(UUID owner) {
         try (LogContext.Scope scope = LogContext.userId(owner)) {
-            LogEvent.classify(log.atInfo(), Operation.SESSION_END, Category.PROCESS, Type.END)
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+            LogEvent.success(log, Operation.SESSION_END, Category.PROCESS, Type.END)
                     .addKeyValue(LogEvent.REASON, CAUSE)
-                    .log("Session ended");
+                    .log();
         }
     }
 

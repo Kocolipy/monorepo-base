@@ -42,14 +42,13 @@ public class DevDormancyStartupConfig {
     @EventListener(ApplicationReadyEvent.class)
     public void runOnce() {
         DormancyRun run = dormancy.run();
-        LoggingEventBuilder record = LogEvent.classify(
-                        log.atInfo(), DormancyService.OPERATION, Category.BATCH, Type.INFO)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS);
+        LoggingEventBuilder record =
+                LogEvent.success(log, DormancyService.OPERATION, Category.BATCH, Type.INFO);
         if (run.skipped()) {
             record.addKeyValue(LogEvent.REASON, LogEvent.REASON_LOCK_HELD);
         } else {
             run.counts().forEach(record::addKeyValue);
         }
-        record.log("Dormancy job run at startup for the development fixtures");
+        record.log();
     }
 }

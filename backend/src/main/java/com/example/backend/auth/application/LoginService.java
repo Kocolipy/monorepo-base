@@ -100,11 +100,9 @@ public class LoginService {
             // No user field: the attempt's identity is unresolved, and a session the
             // request happened to carry is not whom the attempt was for.
             try (LogContext.Scope unresolved = LogContext.userId(null)) {
-                LogEvent.classify(log.atWarn(),
-                                Operation.LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
-                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+                LogEvent.refused(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.DENIED)
                         .addKeyValue(LogEvent.REASON, refused.getClass().getSimpleName())
-                        .log("Login refused");
+                        .log();
             }
             throw refused;
         }
@@ -116,10 +114,8 @@ public class LoginService {
         // Set explicitly: the session's principal index that carries user.id for later
         // requests is written only after this returns.
         try (LogContext.Scope resolved = LogContext.userId(userId)) {
-            LogEvent.classify(log.atInfo(),
-                            Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                    .log("Login accepted");
+            LogEvent.success(log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED)
+                    .log();
         }
         return new LoginOutcome(authentication, userId, identities.roleMappingHash());
     }

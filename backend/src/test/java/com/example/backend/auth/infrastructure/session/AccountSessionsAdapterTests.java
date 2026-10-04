@@ -121,7 +121,7 @@ class AccountSessionsAdapterTests {
         ILoggingEvent record = onlyRecord(() -> adapter.revokeAll(BOB));
 
         assertThat(record.getLevel()).isEqualTo(Level.INFO);
-        assertThat(record.getFormattedMessage()).isEqualTo("Sessions ended");
+        assertThat(record.getFormattedMessage()).isEqualTo("Session ended");
         assertThat(CapturedLog.fields(record))
                 .containsEntry(LogEvent.ACTION, "session-end")
                 .containsEntry(LogEvent.TYPE, List.of("end"))

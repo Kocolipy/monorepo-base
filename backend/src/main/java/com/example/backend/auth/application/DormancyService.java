@@ -204,20 +204,16 @@ public class DormancyService {
 
     /** {@code WARN}: a dormancy lockout signals inactivity, not an attack — never {@code ERROR}. */
     private static void logLockout(UUID userId) {
-        LogEvent.classify(log.atWarn(), Operation.DORMANCY_LOCKOUT, Category.PROCESS, Type.CHANGE)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.successAtWarn(log, Operation.DORMANCY_LOCKOUT, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
-                .log("User locked for dormancy");
+                .log();
     }
 
     private static void logRoleRevocation(UUID userId, List<Role> lost) {
-        LogEvent.classify(
-                        log.atInfo(), Operation.DORMANCY_ROLE_REVOCATION, Category.PROCESS,
-                        Type.CHANGE)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.success(log, Operation.DORMANCY_ROLE_REVOCATION, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
                 .addKeyValue(LogEvent.ROLE_NAME, lost.stream().map(Role::name).distinct()
                         .sorted().collect(Collectors.joining(",")))
-                .log("Roles revoked for dormancy");
+                .log();
     }
 }

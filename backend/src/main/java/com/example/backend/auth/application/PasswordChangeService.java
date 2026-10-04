@@ -128,10 +128,8 @@ public class PasswordChangeService {
         audit.recordPasswordChanged(userId);
         sessions.revokeAfterCommit(
                 null, userId, EnumSet.of(ScimUserSessions.Cause.PASSWORD_CHANGED));
-        LogEvent.classify(log.atInfo(),
-                        Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .log("Self-service change completed");
+        LogEvent.success(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.CHANGE)
+                .log();
     }
 
     /** Refuses an inactive or locked User before anything is compared. */
@@ -163,10 +161,8 @@ public class PasswordChangeService {
 
     /** Logs a refusal by its closed-set reason; no identity and no value is written. */
     private static void refused(AuditPasswordChangeRefusal reason) {
-        LogEvent.classify(log.atWarn(),
-                        Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.DENIED)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+        LogEvent.refused(log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.DENIED)
                 .addKeyValue(LogEvent.REASON, reason.name())
-                .log("Self-service change refused");
+                .log();
     }
 }

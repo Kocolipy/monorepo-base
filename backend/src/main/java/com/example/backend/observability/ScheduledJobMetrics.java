@@ -1,10 +1,7 @@
 package com.example.backend.observability;
 
-import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.ErrorCategory;
 import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Severity;
-import com.example.backend.observability.LogEvent.Type;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.TimeGauge;
@@ -82,12 +79,6 @@ public class ScheduledJobMetrics {
      */
     static final String RUN = "app.job.run";
 
-    /**
-     * A failed run's {@code error_code}. The schema aligns the code with HTTP statuses, and a
-     * job failing is the service's own fault: there is no caller to have sent anything wrong.
-     */
-    static final int FAILED_RUN_ERROR_CODE = 500;
-
     private static final Logger log = LoggerFactory.getLogger(ScheduledJobMetrics.class);
 
     private final MeterRegistry registry;
@@ -100,24 +91,6 @@ public class ScheduledJobMetrics {
         this.registry = registry;
         this.observations = observations;
         this.clock = clock;
-    }
-
-    /**
-     * The startup record of a job's schedule, classified as the job's operation, with the
-     * job's name, its cron and the zone that cron is evaluated in, and what the job does.
-     * The caller adds what is particular to the job — its window, say — and logs it, from
-     * its own logger.
-     *
-     * @return {@code record}, for the rest of the fluent chain
-     */
-    public static LoggingEventBuilder scheduled(
-            LoggingEventBuilder record, Operation operation, String job, String cron,
-            String description) {
-        return LogEvent.classify(record, operation, Category.CONFIGURATION, Type.INFO)
-                .addKeyValue(LogContext.JOB_NAME, job)
-                .addKeyValue(LogEvent.JOB_DESCRIPTION, description)
-                .addKeyValue(LogEvent.TRIGGER_CRON_EXPRESSION, cron)
-                .addKeyValue(LogEvent.TRIGGER_CRON_TIMEZONE, ServiceTimeZone.ZONE.getId());
     }
 
     /**
@@ -149,8 +122,7 @@ public class ScheduledJobMetrics {
                 .observe(() -> {
                     try (LogContext.Scope run = LogContext.job(job, UUID.randomUUID())) {
                         long startedAt = clock.millis();
-                        LogEvent.classify(log.atInfo(), operation, Category.BATCH, Type.JOB_START)
-                                .log("Scheduled job started");
+                        LogEvent.jobStart(log, operation).log();
                         SkippableJobRun result;
                         try {
                             result = task.get();
@@ -168,17 +140,12 @@ public class ScheduledJobMetrics {
     }
 
     private static void logEnd(Operation operation, SkippableJobRun result, long durationMillis) {
-        LoggingEventBuilder end = LogEvent.classify(
-                        log.atInfo(), operation, Category.BATCH, Type.JOB_END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .addKeyValue(LogEvent.DURATION_MS, durationMillis);
-        if (result.skipped()) {
-            end.addKeyValue(LogEvent.REASON, LogEvent.REASON_LOCK_HELD)
-                    .log("Scheduled job skipped: another run holds its lock");
-        } else {
+        LoggingEventBuilder end =
+                LogEvent.jobEnd(log, operation, durationMillis, result.skipped());
+        if (!result.skipped()) {
             result.counts().forEach(end::addKeyValue);
-            end.log("Scheduled job completed");
         }
+        end.log();
     }
 
     /**
@@ -188,14 +155,9 @@ public class ScheduledJobMetrics {
      * copy here would hide nothing and would cost {@code error.type} its real class name.
      */
     private static void logFailure(Operation operation, RuntimeException failure, long durationMillis) {
-        LogEvent.classify(
-                        LogEvent.atError(log, FAILED_RUN_ERROR_CODE, category(failure), true)
-                                .setCause(failure),
-                        operation, Category.BATCH, Type.JOB_END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                .addKeyValue(LogEvent.SEVERITY, Severity.HIGH.value())
-                .addKeyValue(LogEvent.DURATION_MS, durationMillis)
-                .log("Scheduled job failed");
+        LogEvent.jobFailed(log, operation, durationMillis, category(failure))
+                .setCause(failure)
+                .log();
     }
 
     /**

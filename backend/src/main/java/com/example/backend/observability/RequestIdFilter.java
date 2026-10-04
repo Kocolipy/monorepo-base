@@ -1,9 +1,5 @@
 package com.example.backend.observability;
 
-import com.example.backend.observability.LogEvent.Category;
-import com.example.backend.observability.LogEvent.ErrorCategory;
-import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,8 +11,6 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.event.Level;
-import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -165,30 +159,10 @@ public class RequestIdFilter extends OncePerRequestFilter {
      */
     private static void record(HttpServletRequest request, int status, long started) {
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
-        LogEvent.classify(opened(status, RequestFault.isRecorded(request)), Operation.HTTP_REQUEST,
-                        Category.NETWORK, Type.ACCESS, Type.END)
+        LogEvent.requestEnd(log, status, RequestFault.isRecorded(request), durationMs)
                 .addKeyValue(LogEvent.HTTP_METHOD, method(request))
                 .addKeyValue(LogEvent.HTTP_ROUTE, route(request))
-                .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
-                .addKeyValue(LogEvent.DURATION_MS, durationMs)
-                .addKeyValue(LogEvent.OUTCOME, status < 400 ? LogEvent.SUCCESS : LogEvent.FAILURE)
-                .log("HTTP request completed");
-    }
-
-    /** The record at the level {@link #level} gives, classified when that is {@code ERROR}. */
-    private static LoggingEventBuilder opened(int status, boolean faultRecorded) {
-        return switch (level(status, faultRecorded)) {
-            case ERROR -> LogEvent.atError(log, status, ErrorCategory.APPLICATION, true);
-            case WARN -> log.atWarn();
-            default -> log.atInfo();
-        };
-    }
-
-    static Level level(int status, boolean faultRecorded) {
-        if (status >= 500 && !faultRecorded) {
-            return Level.ERROR;
-        }
-        return status >= 400 ? Level.WARN : Level.INFO;
+                .log();
     }
 
     /**

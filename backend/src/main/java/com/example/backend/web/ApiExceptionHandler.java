@@ -10,7 +10,6 @@ import com.example.backend.observability.RequestFault;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.spi.LoggingEventBuilder;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
@@ -119,27 +118,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static ResponseEntity<Object> fault(Exception fault, HttpStatusCode statusCode) {
         int status = statusCode.value();
-        LogEvent.classify(
-                        LogEvent.atError(log, status, ErrorCategory.APPLICATION, true)
-                                .setCause(attached(fault)),
-                        Operation.HTTP_REQUEST_FAULT, Category.PROCESS, Type.ERROR)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+        LogEvent.error(log, Operation.HTTP_REQUEST_FAULT, status, ErrorCategory.APPLICATION,
+                        Category.PROCESS, Type.ERROR)
+                .setCause(attached(fault))
                 .addKeyValue(LogEvent.REASON, fault.getClass().getSimpleName())
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
-                .log("Request failed with an unexpected exception");
+                .log();
         RequestFault.recorded();
         return respond(ApiError.of(statusCode), HttpHeaders.EMPTY);
     }
 
     private static void refusal(Exception refused, HttpStatusCode statusCode) {
         int status = statusCode.value();
-        LoggingEventBuilder record = LogEvent.withError(
-                log.atWarn(), status, ErrorCategory.DATA, false);
-        LogEvent.classify(record, Operation.HTTP_REQUEST_REFUSAL, Category.PROCESS, Type.DENIED)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+        LogEvent.withError(LogEvent.refused(log, Operation.HTTP_REQUEST_REFUSAL,
+                                Category.PROCESS, Type.DENIED),
+                        status, ErrorCategory.DATA, false)
                 .addKeyValue(LogEvent.REASON, reason(refused))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
-                .log("Request refused");
+                .log();
     }
 
     /**

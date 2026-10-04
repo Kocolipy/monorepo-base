@@ -93,11 +93,10 @@ public class DormancyScheduleConfig implements SchedulingConfigurer {
                     return run;
                 }),
                 new CronTrigger(SCHEDULE, ServiceTimeZone.ZONE)));
-        ScheduledJobMetrics.scheduled(log.atInfo(), DormancyService.OPERATION, JOB, SCHEDULE,
-                        DESCRIPTION)
+        LogEvent.jobScheduled(log, DormancyService.OPERATION, JOB, SCHEDULE, DESCRIPTION)
                 .addKeyValue(LogEvent.DORMANCY_LOCKOUT_WINDOW, policy.lockoutWindow().toString())
                 .addKeyValue(LogEvent.DORMANCY_ROLE_REVOCATION_WINDOW,
                         policy.roleRevocationWindow().toString())
-                .log("Dormancy job scheduled");
+                .log();
     }
 }
