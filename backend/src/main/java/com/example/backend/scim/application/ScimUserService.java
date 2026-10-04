@@ -31,11 +31,8 @@ import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 import org.springframework.stereotype.Service;
@@ -75,7 +72,8 @@ import org.springframework.transaction.annotation.Transactional;
  *       not accept — its intrinsic rules, then reuse — and write only if something differs — a
  *       write that changed nothing advances no version;
  *   <li>audit what moved, and end the User's sessions after the commit when the change is one
- *       a live session must not outlast.
+ *       a live session must not outlast. Both are decided by {@link ScimWriteEffects} from the
+ *       stored and the desired state; this class carries them out.
  * </ol>
  *
  * <p>Every refusal is raised before anything is written, and each is audited fail-open, as a
@@ -306,7 +304,7 @@ public class ScimUserService {
         users.deleteById(id, now);
         tombstones.record(ScimResourceType.USER, id, now);
         audit.recordScimUserDeleted(connectorId, id);
-        sessions.revokeAfterCommit(connectorId, id, EnumSet.of(ScimUserSessions.Cause.DELETED));
+        revokeAfterCommit(connectorId, ScimWriteEffects.ofUserDeletion(id));
         return true;
     }
 
@@ -357,13 +355,15 @@ public class ScimUserService {
             case CLEAR -> null;
             case SET -> accepted.passwordHash();
         };
-        boolean passwordChanged = !Objects.equals(passwordHash, current.login().passwordHash());
-        Set<AuditUserAttribute> changed = changedAttributes(before, after, passwordChanged);
-        if (changed.isEmpty()) {
+        ScimWriteEffects<AuditUserAttribute> effects = ScimWriteEffects.ofUserWrite(id,
+                new ScimWriteEffects.UserState(
+                        before.profile(), before.externalId(), current.login().passwordHash()),
+                new ScimWriteEffects.UserState(after.profile(), after.externalId(), passwordHash));
+        if (effects.audited().isEmpty()) {
             // Nothing a client can read moved, so nothing is written and no version advances.
             // Still audited, with no changed paths, as a Group write that moves nothing is: the
             // connector did write, and a connector hammering no-op writes is worth seeing.
-            audit.recordScimUserReplaced(connectorId, id, changed);
+            audit.recordScimUserReplaced(connectorId, id, effects.audited());
             return Optional.of(projection(connector, current));
         }
 
@@ -382,16 +382,22 @@ public class ScimUserService {
             // above, or a rollback after this, leaves the history as it was.
             passwordAcceptance.remember(id, accepted, now);
         }
-        if (changed.contains(AuditUserAttribute.EXTERNAL_ID)) {
+        if (effects.audited().contains(AuditUserAttribute.EXTERNAL_ID)) {
             writeAlias(connectorId, id, after.externalId());
         }
-        audit.recordScimUserReplaced(connectorId, id, changed);
-
-        Set<ScimUserSessions.Cause> causes = revocationCauses(before, after, passwordChanged);
-        if (!causes.isEmpty()) {
-            sessions.revokeAfterCommit(connectorId, id, causes);
-        }
+        audit.recordScimUserReplaced(connectorId, id, effects.audited());
+        revokeAfterCommit(connectorId, effects);
         return Optional.of(projection(connector, written));
+    }
+
+    /**
+     * Requests every Session revocation the effects name. After commit, per ADR 0002: the port's
+     * contract, so a write that rolls back ends none.
+     */
+    private void revokeAfterCommit(UUID connectorId, ScimWriteEffects<?> effects) {
+        for (ScimWriteEffects.SessionRevocation revocation : effects.revocations()) {
+            sessions.revokeAfterCommit(connectorId, revocation.userId(), revocation.causes());
+        }
     }
 
     /**
@@ -418,34 +424,6 @@ public class ScimUserService {
     }
 
     /**
-     * Which attributes the write moved, for the event and for whether to write at all.
-     *
-     * <p>Compared rather than inferred from the request: a PUT resending the stored state moved
-     * nothing, and a PATCH whose operations cancel out moved nothing either.
-     */
-    private static Set<AuditUserAttribute> changedAttributes(
-            ScimUserEdit before, ScimUserEdit after, boolean passwordChanged) {
-        ScimUserProfile was = before.profile();
-        ScimUserProfile is = after.profile();
-        Set<AuditUserAttribute> changed = EnumSet.noneOf(AuditUserAttribute.class);
-        addIf(changed, AuditUserAttribute.USER_NAME, !was.userName().equals(is.userName()));
-        addIf(changed, AuditUserAttribute.NAME, !was.name().equals(is.name()));
-        addIf(changed, AuditUserAttribute.DISPLAY_NAME,
-                !Objects.equals(was.displayName(), is.displayName()));
-        addIf(changed, AuditUserAttribute.PREFERRED_LANGUAGE,
-                !Objects.equals(was.preferredLanguage(), is.preferredLanguage()));
-        addIf(changed, AuditUserAttribute.LOCALE, !Objects.equals(was.locale(), is.locale()));
-        addIf(changed, AuditUserAttribute.TIMEZONE,
-                !Objects.equals(was.timezone(), is.timezone()));
-        addIf(changed, AuditUserAttribute.ACTIVE, was.active() != is.active());
-        addIf(changed, AuditUserAttribute.EMAILS, !was.emails().equals(is.emails()));
-        addIf(changed, AuditUserAttribute.PASSWORD, passwordChanged);
-        addIf(changed, AuditUserAttribute.EXTERNAL_ID,
-                !Objects.equals(before.externalId(), after.externalId()));
-        return changed;
-    }
-
-    /**
      * Sets or removes the calling connector's alias. Keyed by the calling connector alone, so no
      * write of one connector reaches another's alias for the same User.
      */
@@ -455,33 +433,6 @@ public class ScimUserService {
         } else {
             aliases.put(connectorId, id, externalId);
         }
-    }
-
-    private static void addIf(
-            Set<AuditUserAttribute> changed, AuditUserAttribute attribute, boolean moved) {
-        if (moved) {
-            changed.add(attribute);
-        }
-    }
-
-    /**
-     * The changes a live session must not outlast, per the specification plan's revocation
-     * contract. Reactivation and a profile or email change are not among them:
-     * none of them is something a session was issued against.
-     */
-    private static Set<ScimUserSessions.Cause> revocationCauses(
-            ScimUserEdit before, ScimUserEdit after, boolean passwordChanged) {
-        Set<ScimUserSessions.Cause> causes = EnumSet.noneOf(ScimUserSessions.Cause.class);
-        if (before.profile().active() && !after.profile().active()) {
-            causes.add(ScimUserSessions.Cause.DEACTIVATED);
-        }
-        if (passwordChanged) {
-            causes.add(ScimUserSessions.Cause.PASSWORD_CHANGED);
-        }
-        if (!before.profile().userName().equals(after.profile().userName())) {
-            causes.add(ScimUserSessions.Cause.USER_NAME_CHANGED);
-        }
-        return causes;
     }
 
     /**

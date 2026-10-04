@@ -404,17 +404,6 @@ class ScimUserServiceTests {
                 });
     }
 
-    @Test
-    void every_attribute_that_moves_is_named_in_the_event() {
-        put(new ScimUserProfile("ada2", ScimName.NONE, null, "fr", "fr-FR", "Europe/Paris",
-                false, List.of()), "second-password-2", "ext-ada");
-
-        assertThat(audit.of(AuditOperation.SCIM_USER_REPLACE)).singleElement()
-                .extracting(RecordingAuditTrail.Recorded::detail)
-                .isEqualTo("ACTIVE,DISPLAY_NAME,EMAILS,LOCALE,NAME,PASSWORD,"
-                        + "PREFERRED_LANGUAGE,TIMEZONE,USER_NAME");
-    }
-
     // ---- aliases ------------------------------------------------------------------------
 
     /**
@@ -1040,30 +1029,32 @@ class ScimUserServiceTests {
         assertThat(encoder.matches).isPositive();
     }
 
-    // ---- which changes end sessions -------------------------------------------------------
+    // ---- carrying out the revocations a write implies ----------------------------------------
 
+    /**
+     * The use case hands the module the stored and the written credential — the hashes, which is
+     * what makes a password removal a change — and requests each revocation the effects name, on
+     * behalf of the calling connector. Which edits end sessions is pinned in
+     * {@code ScimWriteEffectsTests}.
+     */
     @Test
-    void deactivation_ends_the_users_sessions_and_reactivation_does_not() {
-        patch(new SetActive(false));
-        assertThat(revocations).containsExactly(
-                new Revocation(CONNECTOR.connectorId(), ada.id(), Set.of(Cause.DEACTIVATED)));
+    void a_write_requests_the_revocation_its_effects_name_for_the_connector() {
+        put(minimal("ada.lovelace", false), "second-password-2", "ext-ada");
 
-        revocations.clear();
-        patch(new SetActive(true));
-        assertThat(revocations).isEmpty();
+        assertThat(revocations).containsExactly(new Revocation(CONNECTOR.connectorId(), ada.id(),
+                Set.of(Cause.DEACTIVATED, Cause.PASSWORD_CHANGED, Cause.USER_NAME_CHANGED)));
     }
 
     @Test
-    void a_password_change_or_removal_ends_the_users_sessions() {
-        patch(new SetPassword("second-password-2"));
+    void a_password_removal_is_written_and_ends_the_users_sessions() {
         patch(new RemovePassword());
 
-        assertThat(revocations).extracting(Revocation::causes).containsExactly(
-                Set.of(Cause.PASSWORD_CHANGED), Set.of(Cause.PASSWORD_CHANGED));
+        assertThat(revocations).extracting(Revocation::causes)
+                .containsExactly(Set.of(Cause.PASSWORD_CHANGED));
         assertThat(stored().login().hasPassword()).isFalse();
     }
 
-    /** Removing a password that is not there changes nothing, so it ends nothing. */
+    /** Removing a password that is not there changes nothing, so it writes and ends nothing. */
     @Test
     void removing_an_absent_password_is_a_no_op() {
         patch(new RemovePassword());
@@ -1077,28 +1068,8 @@ class ScimUserServiceTests {
     }
 
     @Test
-    void a_user_name_change_ends_the_users_sessions() {
-        patch(new SetText(TextAttribute.USER_NAME, "ada.lovelace"));
-
-        assertThat(revocations).extracting(Revocation::causes)
-                .containsExactly(Set.of(Cause.USER_NAME_CHANGED));
-    }
-
-    @Test
-    void one_write_that_changes_several_security_attributes_ends_the_sessions_once() {
-        put(minimal("ada.lovelace", false), "second-password-2", "ext-ada");
-
-        assertThat(revocations).singleElement()
-                .extracting(Revocation::causes)
-                .isEqualTo(Set.of(Cause.DEACTIVATED, Cause.PASSWORD_CHANGED,
-                        Cause.USER_NAME_CHANGED));
-    }
-
-    @Test
-    void an_ordinary_profile_or_email_change_ends_no_session() {
-        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"),
-                new RemoveEmails(ScimEmailFilter.ALL),
-                new SetText(TextAttribute.LOCALE, "fr-FR"));
+    void a_write_whose_effects_name_no_revocation_requests_none() {
+        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
 
         assertThat(revocations).isEmpty();
     }
@@ -1188,18 +1159,6 @@ class ScimUserServiceTests {
                 .containsExactly(engineers.id());
     }
 
-    /** Only the transition from active to inactive is a deactivation; staying inactive is not. */
-    @Test
-    void a_write_to_an_already_inactive_user_that_keeps_it_inactive_ends_no_session() {
-        patch(new SetActive(false));
-        revocations.clear();
-
-        patch(new SetText(TextAttribute.DISPLAY_NAME, "Countess"));
-        put(minimal("ada", false), null, "ext-ada");
-
-        assertThat(revocations).isEmpty();
-    }
-
     /** A PUT that does not assert {@code active} keeps the stored value rather than reactivating. */
     @Test
     void a_put_without_active_keeps_the_stored_value() {
@@ -1221,20 +1180,33 @@ class ScimUserServiceTests {
                 sessions, tombstones, audit, clock,
                 (query, connectorId, baseUri) -> {
                     askedFor.add(connectorId);
+                    // The total is the whole match, not the page, so it differs from the one hit.
                     return new com.example.backend.scim.domain.ScimQuery.Result(
-                            1, List.of(new com.example.backend.scim.domain.ScimQuery.Hit(
+                            5, List.of(new com.example.backend.scim.domain.ScimQuery.Hit(
                                     com.example.backend.scim.domain.ScimResourceType.USER,
                                     ada.id())));
                 });
         com.example.backend.scim.domain.ScimPageRequest page =
                 new com.example.backend.scim.domain.ScimPageRequest(1, 10);
+        com.example.backend.scim.domain.ScimFilter filter =
+                new com.example.backend.scim.domain.ScimFilter.Presence(
+                        new com.example.backend.scim.domain.ScimFilter.AttributeRef(
+                                com.example.backend.scim.domain.ScimFilterPath.USER_NAME, null));
 
         ScimUserListing listing = querying.query(CONNECTOR, new com.example.backend.scim.domain.ScimQuery(
-                Set.of(com.example.backend.scim.domain.ScimResourceType.USER), null, null, page), "u");
+                Set.of(com.example.backend.scim.domain.ScimResourceType.USER), filter, null, page), "u");
 
         assertThat(askedFor).containsExactly(CONNECTOR.connectorId());
         assertThat(listing.page()).isEqualTo(page);
+        assertThat(listing.totalResults()).isEqualTo(5);
         assertThat(listing.resources()).extracting(ScimUserResource::externalId)
                 .containsExactly("ext-ada");
+        // The read is audited for the calling connector with the returned count and the
+        // filter's shape (never its value).
+        assertThat(audit.of(AuditOperation.SCIM_USER_LIST)).singleElement()
+                .satisfies(event -> {
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
+                    assertThat(event.detail()).isEqualTo("1 userName pr");
+                });
     }
 }
