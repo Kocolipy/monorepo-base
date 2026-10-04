@@ -162,12 +162,11 @@ public class AuthController {
      */
     private static void recordSessionStart(UUID userId, HttpSession session) {
         try (LogContext.Scope scope = LogContext.userId(userId)) {
-            LogEvent.classify(log.atInfo(), Operation.SESSION_START, Category.PROCESS, Type.START)
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+            LogEvent.success(log, Operation.SESSION_START, Category.PROCESS, Type.START)
                     .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
                     .addKeyValue(LogEvent.SESSION_MAX_INACTIVE_INTERVAL,
                             session.getMaxInactiveInterval())
-                    .log("Session started");
+                    .log();
         }
     }
 
@@ -242,10 +241,8 @@ public class AuthController {
             // Beside the audit append, after it succeeded: the trail is the record of who
             // logged out, and this is the operational stream's line for the same moment.
             try (LogContext.Scope scope = LogContext.userId(userId)) {
-                LogEvent.classify(log.atInfo(), Operation.LOGOUT, Category.PROCESS,
-                                Type.USER, Type.END)
-                        .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                        .log("Logout completed");
+                LogEvent.success(log, Operation.LOGOUT, Category.PROCESS, Type.USER, Type.END)
+                        .log();
             }
         }
     }

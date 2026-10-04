@@ -285,8 +285,9 @@ rules:
 
   # Every ERROR record carries Log_Schema.md §Error's error.code, error.category and
   # error.follow_up_action — the fields a platform alert on this service's errors
-  # selects on. LogEvent.atError(log, code, category, followUp) is the one way to open
-  # an ERROR record, and it writes all three, so a record that skipped them would have
+  # selects on. LogEvent's ERROR shapes (error, jobFailed, and requestEnd for an unrecorded
+  # 5xx) are the only way to open an ERROR record, and each writes all three, so a record that
+  # skipped them would have
   # to open itself some other way: atError() on the logger, the classic error(...)
   # methods, or atLevel(...), which can reach ERROR from a computed level. All three
   # are therefore refused outside LogEvent. Tests are excluded: they emit records to
@@ -295,11 +296,12 @@ rules:
     languages: [java]
     severity: ERROR
     message: >-
-      Open an ERROR record with LogEvent.atError(log, code, category, followUp), so it
-      carries error.code, error.category and error.follow_up_action (Log_Schema.md
-      §Error). A record opened with atError(), error(...) or atLevel(...) here would reach
-      the stream unclassified, and an alert written against the schema would not see it.
-      For a level chosen at run time, branch to LogEvent.atError / atWarn / atInfo.
+      Open an ERROR record with LogEvent.error(log, operation, code, category, ...) — or the
+      scheduled-run and request shapes, LogEvent.jobFailed / requestEnd — so it carries
+      error.code, error.category and error.follow_up_action (Log_Schema.md §Error). A record
+      opened with atError(), error(...) or atLevel(...) here would reach the stream
+      unclassified, and an alert written against the schema would not see it. For a level
+      chosen at run time, branch between LogEvent's shapes.
     paths:
       exclude:
         - "**/LogEvent.java"
@@ -311,6 +313,60 @@ rules:
       - pattern: (org.slf4j.Logger $LOG).atError()
       - pattern: (org.slf4j.Logger $LOG).error(...)
       - pattern: (org.slf4j.Logger $LOG).atLevel(...)
+
+  # A record's outcome, its duration and its message are the record shape's, not the call
+  # site's: LogEvent.success / refused / error, the scheduled-run shapes and requestEnd each
+  # open the record at its level, set event.outcome and event.duration_ms where the shape has
+  # them, and set the operation's fixed message. A caller adds only the ids and counts it alone
+  # can supply and calls log(). So outside LogEvent no production code opens a record on a
+  # logger at any level (ERROR is be-log-error-without-error-fields'), writes either key, sets
+  # a message, or passes one to log(...) — which is what lets one standard field be added to
+  # every record of a shape in one file (#128, ADR 0003). The match on log(...) and setMessage
+  # is by name, as be-log-sensitive-value's is: nothing else in the service has a log method
+  # taking arguments.
+  - id: be-log-record-outside-log-event
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Build the record with a LogEvent shape — success, refused, error, jobScheduled, jobStart,
+      jobEnd, jobFailed, jobSummary or requestEnd — and end it with log(). The shape sets the
+      level, event.outcome, event.duration_ms and the operation's fixed message; a call site
+      setting any of them by hand is the drift this rule exists to stop. If no shape fits, add
+      one to LogEvent and record it in docs/adr/0003.
+    paths:
+      exclude:
+        - "**/LogEvent.java"
+        - "**/src/test/**"
+    patterns:
+      - pattern-either:
+          - pattern: (Logger $LOG).atInfo()
+          - pattern: (Logger $LOG).atWarn()
+          - pattern: (Logger $LOG).atDebug()
+          - pattern: (Logger $LOG).atTrace()
+          - pattern: (Logger $LOG).info(...)
+          - pattern: (Logger $LOG).warn(...)
+          - pattern: (Logger $LOG).debug(...)
+          - pattern: (Logger $LOG).trace(...)
+          - pattern: (org.slf4j.Logger $LOG).atInfo()
+          - pattern: (org.slf4j.Logger $LOG).atWarn()
+          - pattern: (org.slf4j.Logger $LOG).atDebug()
+          - pattern: (org.slf4j.Logger $LOG).atTrace()
+          - pattern: (org.slf4j.Logger $LOG).info(...)
+          - pattern: (org.slf4j.Logger $LOG).warn(...)
+          - pattern: (org.slf4j.Logger $LOG).debug(...)
+          - pattern: (org.slf4j.Logger $LOG).trace(...)
+          - pattern: $RECORD.addKeyValue(LogEvent.OUTCOME, ...)
+          - pattern: $RECORD.addKeyValue(LogEvent.DURATION_MS, ...)
+          - pattern: $RECORD.addKeyValue(com.example.backend.observability.LogEvent.OUTCOME, ...)
+          - pattern: $RECORD.addKeyValue(com.example.backend.observability.LogEvent.DURATION_MS, ...)
+          - pattern: $RECORD.addKeyValue("event.outcome", ...)
+          - pattern: $RECORD.addKeyValue("event.duration_ms", ...)
+          - pattern: $RECORD.addKeyValue(OUTCOME, ...)
+          - pattern: $RECORD.addKeyValue(DURATION_MS, ...)
+          - pattern: $RECORD.setMessage(...)
+          - pattern: $RECORD.log($MESSAGE, ...)
+      - pattern-not: Math.log(...)
+      - pattern-not: StrictMath.log(...)
 
   # ---------------------------------------------------------------------------
   # Audit trail redaction and the append-only arrangement. The audit trail is read

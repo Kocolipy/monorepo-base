@@ -32,6 +32,18 @@ import org.slf4j.spi.LoggingEventBuilder;
  * <p>Where the standard has no action that fits an operation, or one action covers
  * several of them, the operation's own name is kept under {@link #LOCAL_ACTION}
  * instead of a member being invented for the standard's enum.
+ *
+ * <h2>The record shapes</h2>
+ *
+ * <p>A record is built here whole, not assembled at its call site: {@link #success},
+ * {@link #refused}, {@link #error}, the scheduled-run records ({@link #jobScheduled},
+ * {@link #jobStart}, {@link #jobEnd}, {@link #jobFailed}, {@link #jobSummary}) and the
+ * request record ({@link #requestEnd}) each open the record at its level, classify it, set
+ * {@link #OUTCOME} and {@link #DURATION_MS} where the shape has them, and set the operation's
+ * fixed message for that shape. A caller names the operation, adds only the ids and counts it
+ * alone can supply, and calls {@code log()}. {@code be-log-record-outside-log-event} holds
+ * production code to that: no other class opens a record, writes the outcome or the duration,
+ * or chooses a message. See ADR 0003's #128 addendum.
  */
 public final class LogEvent {
 
@@ -209,17 +221,266 @@ public final class LogEvent {
     /** The machine's own address — never a client's — on the startup record. ECS {@code host.ip}. */
     public static final String HOST_IP = "host.ip";
 
+    /** {@code error.code} of a failed scheduled run: a job failing is the service's own fault, and
+     * the schema aligns the code with HTTP statuses, so it is the {@code 500} of a fault off any
+     * request. */
+    static final int FAILED_RUN_ERROR_CODE = 500;
+
     private LogEvent() {
+    }
+
+    /**
+     * A record of an operation that went through: {@code INFO}, {@code event.outcome}
+     * {@code success}, and the operation's success message. The caller adds only the ids and
+     * counts it alone can supply, then calls {@code log()}.
+     *
+     * @return the record, for the rest of the fluent chain
+     */
+    public static LoggingEventBuilder success(
+            Logger log, Operation operation, Category category, Type... types) {
+        return succeeded(log.atInfo(), operation, category, types);
+    }
+
+    /**
+     * {@link #success(Logger, Operation, Category, Type...)} at {@code WARN}: an operation that
+     * went through but is worth an operator's attention — a User locked for dormancy.
+     */
+    public static LoggingEventBuilder successAtWarn(
+            Logger log, Operation operation, Category category, Type... types) {
+        return succeeded(log.atWarn(), operation, category, types);
+    }
+
+    /**
+     * {@link #success(Logger, Operation, Category, Type...)} for a record that ends something
+     * it measured, carrying how long it took as {@code event.duration_ms}.
+     */
+    public static LoggingEventBuilder success(
+            Logger log, Operation operation, long durationMs, Category category, Type... types) {
+        return success(log, operation, category, types).addKeyValue(DURATION_MS, durationMs);
+    }
+
+    /**
+     * A record of an operation refused as the caller's or the subject's fault: {@code WARN},
+     * {@code event.outcome} {@code failure}, and the operation's refusal message. The caller
+     * adds {@code event.reason} where the refusal has one.
+     */
+    public static LoggingEventBuilder refused(
+            Logger log, Operation operation, Category category, Type... types) {
+        return classify(log.atWarn(), operation, category, types)
+                .addKeyValue(OUTCOME, FAILURE)
+                .setMessage(refusedMessage(operation));
+    }
+
+    /**
+     * A record of an operation the service failed: {@code ERROR}, carrying the
+     * {@code Log_Schema.md} §Error classification with {@code error.follow_up_action}
+     * {@code true}, {@code event.outcome} {@code failure}, and the operation's error message.
+     * The only way this service opens an {@code ERROR} record outside a scheduled run or a
+     * request's own record — {@code be-log-error-without-error-fields} holds that.
+     *
+     * @param code the error's code: the HTTP status a request fault was answered with, or
+     *             {@code 500} for a fault off any request
+     */
+    public static LoggingEventBuilder error(
+            Logger log, Operation operation, int code, ErrorCategory errorCategory,
+            Category category, Type... types) {
+        return classify(atError(log, code, errorCategory), operation, category, types)
+                .addKeyValue(OUTCOME, FAILURE)
+                .setMessage(errorMessage(operation));
+    }
+
+    /**
+     * The startup record of a job's schedule, classified as the job's operation, with the
+     * job's name, its cron and the zone that cron is evaluated in, and what the job does. The
+     * caller adds what is particular to the job — its window, say.
+     */
+    public static LoggingEventBuilder jobScheduled(
+            Logger log, Operation operation, String job, String cron, String description) {
+        return classify(log.atInfo(), operation, Category.CONFIGURATION, Type.INFO)
+                .addKeyValue(LogContext.JOB_NAME, job)
+                .addKeyValue(JOB_DESCRIPTION, description)
+                .addKeyValue(TRIGGER_CRON_EXPRESSION, cron)
+                .addKeyValue(TRIGGER_CRON_TIMEZONE, ServiceTimeZone.ZONE.getId())
+                .setMessage(scheduledMessage(operation));
+    }
+
+    /** The {@code job-start} record of a scheduled run. */
+    public static LoggingEventBuilder jobStart(Logger log, Operation operation) {
+        return classify(log.atInfo(), operation, Category.BATCH, Type.JOB_START)
+                .setMessage("Scheduled job started");
+    }
+
+    /**
+     * The {@code job-end} record of a scheduled run that did not fail: {@code INFO},
+     * {@code event.outcome} {@code success} and {@code event.duration_ms} — with
+     * {@code event.reason} {@value #REASON_LOCK_HELD} when the run found another holding the
+     * job's lock and so did nothing. The caller adds what the run counted.
+     */
+    public static LoggingEventBuilder jobEnd(
+            Logger log, Operation operation, long durationMs, boolean skipped) {
+        LoggingEventBuilder end = classify(log.atInfo(), operation, Category.BATCH, Type.JOB_END)
+                .addKeyValue(OUTCOME, SUCCESS)
+                .addKeyValue(DURATION_MS, durationMs);
+        return skipped
+                ? end.addKeyValue(REASON, REASON_LOCK_HELD)
+                        .setMessage("Scheduled job skipped: another run holds its lock")
+                : end.setMessage("Scheduled job completed");
+    }
+
+    /**
+     * The {@code job-end} record of a scheduled run that threw: {@code ERROR} with
+     * {@code error.code} {@code 500}, {@code event.outcome} {@code failure},
+     * {@code event.severity} {@code high} and {@code event.duration_ms}. The caller attaches
+     * the exception.
+     */
+    public static LoggingEventBuilder jobFailed(
+            Logger log, Operation operation, long durationMs, ErrorCategory errorCategory) {
+        return classify(atError(log, FAILED_RUN_ERROR_CODE, errorCategory),
+                        operation, Category.BATCH, Type.JOB_END)
+                .addKeyValue(OUTCOME, FAILURE)
+                .addKeyValue(SEVERITY, Severity.HIGH.value())
+                .addKeyValue(DURATION_MS, durationMs)
+                .setMessage("Scheduled job failed");
+    }
+
+    /**
+     * What one scheduled run did, beside its {@code job-end}: {@code INFO}, {@code event.type}
+     * {@code info}, and no outcome, which is the {@code job-end}'s to state.
+     */
+    public static LoggingEventBuilder jobSummary(Logger log, Operation operation) {
+        return classify(log.atInfo(), operation, Category.BATCH, Type.INFO)
+                .setMessage(summaryMessage(operation));
+    }
+
+    /**
+     * The one record of an inbound request, at its end: {@code http.response.status_code},
+     * {@code event.duration_ms}, and {@code event.outcome} {@code success} below {@code 400}.
+     * {@code INFO} below {@code 400}, {@code WARN} for a {@code 4xx}, and {@code ERROR} — as an
+     * {@code application} error needing follow-up — for a {@code 5xx}, unless a handler already
+     * wrote the fault's {@code ERROR} record, when it is {@code WARN} so the one failure is not
+     * reported twice. The caller adds the method and route.
+     */
+    public static LoggingEventBuilder requestEnd(
+            Logger log, int status, boolean faultRecorded, long durationMs) {
+        LoggingEventBuilder opened = switch (requestLevel(status, faultRecorded)) {
+            case ERROR -> atError(log, status, ErrorCategory.APPLICATION);
+            case WARN -> log.atWarn();
+            default -> log.atInfo();
+        };
+        return classify(opened, Operation.HTTP_REQUEST, Category.NETWORK, Type.ACCESS, Type.END)
+                .addKeyValue(HTTP_STATUS_CODE, status)
+                .addKeyValue(DURATION_MS, durationMs)
+                .addKeyValue(OUTCOME, status < 400 ? SUCCESS : FAILURE)
+                .setMessage("HTTP request completed");
+    }
+
+    /** The level {@link #requestEnd} writes a request's record at. */
+    static org.slf4j.event.Level requestLevel(int status, boolean faultRecorded) {
+        if (status >= 500 && !faultRecorded) {
+            return org.slf4j.event.Level.ERROR;
+        }
+        return status >= 400 ? org.slf4j.event.Level.WARN : org.slf4j.event.Level.INFO;
+    }
+
+    private static LoggingEventBuilder succeeded(
+            LoggingEventBuilder opened, Operation operation, Category category, Type... types) {
+        return classify(opened, operation, category, types)
+                .addKeyValue(OUTCOME, SUCCESS)
+                .setMessage(successMessage(operation, types));
+    }
+
+    /*
+     * The success message for a record of these types. One operation writes two success records
+     * an operator must not confuse: the role-mapping startup pass reports the validated hash
+     * ({@code info}) and, when the hash changed, the sessions it ended ({@code change}). Both
+     * share the operation's fields, as the permission-authorization spec's observability table
+     * requires, so the {@code change} record is told apart by its message as well as its type.
+     */
+    static String successMessage(Operation operation, Type... types) {
+        if (operation == Operation.ROLE_MAPPING_STARTUP
+                && Arrays.asList(types).contains(Type.CHANGE)) {
+            return "Sessions issued under another role mapping ended";
+        }
+        return successMessage(operation);
+    }
+
+    /*
+     * The fixed message of each operation's record, one table per record shape. An operation a
+     * shape has no entry for gets that shape's generic message rather than a failure: a record
+     * is never worth an exception on the path that writes it.
+     */
+
+    static String successMessage(Operation operation) {
+        return switch (operation) {
+            case LOGIN -> "Login accepted";
+            case UNLOCK, FORCE_PASSWORD_CHANGE -> "Administrative identity change applied";
+            case PASSWORD_CHANGE -> "Self-service change completed";
+            case DORMANCY -> "Dormancy job run at startup for the development fixtures";
+            case DORMANCY_LOCKOUT -> "User locked for dormancy";
+            case DORMANCY_ROLE_REVOCATION -> "Roles revoked for dormancy";
+            case CONNECTOR_CREATE, CONNECTOR_DELETE, CONNECTOR_TOKEN_ISSUE,
+                    CONNECTOR_TOKEN_ROTATE, CONNECTOR_TOKEN_REVOKE ->
+                    "SCIM connector lifecycle change applied";
+            case LOGOUT -> "Logout completed";
+            case ROLE_GRANT -> "Role granted by a mapped Group's membership";
+            case ROLE_REVOKE -> "Role revoked by a mapped Group's membership";
+            case ROLE_MAPPING_STARTUP -> "Role mapping validated";
+            case SESSION_START -> "Session started";
+            case SESSION_END -> "Session ended";
+            case APPLICATION_STARTUP -> "Application started";
+            case APPLICATION_SHUTDOWN -> "Application shutting down";
+            default -> "Operation completed";
+        };
+    }
+
+    static String refusedMessage(Operation operation) {
+        return switch (operation) {
+            case LOGIN -> "Login refused";
+            case UNLOCK, FORCE_PASSWORD_CHANGE -> "Administrative identity change refused";
+            case PASSWORD_CHANGE -> "Self-service change refused";
+            case CONNECTOR_TOKEN_ISSUE, CONNECTOR_TOKEN_ROTATE ->
+                    "SCIM connector issue refused: it would exceed the requester's Permissions";
+            case SCIM_REFUSAL -> "SCIM request refused";
+            case ACCESS_DENIED -> "Request refused: access denied";
+            case UNAUTHENTICATED -> "Request refused: authentication required";
+            case HTTP_REQUEST_REFUSAL -> "Request refused";
+            default -> "Operation refused";
+        };
+    }
+
+    static String errorMessage(Operation operation) {
+        return switch (operation) {
+            case SCIM_WRITE -> "SCIM write refused by an unmapped integrity violation";
+            case SCIM_REFUSAL -> "SCIM request refused";
+            case AUDIT_APPEND -> "Audit event could not be appended; the request was not altered";
+            case HTTP_REQUEST_FAULT -> "Request failed with an unexpected exception";
+            default -> "Operation failed";
+        };
+    }
+
+    static String scheduledMessage(Operation operation) {
+        return switch (operation) {
+            case DORMANCY -> "Dormancy job scheduled";
+            case AUDIT_RETENTION -> "Audit retention job scheduled";
+            default -> "Scheduled job registered";
+        };
+    }
+
+    static String summaryMessage(Operation operation) {
+        return switch (operation) {
+            case AUDIT_RETENTION -> "Audit retention run complete";
+            default -> "Scheduled job run summary";
+        };
     }
 
     /**
      * Classifies a record: {@code event.kind}, {@code event.category},
      * {@code event.type}, and the operation's {@code event.action} and local name
-     * where it has them.
+     * where it has them. Every record shape above starts here.
      *
      * @return {@code record}, for the rest of the fluent chain
      */
-    public static LoggingEventBuilder classify(
+    static LoggingEventBuilder classify(
             LoggingEventBuilder record, Operation operation, Category category, Type... types) {
         LoggingEventBuilder classified = record
                 .addKeyValue(KIND, Kind.EVENT.value())
@@ -236,19 +497,14 @@ public final class LogEvent {
 
     /**
      * An {@code ERROR} record, already carrying its {@code Log_Schema.md} §Error
-     * classification. The only way this service opens one —
-     * {@code be-log-error-without-error-fields} holds that — so no {@code ERROR} record can
-     * reach the stream without {@code error.code}, {@code error.category} and
-     * {@code error.follow_up_action}.
-     *
-     * @param code       the error's code: the HTTP status a request fault was answered with,
-     *                   or {@code 500} for a fault off any request
-     * @param category   what kind of failure it was
-     * @param followUp   whether a person needs to act on it
+     * classification, with {@code error.follow_up_action} {@code true}: every {@code ERROR}
+     * here needs a person. Every {@code ERROR} shape opens through this, and
+     * {@code be-log-error-without-error-fields} keeps any other opener out of production code,
+     * so no {@code ERROR} record can reach the stream without {@code error.code},
+     * {@code error.category} and {@code error.follow_up_action}.
      */
-    public static LoggingEventBuilder atError(
-            Logger log, int code, ErrorCategory category, boolean followUp) {
-        return withError(log.atError(), code, category, followUp);
+    private static LoggingEventBuilder atError(Logger log, int code, ErrorCategory category) {
+        return withError(log.atError(), code, category, true);
     }
 
     /**

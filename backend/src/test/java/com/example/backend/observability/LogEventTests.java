@@ -16,17 +16,22 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LoggingEventBuilder;
 
 /**
  * The event vocabulary: every value it can write is a member of the logging
  * standard's closed enum ({@code Log_Schema.md} §Event), and {@link LogEvent#classify}
- * writes exactly the fields an operation's mapping says it should.
+ * writes exactly the fields an operation's mapping says it should. Then each record shape,
+ * once, through its own public method: its level, its outcome and duration, and its fixed
+ * message per operation.
  */
 class LogEventTests {
 
@@ -226,41 +231,342 @@ class LogEventTests {
         assertThat(fields.get(LogEvent.LOCAL_ACTION)).isEqualTo(operation.local());
     }
 
-    /** {@code atError} opens an {@code ERROR} record already carrying all three error fields. */
-    @Test
-    void atErrorOpensAnErrorRecordCarryingTheErrorClassification() {
-        try (CapturedLog captured = CapturedLog.attach()) {
-            LogEvent.classify(LogEvent.atError(log, 503, ErrorCategory.DATABASE, true),
-                            Operation.AUDIT_APPEND, Category.DATABASE, Type.ERROR)
-                    .log("failed");
+    // ---- the record shapes -------------------------------------------------------------------
 
-            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
-            assertThat(records).hasSize(1);
-            assertThat(records.getFirst().getLevel()).isEqualTo(Level.ERROR);
-            assertThat(CapturedLog.fields(records.getFirst()))
-                    .containsEntry(LogEvent.ERROR_CODE, 503)
-                    .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+    /** {@code success}: {@code INFO}, {@code success}, classified, the operation's message. */
+    @Test
+    void successIsAnInfoRecordWithTheSuccessOutcomeAndTheOperationsMessage() {
+        ILoggingEvent record = only(() -> LogEvent.success(
+                log, Operation.LOGIN, Category.PROCESS, Type.USER, Type.ALLOWED));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo("Login accepted");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.OUTCOME, "success")
+                .containsEntry(LogEvent.ACTION, "user-authentication")
+                .containsEntry(LogEvent.TYPE, List.of("user", "allowed"))
+                .doesNotContainKeys(LogEvent.DURATION_MS, LogEvent.REASON, LogEvent.ERROR_CODE);
+    }
+
+    /** {@code successAtWarn}: the same record, at {@code WARN}. */
+    @Test
+    void successAtWarnIsTheSuccessRecordAtWarn() {
+        ILoggingEvent record = only(() -> LogEvent.successAtWarn(
+                log, Operation.DORMANCY_LOCKOUT, Category.PROCESS, Type.CHANGE));
+
+        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+        assertThat(record.getMessage()).isEqualTo("User locked for dormancy");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.OUTCOME, "success")
+                .containsEntry(LogEvent.LOCAL_ACTION, "identity.dormancy_lockout")
+                .doesNotContainKeys(LogEvent.DURATION_MS, LogEvent.ERROR_CODE);
+    }
+
+    /** {@code success} with a duration: the success record, carrying {@code event.duration_ms}. */
+    @Test
+    void successWithADurationCarriesIt() {
+        ILoggingEvent record = only(() -> LogEvent.success(
+                log, Operation.APPLICATION_SHUTDOWN, 1234L, Category.PROCESS, Type.END));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo("Application shutting down");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.OUTCOME, "success")
+                .containsEntry(LogEvent.DURATION_MS, 1234L)
+                .containsEntry(LogEvent.ACTION, "application-shutdown");
+    }
+
+    /** {@code refused}: {@code WARN}, {@code failure}, no error classification of its own. */
+    @Test
+    void refusedIsAWarnRecordWithTheFailureOutcomeAndTheOperationsMessage() {
+        ILoggingEvent record = only(() -> LogEvent.refused(
+                log, Operation.PASSWORD_CHANGE, Category.PROCESS, Type.USER, Type.DENIED));
+
+        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+        assertThat(record.getMessage()).isEqualTo("Self-service change refused");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.OUTCOME, "failure")
+                .containsEntry(LogEvent.LOCAL_ACTION, "identity.password_change")
+                .containsEntry(LogEvent.TYPE, List.of("user", "denied"))
+                .doesNotContainKeys(LogEvent.DURATION_MS, LogEvent.ERROR_CODE);
+    }
+
+    /**
+     * {@code error}: {@code ERROR}, already carrying all three error fields with follow-up
+     * {@code true}, {@code failure}, and the operation's message.
+     */
+    @Test
+    void errorIsAnErrorRecordCarryingTheErrorClassificationAndTheFailureOutcome() {
+        ILoggingEvent record = only(() -> LogEvent.error(log, Operation.AUDIT_APPEND, 503,
+                ErrorCategory.DATABASE, Category.DATABASE, Type.ERROR));
+
+        assertThat(record.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(record.getMessage())
+                .isEqualTo("Audit event could not be appended; the request was not altered");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 503)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true)
+                .containsEntry(LogEvent.OUTCOME, "failure")
+                .containsEntry(LogEvent.LOCAL_ACTION, "audit.append")
+                .doesNotContainKey(LogEvent.DURATION_MS);
+    }
+
+    /**
+     * {@code withError} adds the error classification to a record below {@code ERROR} and
+     * leaves its level, outcome and message alone.
+     */
+    @Test
+    void withErrorClassifiesARecordAtItsOwnLevel() {
+        ILoggingEvent record = only(() -> LogEvent.withError(LogEvent.refused(log,
+                        Operation.HTTP_REQUEST_REFUSAL, Category.PROCESS, Type.DENIED),
+                400, ErrorCategory.DATA, false));
+
+        assertThat(record.getLevel()).isEqualTo(Level.WARN);
+        assertThat(record.getMessage()).isEqualTo("Request refused");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 400)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "data")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
+                .containsEntry(LogEvent.OUTCOME, "failure")
+                .containsEntry(LogEvent.LOCAL_ACTION, "http.request.refusal");
+    }
+
+    /**
+     * A job's startup record names the job, says what it does, and states its cron with the
+     * zone the cron is evaluated in, classified as the job's operation. It reports a schedule,
+     * not an outcome.
+     */
+    @Test
+    void jobScheduledNamesTheJobItsDescriptionCronAndZone() {
+        ILoggingEvent record = only(() -> LogEvent.jobScheduled(log, Operation.DORMANCY,
+                "probe", "0 0 4 * * *", "Does the probe's work"));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo("Dormancy job scheduled");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogContext.JOB_NAME, "probe")
+                .containsEntry(LogEvent.JOB_DESCRIPTION, "Does the probe's work")
+                .containsEntry(LogEvent.TRIGGER_CRON_EXPRESSION, "0 0 4 * * *")
+                .containsEntry(LogEvent.TRIGGER_CRON_TIMEZONE, "Asia/Singapore")
+                .containsEntry(LogEvent.CATEGORY, List.of("configuration"))
+                .containsEntry(LogEvent.TYPE, List.of("info"))
+                .containsEntry(LogEvent.ACTION, "user-administration")
+                .containsEntry(LogEvent.LOCAL_ACTION, "identity.dormancy")
+                .doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
+    }
+
+    /** {@code jobStart}: {@code INFO} {@code batch}/{@code job-start}, with no outcome yet. */
+    @Test
+    void jobStartIsTheRunsStartRecord() {
+        ILoggingEvent record = only(() -> LogEvent.jobStart(log, Operation.AUDIT_RETENTION));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo("Scheduled job started");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.CATEGORY, List.of("batch"))
+                .containsEntry(LogEvent.TYPE, List.of("job-start"))
+                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention")
+                .doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
+    }
+
+    /**
+     * {@code jobEnd}: {@code INFO} {@code job-end}, {@code success} and the duration; a skipped
+     * run says why, by {@code lock-held}, and under its own message.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "false | Scheduled job completed",
+            "true | Scheduled job skipped: another run holds its lock"})
+    void jobEndIsTheRunsSuccessfulEnd(boolean skipped, String message) {
+        ILoggingEvent record =
+                only(() -> LogEvent.jobEnd(log, Operation.DORMANCY, 42L, skipped));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo(message);
+        Map<String, Object> fields = CapturedLog.fields(record);
+        assertThat(fields)
+                .containsEntry(LogEvent.OUTCOME, "success")
+                .containsEntry(LogEvent.DURATION_MS, 42L)
+                .containsEntry(LogEvent.CATEGORY, List.of("batch"))
+                .containsEntry(LogEvent.TYPE, List.of("job-end"))
+                .containsEntry(LogEvent.LOCAL_ACTION, "identity.dormancy")
+                .doesNotContainKey(LogEvent.ERROR_CODE);
+        assertThat(fields.get(LogEvent.REASON)).isEqualTo(skipped ? "lock-held" : null);
+    }
+
+    /**
+     * {@code jobFailed}: {@code ERROR} {@code job-end} with {@code error.code} {@code 500}, the
+     * given error category, {@code failure}, {@code high} severity and the duration.
+     */
+    @Test
+    void jobFailedIsTheRunsFailedEnd() {
+        ILoggingEvent record = only(() -> LogEvent.jobFailed(
+                log, Operation.AUDIT_RETENTION, 7L, ErrorCategory.DATABASE));
+
+        assertThat(record.getLevel()).isEqualTo(Level.ERROR);
+        assertThat(record.getMessage()).isEqualTo("Scheduled job failed");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.ERROR_CODE, 500)
+                .containsEntry(LogEvent.ERROR_CATEGORY, "database")
+                .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true)
+                .containsEntry(LogEvent.OUTCOME, "failure")
+                .containsEntry(LogEvent.SEVERITY, "high")
+                .containsEntry(LogEvent.DURATION_MS, 7L)
+                .containsEntry(LogEvent.TYPE, List.of("job-end"))
+                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention");
+    }
+
+    /** {@code jobSummary}: {@code INFO} {@code batch}/{@code info}, leaving outcome to job-end. */
+    @Test
+    void jobSummaryReportsWhatARunDidWithNoOutcome() {
+        ILoggingEvent record = only(() -> LogEvent.jobSummary(log, Operation.AUDIT_RETENTION));
+
+        assertThat(record.getLevel()).isEqualTo(Level.INFO);
+        assertThat(record.getMessage()).isEqualTo("Audit retention run complete");
+        assertThat(CapturedLog.fields(record))
+                .containsEntry(LogEvent.CATEGORY, List.of("batch"))
+                .containsEntry(LogEvent.TYPE, List.of("info"))
+                .containsEntry(LogEvent.LOCAL_ACTION, "audit.retention")
+                .doesNotContainKeys(LogEvent.OUTCOME, LogEvent.DURATION_MS);
+    }
+
+    /**
+     * {@code requestEnd}: the status, the duration and the outcome ({@code success} below
+     * {@code 400}), at {@code INFO} below {@code 400}, {@code WARN} for a {@code 4xx}, and
+     * {@code ERROR} — classified — for a {@code 5xx} no handler recorded; a {@code 5xx} a
+     * handler recorded is {@code WARN} and unclassified, so the one failure is one ERROR.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "200, false, INFO, success",
+            "399, false, INFO, success",
+            "200, true, INFO, success",
+            "400, false, WARN, failure",
+            "499, true, WARN, failure",
+            "499, false, WARN, failure",
+            "500, false, ERROR, failure",
+            "503, true, WARN, failure"})
+    void requestEndIsTheRequestsRecordAtTheLevelItsStatusGives(
+            int status, boolean faultRecorded, String level, String outcome) {
+        ILoggingEvent record = only(() -> LogEvent.requestEnd(log, status, faultRecorded, 9L));
+
+        assertThat(record.getLevel()).isEqualTo(Level.toLevel(level));
+        assertThat(record.getMessage()).isEqualTo("HTTP request completed");
+        Map<String, Object> fields = CapturedLog.fields(record);
+        assertThat(fields)
+                .containsEntry(LogEvent.HTTP_STATUS_CODE, status)
+                .containsEntry(LogEvent.DURATION_MS, 9L)
+                .containsEntry(LogEvent.OUTCOME, outcome)
+                .containsEntry(LogEvent.CATEGORY, List.of("network"))
+                .containsEntry(LogEvent.TYPE, List.of("access", "end"))
+                .containsEntry(LogEvent.LOCAL_ACTION, "http.request");
+        if (level.equals("ERROR")) {
+            assertThat(fields)
+                    .containsEntry(LogEvent.ERROR_CODE, status)
+                    .containsEntry(LogEvent.ERROR_CATEGORY, "application")
                     .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, true);
+        } else {
+            assertThat(fields).doesNotContainKeys(LogEvent.ERROR_CODE, LogEvent.ERROR_CATEGORY,
+                    LogEvent.ERROR_FOLLOW_UP_ACTION);
         }
     }
 
-    /** {@code withError} classifies a record below {@code ERROR} and leaves its level alone. */
-    @Test
-    void withErrorClassifiesARecordAtItsOwnLevel() {
-        try (CapturedLog captured = CapturedLog.attach()) {
-            LogEvent.classify(LogEvent.withError(log.atWarn(), 400, ErrorCategory.DATA, false),
-                            Operation.HTTP_REQUEST_REFUSAL, Category.PROCESS, Type.DENIED)
-                    .log("refused");
+    // ---- the fixed messages ------------------------------------------------------------------
 
-            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
-            assertThat(records).hasSize(1);
-            assertThat(records.getFirst().getLevel()).isEqualTo(Level.WARN);
-            assertThat(CapturedLog.fields(records.getFirst()))
-                    .containsEntry(LogEvent.ERROR_CODE, 400)
-                    .containsEntry(LogEvent.ERROR_CATEGORY, "data")
-                    .containsEntry(LogEvent.ERROR_FOLLOW_UP_ACTION, false)
-                    .containsEntry(LogEvent.LOCAL_ACTION, "http.request.refusal");
-        }
+    /**
+     * Every operation that writes a success record, with its message; an operation that writes
+     * none gets the shape's generic message rather than a failure on the path that logs.
+     */
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
+            "LOGIN | Login accepted",
+            "UNLOCK | Administrative identity change applied",
+            "FORCE_PASSWORD_CHANGE | Administrative identity change applied",
+            "PASSWORD_CHANGE | Self-service change completed",
+            "DORMANCY | Dormancy job run at startup for the development fixtures",
+            "DORMANCY_LOCKOUT | User locked for dormancy",
+            "DORMANCY_ROLE_REVOCATION | Roles revoked for dormancy",
+            "CONNECTOR_CREATE | SCIM connector lifecycle change applied",
+            "CONNECTOR_DELETE | SCIM connector lifecycle change applied",
+            "CONNECTOR_TOKEN_ISSUE | SCIM connector lifecycle change applied",
+            "CONNECTOR_TOKEN_ROTATE | SCIM connector lifecycle change applied",
+            "CONNECTOR_TOKEN_REVOKE | SCIM connector lifecycle change applied",
+            "LOGOUT | Logout completed",
+            "ROLE_GRANT | Role granted by a mapped Group's membership",
+            "ROLE_REVOKE | Role revoked by a mapped Group's membership",
+            "ROLE_MAPPING_STARTUP | Role mapping validated",
+            "SESSION_START | Session started",
+            "SESSION_END | Session ended",
+            "APPLICATION_STARTUP | Application started",
+            "APPLICATION_SHUTDOWN | Application shutting down",
+            "SCIM_WRITE | Operation completed"})
+    void eachOperationsSuccessMessage(Operation operation, String message) {
+        assertThat(LogEvent.successMessage(operation)).isEqualTo(message);
+    }
+
+    /**
+     * The one success message keyed by type as well as operation: the role-mapping pass's
+     * {@code change} record names the sessions it ended, while its {@code info} record — and
+     * a {@code change} record of any other operation — keeps the operation's own message.
+     */
+    @Test
+    void theRoleMappingChangeRecordNamesTheSessionsItEnded() {
+        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP, Type.CHANGE))
+                .isEqualTo("Sessions issued under another role mapping ended");
+        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP, Type.INFO))
+                .isEqualTo("Role mapping validated");
+        assertThat(LogEvent.successMessage(Operation.ROLE_MAPPING_STARTUP))
+                .isEqualTo("Role mapping validated");
+        assertThat(LogEvent.successMessage(Operation.ROLE_GRANT, Type.CHANGE))
+                .isEqualTo("Role granted by a mapped Group's membership");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
+            "LOGIN | Login refused",
+            "UNLOCK | Administrative identity change refused",
+            "FORCE_PASSWORD_CHANGE | Administrative identity change refused",
+            "PASSWORD_CHANGE | Self-service change refused",
+            "CONNECTOR_TOKEN_ISSUE | SCIM connector issue refused: it would exceed the"
+                    + " requester's Permissions",
+            "CONNECTOR_TOKEN_ROTATE | SCIM connector issue refused: it would exceed the"
+                    + " requester's Permissions",
+            "SCIM_REFUSAL | SCIM request refused",
+            "ACCESS_DENIED | Request refused: access denied",
+            "UNAUTHENTICATED | Request refused: authentication required",
+            "HTTP_REQUEST_REFUSAL | Request refused",
+            "LOGOUT | Operation refused"})
+    void eachOperationsRefusalMessage(Operation operation, String message) {
+        assertThat(LogEvent.refusedMessage(operation)).isEqualTo(message);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
+            "SCIM_WRITE | SCIM write refused by an unmapped integrity violation",
+            "SCIM_REFUSAL | SCIM request refused",
+            "AUDIT_APPEND | Audit event could not be appended; the request was not altered",
+            "HTTP_REQUEST_FAULT | Request failed with an unexpected exception",
+            "LOGIN | Operation failed"})
+    void eachOperationsErrorMessage(Operation operation, String message) {
+        assertThat(LogEvent.errorMessage(operation)).isEqualTo(message);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "DORMANCY | Dormancy job scheduled",
+            "AUDIT_RETENTION | Audit retention job scheduled",
+            "LOGIN | Scheduled job registered"})
+    void eachJobsScheduleMessage(Operation operation, String message) {
+        assertThat(LogEvent.scheduledMessage(operation)).isEqualTo(message);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "AUDIT_RETENTION | Audit retention run complete",
+            "DORMANCY | Scheduled job run summary"})
+    void eachJobsSummaryMessage(Operation operation, String message) {
+        assertThat(LogEvent.summaryMessage(operation)).isEqualTo(message);
     }
 
     /** The call-site spellings the encoder's customizer moves into {@code error}. */
@@ -282,15 +588,21 @@ class LogEventTests {
 
     private static Map<String, Object> classified(
             Operation operation, Category category, Type... types) {
+        return CapturedLog.fields(only(() -> LogEvent.classify(
+                log.atWarn(), operation, category, types).setMessage("classified")));
+    }
+
+    /** Logs the record {@code shape} builds and returns it, the one record captured. */
+    private static ILoggingEvent only(java.util.function.Supplier<LoggingEventBuilder> shape) {
         try (CapturedLog captured = CapturedLog.attach()) {
-            LogEvent.classify(log.atWarn(), operation, category, types).log("classified");
-            List<ILoggingEvent> records = captured.withAction(Level.WARN, LogEvent.KIND, "event");
+            shape.get().log();
+            List<ILoggingEvent> records = captured.withAction(Level.TRACE, LogEvent.KIND, "event");
             assertThat(records).hasSize(1);
-            return CapturedLog.fields(records.getFirst());
+            return records.getFirst();
         }
     }
 
-    private static <E> Set<String> values(E[] members, java.util.function.Function<E, String> value) {
+    private static <E> Set<String> values(E[] members, Function<E, String> value) {
         return Arrays.stream(members).map(value).collect(Collectors.toSet());
     }
 }

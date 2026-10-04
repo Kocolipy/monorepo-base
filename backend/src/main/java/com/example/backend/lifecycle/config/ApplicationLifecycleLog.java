@@ -92,9 +92,8 @@ public class ApplicationLifecycleLog {
         if (event.getApplicationContext() != context) {
             return;
         }
-        LoggingEventBuilder record = LogEvent.classify(log.atInfo(),
+        LoggingEventBuilder record = LogEvent.success(log,
                         Operation.APPLICATION_STARTUP, Category.PROCESS, Type.START)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
                 .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value());
         record = withHost(record)
                 .addKeyValue(PROFILES, List.of(environment.getActiveProfiles()))
@@ -104,7 +103,7 @@ public class ApplicationLifecycleLog {
                 .addKeyValue(DORMANCY_ROLE_REVOCATION_WINDOW,
                         dormancy.roleRevocationWindow().toString())
                 .addKeyValue(AUDIT_RETENTION_PERIOD, retention.period().toString());
-        record.log("Application started");
+        record.log();
     }
 
     @EventListener
@@ -112,12 +111,11 @@ public class ApplicationLifecycleLog {
         if (event.getApplicationContext() != context) {
             return;
         }
-        LogEvent.classify(log.atInfo(), Operation.APPLICATION_SHUTDOWN, Category.PROCESS, Type.END)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.success(log, Operation.APPLICATION_SHUTDOWN,
+                        System.currentTimeMillis() - context.getStartupDate(),
+                        Category.PROCESS, Type.END)
                 .addKeyValue(LogEvent.SEVERITY, Severity.LOW.value())
-                .addKeyValue(LogEvent.DURATION_MS,
-                        System.currentTimeMillis() - context.getStartupDate())
-                .log("Application shutting down");
+                .log();
     }
 
     /**

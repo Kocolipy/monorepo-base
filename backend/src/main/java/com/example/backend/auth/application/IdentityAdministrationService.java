@@ -329,22 +329,18 @@ public class IdentityAdministrationService {
      * what; the log line is what an operator watching for unexpected activity reads.
      */
     private static void succeeded(Operation operation, UUID subjectId) {
-        LogEvent.classify(log.atInfo(),
-                        operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.CHANGE)
+        LogEvent.success(log, operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .log("Administrative identity change applied");
+                .log();
     }
 
     /** Records an administrative write refused for {@code reason}, before anything was written. */
     private static void refused(
             Operation operation, UUID subjectId, AuditAdministrativeRefusal reason) {
-        LogEvent.classify(log.atWarn(),
-                        operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.DENIED)
+        LogEvent.refused(log, operation, Category.PROCESS, Type.ADMIN, Type.USER, Type.DENIED)
                 .addKeyValue(LogEvent.USER_TARGET_ID, subjectId.toString())
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
                 .addKeyValue(LogEvent.REASON, reason.name())
-                .log("Administrative identity change refused");
+                .log();
     }
 
     /**

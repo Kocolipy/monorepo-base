@@ -60,14 +60,12 @@ public class AccessRefusalLog {
         // The published method — one of a fixed set — computed first: it is what the request
         // record names it as, so the two records of one exchange agree.
         String method = RequestIdFilter.method(request);
-        LogEvent.classify(log.atWarn(), refusal.operation(),
-                        Category.PROCESS, Type.ACCESS, Type.DENIED)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+        LogEvent.refused(log, refusal.operation(), Category.PROCESS, Type.ACCESS, Type.DENIED)
                 .addKeyValue(LogEvent.REASON, refusal.reason())
                 .addKeyValue(LogEvent.HTTP_METHOD, method)
                 .addKeyValue(LogEvent.HTTP_ROUTE, routes.of(request))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, refusal.status())
-                .log(refusal.message());
+                .log();
         return true;
     }
 
@@ -110,11 +108,6 @@ public class AccessRefusalLog {
 
         Operation operation() {
             return status == 401 ? Operation.UNAUTHENTICATED : Operation.ACCESS_DENIED;
-        }
-
-        String message() {
-            return status == 401 ? "Request refused: authentication required"
-                    : "Request refused: access denied";
         }
     }
 }

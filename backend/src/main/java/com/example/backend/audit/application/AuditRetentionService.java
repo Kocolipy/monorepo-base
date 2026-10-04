@@ -3,9 +3,7 @@ package com.example.backend.audit.application;
 import com.example.backend.audit.domain.AuditEventRetention;
 import com.example.backend.audit.domain.AuditRetentionPolicy;
 import com.example.backend.observability.LogEvent;
-import com.example.backend.observability.LogEvent.Category;
 import com.example.backend.observability.LogEvent.Operation;
-import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scheduling.domain.ScheduledJob;
 import com.example.backend.scheduling.domain.ScheduledJobLock;
 import java.time.Clock;
@@ -78,10 +76,10 @@ public class AuditRetentionService {
         }
         Instant cutoff = clock.instant().minus(policy.period());
         long deleted = retention.deleteOccurredBefore(cutoff);
-        LogEvent.classify(log.atInfo(), OPERATION, Category.BATCH, Type.INFO)
+        LogEvent.jobSummary(log, OPERATION)
                 .addKeyValue(LogEvent.RETENTION_PERIOD, policy.period().toString())
                 .addKeyValue(LogEvent.RETENTION_DELETED_ROWS, deleted)
-                .log("Audit retention run complete");
+                .log();
         return new AuditRetentionRun(false, deleted);
     }
 }

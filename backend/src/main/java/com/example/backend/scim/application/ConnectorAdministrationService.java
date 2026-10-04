@@ -335,9 +335,7 @@ public class ConnectorAdministrationService {
      * {@code user.target.id} either: the subject is a connector, not a User.
      */
     private static void succeeded(Operation operation, Type lifecycle) {
-        LogEvent.classify(log.atInfo(), operation, Category.CONFIGURATION, Type.ADMIN, lifecycle)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .log("SCIM connector lifecycle change applied");
+        LogEvent.success(log, operation, Category.CONFIGURATION, Type.ADMIN, lifecycle).log();
     }
 
     /**
@@ -346,8 +344,6 @@ public class ConnectorAdministrationService {
      * a log line listing them would be a map of who may mint what.
      */
     private static void escalationRefused(Operation operation) {
-        LogEvent.classify(log.atWarn(), operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                .log("SCIM connector issue refused: it would exceed the requester's Permissions");
+        LogEvent.refused(log, operation, Category.CONFIGURATION, Type.ADMIN, Type.DENIED).log();
     }
 }

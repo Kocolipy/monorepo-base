@@ -79,6 +79,8 @@ class RoleMappingSessionServiceTests {
 
             assertThat(quiet).extracting(record -> record.at("/message").asString())
                     .containsExactly("Role mapping validated");
+            // The two records share the operation's fields; the revocation is told apart by its
+            // message as well as its event.type change and its session.ended_count.
             assertThat(revoking).extracting(record -> record.at("/message").asString())
                     .containsExactly("Role mapping validated",
                             "Sessions issued under another role mapping ended");

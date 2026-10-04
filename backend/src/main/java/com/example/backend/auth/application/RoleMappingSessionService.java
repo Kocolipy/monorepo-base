@@ -54,17 +54,15 @@ public class RoleMappingSessionService {
         // one -- and the permission-authorization spec's Observability table requires it
         // on both startup records, so an operator can tell which mapping a deploy
         // validated. Suppressed on exactly these two records and nowhere else.
-        LogEvent.classify(log.atInfo(), OPERATION, Category.CONFIGURATION, Type.INFO) // nosemgrep: be-log-sensitive-value
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.success(log, OPERATION, Category.CONFIGURATION, Type.INFO) // nosemgrep: be-log-sensitive-value
                 .addKeyValue(LogEvent.ROLE_MAPPING_HASH, mapping.hash())
-                .log("Role mapping validated");
+                .log();
         int revoked = sessions.revokeIssuedUnderAnotherMapping(users.findAllIds(), mapping.hash());
         if (revoked > 0) {
-            LogEvent.classify(log.atInfo(), OPERATION, Category.CONFIGURATION, Type.CHANGE) // nosemgrep: be-log-sensitive-value
-                    .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+            LogEvent.success(log, OPERATION, Category.CONFIGURATION, Type.CHANGE) // nosemgrep: be-log-sensitive-value
                     .addKeyValue(LogEvent.ROLE_MAPPING_HASH, mapping.hash())
                     .addKeyValue(LogEvent.SESSIONS_ENDED, revoked)
-                    .log("Sessions issued under another role mapping ended");
+                    .log();
         }
         return revoked;
     }

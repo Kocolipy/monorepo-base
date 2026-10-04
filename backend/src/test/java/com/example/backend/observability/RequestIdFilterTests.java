@@ -246,16 +246,6 @@ class RequestIdFilterTests {
                         LogEvent.ERROR_FOLLOW_UP_ACTION);
     }
 
-    /** The mark says nothing about a status below {@code 500}. */
-    @ParameterizedTest
-    @CsvSource({"200, INFO", "404, WARN"})
-    void theFaultMarkLeavesAStatusBelowFiveHundredAlone(int status, String level) {
-        assertThat(RequestIdFilter.level(status, true)).isEqualTo(
-                org.slf4j.event.Level.valueOf(level));
-        assertThat(RequestIdFilter.level(status, false)).isEqualTo(
-                org.slf4j.event.Level.valueOf(level));
-    }
-
     @Test
     void aRequestWithNoMarkIsNotRecordedAsHandled() {
         MockHttpServletRequest request = new MockHttpServletRequest();

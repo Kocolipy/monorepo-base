@@ -92,15 +92,14 @@ final class ScimErrorDocument {
 
     private static void record(int status) {
         boolean fault = status >= 500;
-        LogEvent.classify(
-                        fault
-                                ? LogEvent.atError(log, status, ErrorCategory.APPLICATION, true)
-                                : log.atWarn(),
-                        Operation.SCIM_REFUSAL, Category.PROCESS, fault ? Type.ERROR : Type.DENIED)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
+        (fault
+                        ? LogEvent.error(log, Operation.SCIM_REFUSAL, status,
+                                ErrorCategory.APPLICATION, Category.PROCESS, Type.ERROR)
+                        : LogEvent.refused(log, Operation.SCIM_REFUSAL, Category.PROCESS,
+                                Type.DENIED))
                 .addKeyValue(LogEvent.REASON, reason(status))
                 .addKeyValue(LogEvent.HTTP_STATUS_CODE, status)
-                .log("SCIM request refused");
+                .log();
         if (fault) {
             RequestFault.recorded();
         }

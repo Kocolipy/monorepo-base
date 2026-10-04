@@ -468,14 +468,11 @@ public class ScimGroupService {
      * by id and the Role — never a {@code userName} or the Group's {@code displayName}.
      */
     private static void logRoleChange(Operation operation, ScimWriteEffects.RoleChange change) {
-        LogEvent.classify(log.atInfo(), operation, Category.PROCESS, Type.CHANGE)
-                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+        LogEvent.success(log, operation, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.USER_TARGET_ID, change.userId().toString())
                 .addKeyValue(LogEvent.GROUP_ID, change.groupId().toString())
                 .addKeyValue(LogEvent.ROLE_NAME, change.role().name())
-                .log(operation == Operation.ROLE_GRANT
-                        ? "Role granted by a mapped Group's membership"
-                        : "Role revoked by a mapped Group's membership");
+                .log();
     }
 
     /**

@@ -204,14 +204,12 @@ class ScimExceptionHandler {
         // The fault's one record. Attached as a redacted copy: the stack says where it failed,
         // and the message — which quotes the statement and the conflicting value — is replaced
         // by the cause's type, so no part of the refused row reaches the record.
-        inResourceContext(resourceType -> withResourceType(LogEvent.classify(
-                                LogEvent.atError(log, refusal.status().value(),
-                                                ErrorCategory.DATABASE, true)
-                                        .setCause(RedactedFaultException.of(violation, causeType)),
-                                Operation.SCIM_WRITE, Category.DATABASE, Type.ERROR)
-                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                        .addKeyValue(LogEvent.REASON, causeType), resourceType)
-                .log("SCIM write refused by an unmapped integrity violation"));
+        inResourceContext(resourceType -> withResourceType(
+                        LogEvent.error(log, Operation.SCIM_WRITE, refusal.status().value(),
+                                        ErrorCategory.DATABASE, Category.DATABASE, Type.ERROR)
+                                .setCause(RedactedFaultException.of(violation, causeType))
+                                .addKeyValue(LogEvent.REASON, causeType), resourceType)
+                .log());
         RequestFault.recorded();
         return body(refusal);
     }
@@ -273,18 +271,18 @@ class ScimExceptionHandler {
     private static ResponseEntity<Map<String, Object>> render(ScimErrorException refusal) {
         boolean fault = refusal.status().is5xxServerError();
         int status = refusal.status().value();
-        inResourceContext(resourceType -> withResourceType(LogEvent.classify(
-                                fault
-                                        ? LogEvent.atError(log, status, ErrorCategory.APPLICATION,
-                                                true).setCause(refusal)
-                                        : log.atWarn(),
-                                Operation.SCIM_REFUSAL, Category.PROCESS,
-                                fault ? Type.ERROR : Type.DENIED)
-                        .addKeyValue(LogEvent.OUTCOME, LogEvent.FAILURE)
-                        .addKeyValue(LogEvent.REASON, refusal.reason())
-                        .addKeyValue(LogEvent.HTTP_STATUS_CODE, status),
+        inResourceContext(resourceType -> withResourceType(
+                        (fault
+                                ? LogEvent.error(log, Operation.SCIM_REFUSAL, status,
+                                                ErrorCategory.APPLICATION, Category.PROCESS,
+                                                Type.ERROR)
+                                        .setCause(refusal)
+                                : LogEvent.refused(log, Operation.SCIM_REFUSAL, Category.PROCESS,
+                                        Type.DENIED))
+                                .addKeyValue(LogEvent.REASON, refusal.reason())
+                                .addKeyValue(LogEvent.HTTP_STATUS_CODE, status),
                         resourceType)
-                .log("SCIM request refused"));
+                .log());
         if (fault) {
             RequestFault.recorded();
         }
