@@ -140,8 +140,8 @@ metadata. The Enterprise User extension and application-specific extensions are
 not supported in the first release. SCIM may set the password as a write-only
 provisioning attribute; the application hashes it immediately and never returns
 it. SCIM may rename `userName` under its uniqueness rule while preserving the
-stable SCIM resource id. A password or username change, deactivation, deletion, or removal from the Admin
-group revokes the User's existing sessions so a stale login principal never
+stable SCIM resource id. A password or username change, deactivation, deletion, or removal from a
+mapped Group revokes the User's existing sessions so a stale login principal never
 survives a security change (see **Session revocation**). Failure
 runs and lockouts remain application-owned authentication behavior on the User.
 
@@ -176,7 +176,10 @@ members hold the Superuser Role, and with it every Permission, in addition to
 baseline User access. There is no `ROLE_ADMIN`: the Group confers authority only
 through the Role the mapping assigns it. Its stable resource id carries that
 meaning: SCIM may change ordinary membership but may neither rename nor delete
-the Group, nor remove the Bootstrap Admin's membership.
+the Group, nor remove the Bootstrap Admin's membership. These protections are
+the Superuser Group's alone: every other mapped Group is an ordinary Group over
+SCIM — renamable, deletable, its membership writable — so an identity provider
+can retire a helpdesk Group without touching this application's configuration.
 
 **SCIM tombstone** — the privacy-minimal record retained after SCIM deletion: the
 resource type, stable resource id and deletion time (UTC), and nothing else. Its
@@ -199,8 +202,11 @@ deleted.
 
 **Deleted SCIM Group** — an ordinary, non-Admin Group removed with `DELETE`.
 Deletion removes its memberships, makes it unavailable through SCIM, and leaves
-a SCIM tombstone. The Admin group never enters this state because it cannot be
-deleted.
+a SCIM tombstone. A deleted mapped Group takes its Role from every member, each
+recorded as a `ROLE_REVOKE` and signed out after commit, exactly as removing them
+one by one would; the mapping still names its id, but it confers nothing until
+the deployment replaces the mapping. The Admin group never enters this state
+because it cannot be deleted.
 
 **Practical SCIM protocol profile** — public discovery at
 `/ServiceProviderConfig`, `/ResourceTypes`, and `/Schemas`, followed by
@@ -294,7 +300,7 @@ needs, and whatever declares nothing is refused. Three kinds, and nothing else:
 - **One Permission** — every other operation requires exactly one, declared on
   its handler with method security and repeated by the chain as a backstop:
   `user:read` lists accounts; `user:write` unlocks and forces a password change;
-  `group:read` lists Groups; `audit:read` lists audit events; `connector:read`
+  `group:read` lists Groups and reads the Roles and the role mapping; `audit:read` lists audit events; `connector:read`
   lists connectors, `connector:write` creates and deletes them,
   `connector:token` issues, rotates and revokes their tokens; `ops:read` reaches
   every actuator endpoint but health, on whichever port actuator is served;
@@ -340,8 +346,22 @@ backend README's "Role mapping" for its shape. The rules:
   session does not hold them.
 - **Taken at Login.** Permissions are resolved once, at
   Login, and the session carries them, together with the hash of the mapping
-  they were resolved under. A membership change is seen at the next Login. A
-  confined session holds none.
+  they were resolved under. A confined session holds none.
+- **Losing a Role ends the sessions it was issued to; gaining one waits for
+  Login.** A SCIM write that removes a User from a mapped Group — a `PATCH`
+  `remove` or `replace` of the members, a `PUT` whose member list leaves it out,
+  or the Group's `DELETE` — ends every session the User holds once the write
+  commits (ADR 0002's ordering), so a removed power stops at the User's next
+  request. The rule is decided on the stored membership before and after, so a
+  User removed and re-added in one `PATCH` keeps its sessions. Adding a User to a
+  mapped Group leaves its live sessions alone: the Role applies from its next
+  Login.
+- **A changed mapping reaches live sessions at startup.** A deploy that
+  changes the mapping changes its hash, and startup ends every authenticated
+  session issued under a different hash (or carrying none), whether or not the
+  session store survived the deploy. A plain restart, which keeps the hash,
+  ends nothing. Startup logs the validated mapping's hash, and the number of
+  sessions it ended, as `application-startup` records.
 - **Validated at startup, fail-fast.** Startup refuses — naming every problem
   in one message — a Permission name outside the closed set, a Role defined
   twice or without a name, a mapping entry with no Group id, a Group id mapped
@@ -357,7 +377,31 @@ backend README's "Role mapping" for its shape. The rules:
 is the Admin group: seeding creates the Admin group under the Superuser Group's
 configured stable id, so a deployment's mapping can name it before it exists. An
 Admin group seeded earlier under another id keeps that id, and startup then
-refuses the mapping rather than rewriting the id.
+refuses the mapping rather than rewriting the id. Over SCIM it cannot be renamed
+or deleted, and the Bootstrap Admin's membership of it cannot change; its other
+members can all be removed. There is no "last enabled administrator" guard: the
+frozen Bootstrap Admin, together with startup's refusal of a Superuser Role
+missing any Permission, is what guarantees an account holding every Permission.
+
+**Role assignment** — holding a Role is being a direct member of a mapped
+Group, and nothing else assigns one. So **`group:write` on a mapped Group is
+Role assignment**: whoever holds it — over SCIM, a connector token carrying it —
+decides who holds that Role, the Superuser Role's included. It is not split into
+a separate `role:assign` Permission, because an identity provider sync has to
+manage every Group; it is stated here so nobody mistakes it for a harmless
+Permission. Every membership change of a mapped Group is audited as a change of
+power: a `ROLE_GRANT` or `ROLE_REVOKE` event naming the connector, the User, the
+Group and the Role, beside an `INFO` log record classified `user-administration`
+/ `change` / `success` with `user.target.id`, `group.id` and
+`app.authorization.role`. A membership change of an unmapped Group is none of
+this.
+
+**Roles listing** — `GET /api/admin/roles`, by a holder of `group:read`: every
+Role the mapping defines, sorted by name, with its Permissions and the Groups
+conferring it, each by stable id and current `displayName` (`null` for a mapped
+Group since deleted), and the Superuser Group marked. Read-only like the mapping
+itself: no endpoint creates, changes or deletes a Role or a mapping entry. The
+SPA has no view of it.
 
 **Development fixtures** — the shipped mapping (`authorization.yaml`) is a
 development default: Superuser, Account admin, Auditor, Connector admin and
@@ -493,7 +537,12 @@ Superuser's included — so recovering from a self-inflicted state takes a secon
 Admin, and nobody may force the Bootstrap Admin's password change at all. And the
 Bootstrap Admin can never be locked and is protected from every SCIM write,
 deactivation included, so a deployment whose other Admins are all locked is still
-recoverable: it signs in and unlocks them.
+recoverable: it signs in and unlocks them. The "last enabled administrator"
+guard is gone with the Disable action it protected against, and nothing replaces
+it at runtime: the Bootstrap Admin's frozen membership of the **Superuser
+Group**, together with startup's validation that the Superuser Role holds every
+Permission, is what guarantees an account holding every Permission, so a
+connector may remove every other member of the Superuser Group.
 
 The self-target check compares NORMALIZED `userName`s: a session names its
 principal by whatever spelling it logged in with, and a raw comparison would let
@@ -607,8 +656,11 @@ The triggers in force:
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
 - a SCIM `DELETE` of the User;
-- a SCIM write that removes it from the Admin group (an addition takes effect at
-  its next Login, since authority is derived only then);
+- a SCIM write that removes it from a mapped Group — `PATCH`, `PUT` or the
+  Group's `DELETE` (an addition takes effect at its next Login, since authority
+  is derived only then);
+- a startup whose role mapping hash differs from the one the session was issued
+  under;
 - its own successful Login, which ends every other session it holds — one
   session per User;
 - its own successful self-service password change;

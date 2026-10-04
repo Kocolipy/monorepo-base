@@ -18,7 +18,8 @@ import {
  * Sessions ended from somewhere other than the browser holding them, seen from
  * that browser: a second sign-in as the same User (one session per User, #64),
  * and SCIM writes the backend revokes sessions for after commit — deactivation,
- * a password replace, and removal from the Admin group.
+ * a password replace, and removal from a mapped Group (the Admin group, which is
+ * the Superuser Group, and the Account admin Role's Group).
  *
  * The backend's integration tests prove the sessions are deleted. What only a
  * browser can show is the SPA's reaction: the next request the page makes is
@@ -199,6 +200,62 @@ test("removal from the Admin group over SCIM ends the session and the Admin role
 
       // Signed in again, the User holds only the baseline Permissions: the page sends them
       // away, and the backend refuses the data behind it.
+      await submitLogin(page, userName, OWN_PASSWORD);
+      await expect(page).toHaveURL(/\/showcase$/);
+      await page.goto("/accounts");
+      await expect(page).toHaveURL(/\/showcase$/);
+      expect((await page.request.get("/api/admin/accounts")).status()).toBe(403);
+    } finally {
+      await page.context().close();
+    }
+  });
+});
+
+test("removal from a mapped Group over SCIM signs an Account admin's open SPA session out", async ({
+  browser,
+  page: adminPage,
+}) => {
+  test.setTimeout(90_000);
+  // The Group conferring the Account admin Role, read from the roles endpoint the
+  // way an operator would find it rather than from a hard-coded fixture id.
+  const roles = (await (await adminPage.request.get("/api/admin/roles")).json()) as Array<{
+    name: string;
+    groups: Array<{ id: string; superuser: boolean }>;
+  }>;
+  const accountAdmin = roles.find((role) => role.name === "Account admin");
+  expect(
+    accountAdmin?.groups,
+    "the Account admin Role should be conferred by one Group",
+  ).toHaveLength(1);
+  expect(accountAdmin!.groups[0].superuser).toBe(false);
+  const groupPath = `/scim/v2/Groups/${accountAdmin!.groups[0].id}`;
+
+  await withUser("account-admin", async (userName, id) => {
+    const added = await scimPatch(connector.scim, groupPath, [
+      { op: "add", path: "members", value: [{ value: id }] },
+    ]);
+    expect(added.status(), "adding the User to the Account admin Group").toBe(200);
+
+    const page = await signedInBrowser(browser, userName);
+    try {
+      // Precondition: the Role reached the session — the Users view is shown, the
+      // connectors view (connector:read) is not.
+      await page.goto("/accounts");
+      await expect(page.getByRole("heading", { name: "Accounts" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Connectors", exact: true })).toHaveCount(0);
+      await page.goto("/showcase");
+      await park(page);
+
+      const removed = await scimPatch(connector.scim, groupPath, [
+        { op: "remove", path: `members[value eq "${id}"]` },
+      ]);
+      expect(removed.status(), "removing the User from the Account admin Group").toBe(200);
+
+      await expectNextRequestEndsSession(page);
+
+      // Signed in again, the Role is gone: the Accounts page routes away and the
+      // backend refuses the listing.
       await submitLogin(page, userName, OWN_PASSWORD);
       await expect(page).toHaveURL(/\/showcase$/);
       await page.goto("/accounts");

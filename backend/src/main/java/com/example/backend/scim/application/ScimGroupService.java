@@ -3,6 +3,12 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
+import com.example.backend.authorization.domain.Role;
+import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.observability.LogEvent;
+import com.example.backend.observability.LogEvent.Category;
+import com.example.backend.observability.LogEvent.Operation;
+import com.example.backend.observability.LogEvent.Type;
 import com.example.backend.scim.domain.AuthenticatedConnector;
 import com.example.backend.scim.domain.DuplicateDisplayNameException;
 import com.example.backend.scim.domain.ProtectedResourceException;
@@ -34,6 +40,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,9 +60,11 @@ import org.springframework.transaction.annotation.Transactional;
  * whole of their protection on this surface:
  *
  * <ul>
- *   <li>The <strong>Admin group</strong> may not be renamed and may not be deleted. Its
- *       ordinary membership stays writable, because granting and revoking administrative
- *       access is exactly what external provisioning is for.
+ *   <li>The <strong>Admin group</strong> — the Superuser Group, whose Role holds every
+ *       Permission — may not be renamed and may not be deleted. Its ordinary membership stays
+ *       writable, because granting and revoking access is exactly what external provisioning is
+ *       for. Every other mapped Group is an ordinary Group on this surface: renamable,
+ *       deletable, its membership writable.
  *   <li>The <strong>Bootstrap Admin's</strong> membership is frozen — it cannot be removed
  *       from the Admin group, and it cannot be added to or removed from any other Group.
  *       The glossary's rule is that no SCIM operation may mutate that User, and a membership
@@ -73,19 +83,28 @@ import org.springframework.transaction.annotation.Transactional;
  * the refusal rolls this transaction back, so an append that joined it would be rolled back
  * with it, and an attempt to provision the recovery authority away would leave no trace.
  *
- * <h2>Removing authority ends the sessions it was issued with</h2>
+ * <h2>A mapped Group's membership is Role assignment</h2>
  *
- * <p>A session carries the Permissions it was issued with, so a User removed from the Admin group
- * would otherwise keep the Superuser Role's Permissions for the rest of its lifetime. Every write
- * that drops a direct
- * member of the Admin group — a PATCH {@code remove}, a PATCH {@code replace} of the members, or
- * a PUT whose member list leaves the User out — therefore ends that User's sessions through
- * {@link ScimUserSessions}, which does so only once the write commits. A refused, stale or
- * rolled-back write revokes nothing, and neither does a removal from an ordinary Group, which
- * confers no authority.
+ * <p>A Group the role mapping names confers its Role on every direct member, so writing its
+ * membership is assigning that Role — which is why {@code group:write} on a mapped Group is as
+ * powerful as the Role itself. Every write that moves a mapped Group's membership is therefore
+ * also recorded as a change of power: a {@code ROLE_GRANT} for each User it added and a
+ * {@code ROLE_REVOKE} for each User it removed, naming the User, the Group and the Role, and a
+ * matching {@code INFO} record in the application log.
+ *
+ * <p>A session carries the Permissions it was issued with, so a User removed from a mapped Group
+ * would otherwise keep that Role's Permissions for the rest of its lifetime. Every write that drops
+ * a direct member of a mapped Group — a PATCH {@code remove}, a PATCH {@code replace} of the
+ * members, a PUT whose member list leaves the User out, or the Group's DELETE — therefore ends that
+ * User's sessions through {@link ScimUserSessions}, which does so only once the write commits. A
+ * refused, stale or rolled-back write revokes nothing; neither does a removal from a Group the
+ * mapping does not name, which confers nothing, nor an ADDITION to a mapped Group, whose Role
+ * the User holds from its next sign-in.
  */
 @Service
 public class ScimGroupService {
+
+    private static final Logger log = LoggerFactory.getLogger(ScimGroupService.class);
 
     private final ScimGroupRepository groups;
     private final ScimUserRepository users;
@@ -95,6 +114,7 @@ public class ScimGroupService {
     private final Clock clock;
     private final ScimQueryRepository queries;
     private final ScimUserSessions sessions;
+    private final RoleMapping roleMapping;
 
     public ScimGroupService(
             ScimGroupRepository groups,
@@ -104,7 +124,8 @@ public class ScimGroupService {
             ScimTombstoneRepository tombstones,
             AuditTrail audit,
             Clock clock,
-            ScimQueryRepository queries) {
+            ScimQueryRepository queries,
+            RoleMapping roleMapping) {
         this.queries = queries;
         this.groups = groups;
         this.users = users;
@@ -113,6 +134,7 @@ public class ScimGroupService {
         this.tombstones = tombstones;
         this.audit = audit;
         this.clock = clock;
+        this.roleMapping = roleMapping;
     }
 
     /**
@@ -138,7 +160,7 @@ public class ScimGroupService {
                     connector.connectorId(), AuditScimRefusal.INVALID_VALUE);
             throw unacceptable;
         }
-        refuseFrozenMembershipChange(connector, List.of(), command.memberIds());
+        refuseFrozenMembershipChange(connector, command.memberIds());
         ScimGroup group = ScimGroup.created(
                 UUID.randomUUID(),
                 command.displayName(),
@@ -289,6 +311,11 @@ public class ScimGroupService {
      * removed. An ordinary Group containing the Bootstrap Admin needs no special case: such a
      * Group cannot exist, because no write that would have added the User to it is accepted.
      *
+     * <p>Any other mapped Group can be: deleting it removes every member's Role, so each member
+     * is recorded as losing it and has its sessions ended after the commit, exactly as removing
+     * them one by one would. The mapping still names the Group's id afterwards, but no Group
+     * answers to it, so it confers nothing until the deployment replaces its mapping.
+     *
      * <p>A tombstone holding only the id, the type and the time is written in the same
      * transaction; it is never consulted for uniqueness, so the former {@code displayName} is
      * free for the next create.
@@ -317,6 +344,9 @@ public class ScimGroupService {
             tombstones.record(ScimResourceType.GROUP, id, now);
         }
         audit.recordScimGroupDeleted(connector.connectorId(), id);
+        if (deleted) {
+            recordRoleChanges(connector.connectorId(), id, memberIdSet(group), Set.of());
+        }
         return deleted;
     }
 
@@ -396,28 +426,57 @@ public class ScimGroupService {
             changed.add(AuditGroupAttribute.EXTERNAL_ID);
         }
         audit.recordScimGroupReplaced(connectorId, id, changed);
-        revokeRemovedAdminSessions(connectorId, current, written);
+        recordRoleChanges(connectorId, id, memberIdSet(current), memberIdSet(written));
         return Optional.of(projection(connector, written));
     }
 
     /**
-     * Ends, after the commit, the sessions of every User this write removed from the Admin group.
+     * Records the change of power a membership change of a mapped Group is, and ends the sessions
+     * of every User it removed once the write commits.
      *
-     * <p>Decided from the stored membership before and after rather than from the request, so PUT
-     * and every PATCH shape are one rule, a User the write removed and added back keeps its
-     * sessions, and a {@code remove} naming a User who was not a member revokes nothing. Only the
-     * Admin group confers authority, so a removal from any other Group is not a revocation.
+     * <p>Decided from the stored membership before and after rather than from the request, so PUT,
+     * every PATCH shape and DELETE are one rule, a User the write removed and added back keeps its
+     * sessions and its Role, and a {@code remove} naming a User who was not a member changes
+     * nothing. A Group the mapping does not name confers no Role, so its membership changes are
+     * none of this. An addition revokes nothing: the User holds the Role from its next sign-in.
      */
-    private void revokeRemovedAdminSessions(UUID connectorId, ScimGroup before, ScimGroup after) {
-        if (before.reservedName() != ReservedResourceName.ADMIN_GROUP) {
+    private void recordRoleChanges(
+            UUID connectorId, UUID groupId, Set<UUID> before, Set<UUID> after) {
+        Optional<Role> mapped = roleMapping.roleOf(groupId);
+        if (mapped.isEmpty()) {
             return;
         }
-        Set<UUID> removed = memberIdSet(before);
-        removed.removeAll(memberIdSet(after));
-        for (UUID userId : removed) {
-            sessions.revokeAfterCommit(
-                    connectorId, userId, EnumSet.of(ScimUserSessions.Cause.ADMIN_MEMBERSHIP_REMOVED));
+        Role role = mapped.get();
+        for (UUID userId : before) {
+            if (!after.contains(userId)) {
+                audit.recordRoleRevoked(connectorId, userId, groupId, role);
+                logRoleChange(Operation.ROLE_REVOKE, userId, groupId, role);
+                sessions.revokeAfterCommit(
+                        connectorId, userId, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED));
+            }
         }
+        for (UUID userId : after) {
+            if (!before.contains(userId)) {
+                audit.recordRoleGranted(connectorId, userId, groupId, role);
+                logRoleChange(Operation.ROLE_GRANT, userId, groupId, role);
+            }
+        }
+    }
+
+    /**
+     * The change of power in the application log, beside the audit event: {@code INFO}, classified
+     * {@code user-administration} / {@code change} / {@code success}, naming the User, the Group
+     * by id and the Role — never a {@code userName} or the Group's {@code displayName}.
+     */
+    private static void logRoleChange(Operation operation, UUID userId, UUID groupId, Role role) {
+        LogEvent.classify(log.atInfo(), operation, Category.PROCESS, Type.CHANGE)
+                .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
+                .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
+                .addKeyValue(LogEvent.GROUP_ID, groupId.toString())
+                .addKeyValue(LogEvent.ROLE_NAME, role.name())
+                .log(operation == Operation.ROLE_GRANT
+                        ? "Role granted by a mapped Group's membership"
+                        : "Role revoked by a mapped Group's membership");
     }
 
     /**
@@ -455,13 +514,12 @@ public class ScimGroupService {
      * happen. The test covering it asserted only the exception type, so nothing failed.
      */
     private void refuseFrozenMembershipChange(
-            AuthenticatedConnector connector, List<UUID> current, List<UUID> desired) {
+            AuthenticatedConnector connector, List<UUID> memberIds) {
         Optional<UUID> bootstrapAdminId = bootstrapAdminId();
         if (bootstrapAdminId.isEmpty()) {
             return;
         }
-        UUID protectedUserId = bootstrapAdminId.get();
-        if (current.contains(protectedUserId) != desired.contains(protectedUserId)) {
+        if (memberIds.contains(bootstrapAdminId.get())) {
             audit.recordScimGroupCreateRejected(
                     connector.connectorId(), AuditScimRefusal.MUTABILITY);
             throw new ProtectedResourceException(ReservedResourceName.BOOTSTRAP_ADMIN);

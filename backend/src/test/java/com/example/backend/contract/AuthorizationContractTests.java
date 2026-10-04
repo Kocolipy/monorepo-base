@@ -282,6 +282,13 @@ class AuthorizationContractTests {
                 new String[] {"POST", "/api/admin/accounts"},
                 new String[] {"PUT", "/api/admin/accounts/" + UUID.randomUUID()},
                 new String[] {"DELETE", "/api/admin/groups"},
+                // Roles and the mapping are configuration: nothing writes one at runtime.
+                new String[] {"POST", "/api/admin/roles"},
+                new String[] {"PUT", "/api/admin/roles"},
+                new String[] {"PATCH", "/api/admin/roles"},
+                new String[] {"DELETE", "/api/admin/roles"},
+                new String[] {"PUT", "/api/admin/roles/Superuser"},
+                new String[] {"DELETE", "/api/admin/roles/Superuser"},
                 new String[] {"PATCH", "/api/count"},
                 new String[] {"GET", "/api/admin"})) {
             MockHttpServletRequestBuilder request =

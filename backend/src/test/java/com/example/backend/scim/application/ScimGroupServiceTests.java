@@ -7,6 +7,10 @@ import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditScimRefusal;
+import com.example.backend.auth.MutableClock;
+import com.example.backend.authorization.TestRoleMappings;
+import com.example.backend.authorization.domain.RoleMapping;
+import com.example.backend.observability.EcsLogCapture;
 import com.example.backend.scim.InMemoryScimExternalIdRepository;
 import com.example.backend.scim.InMemoryScimGroupRepository;
 import com.example.backend.scim.InMemoryScimQueryRepository;
@@ -23,20 +27,23 @@ import com.example.backend.scim.domain.ScimGroup;
 import com.example.backend.scim.domain.ScimGroupMember;
 import com.example.backend.scim.domain.ScimPageRequest;
 import com.example.backend.scim.domain.ScimQuery;
+import com.example.backend.scim.domain.ScimQueryRepository;
 import com.example.backend.scim.domain.ScimResourceType;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserSessions;
 import com.example.backend.scim.domain.ScimValueTooLongException;
 import com.example.backend.scim.domain.ScimVersionPrecondition;
 import com.example.backend.scim.domain.UnknownGroupMemberException;
-import java.time.Clock;
-import java.time.ZoneOffset;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
+import tools.jackson.databind.JsonNode;
 
 /**
  * The Group write and read use cases, and the refusals that protect the deployment's recovery path.
@@ -51,6 +58,18 @@ class ScimGroupServiceTests {
 
     private static final AuthenticatedConnector CONNECTOR = new AuthenticatedConnector(
             UUID.randomUUID(), UUID.randomUUID(), ConnectorTokenScope.READ_WRITE);
+
+    /** An ordinary mapped Group: writable and deletable, its membership conferring a Role. */
+    private static final UUID HELPDESK_GROUP_ID =
+            UUID.fromString("00000000-0000-4000-8000-0000000b0002");
+
+    /** The Superuser Group, as the test configuration maps it, plus one ordinary mapped Group. */
+    private static final RoleMapping ROLE_MAPPING = RoleMapping.of(
+            List.of(new RoleMapping.RoleDefinition("Superuser", TestRoleMappings.EVERY_PERMISSION),
+                    new RoleMapping.RoleDefinition("Helpdesk", List.of("user:read", "user:write"))),
+            List.of(new RoleMapping.GroupAssignment(
+                            TestRoleMappings.SUPERUSER_GROUP_ID, "Superuser", true),
+                    new RoleMapping.GroupAssignment(HELPDESK_GROUP_ID, "Helpdesk", false)));
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
@@ -73,6 +92,28 @@ class ScimGroupServiceTests {
     private final ScimUserSessions sessions = (connectorId, userId, causes) ->
             revocations.add(new Revocation(connectorId, userId, Set.copyOf(causes)));
 
+    /** Starts at {@link ScimIdentities#NOW}; a test moves it to tell a write's time from a create's. */
+    private final MutableClock clock = new MutableClock(ScimIdentities.NOW);
+
+    private final InMemoryScimQueryRepository storedQueries =
+            new InMemoryScimQueryRepository(users, groups);
+
+    /** One call the service made to the query port. */
+    private record QueryCall(ScimQuery query, UUID connectorId) {
+    }
+
+    private final List<QueryCall> queryCalls = new ArrayList<>();
+
+    /** When set, the query port answers with this instead of evaluating against the fakes. */
+    private ScimQuery.Result stubbedQueryResult;
+
+    private final ScimQueryRepository queries = (query, connectorId, baseUri) -> {
+        queryCalls.add(new QueryCall(query, connectorId));
+        return stubbedQueryResult != null
+                ? stubbedQueryResult
+                : storedQueries.query(query, connectorId, baseUri);
+    };
+
     private final ScimGroupService service = new ScimGroupService(
             groups,
             users,
@@ -80,8 +121,9 @@ class ScimGroupServiceTests {
             sessions,
             tombstones,
             audit,
-            Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
-            new InMemoryScimQueryRepository(users, groups));
+            clock,
+            queries,
+            ROLE_MAPPING);
 
     private ScimUser alice;
 
@@ -640,7 +682,7 @@ class ScimGroupServiceTests {
     /** The revocation a removal from the Admin group asks for, on behalf of this connector. */
     private Revocation adminRemoval(ScimUser user) {
         return new Revocation(CONNECTOR.connectorId(), user.id(),
-                Set.of(ScimUserSessions.Cause.ADMIN_MEMBERSHIP_REMOVED));
+                Set.of(ScimUserSessions.Cause.ROLE_REVOKED));
     }
 
     /** The Admin group with alice and bob added as ordinary members beside the Bootstrap Admin. */
@@ -729,6 +771,178 @@ class ScimGroupServiceTests {
 
         assertThat(revocations).isEmpty();
         assertThat(groups.findById(adminGroup.id()).orElseThrow().hasMember(alice.id())).isTrue();
+    }
+
+    // ---- every mapped Group: its membership is Role assignment --------------------------------
+
+    /** The ordinary mapped Group, stored under the id the mapping names, with these members. */
+    private ScimGroup helpdeskWith(ScimUser... members) {
+        return groups.create(ScimGroup.created(
+                HELPDESK_GROUP_ID,
+                "Helpdesk",
+                java.util.Arrays.stream(members)
+                        .map(member -> ScimGroupMember.reference(member.id()))
+                        .toList(),
+                ScimIdentities.NOW));
+    }
+
+    /** The revocation a removal from a mapped Group asks for, on behalf of this connector. */
+    private Revocation roleRevocation(ScimUser user) {
+        return new Revocation(CONNECTOR.connectorId(), user.id(),
+                Set.of(ScimUserSessions.Cause.ROLE_REVOKED));
+    }
+
+    /** One recorded change of power: the connector, the User, then Group and Role as detail. */
+    private static RecordingAuditTrail.Recorded roleChange(
+            AuditOperation operation, ScimUser user, UUID groupId, String role) {
+        return new RecordingAuditTrail.Recorded(
+                operation, CONNECTOR.connectorId(), user.id(), groupId + ":" + role);
+    }
+
+    @Test
+    void a_patch_removing_a_member_of_a_mapped_group_revokes_its_sessions_and_its_role() {
+        helpdeskWith(alice, bob);
+
+        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
+
+        assertThat(revocations).containsExactly(roleRevocation(alice));
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactly(
+                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"));
+        assertThat(audit.of(AuditOperation.ROLE_GRANT)).isEmpty();
+    }
+
+    @Test
+    void a_put_leaving_members_out_of_a_mapped_group_revokes_each_of_them() {
+        helpdeskWith(alice, bob);
+
+        service.replace(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                new ScimGroupReplacement("Helpdesk", List.of(), null));
+
+        assertThat(revocations).containsExactlyInAnyOrder(roleRevocation(alice), roleRevocation(bob));
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactlyInAnyOrder(
+                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"),
+                roleChange(AuditOperation.ROLE_REVOKE, bob, HELPDESK_GROUP_ID, "Helpdesk"));
+    }
+
+    /** Gaining a Role leaves live sessions alone: the Permissions arrive at the next sign-in. */
+    @Test
+    void adding_a_member_to_a_mapped_group_records_the_role_gained_and_revokes_nothing() {
+        helpdeskWith(alice);
+
+        service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id(), bob.id()))));
+
+        assertThat(revocations).isEmpty();
+        assertThat(audit.of(AuditOperation.ROLE_GRANT)).containsExactly(
+                roleChange(AuditOperation.ROLE_GRANT, bob, HELPDESK_GROUP_ID, "Helpdesk"));
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
+    }
+
+    /** The Superuser Group's membership is Role assignment too, and names its own Role. */
+    @Test
+    void a_superuser_group_membership_change_records_the_superuser_role() {
+        ScimGroup adminGroup = adminGroupWithAliceAndBob();
+
+        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
+                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
+
+        assertThat(audit.of(AuditOperation.ROLE_GRANT)).containsExactlyInAnyOrder(
+                roleChange(AuditOperation.ROLE_GRANT, alice, adminGroup.id(), "Superuser"),
+                roleChange(AuditOperation.ROLE_GRANT, bob, adminGroup.id(), "Superuser"));
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactly(
+                roleChange(AuditOperation.ROLE_REVOKE, alice, adminGroup.id(), "Superuser"));
+    }
+
+    /**
+     * Unlike the Superuser Group, every other mapped Group can be renamed and deleted — and
+     * deleting it takes the Role from every member, so each is revoked as a removal would be.
+     */
+    @Test
+    void a_mapped_group_other_than_the_superuser_group_can_be_renamed_and_deleted() {
+        helpdeskWith(alice, bob);
+
+        ScimGroupResource renamed = service.patch(CONNECTOR, HELPDESK_GROUP_ID,
+                current(HELPDESK_GROUP_ID),
+                List.of(new ScimGroupPatchOperation.SetDisplayName("Service desk"))).orElseThrow();
+        assertThat(renamed.displayName()).isEqualTo("Service desk");
+        assertThat(revocations).as("a rename moves no membership").isEmpty();
+
+        assertThat(service.delete(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID)))
+                .isTrue();
+
+        assertThat(groups.findById(HELPDESK_GROUP_ID)).isEmpty();
+        assertThat(revocations).containsExactlyInAnyOrder(roleRevocation(alice), roleRevocation(bob));
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).containsExactlyInAnyOrder(
+                roleChange(AuditOperation.ROLE_REVOKE, alice, HELPDESK_GROUP_ID, "Helpdesk"),
+                roleChange(AuditOperation.ROLE_REVOKE, bob, HELPDESK_GROUP_ID, "Helpdesk"));
+    }
+
+    /**
+     * A mapped Group another transaction deleted between the read and this delete records no
+     * Role change: that transaction removed the row, and with it the members' Role, so it is the
+     * one that revoked and audited them. A second set here would double every {@code ROLE_REVOKE}
+     * in the trail and end sessions for a delete that removed nothing.
+     */
+    @Test
+    void a_mapped_group_removed_between_the_read_and_the_delete_records_no_role_change() {
+        helpdeskWith(alice, bob);
+        groups.vanishBeforeNextDelete(HELPDESK_GROUP_ID);
+
+        assertThat(service.delete(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID)))
+                .isFalse();
+
+        assertThat(revocations).isEmpty();
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
+    }
+
+    /** An unmapped Group confers nothing, so neither its deletion nor its edits are power. */
+    @Test
+    void an_unmapped_groups_membership_changes_and_deletion_record_no_role_change() {
+        ScimGroupResource ordinary = service.create(CONNECTOR,
+                new NewScimGroup("Engineering", List.of(alice.id()), null));
+
+        service.patch(CONNECTOR, ordinary.id(), current(ordinary.id()),
+                List.of(new ScimGroupPatchOperation.AddMembers(List.of(bob.id()))));
+        service.delete(CONNECTOR, ordinary.id(), current(ordinary.id()));
+
+        assertThat(revocations).isEmpty();
+        assertThat(audit.of(AuditOperation.ROLE_GRANT)).isEmpty();
+        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
+    }
+
+    /**
+     * Each change of power is one {@code INFO} record classified {@code user-administration} /
+     * {@code change} / {@code success}, naming the User, the Group by id and the Role — and never
+     * a {@code userName} or the Group's {@code displayName}.
+     */
+    @Test
+    void each_role_change_is_logged_at_info_with_the_user_the_group_and_the_role() {
+        helpdeskWith(alice);
+
+        try (EcsLogCapture ecs = EcsLogCapture.attach(new StandardEnvironment())) {
+            service.patch(CONNECTOR, HELPDESK_GROUP_ID, current(HELPDESK_GROUP_ID), List.of(
+                    new ScimGroupPatchOperation.ReplaceMembers(List.of(bob.id()))));
+
+            List<JsonNode> changes = ecs.records().stream()
+                    .filter(record -> record.at("/app/event/action").asText()
+                            .startsWith("identity.role_"))
+                    .toList();
+            assertThat(changes).extracting(record -> record.at("/app/event/action").asText())
+                    .containsExactly("identity.role_revoke", "identity.role_grant");
+            assertThat(changes).extracting(record -> record.at("/user/target/id").asText())
+                    .containsExactly(alice.id().toString(), bob.id().toString());
+            assertThat(changes).allSatisfy(record -> {
+                assertThat(record.at("/log/level").asText()).isEqualTo("INFO");
+                assertThat(record.at("/event/action").asText()).isEqualTo("user-administration");
+                assertThat(record.at("/event/type").get(0).asText()).isEqualTo("change");
+                assertThat(record.at("/event/type")).hasSize(1);
+                assertThat(record.at("/event/outcome").asText()).isEqualTo("success");
+                assertThat(record.at("/group/id").asText()).isEqualTo(HELPDESK_GROUP_ID.toString());
+                assertThat(record.at("/app/authorization/role").asText()).isEqualTo("Helpdesk");
+                assertThat(record.toString()).doesNotContain("alice", "bob");
+            });
+        }
     }
 
     // ---- stored-length limits ---------------------------------------------------------------
@@ -832,7 +1046,10 @@ class ScimGroupServiceTests {
 
         assertThat(users.require("alice").version()).isEqualTo(aliceBefore + 1);
         assertThat(audit.of(AuditOperation.SCIM_GROUP_DELETE)).singleElement()
-                .satisfies(event -> assertThat(event.subjectId()).isEqualTo(created.id()));
+                .satisfies(event -> {
+                    assertThat(event.actorId()).isEqualTo(CONNECTOR.connectorId());
+                    assertThat(event.subjectId()).isEqualTo(created.id());
+                });
         assertThat(tombstones.recorded()).containsExactly(
                 new InMemoryScimTombstoneRepository.Tombstone(
                         ScimResourceType.GROUP, created.id(), ScimIdentities.NOW));
@@ -897,7 +1114,10 @@ class ScimGroupServiceTests {
         ScimGroup adminGroup = seedAdminGroup();
 
         assertThatThrownBy(() -> service.delete(CONNECTOR, adminGroup.id(), current(adminGroup.id())))
-                .isInstanceOf(ProtectedResourceException.class);
+                .isInstanceOfSatisfying(ProtectedResourceException.class, refusal ->
+                        assertThat(refusal.reservedName())
+                                .as("the refusal names the reserved resource it protects")
+                                .isEqualTo(ReservedResourceName.ADMIN_GROUP));
         assertThat(tombstones.recorded()).isEmpty();
 
         assertThat(service.findById(CONNECTOR, adminGroup.id())).isPresent();
@@ -1030,6 +1250,140 @@ class ScimGroupServiceTests {
                 .hasSize(1);
     }
 
+    // ---- timestamps, races, preconditions and query audit --------------------------------------
+
+    private static final Duration LATER = Duration.ofMinutes(5);
+
+    /** A create stamps both timestamps with the service clock's time, not some other one. */
+    @Test
+    void a_created_group_is_stamped_with_the_time_of_the_create() {
+        clock.advanceBy(LATER);
+
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
+
+        assertThat(created.createdAt()).isEqualTo(ScimIdentities.NOW.plus(LATER));
+        assertThat(created.lastModifiedAt()).isEqualTo(ScimIdentities.NOW.plus(LATER));
+    }
+
+    /**
+     * A PUT and a PATCH each move {@code lastModified} to the time of the write and leave
+     * {@code created} alone — {@code meta.lastModified} is what a connector's incremental sync
+     * compares, so a write that kept the old one would never be picked up.
+     */
+    @Test
+    void a_put_and_a_patch_stamp_last_modified_with_the_time_of_the_write() {
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
+        clock.advanceBy(LATER);
+
+        ScimGroupResource replaced = service.replace(CONNECTOR, created.id(), current(created.id()),
+                new ScimGroupReplacement("Platform", List.of(), null)).orElseThrow();
+        assertThat(replaced.createdAt()).isEqualTo(ScimIdentities.NOW);
+        assertThat(replaced.lastModifiedAt()).isEqualTo(ScimIdentities.NOW.plus(LATER));
+
+        clock.advanceBy(LATER);
+        ScimGroupResource patched = service.patch(CONNECTOR, created.id(), current(created.id()),
+                List.of(new ScimGroupPatchOperation.SetDisplayName("Infra"))).orElseThrow();
+        assertThat(patched.createdAt()).isEqualTo(ScimIdentities.NOW);
+        assertThat(patched.lastModifiedAt()).isEqualTo(ScimIdentities.NOW.plus(LATER).plus(LATER));
+    }
+
+    /** An alias-only write moves no column, so the version bump is what stamps its time. */
+    @Test
+    void an_alias_only_write_stamps_last_modified_with_the_time_of_the_write() {
+        ScimGroupResource created = aliased();
+        clock.advanceBy(LATER);
+
+        ScimGroupResource patched = service.patch(CONNECTOR, created.id(), current(created.id()),
+                List.of(new ScimGroupPatchOperation.SetExternalId("eng-2"))).orElseThrow();
+
+        assertThat(patched.version()).isEqualTo(created.version() + 1);
+        assertThat(patched.lastModifiedAt()).isEqualTo(ScimIdentities.NOW.plus(LATER));
+    }
+
+    /**
+     * A Group deleted between the write's locked read and its replacement reports absence — the
+     * 404 a moment earlier would have produced — and records no write and no alias for it.
+     */
+    @Test
+    void a_group_removed_between_the_read_and_the_write_reports_absence() {
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
+        ScimVersionPrecondition precondition = current(created.id());
+        audit.reset();
+        groups.vanishBeforeNextReplace(created.id());
+
+        assertThat(service.replace(CONNECTOR, created.id(), precondition,
+                new ScimGroupReplacement("Platform", List.of(), "eng-1"))).isEmpty();
+
+        assertThat(audit.recorded()).isEmpty();
+        assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).isEmpty();
+        assertThat(revocations).isEmpty();
+    }
+
+    /**
+     * A PATCH carrying a null operation is a programming error upstream, not a request: it is
+     * refused as one before anything is written, rather than falling through as an unmatched
+     * case.
+     */
+    @Test
+    void a_patch_with_a_null_operation_is_refused_and_writes_nothing() {
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
+
+        assertThatThrownBy(() -> service.patch(CONNECTOR, created.id(), current(created.id()),
+                        Arrays.asList(new ScimGroupPatchOperation.SetDisplayName("Platform"), null)))
+                .isExactlyInstanceOf(NullPointerException.class);
+
+        ScimGroupResource reread = service.findById(CONNECTOR, created.id()).orElseThrow();
+        assertThat(reread.displayName()).isEqualTo("Engineering");
+        assertThat(reread.version()).isEqualTo(created.version());
+    }
+
+    /**
+     * A delete honours {@code If-Match} as a write does: a stale version is refused before
+     * anything is removed, so two connectors racing on one Group cannot delete the one the other
+     * just changed.
+     */
+    @Test
+    void a_delete_with_a_stale_precondition_is_refused_and_the_group_is_still_there() {
+        ScimGroupResource created = service.create(
+                CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
+        ScimVersionPrecondition stale = current(created.id());
+        service.patch(CONNECTOR, created.id(), current(created.id()),
+                List.of(new ScimGroupPatchOperation.SetDisplayName("Platform")));
+        audit.reset();
+
+        assertThatThrownBy(() -> service.delete(CONNECTOR, created.id(), stale))
+                .isInstanceOf(PreconditionFailedException.class);
+
+        assertThat(service.findById(CONNECTOR, created.id())).isPresent();
+        assertThat(tombstones.recorded()).isEmpty();
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_DELETE)).isEmpty();
+    }
+
+    /**
+     * A query is evaluated as the calling connector — whose aliases are the {@code externalId}
+     * values it sees — and audited with the filter's shape, and the listing carries the page that
+     * was asked for, which renders {@code startIndex} and {@code itemsPerPage}.
+     */
+    @Test
+    void a_query_runs_as_the_connector_and_records_the_filters_shape_and_the_page() {
+        ScimPageRequest page = new ScimPageRequest(3, 7);
+        ScimQuery query = ScimQuery.of(
+                Set.of(ScimResourceType.GROUP), "displayName eq \"Engineering\"", null, null, page);
+        stubbedQueryResult = new ScimQuery.Result(0, List.of());
+
+        ScimGroupListing listing = service.query(CONNECTOR, query, BASE_URI);
+
+        assertThat(queryCalls).containsExactly(new QueryCall(query, CONNECTOR.connectorId()));
+        assertThat(listing.page()).isEqualTo(page);
+        assertThat(audit.of(AuditOperation.SCIM_GROUP_LIST)).singleElement()
+                .extracting(RecordingAuditTrail.Recorded::detail)
+                .isEqualTo("0 displayName eq ?");
+    }
+
     // ---- fixtures -----------------------------------------------------------------------------
 
     /**
@@ -1041,7 +1395,7 @@ class ScimGroupServiceTests {
                 ScimIdentities.user("bootstrap"), ReservedResourceName.BOOTSTRAP_ADMIN);
         return groups.createReserved(
                 ScimGroup.created(
-                        UUID.randomUUID(),
+                        TestRoleMappings.SUPERUSER_GROUP_ID,
                         "Admins",
                         List.of(ScimGroupMember.reference(recovery.id())),
                         ScimIdentities.NOW),
@@ -1052,11 +1406,21 @@ class ScimGroupServiceTests {
         return users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
     }
 
-    /** The detail of every refused event of one operation — the closed-set reason it recorded. */
+    /**
+     * The detail of every refused event of one operation — the closed-set reason it recorded.
+     *
+     * <p>Each refusal must also name the connector that made it: an operator tracing a connector
+     * that never converged filters the trail by actor, so a refusal recorded without one is a
+     * refusal that connector's investigation never finds. Checked here, once, so every refusal
+     * path a test drives is held to it.
+     */
     private List<String> refusalDetails(AuditOperation operation) {
-        return audit.of(operation).stream()
-                .map(RecordingAuditTrail.Recorded::detail)
-                .filter(detail -> detail != null)
+        List<RecordingAuditTrail.Recorded> refusals = audit.of(operation).stream()
+                .filter(recorded -> recorded.detail() != null)
                 .toList();
+        assertThat(refusals).as("every refusal names the connector that made it")
+                .allSatisfy(recorded ->
+                        assertThat(recorded.actorId()).isEqualTo(CONNECTOR.connectorId()));
+        return refusals.stream().map(RecordingAuditTrail.Recorded::detail).toList();
     }
 }

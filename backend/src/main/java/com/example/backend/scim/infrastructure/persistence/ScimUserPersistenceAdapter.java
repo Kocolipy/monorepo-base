@@ -237,6 +237,11 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         return users.findDormantActiveUserIds(cutoff);
     }
 
+    @Override
+    public List<UUID> findAllIds() {
+        return users.findAllIds();
+    }
+
     /** The flag alone; the resource row and its version are untouched. */
     @Override
     public void requirePasswordChange(UUID id, Instant since) {

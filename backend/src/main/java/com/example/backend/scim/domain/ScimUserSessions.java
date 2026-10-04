@@ -30,8 +30,12 @@ public interface ScimUserSessions {
         USER_NAME_CHANGED,
         /** The User was deleted. */
         DELETED,
-        /** The User's direct membership of the Admin group was removed. */
-        ADMIN_MEMBERSHIP_REMOVED
+        /**
+         * The User lost a Role: its direct membership of a mapped Group was removed, by a
+         * connector's write or a scheduled dormancy job. Gaining one revokes nothing — the new
+         * Permissions arrive at the next sign-in.
+         */
+        ROLE_REVOKED
     }
 
     /**

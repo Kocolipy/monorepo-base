@@ -9,6 +9,7 @@ import com.example.backend.audit.domain.AuditRefusalReason;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
+import com.example.backend.authorization.domain.Role;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -246,6 +247,20 @@ public final class RecordingAuditTrail implements AuditTrail {
     public void recordDormantAuthorityRevocation(UUID userId) {
         recorded.add(new Recorded(
                 AuditOperation.DORMANT_AUTHORITY_REVOCATION, null, userId, null));
+    }
+
+    /** The detail is the Group then the Role: {@code "<groupId>:Account admin"}. */
+    @Override
+    public void recordRoleGranted(UUID connectorId, UUID userId, UUID groupId, Role role) {
+        recorded.add(new Recorded(
+                AuditOperation.ROLE_GRANT, connectorId, userId, groupId + ":" + role.name()));
+    }
+
+    /** The detail is the Group then the Role, as {@link #recordRoleGranted}'s is. */
+    @Override
+    public void recordRoleRevoked(UUID connectorId, UUID userId, UUID groupId, Role role) {
+        recorded.add(new Recorded(
+                AuditOperation.ROLE_REVOKE, connectorId, userId, groupId + ":" + role.name()));
     }
 
     @Override

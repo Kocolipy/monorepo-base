@@ -110,7 +110,8 @@ exists)
 
 **Bootstrap Admin**:
 The seeded recovery User: an immutable member of the Admin group, never locked,
-and not writable over SCIM.
+and not writable over SCIM — with startup's validation of the Superuser Role,
+what guarantees the deployment always has a holder of every Permission.
 
 **Reservation marker**:
 The mark seeding writes once on the Bootstrap Admin and the Admin group, by which
@@ -146,10 +147,28 @@ _Avoid_: role (for `ROLE_USER`, baseline access, which is not a Role)
 **Role mapping**:
 The read-only deployment configuration that defines the Roles and maps each one
 to a Group by stable id; a User's Permissions are the union of the Roles of the
-mapped Groups it directly belongs to, taken at Login.
+mapped Groups it directly belongs to, taken at Login. Readable, never writable,
+at `GET /api/admin/roles` by a holder of `group:read`.
+
+**Mapped Group**:
+A Group the role mapping names, and so one that confers a Role on its direct
+members.
+
+**Role assignment**:
+Membership of a mapped Group, which is the only way a User holds a Role; so
+`group:write` on a mapped Group is Role assignment, not a harmless Permission.
+_Avoid_: role grant (for anything but the audited `ROLE_GRANT` event)
+
+**Role-change propagation**:
+How a change of Role reaches live sessions: losing a mapped Group — by SCIM
+`PATCH`, `PUT` or the Group's `DELETE` — ends the User's sessions after commit;
+gaining one applies at the next Login; and a session issued under a different
+role mapping is ended at startup.
 
 **Superuser Group**:
-The one mapped Group whose Role holds every Permission: the Admin group.
+The one mapped Group whose Role holds every Permission: the Admin group. It
+cannot be renamed or deleted and the Bootstrap Admin's membership of it is
+frozen; every other mapped Group is writable and deletable.
 _Avoid_: enabling
 
 **Baseline access**:
@@ -208,6 +227,8 @@ The rules that keep a deployment recoverable: no Admin may Unlock or
 force-change its own User, whatever Permissions it holds (the Bootstrap Admin
 included, which replaces its password by the self-service change), nobody may
 force the Bootstrap Admin's change, and the Bootstrap Admin can never be locked.
+There is no "last enabled administrator" guard: the Bootstrap Admin's frozen
+Superuser Group membership is what keeps a holder of every Permission.
 
 ### Dormancy
 
@@ -246,6 +267,11 @@ What administration may know about each User — never a credential.
 What administration may know about each Group: its name, member count, and
 whether it is the Admin group.
 
+**Roles listing**:
+The read of the role mapping (`GET /api/admin/roles`, `group:read`): each Role,
+its Permissions, and the Groups conferring it by stable id and `displayName`,
+with the Superuser Group marked. API only; the SPA has no view of it.
+
 **SCIM audit trail**:
 The append-only history of provisioning, connector, authentication,
 administrative and scheduled-job events, holding ids and classifications but no
@@ -260,3 +286,8 @@ The read of the audit trail, by a holder of `audit:read`.
 **Account**:
 The former login identity, merged into User; the word survives only in the
 `/accounts` route names.
+
+**Last enabled administrator guard**:
+The former refusal to disable the last Admin able to act; gone with the Disable
+action, and replaced by the Bootstrap Admin's frozen Superuser Group membership
+plus startup validation of the Superuser Role.

@@ -286,7 +286,7 @@ public class SecurityConfig {
                                         "/api/admin/accounts/*/unlock",
                                         "/api/admin/accounts/*/force-password-change")
                                 .hasAuthority(Permission.USER_WRITE.value())
-                        .requestMatchers(read("/api/admin/groups"))
+                        .requestMatchers(read("/api/admin/groups"), read("/api/admin/roles"))
                                 .hasAuthority(Permission.GROUP_READ.value())
                         .requestMatchers(read("/api/admin/audit-events"))
                                 .hasAuthority(Permission.AUDIT_READ.value())

@@ -39,6 +39,8 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     private final java.util.Set<UUID> vanishBeforeAdvance = new java.util.HashSet<>();
 
+    private final java.util.Set<UUID> vanishBeforeReplace = new java.util.HashSet<>();
+
     private final InMemoryScimUserRepository users;
 
     private List<UUID> staleDormantMemberCandidates;
@@ -101,6 +103,9 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
 
     @Override
     public Optional<ScimGroup> replace(ScimGroup group) {
+        if (vanishBeforeReplace.remove(group.id())) {
+            stored.remove(group.id());
+        }
         ScimGroup current = stored.get(group.id());
         if (current == null) {
             return Optional.empty();
@@ -188,6 +193,14 @@ public final class InMemoryScimGroupRepository implements ScimGroupRepository {
      */
     public void vanishBeforeNextAdvance(UUID id) {
         vanishBeforeAdvance.add(id);
+    }
+
+    /**
+     * Removes the Group as the next {@code replace} of it runs, which then reports absence — the
+     * window in which a concurrent delete lands between a write's locked read and its replacement.
+     */
+    public void vanishBeforeNextReplace(UUID id) {
+        vanishBeforeReplace.add(id);
     }
 
     public void vanishBeforeNextDelete(UUID id) {

@@ -567,6 +567,9 @@ This table supersedes the per-addendum tables above for `event.action` and
 | `ACCESS_DENIED`                | `access-control`              | `access.denied`                         |
 | `UNAUTHENTICATED`              | `access-control`              | `access.unauthenticated`                |
 | `LOGOUT`                       | `user-logout`                 | —                                       |
+| `ROLE_GRANT`                   | `user-administration`         | `identity.role_grant`                   |
+| `ROLE_REVOKE`                  | `user-administration`         | `identity.role_revoke`                  |
+| `ROLE_MAPPING_STARTUP`         | `application-startup`         | `authorization.role_mapping`            |
 | `SESSION_START`                | `session-start`               | —                                       |
 | `SESSION_END`                  | `session-end`                 | —                                       |
 | `AUDIT_RETENTION`              | — (exception, above)          | `audit.retention`                       |
@@ -611,3 +614,27 @@ infrastructure is unchanged, as recorded under the #69 addendum above.
 | Operation                 | `event.action`  | `app.event.action` | `event.category` | `event.type` |
 | ------------------------- | --------------- | ------------------ | ---------------- | ------------ |
 | session started (login)   | `session-start` | —                  | `process`        | `start`      |
+
+## Addendum (2026-10-03): Role changes and the role mapping at startup (#116)
+
+Three operations, each with the action the permission-authorization spec's
+Observability table gives it:
+
+| Operation                                  | `event.action`        | `app.event.action`           | `event.category` | `event.type` | Level  |
+| ------------------------------------------ | --------------------- | ---------------------------- | ---------------- | ------------ | ------ |
+| Role gained through a mapped Group         | `user-administration` | `identity.role_grant`        | `process`        | `change`     | `INFO` |
+| Role lost through a mapped Group           | `user-administration` | `identity.role_revoke`       | `process`        | `change`     | `INFO` |
+| Role mapping validated, with its hash      | `application-startup` | `authorization.role_mapping` | `configuration`  | `info`       | `INFO` |
+| Sessions ended for a mapping-hash mismatch | `application-startup` | `authorization.role_mapping` | `configuration`  | `change`     | `INFO` |
+
+A Role change names the User as `user.target.id`, the Group as `group.id` (its
+stable id, never its `displayName`) and the Role as `app.authorization.role`; the
+startup records carry the mapping's SHA-256 as `app.authorization.mapping_hash`, and
+the second one `session.ended_count`. Naming the Role is allowed here and only here:
+an authorization refusal still names no Permission, Role or rule.
+
+`ROLE_MAPPING_STARTUP` shares `application-startup` with `APPLICATION_STARTUP`, so it
+carries a local name; the lifecycle record is the one `application-startup` record
+with no `app.event.action`. `LogEventTests.everyOperationIsIdentifiableFromItsRecord`
+was restated to say exactly that: an operation without a local name has an action no
+other operation without a local name shares.

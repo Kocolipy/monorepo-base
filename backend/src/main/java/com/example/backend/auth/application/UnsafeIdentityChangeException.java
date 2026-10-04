@@ -7,9 +7,13 @@ package com.example.backend.auth.application;
  * what is refused. That is why the web adapter renders it as a {@code 409} — neither {@code 403}
  * (the role is fine) nor {@code 400} (the request is well formed) describes it.
  *
- * <p>Each of the refusals it represents would leave the deployment with nobody able to reverse
- * the change: an identity disabling itself, the Bootstrap Admin being disabled, or the last
- * administrator still able to act being disabled.
+ * <p>The one refusal it represents today is a forced password change on a User with no password,
+ * which has no credential to replace. It once also covered refusals that would have left the
+ * deployment with nobody able to reverse a change — an identity disabling itself, or the last
+ * enabled administrator being disabled — and those are gone: there is no Disable action, and the
+ * deployment's recovery is guaranteed structurally instead, by the Bootstrap Admin's frozen
+ * membership of the Superuser Group together with the startup validation that the Superuser
+ * Group's Role holds every Permission.
  */
 public class UnsafeIdentityChangeException extends RuntimeException {
 

@@ -53,8 +53,9 @@ There is no role column and no administrative role. Every active User holds
 baseline access (`ROLE_USER`), which is self-service only; everything else is
 granted by **Permission**. A session holds the Permissions the role mapping
 confers through the User's direct Group memberships, resolved when the session is
-created — so a User added to or removed from a mapped Group gains or loses them at
-their next login, never mid-session — and reported, sorted by name, as
+created — so a User added to a mapped Group gains them at its next login, while a
+User removed from one loses them at once, because the removal ends its sessions —
+and reported, sorted by name, as
 `permissions` on `GET /api/auth/me`. With the
 development fixtures enabled there is a User per development Role to sign in
 as, all with `APP_DEV_FIXTURES_PASSWORD`: `account-admin`, `auditor`,
@@ -178,7 +179,9 @@ The Permission names are a closed set defined in code: `user:read`,
 `counter:read` and `counter:write` are also **baseline Permissions**: every
 active User holds them at sign-in whatever its Groups, so no Role needs to list
 them for its members to use the counter. A session confined by a required
-password change does not hold them. an unknown Permission; a Role defined
+password change does not hold them.
+
+Startup fails, naming every problem in one message, on: an unknown Permission; a Role defined
 twice or without a name; an entry with no Group id, mapping a Group id twice, or
 naming an undefined Role; anything but exactly one `superuser: true` entry; a
 Superuser Role missing any Permission; and a mapped Group id that does not
@@ -215,7 +218,27 @@ it. Fixtures never overwrite a User or Group that already exists.
 | Monitoring      | `ops:read`                                                                                          | `Monitoring`       | `monitoring`      |
 
 A session records the hash of the mapping its Permissions were resolved under,
-so a later mapping change can be recognised against it.
+and startup ends every authenticated session issued under a different hash, so a
+redeploy that changes the mapping reaches live sessions whether or not Redis kept
+them. A restart that keeps the mapping keeps its hash and ends nothing.
+
+**Reading the mapping.** `GET /api/admin/roles`, for a holder of `group:read`,
+returns every Role with its Permissions and the Groups that confer it, each by
+stable id and current `displayName`, with the Superuser Group marked — so an
+operator can see what each Group grants without reading this configuration. It is
+the only Role endpoint: none creates, changes or deletes a Role or a mapping
+entry.
+
+**Assigning a Role is Group membership.** A Role is held by being a direct member
+of a mapped Group, which a connector writes over SCIM — so `group:write` on a
+mapped Group is Role assignment, the Superuser Role's included, and a connector
+token carrying it decides who holds those Roles. Every such membership change is
+audited as `ROLE_GRANT` / `ROLE_REVOKE` with the Role's name. Removing a User from
+a mapped Group (`PATCH`, `PUT`, or deleting the Group) ends its sessions once the
+write commits; adding one applies at its next login. The Superuser Group cannot be
+renamed or deleted and the Bootstrap Admin's membership of it is frozen; every
+other mapped Group is writable and deletable, and a deleted one confers nothing
+until the mapping is replaced.
 
 ### Logging
 

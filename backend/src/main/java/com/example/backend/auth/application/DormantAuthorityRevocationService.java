@@ -109,7 +109,7 @@ public class DormantAuthorityRevocationService {
                 }
                 audit.recordDormantAuthorityRevocation(candidate);
                 sessions.revokeAfterCommit(
-                        null, candidate, EnumSet.of(ScimUserSessions.Cause.ADMIN_MEMBERSHIP_REMOVED));
+                        null, candidate, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED));
                 revoked.add(candidate);
             }
         }

@@ -96,6 +96,36 @@ class RoleMappingTests {
         assertThat(mapping.mappedGroupIds()).containsExactly(ADMINS, HELPDESK, AUDITORS);
     }
 
+    /** What the roles endpoint reads: the Role each mapped Group confers, and none for others. */
+    @Test
+    void eachMappedGroupConfersItsRoleAndAnUnmappedGroupNone() {
+        assertThat(mapping.roleOf(HELPDESK)).hasValueSatisfying(role -> {
+            assertThat(role.name()).isEqualTo("Helpdesk");
+            assertThat(role.permissions())
+                    .containsExactly(Permission.USER_READ, Permission.USER_WRITE);
+        });
+        assertThat(mapping.roleOf(ADMINS)).map(Role::name).contains("Superuser");
+        assertThat(mapping.roleOf(UUID.randomUUID())).isEmpty();
+    }
+
+    /** Every defined Role in configuration order — a Role no Group confers included. */
+    @Test
+    void reportsEveryRoleAndEveryAssignmentInConfigurationOrder() {
+        RoleMapping withUnassigned = RoleMapping.of(
+                List.of(HELPDESK_ROLE, SUPERUSER, new RoleDefinition("Unassigned", List.of())),
+                List.of(new GroupAssignment(HELPDESK, "Helpdesk", false),
+                        new GroupAssignment(ADMINS, "Superuser", true)));
+
+        assertThat(withUnassigned.roles()).extracting(Role::name)
+                .containsExactly("Helpdesk", "Superuser", "Unassigned");
+        assertThat(withUnassigned.assignments().keySet()).containsExactly(HELPDESK, ADMINS);
+        assertThat(withUnassigned.assignments().get(ADMINS).name()).isEqualTo("Superuser");
+        assertThatThrownBy(() -> withUnassigned.assignments().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> withUnassigned.roles().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
     @Test
     void aRoleMayHoldNoPermission() {
         RoleMapping withEmpty = RoleMapping.of(

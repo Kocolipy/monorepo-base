@@ -217,5 +217,21 @@ public enum AuditOperation {
      * rule that refused — each operation requires exactly one Permission, which its declaration
      * in the API document names.
      */
-    ACCESS_DENIED
+    ACCESS_DENIED,
+
+    /**
+     * A connector's write added a User to a mapped Group, so the User gained that Group's Role.
+     * Recorded against the USER, with the connector as the actor, the Group as the resource and
+     * the Role's name — a membership change of a mapped Group is a change of power, and the
+     * event says which power. The User's live sessions are untouched: it holds the Role from its
+     * next sign-in.
+     */
+    ROLE_GRANT,
+
+    /**
+     * A User lost a mapped Group's Role: a connector's write removed it from the Group, by PATCH,
+     * PUT or the Group's DELETE. Recorded like {@link #ROLE_GRANT}; the User's sessions are then
+     * revoked after the commit, recorded as {@link #USER_SESSIONS_REVOKE}.
+     */
+    ROLE_REVOKE
 }
