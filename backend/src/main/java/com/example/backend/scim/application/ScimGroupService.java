@@ -3,7 +3,6 @@ package com.example.backend.scim.application;
 import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
-import com.example.backend.authorization.domain.Role;
 import com.example.backend.authorization.domain.RoleMapping;
 import com.example.backend.observability.LogEvent;
 import com.example.backend.observability.LogEvent.Category;
@@ -34,7 +33,6 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -100,6 +98,9 @@ import org.springframework.transaction.annotation.Transactional;
  * refused, stale or rolled-back write revokes nothing; neither does a removal from a Group the
  * mapping does not name, which confers nothing, nor an ADDITION to a mapped Group, whose Role
  * the User holds from its next sign-in.
+ *
+ * <p>Which Users gain or lose a Role, and whose Sessions end, is decided by
+ * {@link ScimWriteEffects} from the membership before and after; this class carries it out.
  */
 @Service
 public class ScimGroupService {
@@ -345,7 +346,8 @@ public class ScimGroupService {
         }
         audit.recordScimGroupDeleted(connector.connectorId(), id);
         if (deleted) {
-            recordRoleChanges(connector.connectorId(), id, memberIdSet(group), Set.of());
+            carryOut(connector.connectorId(), ScimWriteEffects.ofGroupDeletion(
+                    id, memberIdSet(group), roleMapping.roleOf(id)));
         }
         return deleted;
     }
@@ -411,10 +413,15 @@ public class ScimGroupService {
             // have seen a moment earlier, which is the truthful answer either way.
             return Optional.empty();
         }
-        Set<AuditGroupAttribute> changed = changedAttributes(current, written);
-        if (!Objects.equals(currentAlias, edit.externalId())) {
+        ScimWriteEffects<AuditGroupAttribute> effects = ScimWriteEffects.ofGroupWrite(id,
+                new ScimWriteEffects.GroupState(
+                        current.displayName(), memberIdSet(current), currentAlias),
+                new ScimWriteEffects.GroupState(
+                        written.displayName(), memberIdSet(written), edit.externalId()),
+                roleMapping.roleOf(id));
+        if (effects.audited().contains(AuditGroupAttribute.EXTERNAL_ID)) {
             writeAlias(connectorId, id, edit.externalId());
-            if (changed.isEmpty()) {
+            if (effects.audited().equals(EnumSet.of(AuditGroupAttribute.EXTERNAL_ID))) {
                 // The alias is not a Group column, so the replacement above saw no change and
                 // advanced nothing; the representation this connector reads did change, so its
                 // version and lastModified must. A write that also moved a column already did.
@@ -423,43 +430,35 @@ public class ScimGroupService {
                     return Optional.empty();
                 }
             }
-            changed.add(AuditGroupAttribute.EXTERNAL_ID);
         }
-        audit.recordScimGroupReplaced(connectorId, id, changed);
-        recordRoleChanges(connectorId, id, memberIdSet(current), memberIdSet(written));
+        audit.recordScimGroupReplaced(connectorId, id, effects.audited());
+        carryOut(connectorId, effects);
         return Optional.of(projection(connector, written));
     }
 
     /**
-     * Records the change of power a membership change of a mapped Group is, and ends the sessions
-     * of every User it removed once the write commits.
-     *
-     * <p>Decided from the stored membership before and after rather than from the request, so PUT,
-     * every PATCH shape and DELETE are one rule, a User the write removed and added back keeps its
-     * sessions and its Role, and a {@code remove} naming a User who was not a member changes
-     * nothing. A Group the mapping does not name confers no Role, so its membership changes are
-     * none of this. An addition revokes nothing: the User holds the Role from its next sign-in.
+     * Carries out the Role changes and Session revocations a write's effects name: each change of
+     * power is audited (fail-open, ADR 0004) and logged, and each revocation is requested of the
+     * port, which ends the Sessions only once the write commits (ADR 0002). Which Users these are
+     * is {@link ScimWriteEffects}'s decision; this method decides nothing.
      */
-    private void recordRoleChanges(
-            UUID connectorId, UUID groupId, Set<UUID> before, Set<UUID> after) {
-        Optional<Role> mapped = roleMapping.roleOf(groupId);
-        if (mapped.isEmpty()) {
-            return;
-        }
-        Role role = mapped.get();
-        for (UUID userId : before) {
-            if (!after.contains(userId)) {
-                audit.recordRoleRevoked(connectorId, userId, groupId, role);
-                logRoleChange(Operation.ROLE_REVOKE, userId, groupId, role);
-                sessions.revokeAfterCommit(
-                        connectorId, userId, EnumSet.of(ScimUserSessions.Cause.ROLE_REVOKED));
+    private void carryOut(UUID connectorId, ScimWriteEffects<AuditGroupAttribute> effects) {
+        for (ScimWriteEffects.RoleChange change : effects.roleChanges()) {
+            switch (change.kind()) {
+                case GRANTED -> {
+                    audit.recordRoleGranted(
+                            connectorId, change.userId(), change.groupId(), change.role());
+                    logRoleChange(Operation.ROLE_GRANT, change);
+                }
+                case REVOKED -> {
+                    audit.recordRoleRevoked(
+                            connectorId, change.userId(), change.groupId(), change.role());
+                    logRoleChange(Operation.ROLE_REVOKE, change);
+                }
             }
         }
-        for (UUID userId : after) {
-            if (!before.contains(userId)) {
-                audit.recordRoleGranted(connectorId, userId, groupId, role);
-                logRoleChange(Operation.ROLE_GRANT, userId, groupId, role);
-            }
+        for (ScimWriteEffects.SessionRevocation revocation : effects.revocations()) {
+            sessions.revokeAfterCommit(connectorId, revocation.userId(), revocation.causes());
         }
     }
 
@@ -468,12 +467,12 @@ public class ScimGroupService {
      * {@code user-administration} / {@code change} / {@code success}, naming the User, the Group
      * by id and the Role — never a {@code userName} or the Group's {@code displayName}.
      */
-    private static void logRoleChange(Operation operation, UUID userId, UUID groupId, Role role) {
+    private static void logRoleChange(Operation operation, ScimWriteEffects.RoleChange change) {
         LogEvent.classify(log.atInfo(), operation, Category.PROCESS, Type.CHANGE)
                 .addKeyValue(LogEvent.OUTCOME, LogEvent.SUCCESS)
-                .addKeyValue(LogEvent.USER_TARGET_ID, userId.toString())
-                .addKeyValue(LogEvent.GROUP_ID, groupId.toString())
-                .addKeyValue(LogEvent.ROLE_NAME, role.name())
+                .addKeyValue(LogEvent.USER_TARGET_ID, change.userId().toString())
+                .addKeyValue(LogEvent.GROUP_ID, change.groupId().toString())
+                .addKeyValue(LogEvent.ROLE_NAME, change.role().name())
                 .log(operation == Operation.ROLE_GRANT
                         ? "Role granted by a mapped Group's membership"
                         : "Role revoked by a mapped Group's membership");
@@ -544,24 +543,6 @@ public class ScimGroupService {
         audit.recordScimGroupWriteRejected(
                 connector.connectorId(), groupId, AuditScimRefusal.MUTABILITY);
         return new ProtectedResourceException(reservedName);
-    }
-
-    /**
-     * Which attributes the write actually moved, for the event's changed paths.
-     *
-     * <p>Compared rather than inferred from the verb: a PUT that resends the stored state moved
-     * nothing, and recording it as a change to both attributes would make the trail unusable
-     * for finding the writes that mattered.
-     */
-    private static Set<AuditGroupAttribute> changedAttributes(ScimGroup before, ScimGroup after) {
-        Set<AuditGroupAttribute> changed = EnumSet.noneOf(AuditGroupAttribute.class);
-        if (!before.displayName().equals(after.displayName())) {
-            changed.add(AuditGroupAttribute.DISPLAY_NAME);
-        }
-        if (!memberIdSet(before).equals(memberIdSet(after))) {
-            changed.add(AuditGroupAttribute.MEMBERS);
-        }
-        return changed;
     }
 
     private static Set<UUID> memberIdSet(ScimGroup group) {

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.backend.TokenPermissions;
 import com.example.backend.audit.RecordingAuditTrail;
-import com.example.backend.audit.domain.AuditGroupAttribute;
 import com.example.backend.audit.domain.AuditOperation;
 import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.auth.MutableClock;
@@ -361,26 +360,6 @@ class ScimGroupServiceTests {
     }
 
     @Test
-    void a_write_that_moves_both_attributes_records_both() {
-        ScimGroupResource created = service.create(
-                CONNECTOR, new NewScimGroup("Engineering", List.of(), null));
-        audit.reset();
-
-        service.replace(
-                CONNECTOR, created.id(), current(created.id()), new ScimGroupReplacement("Platform", List.of(alice.id()), null));
-
-        // Split on the separator rather than compared to a joined literal: the previous assertion
-        // pinned EnumSet iteration order and the joining format, so it would have failed on a
-        // change to either while saying nothing more about the behaviour. What matters is that
-        // BOTH attributes were recorded, in any order.
-        assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
-                .satisfies(event -> assertThat(event.detail().split(","))
-                        .containsExactlyInAnyOrder(
-                                AuditGroupAttribute.DISPLAY_NAME.name(),
-                                AuditGroupAttribute.MEMBERS.name()));
-    }
-
-    @Test
     void a_patch_adds_a_member_without_restating_the_membership() {
         ScimGroupResource created = service.create(
                 CONNECTOR, new NewScimGroup("Engineering", List.of(alice.id()), null));
@@ -576,6 +555,7 @@ class ScimGroupServiceTests {
     @Test
     void a_put_restating_the_alias_advances_no_version() {
         ScimGroupResource created = aliased();
+        int aliasWritesBefore = aliases.writes();
 
         ScimGroupResource replaced = service.replace(CONNECTOR, created.id(),
                 current(created.id()),
@@ -584,6 +564,8 @@ class ScimGroupServiceTests {
 
         assertThat(replaced.externalId()).isEqualTo("eng-1");
         assertThat(replaced.version()).isEqualTo(created.version());
+        // An unchanged alias is not written again: the write effects name no EXTERNAL_ID.
+        assertThat(aliases.writes()).isEqualTo(aliasWritesBefore);
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
                 .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("");
     }
@@ -634,11 +616,13 @@ class ScimGroupServiceTests {
     @Test
     void a_patch_not_naming_the_alias_keeps_it() {
         ScimGroupResource created = aliased();
+        int aliasWritesBefore = aliases.writes();
 
         ScimGroupResource renamed = service.patch(CONNECTOR, created.id(), current(created.id()),
                 List.of(new ScimGroupPatchOperation.SetDisplayName("Platform"))).orElseThrow();
 
         assertThat(renamed.externalId()).isEqualTo("eng-1");
+        assertThat(aliases.writes()).isEqualTo(aliasWritesBefore);
         assertThat(aliases.find(CONNECTOR.connectorId(), created.id())).contains("eng-1");
         assertThat(audit.of(AuditOperation.SCIM_GROUP_REPLACE)).singleElement()
                 .extracting(RecordingAuditTrail.Recorded::detail).isEqualTo("DISPLAY_NAME");
@@ -677,13 +661,7 @@ class ScimGroupServiceTests {
         assertThat(aliases.find(CONNECTOR.connectorId(), adminGroup.id())).contains("admins-1");
     }
 
-    // ---- removing Admin membership ends the removed Users' sessions --------------------------
-
-    /** The revocation a removal from the Admin group asks for, on behalf of this connector. */
-    private Revocation adminRemoval(ScimUser user) {
-        return new Revocation(CONNECTOR.connectorId(), user.id(),
-                Set.of(ScimUserSessions.Cause.ROLE_REVOKED));
-    }
+    // ---- removing Admin membership: the use case's refusals come before any revocation -------
 
     /** The Admin group with alice and bob added as ordinary members beside the Bootstrap Admin. */
     private ScimGroup adminGroupWithAliceAndBob() {
@@ -692,66 +670,6 @@ class ScimGroupServiceTests {
                 List.of(new ScimGroupPatchOperation.AddMembers(List.of(alice.id(), bob.id()))));
         assertThat(revocations).as("adding authority revokes nothing").isEmpty();
         return groups.findById(adminGroup.id()).orElseThrow();
-    }
-
-    @Test
-    void a_patch_removing_an_admin_member_revokes_only_that_users_sessions() {
-        ScimGroup adminGroup = adminGroupWithAliceAndBob();
-
-        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
-                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
-
-        assertThat(revocations).containsExactly(adminRemoval(alice));
-    }
-
-    @Test
-    void a_patch_replacing_the_admin_members_revokes_every_user_it_dropped() {
-        ScimGroup adminGroup = adminGroupWithAliceAndBob();
-
-        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
-                List.of(new ScimGroupPatchOperation.ReplaceMembers(
-                        List.of(bootstrapAdmin().id(), bob.id()))));
-
-        assertThat(revocations).containsExactly(adminRemoval(alice));
-    }
-
-    @Test
-    void a_put_whose_member_list_leaves_users_out_of_the_admin_group_revokes_them() {
-        ScimGroup adminGroup = adminGroupWithAliceAndBob();
-
-        service.replace(CONNECTOR, adminGroup.id(), current(adminGroup.id()),
-                new ScimGroupReplacement("Admins", List.of(bootstrapAdmin().id()), null));
-
-        assertThat(revocations).containsExactlyInAnyOrder(adminRemoval(alice), adminRemoval(bob));
-    }
-
-    /**
-     * Decided from the stored membership, not the operations: a User removed and added back in one
-     * PATCH still holds the authority, and a removal naming a non-member removed nobody.
-     */
-    @Test
-    void a_patch_that_leaves_the_admin_membership_as_it_was_revokes_nothing() {
-        ScimGroup adminGroup = adminGroupWithAliceAndBob();
-        ScimUser carol = users.create(ScimIdentities.user("carol"));
-
-        service.patch(CONNECTOR, adminGroup.id(), current(adminGroup.id()), List.of(
-                new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id(), carol.id())),
-                new ScimGroupPatchOperation.AddMembers(List.of(alice.id()))));
-
-        assertThat(revocations).isEmpty();
-    }
-
-    @Test
-    void removal_from_an_ordinary_group_revokes_nothing() {
-        ScimGroupResource ordinary = service.create(CONNECTOR,
-                new NewScimGroup("Engineering", List.of(alice.id(), bob.id()), null));
-
-        service.patch(CONNECTOR, ordinary.id(), current(ordinary.id()),
-                List.of(new ScimGroupPatchOperation.RemoveMembers(List.of(alice.id()))));
-        service.replace(CONNECTOR, ordinary.id(), current(ordinary.id()),
-                new ScimGroupReplacement("Engineering", List.of(), null));
-
-        assertThat(revocations).isEmpty();
     }
 
     /** A stale or refused write is raised before anything is written, so it revokes nothing. */
@@ -799,6 +717,11 @@ class ScimGroupServiceTests {
                 operation, CONNECTOR.connectorId(), user.id(), groupId + ":" + role);
     }
 
+    /**
+     * The use case hands the module the stored and the written membership, and the Role the
+     * mapping names for this Group, and carries out what comes back. The rules themselves —
+     * unmapped Groups, unchanged memberships, order — are pinned in {@code ScimWriteEffectsTests}.
+     */
     @Test
     void a_patch_removing_a_member_of_a_mapped_group_revokes_its_sessions_and_its_role() {
         helpdeskWith(alice, bob);
@@ -893,21 +816,6 @@ class ScimGroupServiceTests {
                 .isFalse();
 
         assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
-    }
-
-    /** An unmapped Group confers nothing, so neither its deletion nor its edits are power. */
-    @Test
-    void an_unmapped_groups_membership_changes_and_deletion_record_no_role_change() {
-        ScimGroupResource ordinary = service.create(CONNECTOR,
-                new NewScimGroup("Engineering", List.of(alice.id()), null));
-
-        service.patch(CONNECTOR, ordinary.id(), current(ordinary.id()),
-                List.of(new ScimGroupPatchOperation.AddMembers(List.of(bob.id()))));
-        service.delete(CONNECTOR, ordinary.id(), current(ordinary.id()));
-
-        assertThat(revocations).isEmpty();
-        assertThat(audit.of(AuditOperation.ROLE_GRANT)).isEmpty();
         assertThat(audit.of(AuditOperation.ROLE_REVOKE)).isEmpty();
     }
 
