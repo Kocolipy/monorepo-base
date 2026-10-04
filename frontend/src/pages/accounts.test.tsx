@@ -620,6 +620,7 @@ describe("Accounts", () => {
       "Unable to load the users. Please try again.",
     );
     expect(screen.queryByText("No users are provisioned.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading users…")).not.toBeInTheDocument();
   });
 
   it("reports a failed Groups read", async () => {
@@ -630,6 +631,7 @@ describe("Accounts", () => {
       "Unable to load the groups. Please try again.",
     );
     expect(screen.queryByText("No groups are provisioned.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading groups…")).not.toBeInTheDocument();
   });
 
   // Through the real transport and decoders, against a backend whose Users body

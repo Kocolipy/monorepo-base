@@ -31,10 +31,11 @@ const auth: AuthContextState = {
   signOutForInactivity: vi.fn(),
   signedOutForInactivity: false,
   status: "authenticated",
+  // connector:read is the precondition: the Accounts page renders this panel only with it.
   user: {
     idleTimeoutSeconds: 900,
     passwordChangeRequired: false,
-    permissions: [],
+    permissions: ["connector:read"],
     username: "ada",
   },
 };
@@ -153,6 +154,18 @@ describe("Connectors by Permission", () => {
     expect(await screen.findByRole("heading", { name: "Okta" })).toBeInTheDocument();
     expect(section("Okta").getByRole("rowheader", { name: "a1b2c3d4" })).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("requests no listing without connector:read", async () => {
+    oneActiveToken();
+    render(
+      <AuthContext.Provider value={{ ...auth, user: { ...auth.user!, permissions: [] } }}>
+        <Connectors canIssueTokens={false} canManageConnectors={false} grantablePermissions={[]} />
+      </AuthContext.Provider>,
+    );
+
+    await act(async () => {});
+    expect(apiFetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -578,5 +591,52 @@ describe("Connectors", () => {
     );
     expect(screen.queryByText("No connectors exist.")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading connectors…")).not.toBeInTheDocument();
+  });
+
+  it("keeps the connectors on screen when the re-read after a change fails, and says so", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 500 }],
+      listings: [
+        { kind: "ok", data: [connector()] },
+        { kind: "failed", status: 503 },
+      ],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
+
+    // The re-read is the latest thing to go wrong, so its copy replaces the delete's.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Unable to load the connectors\. Please try again\.$/,
+    );
+    expect(screen.getByRole("heading", { name: "Okta" })).toBeInTheDocument();
+    expect(screen.queryByText("No connectors exist.")).not.toBeInTheDocument();
+  });
+
+  it("withdraws a listing failure once a change starts, and shows the change's own", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 500 }],
+      listings: [
+        { kind: "ok", data: [connector()] },
+        { kind: "failed", status: 503 },
+        { kind: "ok", data: [connector()] },
+      ],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.click(await screen.findByRole("button", { name: "Delete Okta" }));
+    // Delete fails (500) and the re-read fails too, so the alert shows the listing copy.
+    await screen.findByText(/^Unable to load the connectors/);
+    routeApi({
+      actions: [{ kind: "failed", status: 500 }],
+      listings: [{ kind: "ok", data: [connector()] }],
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Okta" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /^Deleting Okta failed\. Please try again\.$/,
+    );
   });
 });

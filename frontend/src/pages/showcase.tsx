@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { ADMINISTRATION_PERMISSIONS, holds, holdsAny } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
+import { useGatedRead } from "@/auth/use-gated-read";
 import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,16 +26,21 @@ const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
 
 /**
  * The counter's state and the two changes to it. The current count is read
- * once, on mount, and only when `canRead` — without `counter:read` the read
- * would only be refused, so it is never asked for.
+ * once, on mount, and only with `counter:read` — without it the read would
+ * only be refused, so it is never asked for. A change's own refusal supersedes
+ * the read's on the error line.
  */
-function useCounter(canRead: boolean) {
-  const [count, setCount] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [isUpdating, setIsUpdating] = useState(canRead);
+function useCounter() {
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [isChanging, setIsChanging] = useState(false);
   const request = useSessionRequest();
+  const reading = useGatedRead({
+    decode: decodeCount,
+    failureMessage: "Unable to load the counter. Please try again.",
+    path: "/api/count",
+    permission: "counter:read",
+  });
 
-  const getCount = useCallback(() => request("/api/count", {}, decodeCount), [request]);
   const incrementCount = useCallback(
     () => request("/api/count/increment", { method: "POST" }, decodeCount),
     [request],
@@ -44,38 +50,27 @@ function useCounter(canRead: boolean) {
     [request],
   );
 
-  const applyResult = useCallback((result: SessionResult<number>, failureMessage: string) => {
-    if (result.kind === "ok") {
-      setCount(result.data);
-      return;
-    }
-    setError(refusalMessage(result, failureMessage));
-  }, []);
-
-  useEffect(() => {
-    if (!canRead) return;
-    void getCount()
-      .then((result) => applyResult(result, "Unable to load the counter. Please try again."))
-      .finally(() => {
-        setIsUpdating(false);
-      });
-  }, [applyResult, canRead, getCount]);
-
   const updateCount = async (change: () => Promise<SessionResult<number>>) => {
-    setError(null);
-    setIsUpdating(true);
+    setChangeError(null);
+    reading.clearError();
+    setIsChanging(true);
     try {
-      applyResult(await change(), "Unable to update the counter. Please try again.");
+      const result = await change();
+      if (result.kind === "ok") {
+        reading.update(() => result.data);
+      } else {
+        setChangeError(refusalMessage(result, "Unable to update the counter. Please try again."));
+      }
     } finally {
-      setIsUpdating(false);
+      setIsChanging(false);
     }
   };
 
   return {
-    count,
-    error,
+    count: reading.data ?? 0,
+    error: changeError ?? reading.error,
     increment: () => void updateCount(incrementCount),
-    isUpdating,
+    isUpdating: reading.loading || isChanging,
     reset: () => void updateCount(resetCount),
   };
 }
@@ -135,7 +130,7 @@ function CounterControls({
 export function Showcase() {
   const { logout, user } = useAuth();
   const canRead = holds(user, "counter:read");
-  const { count, error, increment, isUpdating, reset } = useCounter(canRead);
+  const { count, error, increment, isUpdating, reset } = useCounter();
 
   return (
     <main className="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center gap-6 p-8">

@@ -85,6 +85,14 @@ permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 mapped in the page, because only the page knows what was being attempted.
 
+Every listing read — Users, Groups, connectors and the Showcase counter — goes
+one level higher, through `auth/use-gated-read.ts`. A page names the path, the
+decoder, the Permission the read requires and its failure copy; the hook sends
+nothing without the Permission, and otherwise returns the data or the refusal
+and its message, resetting when the Permission or the path changes and
+dropping an answer for a key it has moved off. The page keeps only what is its
+own: the mutations, and which message its one error line shows.
+
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
 enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
 cannot opt out of the seam by calling `apiFetch` itself.

@@ -60,7 +60,10 @@ them:
   `auth-context-value.ts` is the context plus the `useAuth` hook,
   `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
   into `ProtectedRoute` / `GuestRoute`, `use-session-request.ts` is the seam
-  features request through, `idle-sign-out.tsx` is the inactivity sign-out (see
+  features request through, `use-gated-read.ts` is the Permission-gated read
+  every page listing goes through (a path, a decoder, the Permission and the
+  failure copy in; data, failed and error out, with no request sent without
+  the Permission), `idle-sign-out.tsx` is the inactivity sign-out (see
   "Backend contract"), and `password-policy.ts` mirrors the backend's password
   length bounds for the change form.
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
