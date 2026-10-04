@@ -150,6 +150,12 @@ public interface ScimUserRepository {
     Optional<ScimUser> updateActive(UUID id, boolean active, Instant now);
 
     /**
+     * Every live User's stable id, in id order — the Bootstrap Admin's included. Ids only, for a
+     * caller that has to visit every User's sessions and nothing else about it.
+     */
+    List<UUID> findAllIds();
+
+    /**
      * The ids of every active, unreserved User whose dormancy basis — {@code lastAuthenticatedAt},
      * or the creation time when it has never authenticated — lies strictly before
      * {@code cutoff}, ordered by id.

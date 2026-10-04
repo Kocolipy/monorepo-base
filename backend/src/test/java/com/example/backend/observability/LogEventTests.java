@@ -158,12 +158,14 @@ class LogEventTests {
 
     /**
      * An operation is identifiable from its record: by its local name where it has
-     * one, or else by an action no other operation shares.
+     * one, or else by an action no other operation WITHOUT a local name shares — a
+     * record carrying no {@code app.event.action} is then the one operation with that
+     * action and no local name, however many named operations share the action.
      */
     @Test
     void everyOperationIsIdentifiableFromItsRecord() {
         Map<Action, Long> sharing = Arrays.stream(Operation.values())
-                .filter(operation -> operation.action() != null)
+                .filter(operation -> operation.action() != null && operation.local() == null)
                 .collect(Collectors.groupingBy(Operation::action, Collectors.counting()));
 
         assertThat(Operation.values()).allSatisfy(operation -> {

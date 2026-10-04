@@ -15,6 +15,7 @@ import com.example.backend.audit.domain.AuditScimRefusal;
 import com.example.backend.audit.domain.AuditTrail;
 import com.example.backend.audit.domain.AuditUserAttribute;
 import com.example.backend.audit.domain.OperationalAlerts;
+import com.example.backend.authorization.domain.Role;
 import java.time.Clock;
 import java.util.List;
 import java.util.Set;
@@ -675,6 +676,49 @@ public class AuditTrailService implements AuditTrail {
                 null));
     }
 
+    /** Records a User gaining a mapped Group's Role. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordRoleGranted(UUID connectorId, UUID userId, UUID groupId, Role role) {
+        append(roleEvent(AuditOperation.ROLE_GRANT, connectorId, userId, groupId, role));
+    }
+
+    /** Records a User losing a mapped Group's Role. Fail-closed. */
+    @Transactional
+    @Override
+    public void recordRoleRevoked(UUID connectorId, UUID userId, UUID groupId, Role role) {
+        append(roleEvent(AuditOperation.ROLE_REVOKE, connectorId, userId, groupId, role));
+    }
+
+    /**
+     * A change of power through a mapped Group's membership: the subject is the User whose power
+     * changed, the resource the Group whose membership moved, and the Role is named. The one event
+     * whose subject and resource differ, because it is about both — and naming the User here is
+     * what the plain Group write event deliberately does not do.
+     */
+    private AuditEvent roleEvent(
+            AuditOperation operation, UUID connectorId, UUID userId, UUID groupId, Role role) {
+        AuditRequest request = requests.current();
+        return new AuditEvent(
+                UUID.randomUUID(),
+                clock.instant(),
+                operation,
+                AuditOutcome.SUCCESS,
+                connectorId,
+                userId,
+                AuditEvent.GROUP_RESOURCE_TYPE,
+                groupId,
+                GROUP_MEMBER_PATHS,
+                AuditEvent.STATUS_OK,
+                null,
+                request.method(),
+                request.pathTemplate(),
+                request.requestId(),
+                null,
+                null,
+                role.name());
+    }
+
     /** Records an administrator requiring a password change. Fail-closed. */
     @Transactional
     @Override
@@ -902,6 +946,7 @@ public class AuditTrailService implements AuditTrail {
                 request.pathTemplate(),
                 request.requestId(),
                 null,
+                null,
                 null);
     }
 
@@ -928,6 +973,7 @@ public class AuditTrailService implements AuditTrail {
                 operation.method(),
                 operation.pathTemplate(),
                 operation.requestId(),
+                null,
                 null,
                 null));
     }
@@ -960,6 +1006,7 @@ public class AuditTrailService implements AuditTrail {
                 request.pathTemplate(),
                 request.requestId(),
                 resultCount,
-                filter == null ? null : filter.render());
+                filter == null ? null : filter.render(),
+                null);
     }
 }

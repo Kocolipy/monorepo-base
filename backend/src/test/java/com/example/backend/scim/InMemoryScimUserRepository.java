@@ -236,6 +236,11 @@ public final class InMemoryScimUserRepository implements ScimUserRepository {
                 .toList();
     }
 
+    @Override
+    public List<UUID> findAllIds() {
+        return stored.values().stream().map(ScimUser::id).sorted().toList();
+    }
+
     /** Removes the User; the Groups it belonged to are the in-memory Group repository's concern. */
     @Override
     public void deleteById(UUID id, Instant now) {

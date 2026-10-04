@@ -46,12 +46,14 @@ import java.util.stream.Collectors;
  */
 public final class RoleMapping {
 
+    private final List<Role> roles;
     private final Map<UUID, Role> roleByGroup;
     private final UUID superuserGroupId;
     private final String hash;
 
     private RoleMapping(
             Map<String, Role> roles, Map<UUID, Role> roleByGroup, UUID superuserGroupId) {
+        this.roles = List.copyOf(roles.values());
         this.roleByGroup = Collections.unmodifiableMap(roleByGroup);
         this.superuserGroupId = superuserGroupId;
         this.hash = digest(roles, roleByGroup, superuserGroupId);
@@ -167,6 +169,24 @@ public final class RoleMapping {
             }
         }
         return Collections.unmodifiableSet(held);
+    }
+
+    /**
+     * The Role this Group confers, or empty for a Group the mapping does not name — which confers
+     * nothing, so a change of its membership is no change of anyone's Permissions.
+     */
+    public Optional<Role> roleOf(UUID groupId) {
+        return Optional.ofNullable(roleByGroup.get(groupId));
+    }
+
+    /** Every defined Role, in configuration order, a Role no Group confers included. */
+    public List<Role> roles() {
+        return roles;
+    }
+
+    /** Every mapped Group id with the Role it confers, in configuration order. */
+    public Map<UUID, Role> assignments() {
+        return roleByGroup;
     }
 
     /** The one Group whose Role holds every Permission. */

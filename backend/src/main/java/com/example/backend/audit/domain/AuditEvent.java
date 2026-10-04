@@ -48,6 +48,9 @@ import java.util.UUID;
  *                      {@code ?} for every value — or {@code null} when it had none or the
  *                      operation is not a read. Rendered from {@link AuditFilterShape}, so
  *                      no literal can be in it
+ * @param role          the Role a membership change on a mapped Group granted or revoked, by its
+ *                      name in the deployment's role mapping — configuration, never a value a
+ *                      caller submitted — or {@code null} for every other operation
  */
 public record AuditEvent(
         UUID id,
@@ -65,7 +68,8 @@ public record AuditEvent(
         String httpPath,
         String requestId,
         Integer resultCount,
-        String filterShape) {
+        String filterShape,
+        String role) {
 
     /**
      * A SCIM connector, as the audit trail names it.

@@ -78,6 +78,23 @@ public final class LogEvent {
      */
     public static final String USER_TARGET_ID = "user.target.id";
 
+    /**
+     * The stable SCIM id of the Group a record is about — the mapped Group whose membership change
+     * granted or revoked a Role. ECS {@code group.id}. Never a {@code displayName}.
+     */
+    public static final String GROUP_ID = "group.id";
+
+    /**
+     * The Role a mapped Group's membership change granted or revoked, by its name in the role
+     * mapping. The schema has no field for it, so it is namespaced under {@code app.}, as
+     * {@link #LOCAL_ACTION} is. Written only on a change of power — never on an authorization
+     * refusal, which must not name a Role.
+     */
+    public static final String ROLE_NAME = "app.authorization.role";
+
+    /** The SHA-256 of the role mapping, on the record that reports it validated at startup. */
+    public static final String ROLE_MAPPING_HASH = "app.authorization.mapping_hash";
+
     public static final String SUCCESS = "success";
 
     public static final String FAILURE = "failure";
@@ -271,6 +288,9 @@ public final class LogEvent {
         ACCESS_DENIED(Action.ACCESS_CONTROL, "access.denied"),
         UNAUTHENTICATED(Action.ACCESS_CONTROL, "access.unauthenticated"),
         LOGOUT(Action.USER_LOGOUT, null),
+        ROLE_GRANT(Action.USER_ADMINISTRATION, "identity.role_grant"),
+        ROLE_REVOKE(Action.USER_ADMINISTRATION, "identity.role_revoke"),
+        ROLE_MAPPING_STARTUP(Action.APPLICATION_STARTUP, "authorization.role_mapping"),
         SESSION_START(Action.SESSION_START, null),
         SESSION_END(Action.SESSION_END, null),
         AUDIT_RETENTION(null, "audit.retention"),

@@ -331,11 +331,12 @@ class ApiContractFixtureTests {
     // ---- /api/admin/accounts, /api/admin/groups ---------------------------------------
 
     private static void administration(List<Fixture> all) {
-        add(all, "accounts and groups listings: 200 for an Admin, 403 for a User, 401 for none",
+        add(all, "accounts, groups and roles listings: 200 for an Admin, 403 for a User, 401 for none",
                 t -> {
                     Cookie admin = t.logIn(ADMIN, ADMIN_PASSWORD);
                     Cookie user = t.settle(t.provision(true));
-                    for (String path : List.of("/api/admin/accounts", "/api/admin/groups")) {
+                    for (String path : List.of(
+                            "/api/admin/accounts", "/api/admin/groups", "/api/admin/roles")) {
                         t.expect(t.get(path).cookie(admin), 200);
                         t.expect(t.get(path).cookie(user), 403);
                         t.expect(t.get(path), 401);

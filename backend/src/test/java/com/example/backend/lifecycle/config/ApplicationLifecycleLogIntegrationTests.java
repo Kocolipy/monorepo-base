@@ -119,9 +119,15 @@ class ApplicationLifecycleLogIntegrationTests {
         assertThat(linesWithAction("application-startup")).as("still one startup").hasSize(1);
     }
 
+    /**
+     * The records of the operation whose ECS action this is and which has no local name of its
+     * own — so {@code application-startup} is the lifecycle record alone, not the role mapping's
+     * startup records, which share the action and carry {@code app.event.action}.
+     */
     private List<String> linesWithAction(String action) {
         return capture.get().lines().lines()
                 .filter(line -> action.equals(JSON.readTree(line).at("/event/action").asText()))
+                .filter(line -> JSON.readTree(line).at("/app/event/action").isMissingNode())
                 .toList();
     }
 }

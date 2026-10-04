@@ -30,13 +30,6 @@ public enum AuditAdministrativeRefusal {
     PROTECTED_RESOURCE,
 
     /**
-     * The target is the only administrator still able to act, so disabling it would leave
-     * nobody able to enable it again. No longer recorded, for the reason {@link #SELF_DISABLE}
-     * is not; kept for the refusals already stored.
-     */
-    LAST_ENABLED_ADMINISTRATOR,
-
-    /**
      * An administrator aimed an Unlock or a forced password change at their own account. Refused so
      * that recovering from a self-inflicted state takes a second administrator.
      */

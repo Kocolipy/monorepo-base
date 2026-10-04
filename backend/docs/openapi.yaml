@@ -653,6 +653,42 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/PermissionRequired"
+  /api/admin/roles:
+    get:
+      tags: [Administration]
+      summary: List the Roles and the role mapping
+      description: |
+        Every Role the deployment's role mapping defines, with the Permissions it
+        holds and the Groups that confer it — each Group by its stable id and its
+        current `displayName` — and the Superuser Group marked. Requires
+        `group:read`: the Groups projection answers who is in which Group, this
+        answers what each Group grants.
+
+        READ-ONLY in its entirety. Roles and the mapping are deployment
+        configuration, fixed for the life of the process (see the backend
+        README's "Role mapping"); no endpoint creates, changes or deletes a Role
+        or a mapping entry, so `POST`, `PUT`, `PATCH` and `DELETE` here are
+        undeclared and refused with 403 by the application chain, which denies by
+        default. A Role is ASSIGNED by Group membership, which a connector writes
+        over SCIM — so `group:write` on a mapped Group is Role assignment.
+      operationId: listRoles
+      security:
+        - sessionCookie: [group:read]
+      responses:
+        "200":
+          description: |
+            Every defined Role, ordered by name, each with its Permissions ordered
+            by name and its Groups in mapping order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoleSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/PermissionRequired"
   /api/admin/connectors:
     get:
       tags: [Connectors]
@@ -2860,6 +2896,59 @@ components:
             Whether this is the protected, server-seeded Admin group whose direct
             members hold administrative authority. Decided by the reservation
             marker, never by the name.
+    RoleSummary:
+      type: object
+      description: One Role of the role mapping, read-only.
+      required: [name, permissions, groups]
+      properties:
+        name:
+          type: string
+          description: The Role's name, unique within the mapping.
+        permissions:
+          type: array
+          description: The Permissions the Role holds, sorted by name, each once.
+          items:
+            type: string
+            enum:
+              - audit:read
+              - connector:read
+              - connector:token
+              - connector:write
+              - counter:read
+              - counter:write
+              - group:read
+              - group:write
+              - ops:read
+              - user:read
+              - user:write
+        groups:
+          type: array
+          description: |
+            The Groups the mapping assigns this Role to, in mapping order; empty for
+            a Role no Group confers. A direct member of any of them holds the Role.
+          items:
+            $ref: "#/components/schemas/MappedGroup"
+    MappedGroup:
+      type: object
+      description: A Group named by the role mapping.
+      required: [id, displayName, superuser]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The Group's stable id, as the mapping names it.
+        displayName:
+          type: [string, "null"]
+          description: |
+            The directory's current name for the Group, or `null` when no live
+            Group has that id: every mapped Group but the Superuser Group may be
+            deleted over SCIM, and a deleted one confers nothing.
+        superuser:
+          type: boolean
+          description: |
+            Whether this is the Superuser Group — the server-seeded Admin group,
+            whose Role holds every Permission, which cannot be renamed or deleted
+            and whose Bootstrap Admin membership is frozen.
     UpdateSessionRequest:
       type: object
       required: [displayName]
@@ -2952,7 +3041,10 @@ components:
         subjectId:
           type: [string, "null"]
           format: uuid
-          description: The resource acted on; equal to `resourceId`.
+          description: |
+            The resource acted on; equal to `resourceId`, except on `ROLE_GRANT`
+            and `ROLE_REVOKE`, whose subject is the User whose Role changed and
+            whose resource is the mapped Group whose membership moved.
         resourceType:
           type: string
           enum: [User, Group, ScimConnector, "User,Group"]
@@ -2994,6 +3086,12 @@ components:
           description: |
             A bulk read's filter with every literal replaced by `?`
             (`userName eq ?`); `null` when it had none or is not a bulk read.
+        role:
+          type: [string, "null"]
+          description: |
+            The Role a `ROLE_GRANT` or `ROLE_REVOKE` gained or lost, by its name in
+            the deployment's role mapping when the change happened; `null` for
+            every other operation.
     AuditOutcome:
       type: string
       enum: [SUCCESS, FAILURE]
@@ -3029,6 +3127,8 @@ components:
         - PASSWORD_CHANGE_REQUIRE
         - PASSWORD_CHANGE
         - ACCESS_DENIED
+        - ROLE_GRANT
+        - ROLE_REVOKE
       description: |
         What happened, as a closed set. `LOCKOUT_LIFT` is always an Admin's Unlock:
         a lockout has no duration, so there is no expiry lift. `ACCESS_DENIED` is an
@@ -3037,6 +3137,10 @@ components:
         template, `unmatched` for a route nothing declares) and the one generic
         `errorCode` `INSUFFICIENT_PERMISSIONS` — never the Permission, Role or rule
         that refused, which the operation's own `security` declaration names.
+        `ROLE_GRANT` and `ROLE_REVOKE` are a change of power through a mapped
+        Group's membership — a connector adding a User to the Group, or removing
+        it by `PATCH`, `PUT` or the Group's `DELETE` — with the connector as
+        actor, the User as subject, the Group as resource and the Role as `role`.
     ConnectorTokenScope:
       type: string
       enum: [READ_ONLY, READ_WRITE]

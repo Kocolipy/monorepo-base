@@ -1,5 +1,6 @@
 package com.example.backend.audit.domain;
 
+import com.example.backend.authorization.domain.Role;
 import java.util.Set;
 import java.util.UUID;
 
@@ -277,6 +278,24 @@ public interface AuditTrail {
      * Fail-closed, and actorless, for the reasons {@link #recordInactivityDeactivation} is.
      */
     void recordDormantAuthorityRevocation(UUID userId);
+
+    /**
+     * Records a User gaining a mapped Group's Role because a connector's write added it to the
+     * Group. Fail-closed: a change of power this service cannot account for does not happen.
+     *
+     * @param connectorId the connector whose write added the User
+     * @param userId      the User that gained the Role, recorded as the subject
+     * @param groupId     the mapped Group, recorded as the resource
+     * @param role        the Role, recorded by its name in the role mapping
+     */
+    void recordRoleGranted(UUID connectorId, UUID userId, UUID groupId, Role role);
+
+    /**
+     * Records a User losing a mapped Group's Role because a connector's write removed it from the
+     * Group — a PATCH, a PUT, or the Group's deletion. Fail-closed, for the reason
+     * {@link #recordRoleGranted} is.
+     */
+    void recordRoleRevoked(UUID connectorId, UUID userId, UUID groupId, Role role);
 
     /**
      * Records an administrator requiring a password change of a User — directly, or by lifting its

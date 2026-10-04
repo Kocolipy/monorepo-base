@@ -86,6 +86,10 @@ public class AuditEventEntity {
     @Column(updatable = false)
     private String filterShape;
 
+    /** The Role a mapped-Group membership change granted or revoked; null for anything else. */
+    @Column(name = "role_name", updatable = false)
+    private String roleName;
+
     protected AuditEventEntity() {
     }
 
@@ -105,7 +109,8 @@ public class AuditEventEntity {
             String httpPath,
             String requestId,
             Integer resultCount,
-            String filterShape) {
+            String filterShape,
+            String roleName) {
         this.id = id;
         this.occurredAt = occurredAt;
         this.operation = operation;
@@ -122,6 +127,7 @@ public class AuditEventEntity {
         this.requestId = requestId;
         this.resultCount = resultCount;
         this.filterShape = filterShape;
+        this.roleName = roleName;
     }
 
     /*

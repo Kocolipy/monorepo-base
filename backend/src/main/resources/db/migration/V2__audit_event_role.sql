@@ -1,0 +1,19 @@
+-- The Role a membership change on a mapped Group granted or revoked (#116).
+--
+-- A membership change of a mapped Group is a change of power, and the trail has
+-- to say which power: the Group's id alone does not, because the role mapping
+-- that turns it into a Role is deployment configuration and can be replaced by
+-- the next deploy. So the event carries the Role's NAME as the mapping stated it
+-- when the change happened.
+--
+-- A name from deployment configuration, never a value a caller submitted, so it
+-- is no more a profile value than an operation name is. NULL for every event but
+-- ROLE_GRANT and ROLE_REVOKE. TEXT, not a bounded VARCHAR: the mapping does not
+-- bound a Role's name, and a fail-closed append that a long name could refuse
+-- would roll back the membership change it records.
+--
+-- A forward migration, not an edit of V1: development databases are migrated
+-- forward, never by rewriting an applied script. The table-level grants in V1
+-- already cover a new column, and the append-only trigger refuses an UPDATE of
+-- it like any other.
+ALTER TABLE audit_events ADD COLUMN role_name TEXT;

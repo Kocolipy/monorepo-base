@@ -115,6 +115,10 @@ interface ScimUserJpaRepository extends JpaRepository<ScimUserEntity, UUID> {
              order by u.resourceId""")
     List<UUID> findDormantActiveUserIds(@Param("cutoff") Instant cutoff);
 
+    /** Every live User's stable id, in id order. */
+    @Query("select u.resourceId from ScimUserEntity u order by u.resourceId")
+    List<UUID> findAllIds();
+
     /** Sets the change-required flag alone; the resource row and its version are untouched. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""

@@ -7,6 +7,7 @@ import com.example.backend.auth.application.LoginService;
 import com.example.backend.auth.application.LoginService.LoginOutcome;
 import com.example.backend.auth.application.PasswordChangeService;
 import com.example.backend.auth.application.PasswordPolicyViolationException;
+import com.example.backend.auth.domain.RoleMappingSessions;
 import com.example.backend.authorization.domain.Permission;
 import com.example.backend.observability.LogContext;
 import com.example.backend.observability.LogEvent;
@@ -53,9 +54,10 @@ public class AuthController {
 
     /**
      * The session attribute a login records the role mapping's hash under: the mapping the
-     * session's Permissions were resolved under.
+     * session's Permissions were resolved under. Defined by the port that revokes on it, so the
+     * writer and the reader cannot disagree about the name.
      */
-    public static final String ROLE_MAPPING_HASH_ATTRIBUTE = "app.authorization.roleMappingHash";
+    public static final String ROLE_MAPPING_HASH_ATTRIBUTE = RoleMappingSessions.HASH_ATTRIBUTE;
 
     /** The response header a logout asks the browser to clear the origin's data with. */
     static final String CLEAR_SITE_DATA_HEADER = "Clear-Site-Data";
