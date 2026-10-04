@@ -350,48 +350,12 @@ class ScimUserPatchReaderTests {
                 .isEqualTo(new RemoveEmailPart(ScimEmailFilter.ALL, ScimEmailPart.PRIMARY));
     }
 
-    @Test
-    void a_filter_joins_eq_comparisons_with_and_outside_quoted_strings() {
-        assertThat(one("remove",
-                "emails[value eq \"a and b@x.example\" AND primary eq true and type eq null]",
-                null))
-                .isEqualTo(new RemoveEmails(new ScimEmailFilter(List.of(
-                        new Condition(ScimEmailPart.VALUE, "a and b@x.example"),
-                        new Condition(ScimEmailPart.PRIMARY, true),
-                        new Condition(ScimEmailPart.TYPE, null)))));
-        assertThat(one("remove", "emails[value eq \"quote\\\" and x\"]", null))
-                .isEqualTo(new RemoveEmails(new ScimEmailFilter(List.of(
-                        new Condition(ScimEmailPart.VALUE, "quote\" and x")))));
-    }
-
-    /** Refused rather than approximated: an approximation selects values nobody asked for. */
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "emails[type co \"wo\"]",
-            "emails[type ne \"work\"]",
-            "emails[type pr]",
-            "emails[type eq \"work\" or type eq \"home\"]",
-            "emails[not (type eq \"work\")]",
-            "emails[(type eq \"work\")]",
-            "emails[label eq \"x\"]",
-            "emails[primary eq \"true\"]",
-            "emails[type eq 7]",
-            "emails[type eq work]"})
-    void any_other_filter_is_invalid_filter(String path) {
-        refused("[{\"op\":\"remove\",\"path\":" + JSON.writeValueAsString(path) + "}]",
-                400, "invalidFilter");
-    }
+    // The value-filter grammar's own cases live in ScimPatchPathGrammarTests. The two below stay
+    // here as proof that each kind of grammar refusal reaches a PATCH response unchanged.
 
     @Test
     void an_unterminated_string_in_a_filter_is_invalid_path() {
         refused("[{\"op\":\"remove\",\"path\":\"emails[type eq \\\"work]\"}]", 400, "invalidPath");
-    }
-
-    /** An escape as the very last character of the filter has nothing to escape; not a 500. */
-    @Test
-    void a_trailing_escape_inside_a_string_is_an_unterminated_string_not_a_crash() {
-        refused("[{\"op\":\"remove\",\"path\":\"emails[value eq \\\"abc\\\\]\"}]",
-                400, "invalidPath");
     }
 
     /** A conjunction with nothing after it ends the text; still a refusal, not a 500. */
@@ -553,29 +517,5 @@ class ScimUserPatchReaderTests {
                 "invalidValue", "emails sub-attribute: label");
         operationRefusedWith("[{\"op\":\"replace\",\"path\":" + path
                 + ",\"value\":{\"primary\":\"yes\"}}]", "invalidValue", "emails.primary must be a boolean.");
-    }
-
-    /** Grouping is refused as grouping, whichever bracket introduces it. */
-    @ParameterizedTest
-    @ValueSource(strings = {"emails[(type eq \\\"work\\\")]", "emails[type eq \\\"work\\\")]",
-        "emails[[type eq \\\"work\\\"]]", "emails[(type eq \\\"work\\\"]",
-        "emails[type eq \\\"work\\\" and [value eq \\\"x\\\"]"})
-    void grouping_in_an_emails_filter_is_refused_as_grouping(String path) {
-        operationRefusedWith("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]",
-                "invalidFilter", "Grouping is not supported");
-    }
-
-    /**
-     * {@code and} joins two comparisons only as a word on its own, preceded and followed by
-     * whitespace; anything else is part of the compared value and so not one JSON literal.
-     */
-    @ParameterizedTest
-    @ValueSource(strings = {
-        "emails[primary eq truexand value eq \\\"x\\\"]",
-        "emails[type eq \\\"work\\\" andvalue eq \\\"x\\\"]",
-        "emails[type eq \\\"work\\\" xyz value eq \\\"x\\\"]"})
-    void and_joins_comparisons_only_as_a_separate_word(String path) {
-        operationRefusedWith("[{\"op\":\"remove\",\"path\":\"" + path + "\"}]",
-                "invalidFilter", "must be a JSON string, boolean or null");
     }
 }
