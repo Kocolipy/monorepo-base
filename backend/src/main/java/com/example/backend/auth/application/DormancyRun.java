@@ -32,13 +32,14 @@ public record DormancyRun(boolean skipped, List<UUID> locked, List<UUID> rolesRe
 
     /**
      * The counts the run's {@code job-end} record carries: Users locked and Users whose Roles
-     * were revoked. Counts only — the stable ids are the audit trail's to carry.
+     * were revoked. Counts only — the stable ids are the audit trail's to carry. The same two
+     * counts move the dormancy counters, which the job's schedule declares against these fields.
      */
     @Override
-    public Map<String, Object> counts() {
-        Map<String, Object> counts = new LinkedHashMap<>();
-        counts.put(LogEvent.DORMANCY_LOCKED_COUNT, locked.size());
-        counts.put(LogEvent.DORMANCY_ROLES_REVOKED_COUNT, rolesRevoked.size());
+    public Map<String, Long> counts() {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put(LogEvent.DORMANCY_LOCKED_COUNT, (long) locked.size());
+        counts.put(LogEvent.DORMANCY_ROLES_REVOKED_COUNT, (long) rolesRevoked.size());
         return counts;
     }
 }

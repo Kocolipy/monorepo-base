@@ -328,8 +328,8 @@ class ScheduledJobMetricsTests {
             }
 
             @Override
-            public Map<String, Object> counts() {
-                return Map.of("probe.locked_count", 3);
+            public Map<String, Long> counts() {
+                return Map.of("probe.locked_count", 3L);
             }
         };
         SkippableJobRun skippedWithCounts = new SkippableJobRun() {
@@ -339,8 +339,8 @@ class ScheduledJobMetricsTests {
             }
 
             @Override
-            public Map<String, Object> counts() {
-                return Map.of("probe.locked_count", 9);
+            public Map<String, Long> counts() {
+                return Map.of("probe.locked_count", 9L);
             }
         };
 

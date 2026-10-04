@@ -132,7 +132,7 @@ class ScheduledJobScheduleTests {
     void theDormancyConfigurationRegistersOneJobInstrumentedInSingaporeTime() {
         ScheduledTaskRegistrar registrar = new ScheduledTaskRegistrar();
         try (EcsLogCapture logs = EcsLogCapture.attach(environment)) {
-            new DormancyScheduleConfig(dormancyJob, dormancy, jobs, registry)
+            new DormancyScheduleConfig(dormancyJob, dormancy, jobs)
                     .configureTasks(registrar);
 
             List<CronTask> crons = registrar.getCronTaskList();
