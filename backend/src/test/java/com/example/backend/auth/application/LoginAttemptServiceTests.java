@@ -1,6 +1,7 @@
 package com.example.backend.auth.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.example.backend.audit.RecordingAuditTrail;
 import com.example.backend.audit.RecordingAuditTrail.Recorded;
@@ -11,7 +12,6 @@ import com.example.backend.auth.MutableClock;
 import com.example.backend.auth.PendingCommit;
 import com.example.backend.scim.InMemoryScimUserRepository;
 import com.example.backend.scim.ScimIdentities;
-import com.example.backend.scim.domain.LockCause;
 import com.example.backend.scim.domain.LockoutPolicy;
 import com.example.backend.scim.domain.NormalizedUserName;
 import com.example.backend.scim.domain.ScimLoginState;
@@ -58,17 +58,6 @@ class LoginAttemptServiceTests {
 
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(1);
         assertThat(users.require("ada").login().isLocked()).isFalse();
-    }
-
-    @Test
-    void theThirdConsecutiveRefusalLocksTheIdentity() {
-        failTimes(3);
-
-        ScimUser locked = users.require("ada");
-        assertThat(locked.login().isLocked()).isTrue();
-        assertThat(locked.login().lockedAt()).isEqualTo(NOW);
-        assertThat(locked.login().lockCause())
-                .as("a failure lockout records its cause").isEqualTo(LockCause.FAILURES);
     }
 
     @Test
@@ -279,103 +268,32 @@ class LoginAttemptServiceTests {
         assertThat(users.writes()).isEqualTo(writesBefore + 1);
     }
 
-    /**
-     * A failure run is not a SCIM attribute, so writing one must not move the resource's
-     * ETag: a mistyped password cannot invalidate every cached copy of the User.
-     */
-    @Test
-    void countingAFailureDoesNotAdvanceTheResourceVersion() {
-        long versionBefore = users.require("ada").version();
-
-        failTimes(3);
-
-        assertThat(users.require("ada").version()).isEqualTo(versionBefore);
-    }
+    // What a counted failure implies — the Lockout, its audit, the revocation, the Bootstrap
+    // Admin's exemption — is FailureCounter's and is tested in FailureCounterTests. What stays
+    // here is the login path's own: that it counts, the refusal it records, and where that
+    // refusal lands relative to the Lockout's events.
 
     /**
-     * No amount of elapsed time is a lift. The clock is moved a decade rather than a few
-     * minutes so the assertion could not pass against a merely long window.
+     * The login path counts into the shared run: its third refusal imposes the Lockout, and its
+     * own refusal is recorded after the Lockout's event, never before it.
      */
     @Test
-    void noPassageOfTimeEndsTheLockout() {
-        failTimes(3);
-
-        clock.advanceBy(A_LONG_TIME);
-        attempts.recordFailure("ada", AuditRefusalReason.ACCOUNT_LOCKED);
-
-        ScimUser stillLocked = users.require("ada");
-        assertThat(stillLocked.login().isLocked()).isTrue();
-        assertThat(stillLocked.login().lockedAt()).isEqualTo(NOW);
-        assertThat(stillLocked.login().failedLoginAttempts()).isEqualTo(3);
-    }
-
-    // The sessions the lock takes away
-
-    /**
-     * A lock that left live sessions alone would close the front door while the identity
-     * kept acting through a session it already held.
-     */
-    @Test
-    void imposingTheLockoutRevokesTheIdentitysSessionsAfterTheCommit() {
-        sessions.open(users.require("ada").id(), "session-1");
-
-        failTimes(3);
-
-        assertThat(transaction.pending()).isEqualTo(1);
-        assertThat(sessions.revocations()).isEmpty();
-
-        transaction.commit();
-
-        assertThat(sessions.revocations()).containsExactly(users.require("ada").id());
-        assertThat(sessions.sessionsOf(users.require("ada").id())).isEmpty();
-    }
-
-    /** A rolled-back transaction wrote no lock, so it must revoke nothing. */
-    @Test
-    void aRolledBackFailureRevokesNothing() {
-        sessions.open(users.require("ada").id(), "session-1");
-
-        failTimes(3);
-        transaction.rollback();
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf(users.require("ada").id()))
-                .containsExactly("session-1");
-    }
-
-    @Test
-    void aFailureBelowTheLimitRevokesNothing() {
+    void theRefusalThatImposesTheLockoutIsRecordedAfterIt() {
         failTimes(2);
-        transaction.commit();
+        audit.reset();
 
-        assertThat(sessions.revocations()).isEmpty();
+        attempts.recordFailure("ada", AuditRefusalReason.BAD_CREDENTIALS);
+
+        java.util.UUID ada = users.require("ada").id();
+        assertThat(users.require("ada").login().isLocked()).isTrue();
+        assertThat(audit.recorded()).containsExactly(
+                new Recorded(AuditOperation.LOCKOUT_SET, null, ada, null),
+                new Recorded(AuditOperation.LOGIN_FAILURE, null, ada,
+                        AuditRefusalReason.BAD_CREDENTIALS.name()));
+        assertThat(transaction.pending()).as("the Lockout's revocation").isEqualTo(1);
     }
 
-    /** Only the transition into the lock revokes; a refusal after it does not. */
-    @Test
-    void anAttemptAgainstAnAlreadyLockedIdentityRevokesNothingFurther() {
-        failTimes(3);
-        transaction.commit();
-
-        attempts.recordFailure("ada", AuditRefusalReason.ACCOUNT_LOCKED);
-        transaction.commit();
-
-        assertThat(sessions.revocations()).containsExactly(users.require("ada").id());
-    }
-
-    // The Bootstrap Admin, which is counted and audited but never locked
-
-    @Test
-    void theBootstrapAdminIsNeverLockedHoweverLongItsFailureRunGrows() {
-        givenBootstrapAdmin("recovery-admin");
-
-        failTimes(10, "recovery-admin");
-
-        ScimUser recovery = users.require("recovery-admin");
-        assertThat(recovery.login().isLocked()).isFalse();
-        assertThat(recovery.login().lockedAt()).isNull();
-        assertThat(recovery.login().failedLoginAttempts()).isEqualTo(10);
-    }
+    // The Bootstrap Admin, whose refusals are audited like anyone's
 
     @Test
     void everyBootstrapAdminFailureIsAuditedAgainstItsStableId() {
@@ -385,43 +303,8 @@ class LoginAttemptServiceTests {
 
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).hasSize(10)
                 .allSatisfy(event -> assertThat(event.subjectId()).isEqualTo(recovery.id()));
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).isEmpty();
-    }
-
-    @Test
-    void theBootstrapAdminKeepsItsSessionsThroughAFailureRun() {
-        ScimUser recovery = givenBootstrapAdmin("recovery-admin");
-        sessions.open(recovery.id(), "recovery-session");
-
-        failTimes(10, "recovery-admin");
-        transaction.commit();
-
-        assertThat(sessions.revocations()).isEmpty();
-        assertThat(sessions.sessionsOf(recovery.id())).containsExactly("recovery-session");
-    }
-
-    /**
-     * The exemption is one identity's, not every administrator's — and it is keyed on the
-     * reservation marker rather than on a configured name, which is the substantive change
-     * from the account aggregate's version of this rule.
-     *
-     * <p>Arranged so a name comparison would get it exactly backwards: the ORDINARY
-     * identity carries the name a configured-string exemption would have matched, and the
-     * reserved one carries a name nothing could have been configured with. An
-     * implementation that compared names would lock the reserved identity and spare the
-     * ordinary one.
-     */
-    @Test
-    void theExemptionFollowsTheReservationMarkerAndNotTheUserName() {
-        users.given(ScimIdentities.user("recovery-admin"));
-        givenBootstrapAdmin("someone-else");
-
-        failTimes(3, "recovery-admin");
-        failTimes(10, "someone-else");
-
-        assertThat(users.require("recovery-admin").login().isLocked()).isTrue();
-        assertThat(users.require("someone-else").login().isLocked()).isFalse();
-        assertThat(users.require("someone-else").login().failedLoginAttempts()).isEqualTo(10);
+        assertThat(users.require("recovery-admin").login().failedLoginAttempts())
+                .as("counted on this path too").isEqualTo(10);
     }
 
     // What the trail is told, which is the other half of counting an attempt
@@ -454,16 +337,19 @@ class LoginAttemptServiceTests {
                 AuditRefusalReason.UNKNOWN_ACCOUNT.name()));
     }
 
+    /** A refusal of an identity already locked is still the login path's to record. */
     @Test
-    void reachingTheLimitRecordsTheLockoutOnceBesideEachRefusal() {
+    void aRefusalOfALockedIdentityIsStillRecordedWithItsReason() {
         failTimes(3);
-        // Refused by the lockout now, which neither deepens it nor re-imposes it.
+        audit.reset();
+
         attempts.recordFailure("ada", AuditRefusalReason.ACCOUNT_LOCKED);
 
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).containsExactly(new Recorded(
-                AuditOperation.LOCKOUT_SET, null, users.require("ada").id(), null));
-        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).hasSize(4);
-        assertThat(audit.of(AuditOperation.LOCKOUT_LIFT)).isEmpty();
+        assertThat(audit.recorded()).containsExactly(new Recorded(
+                AuditOperation.LOGIN_FAILURE,
+                null,
+                users.require("ada").id(),
+                AuditRefusalReason.ACCOUNT_LOCKED.name()));
     }
 
     /**
@@ -503,65 +389,35 @@ class LoginAttemptServiceTests {
     // ---- a wrong current password on the self-service change -------------------------------
 
     /**
-     * A wrong current password counts toward the same run as a refused login, is audited as a
-     * refused change rather than a login failure, and locks — revoking every session after the
-     * commit — once the threshold is reached.
+     * A wrong current password counts toward the same run as a refused login, so it locks at the
+     * same threshold. It is audited as a refused change rather than a login failure, recorded
+     * after the Lockout's event on the attempt that imposes it.
      */
     @Test
-    void aWrongCurrentPasswordCountsTowardTheRunAndLocksAtTheThreshold() {
+    void aWrongCurrentPasswordCountsTowardTheRunAndIsRefusedAfterTheLockoutItImposes() {
         java.util.UUID ada = users.require("ada").id();
-        sessions.open(ada, "ada-session");
 
         attempts.recordPasswordChangeFailure(ada);
         attempts.recordPasswordChangeFailure(ada);
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
-        assertThat(users.require("ada").login().isLocked()).isFalse();
-        assertThat(transaction.pending()).as("no lock, so nothing to revoke").isZero();
-
-        attempts.recordPasswordChangeFailure(ada);
-
-        assertThat(users.require("ada").login().isLocked()).isTrue();
-        assertThat(users.require("ada").login().lockedAt()).isEqualTo(NOW);
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET))
-                .extracting(Recorded::subjectId)
-                .containsExactly(ada);
-        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).isEmpty();
         assertThat(audit.recorded())
-                .filteredOn(recorded -> recorded.operation() != AuditOperation.LOCKOUT_SET)
-                .hasSize(3)
-                .allSatisfy(recorded -> assertThat(recorded.subjectId()).isEqualTo(ada));
-        assertThat(sessions.sessionsOf(ada)).as("before the commit").containsExactly("ada-session");
-        transaction.commit();
-        assertThat(sessions.sessionsOf(ada)).isEmpty();
-        assertThat(sessions.revocations()).containsExactly(ada);
-    }
-
-    /** Past the threshold the lock is not re-imposed, so nothing is revoked or audited twice. */
-    @Test
-    void aWrongCurrentPasswordOnAnAlreadyLockedIdentityDoesNotReimposeTheLock() {
-        java.util.UUID ada = users.require("ada").id();
-        failTimes(3);
-        transaction.commit();
+                .extracting(Recorded::operation, Recorded::subjectId, Recorded::detail)
+                .containsOnly(tuple(
+                        AuditOperation.PASSWORD_CHANGE, ada, "BAD_CURRENT_PASSWORD"))
+                .hasSize(2);
         audit.reset();
 
         attempts.recordPasswordChangeFailure(ada);
 
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).isEmpty();
-        assertThat(transaction.pending()).isZero();
-    }
-
-    /** The Bootstrap Admin's run is counted on this path too, and never locks. */
-    @Test
-    void theBootstrapAdminsWrongCurrentPasswordsAreCountedButNeverLock() {
-        ScimUser admin = givenBootstrapAdmin("recovery");
-
-        for (int attempt = 0; attempt < 5; attempt++) {
-            attempts.recordPasswordChangeFailure(admin.id());
-        }
-
-        assertThat(users.require("recovery").login().failedLoginAttempts()).isEqualTo(5);
-        assertThat(users.require("recovery").login().isLocked()).isFalse();
-        assertThat(transaction.pending()).isZero();
+        assertThat(users.require("ada").login().isLocked()).isTrue();
+        assertThat(audit.recorded())
+                .extracting(Recorded::operation, Recorded::detail)
+                .containsExactly(
+                        tuple(AuditOperation.LOCKOUT_SET, null),
+                        tuple(
+                                AuditOperation.PASSWORD_CHANGE, "BAD_CURRENT_PASSWORD"));
+        assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).isEmpty();
+        assertThat(transaction.pending()).as("the Lockout's revocation").isEqualTo(1);
     }
 
     /** An id naming nobody is ignored: nothing counted, nothing audited. */

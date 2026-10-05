@@ -10,7 +10,6 @@ import com.example.backend.scim.domain.ScimLoginState;
 import com.example.backend.scim.domain.ScimUser;
 import com.example.backend.scim.domain.ScimUserRepository;
 import java.time.Clock;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -39,11 +38,14 @@ import org.springframework.transaction.annotation.Transactional;
  * revocation runs after the transaction commits, for the reason
  * {@link IdentityAdministrationService#deactivate} defers its own: Redis is not in the transaction,
  * and a revocation already performed cannot be undone by a rollback — see
- * {@code /docs/adr/0002-revoke-sessions-after-commit.md}.
+ * {@code /docs/adr/0002-revoke-sessions-after-commit.md}. Both failure paths carry that out through
+ * one {@link FailureCounter}, which persists the counted failure and, on a newly imposed lock,
+ * audits it and schedules the revocation; each path then records only its own refusal.
  *
  * <p>This is also where the login path's audit events are recorded, for the same reason the counting
- * is here: this class already holds the identity before and after the transition, so it can tell a
- * lockout being imposed from one already in force without a second read or a second guess.
+ * is here: this class already holds the identity the attempt was made against, so each path names
+ * its subject without a second read. Telling a lockout being imposed from one already in force is
+ * {@link FailureCounter}'s, which holds the login state before and after the counted failure.
  */
 @Service
 public class LoginAttemptService {
@@ -51,9 +53,9 @@ public class LoginAttemptService {
     private final ScimUserRepository users;
     private final AccountSessions sessions;
     private final AfterCommit afterCommit;
-    private final LockoutPolicy policy;
     private final AuditTrail audit;
     private final Clock clock;
+    private final FailureCounter failures;
 
     public LoginAttemptService(
             ScimUserRepository users,
@@ -65,9 +67,9 @@ public class LoginAttemptService {
         this.users = users;
         this.sessions = sessions;
         this.afterCommit = afterCommit;
-        this.policy = policy;
         this.audit = audit;
         this.clock = clock;
+        this.failures = new FailureCounter(users, sessions, afterCommit, policy, audit, clock);
     }
 
     /**
@@ -93,7 +95,6 @@ public class LoginAttemptService {
      */
     @Transactional
     public void recordFailure(String username, AuditRefusalReason reason) {
-        Instant now = clock.instant();
         Optional<ScimUser> found = find(username);
         if (found.isEmpty()) {
             audit.recordLoginFailure(null, AuditRefusalReason.UNKNOWN_ACCOUNT);
@@ -101,15 +102,7 @@ public class LoginAttemptService {
         }
 
         ScimUser user = found.get();
-        ScimLoginState before = user.login();
-        ScimLoginState after = user.isExemptFromLockout()
-                ? before.withFailureCounted()
-                : before.withFailureRecorded(policy, now);
-        users.updateLoginState(user.id(), after);
-        if (after.isLocked() && !before.isLocked()) {
-            audit.recordLockoutSet(user.id());
-            afterCommit.run(() -> sessions.revokeAll(user.id()));
-        }
+        failures.count(user);
         audit.recordLoginFailure(user.id(), reason);
     }
 
@@ -179,15 +172,7 @@ public class LoginAttemptService {
             return;
         }
         ScimUser user = found.get();
-        ScimLoginState before = user.login();
-        ScimLoginState after = user.isExemptFromLockout()
-                ? before.withFailureCounted()
-                : before.withFailureRecorded(policy, clock.instant());
-        users.updateLoginState(user.id(), after);
-        if (after.isLocked() && !before.isLocked()) {
-            audit.recordLockoutSet(user.id());
-            afterCommit.run(() -> sessions.revokeAll(user.id()));
-        }
+        failures.count(user);
         audit.recordPasswordChangeRefused(
                 user.id(), AuditPasswordChangeRefusal.BAD_CURRENT_PASSWORD);
     }

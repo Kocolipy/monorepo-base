@@ -704,6 +704,30 @@ public class ArchitectureTest {
                     + " so every write path applies one rule (issue #137)");
 
     /**
+     * What a newly imposed failure Lockout implies has one owner:
+     * {@code auth.application.FailureCounter}. It persists the counted failure and, on the
+     * transition into the lock, records {@code LOCKOUT_SET} and revokes the User's Sessions after
+     * the commit. A counting path that recorded the Lockout itself would be repeating the edge
+     * test, and a copy that forgot the revocation would read like its neighbour. The audit slice,
+     * which implements the trail, is the one other place that may name the method.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_the_failure_counter_records_a_lockout =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.auth.application.FailureCounter")
+            .and().resideOutsideOfPackage("com.example.backend.audit..")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is AuditTrail.recordLockoutSet",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("recordLockoutSet")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.audit.domain.AuditTrail")))
+            .allowEmptyShould(true)
+            .because("FailureCounter carries out what a newly imposed Lockout implies, so every"
+                    + " counting path audits it and revokes Sessions the same way (issue #139)");
+
+    /**
      * An audit event is constructed inside the audit slice and nowhere else.
      *
      * <p>The boundary rule above is only worth having while
