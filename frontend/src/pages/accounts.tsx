@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { holds, VIEW_PERMISSIONS } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
-import { refusalMessage, useSessionRequest } from "@/auth/use-session-request";
+import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
+import { useSessionRequest } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -37,14 +38,12 @@ const ATTEMPTED: Record<UserAction, (userName: string) => string> = {
 };
 
 /** Copy for a refused action, keyed on what the backend refused. */
-function actionFailure(action: UserAction, userName: string, status?: number): string {
-  if (status === 404) {
-    return `${userName} no longer exists. Reload the page for the current list.`;
-  }
-  if (status === 409) {
-    return `Refused: ${userName} has no password to replace.`;
-  }
-  return `Unable to ${ATTEMPTED[action](userName)}. Please try again.`;
+function actionMessages(action: UserAction, userName: string): RefusalMessages {
+  return {
+    404: `${userName} no longer exists. Reload the page for the current list.`,
+    409: `Refused: ${userName} has no password to replace.`,
+    default: `Unable to ${ATTEMPTED[action](userName)}. Please try again.`,
+  };
 }
 
 /**
@@ -325,8 +324,6 @@ const readUserRow = jsonDecoder(decodeUserRow);
  */
 function useDirectory() {
   const request = useSessionRequest();
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
 
   const users = useGatedRead({
     decode: readUserRows,
@@ -340,39 +337,24 @@ function useDirectory() {
     path: GROUPS_PATH,
     permission: VIEW_PERMISSIONS.groups,
   });
+  const write = useGatedWrite({ supersedes: [groups, users] });
 
   /**
    * Runs one action and replaces just that row from the response, rather than
    * reloading the listing: the response *is* the User's new state, so a refetch
    * would only add a request that could disagree with it.
    */
-  const runAction = async (target: UserRow, action: UserAction) => {
-    setActionError(null);
-    users.clearError();
-    groups.clearError();
-    setPending(true);
-    try {
-      const result = await request(
-        userActionPath(target.id, action),
-        { method: "POST" },
-        readUserRow,
-      );
-      if (result.kind === "ok") {
-        const updated = result.data;
+  const runAction = (target: UserRow, action: UserAction) =>
+    write.run(() => request(userActionPath(target.id, action), { method: "POST" }, readUserRow), {
+      messages: actionMessages(action, target.userName),
+      onOk: (updated) => {
         users.update((current) =>
           (current ?? []).map((row) => (row.id === updated.id ? updated : row)),
         );
-        return;
-      }
-      const status = result.kind === "failed" ? result.status : undefined;
-      setActionError(refusalMessage(result, actionFailure(action, target.userName, status)));
-    } finally {
-      setPending(false);
-    }
-  };
+      },
+    });
 
-  const error = actionError ?? groups.error ?? users.error;
-  return { error, groups, pending, runAction, users };
+  return { error: write.error, groups, pending: write.pending, runAction, users };
 }
 
 /**
