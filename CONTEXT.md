@@ -363,3 +363,8 @@ _Avoid_: log (the application log is a different stream)
 
 **Audit listing**:
 The read of the audit trail, by a holder of `audit:read`.
+
+**Audit page**:
+The SPA screen at `/audit` showing the Audit listing, routed for a holder of
+`audit:read` alone. Read-only, filtered and paged, and never reloaded on a
+timer.

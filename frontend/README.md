@@ -175,7 +175,7 @@ In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
 - **react-router-dom 7** for routing (`/` login, `/showcase` and
   `/change-password` authenticated, `/accounts` for a session holding any
-  administrative view's Permission)
+  administrative view's Permission, `/audit` for one holding `audit:read`)
 - **Vite 7** for development and building, with Brotli/gzip precompression
 - **Tailwind CSS v4** (CSS-first, no config file) with shadcn-shaped tokens
 - **Vitest 4** + Testing Library + happy-dom for unit tests

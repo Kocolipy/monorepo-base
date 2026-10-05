@@ -31,23 +31,25 @@ type AccountsView = { users: boolean; groups: boolean; connectors: boolean } | n
 
 const EXPECTED: Record<
   Exclude<DevRole, "superuser">,
-  { accounts: AccountsView; unlock: boolean; createConnector: boolean }
+  { accounts: AccountsView; audit: boolean; unlock: boolean; createConnector: boolean }
 > = {
   accountAdmin: {
     accounts: { connectors: false, groups: true, users: true },
+    audit: false,
     createConnector: false,
     unlock: true,
   },
-  auditor: { accounts: null, createConnector: false, unlock: false },
+  auditor: { accounts: null, audit: true, createConnector: false, unlock: false },
   connectorAdmin: {
     accounts: { connectors: true, groups: true, users: true },
+    audit: false,
     createConnector: true,
     unlock: true,
   },
-  monitoring: { accounts: null, createConnector: false, unlock: false },
+  monitoring: { accounts: null, audit: false, createConnector: false, unlock: false },
 };
 
-async function expectShowcase(page: Page, linksToAccounts: boolean) {
+async function expectShowcase(page: Page, linksToAccounts: boolean, linksToAudit: boolean) {
   await page.goto("/showcase");
   await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
   // Every fixture Role's User holds the baseline counter Permissions: the counter
@@ -56,6 +58,9 @@ async function expectShowcase(page: Page, linksToAccounts: boolean) {
   await expect(page.getByRole("button", { name: "Increment" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Manage accounts" })).toHaveCount(
     linksToAccounts ? 1 : 0,
+  );
+  await expect(page.getByRole("link", { name: "View audit log" })).toHaveCount(
+    linksToAudit ? 1 : 0,
   );
 }
 
@@ -86,6 +91,20 @@ async function expectAccounts(page: Page, view: AccountsView, createConnector: b
   );
 }
 
+/** The audit trail: visible and reachable only for a session holding `audit:read`. */
+async function expectAudit(page: Page, canView: boolean) {
+  await page.goto("/audit");
+  if (!canView) {
+    // Routed away exactly as any page the User lacks the Permission for.
+    await expect(page.getByRole("heading", { name: "Front End" })).toBeVisible();
+    await expect(page).toHaveURL(/\/showcase$/);
+    return;
+  }
+  await expect(page.getByRole("heading", { name: "Audit", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/audit$/);
+  await expect(page.getByRole("table", { name: "Audit events" })).toBeVisible();
+}
+
 test.describe("development Roles", () => {
   for (const role of Object.keys(EXPECTED) as (keyof typeof EXPECTED)[]) {
     const { permissions, username } = DEV_ROLES[role];
@@ -104,8 +123,9 @@ test.describe("development Roles", () => {
       expect(body).not.toHaveProperty("role");
 
       // The pages and actions it is shown.
-      await expectShowcase(page, expected.accounts !== null);
+      await expectShowcase(page, expected.accounts !== null, expected.audit);
       await expectAccounts(page, expected.accounts, expected.createConnector);
+      await expectAudit(page, expected.audit);
 
       // A direct API call: each guarded read answers by its own Permission alone.
       const held: readonly string[] = permissions;

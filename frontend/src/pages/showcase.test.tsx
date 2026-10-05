@@ -78,10 +78,11 @@ describe("Showcase", () => {
     expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
     unmount();
 
-    // An Auditor's and a Monitoring account's Permissions open no Accounts view.
-    const { unmount: unmountOther } = renderShowcase(holding(["audit:read", "ops:read"]));
+    // A Monitoring account's Permissions open no Accounts view and no audit trail.
+    const { unmount: unmountOther } = renderShowcase(holding(["ops:read"]));
     expect(await screen.findByRole("link", { name: "Change password" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
     unmountOther();
 
     for (const view of ["user:read", "group:read", "connector:read"] as const) {
@@ -96,6 +97,21 @@ describe("Showcase", () => {
       );
       unmountView();
     }
+  });
+
+  it("offers the audit trail only to a session holding audit:read", async () => {
+    const { unmount } = renderShowcase(holding(["audit:read"]));
+    expect(await screen.findByRole("link", { name: "View audit log" })).toHaveAttribute(
+      "href",
+      "/audit",
+    );
+    // Its own Permission does not also open the Accounts page.
+    expect(screen.queryByRole("link", { name: "Manage accounts" })).not.toBeInTheDocument();
+    unmount();
+
+    renderShowcase(holding(["user:read"]));
+    expect(await screen.findByRole("link", { name: "Manage accounts" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View audit log" })).not.toBeInTheDocument();
   });
 
   it("shows a baseline User no counter, asks for none, and keeps self-service", async () => {
