@@ -25,9 +25,11 @@ import org.testcontainers.utility.DockerImageName;
  * rather than paying a fresh container start per class.
  *
  * <p>It also imports {@link SeededBootstrapAdminTestConfiguration}, so every context that gets a
- * database starts with the seeded Bootstrap Admin's first-login change already completed.
+ * database starts with the seeded Bootstrap Admin's first-login change already completed, and
+ * {@link SeededTestUserConfiguration}, so it also starts with the non-administrative
+ * {@code test-user}.
  */
-@Import(SeededBootstrapAdminTestConfiguration.class)
+@Import({SeededBootstrapAdminTestConfiguration.class, SeededTestUserConfiguration.class})
 public class ContainerTestConfiguration {
 
     private static final DockerImageName POSTGRES_IMAGE =

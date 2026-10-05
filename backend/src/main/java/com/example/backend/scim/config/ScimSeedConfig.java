@@ -16,13 +16,15 @@ import org.springframework.context.annotation.Configuration;
  * serves a request.
  *
  * <p>Replaces {@code AccountSeedConfig}, which seeded two rows of a table that no longer exists.
- * The configuration keys are unchanged — {@code app.auth.secondary-username} still names the
- * deployment's recovery identity, as it did when that identity was an account — so an existing
- * deployment's environment does not have to change for the identities to come back under the same
- * names and passwords.
+ * {@code app.auth.bootstrap-username} / {@code bootstrap-password} ({@code APP_BOOTSTRAP_*}) name
+ * the deployment's recovery identity. They were {@code app.auth.secondary-*}
+ * ({@code APP_SECONDARY_*}) while a second, ordinary identity was configured beside it; that one is
+ * a development fixture now, so a deployment upgrading across the rename must rename the two
+ * variables in its environment, or it seeds the {@code application.yaml} fallback instead.
  *
- * <p>Which of the two configured identities is the Bootstrap Admin is decided HERE, by argument
- * position, and it is the same one {@code LoginLockoutConfig} used to name as the lockout-exempt
+ * <p>The Bootstrap Admin is the one configured identity every deployment gets; the
+ * non-administrative {@code user} is a development fixture now, seeded only beside the others. The
+ * Bootstrap Admin is the one {@code LoginLockoutConfig} used to name as the lockout-exempt
  * account. That is no longer a second reading of the same setting, though: the exemption is now the
  * reservation marker on the seeded row, so this file is the only place the configured name is
  * turned into a privilege, and nothing downstream compares a username to decide anything.
@@ -47,20 +49,17 @@ public class ScimSeedConfig {
             ScimSeedService seeding,
             DevFixtureProperties devFixtures,
             DormancyPolicy dormancy,
-            @Value("${app.auth.username}") String userName,
-            @Value("${app.auth.password}") String password,
-            @Value("${app.auth.secondary-username}") String recoveryUserName,
-            @Value("${app.auth.secondary-password}") String recoveryPassword) {
+            @Value("${app.auth.bootstrap-username}") String recoveryUserName,
+            @Value("${app.auth.bootstrap-password}") String recoveryPassword) {
         return arguments -> {
-            seeding.seed(
-                    new SeededIdentity(userName, password),
-                    new SeededIdentity(recoveryUserName, recoveryPassword));
+            seeding.seed(new SeededIdentity(recoveryUserName, recoveryPassword));
             if (devFixtures.enabled()) {
                 seeding.seedDevFixtures(
                         devFixtures.groups() == null ? List.of() : devFixtures.groups().stream()
                                 .map(group -> new DevFixture(
                                         group.id(), group.displayName(), group.member()))
                                 .toList(),
+                        devFixtures.baselineMember(),
                         devFixtures.password());
                 if (devFixtures.dormantMember() != null) {
                     // A day past the window, so the startup dormancy run locks it.

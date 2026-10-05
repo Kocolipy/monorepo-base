@@ -48,13 +48,12 @@ import org.springframework.transaction.annotation.Transactional;
  * first committed and writes nothing. The reservations stay UNIQUE in the schema as the backstop:
  * if the lock were ever bypassed, the outcome is a failed startup, never two Admin groups.
  *
- * <h2>The ordinary identity is a first-run convenience</h2>
+ * <h2>The recovery path is the only thing every deployment gets</h2>
  *
- * <p>The ordinary configured identity is created only in the run that creates the Bootstrap Admin
- * — that is, on a database seeding has never completed on. Afterwards it is an ordinary,
- * provisionable User: a connector or administrator that deletes or renames it has made a
- * deliberate change, and a restart that brought it back would undo that change. The recovery
- * path is different, which is why it alone is re-checked on every start.
+ * <p>The Bootstrap Admin is the one configured identity. Every other startup User — the
+ * non-administrative {@code user} included — is a development fixture, seeded only when
+ * {@code app.dev-fixtures.enabled} is set, so a deployment that never enables them starts with no
+ * User but the recovery one and no second credential from {@code application.yaml}.
  *
  * <h2>What it does not do</h2>
  *
@@ -96,8 +95,7 @@ public class ScimSeedService {
     }
 
     /**
-     * Creates whatever of the recovery path is missing, and — on the run that creates the Bootstrap
-     * Admin — the ordinary configured identity with it.
+     * Creates whatever of the recovery path is missing.
      *
      * <p>One transaction, so a deployment never comes up with a Bootstrap Admin that is not in the
      * Admin group: the two halves of the recovery path are useless apart, and a partial seed would
@@ -106,22 +104,14 @@ public class ScimSeedService {
      * <p>The lock is the transaction's first statement, so every read after it sees what any
      * concurrent seed committed.
      *
-     * @param ordinary  the non-administrative identity the deployment is configured with
-     * @param recovery  the Bootstrap Admin's configured credentials
+     * @param recovery the Bootstrap Admin's configured credentials
      */
     @Transactional
-    public void seed(SeededIdentity ordinary, SeededIdentity recovery) {
+    public void seed(SeededIdentity recovery) {
         seedLock.acquire();
         Instant now = clock.instant();
-        Optional<ScimUser> existingAdmin =
-                users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN);
-        ScimUser bootstrapAdmin;
-        if (existingAdmin.isPresent()) {
-            bootstrapAdmin = existingAdmin.get();
-        } else {
-            seedOrdinary(ordinary, now);
-            bootstrapAdmin = seedBootstrapAdmin(recovery, now);
-        }
+        ScimUser bootstrapAdmin = users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)
+                .orElseGet(() -> seedBootstrapAdmin(recovery, now));
         seedAdminGroup(bootstrapAdmin, now);
     }
 
@@ -134,12 +124,18 @@ public class ScimSeedService {
      * its password, and a fixture Group that exists keeps whatever membership it has been given
      * since. Nothing is audited — these are development conveniences, not the recovery path.
      *
-     * @param fixtures the Groups to create and the User each contains
-     * @param password every fixture User's password; refused when blank, because this setting has
-     *                 no published fallback and an empty one would be no credential at all
+     * <p>The baseline member is a User in no Group, so it holds the baseline Permissions and
+     * nothing else: the identity the non-administrative paths are exercised as. Like the others it
+     * is created when absent and otherwise left alone.
+     *
+     * @param fixtures       the Groups to create and the User each contains
+     * @param baselineMember the userName of a User in no Group; {@code null} for none
+     * @param password       every fixture User's password; refused when blank, because this
+     *                       setting has no published fallback and an empty one would be no
+     *                       credential at all
      */
     @Transactional
-    public void seedDevFixtures(List<DevFixture> fixtures, String password) {
+    public void seedDevFixtures(List<DevFixture> fixtures, String baselineMember, String password) {
         if (password == null || password.isBlank()) {
             throw new IllegalStateException(
                     "app.dev-fixtures.password (APP_DEV_FIXTURES_PASSWORD) must be set"
@@ -147,11 +143,11 @@ public class ScimSeedService {
         }
         seedLock.acquire();
         Instant now = clock.instant();
+        if (baselineMember != null) {
+            findOrCreate(baselineMember, password, now);
+        }
         for (DevFixture fixture : fixtures) {
-            ScimUser member = users
-                    .findByNormalizedUserName(NormalizedUserName.of(fixture.member()))
-                    .orElseGet(() -> users.create(
-                            newUser(new SeededIdentity(fixture.member(), password), now)));
+            ScimUser member = findOrCreate(fixture.member(), password, now);
             if (groups.findById(fixture.groupId()).isEmpty()) {
                 groups.create(ScimGroup.created(
                         fixture.groupId(),
@@ -189,9 +185,7 @@ public class ScimSeedService {
         }
         seedLock.acquire();
         Instant now = clock.instant();
-        ScimUser dormant = users.findByNormalizedUserName(NormalizedUserName.of(userName))
-                .orElseGet(() -> users.create(
-                        newUser(new SeededIdentity(userName, password), now)));
+        ScimUser dormant = findOrCreate(userName, password, now);
         users.completePasswordChange(dormant.id(), passwordEncoder.encode(password), now);
         users.updateLoginState(dormant.id(), dormant.login().withFailureRunCleared());
         users.resetDormancyBasis(dormant.id(), now.minus(dormantFor));
@@ -230,18 +224,14 @@ public class ScimSeedService {
     }
 
     /**
-     * The ordinary configured identity, unreserved and in no Group — so it has baseline access and
-     * nothing else, which is what makes it useful for exercising the non-administrative paths.
-     *
-     * <p>A live User already holding the userName is left alone, and nothing is audited: the seed
-     * event records a resource coming into existence, and on this path none did. Looked up rather
-     * than INSERTed and caught; see the class comment for why a caught violation is fatal here.
+     * The fixture User holding {@code userName}, created unreserved and in no Group when absent.
+     * Looked up rather than INSERTed and caught; see the class comment for why a caught violation
+     * is fatal here.
      */
-    private void seedOrdinary(SeededIdentity ordinary, Instant now) {
-        if (users.findByNormalizedUserName(NormalizedUserName.of(ordinary.userName())).isPresent()) {
-            return;
-        }
-        users.create(newUser(ordinary, now));
+    private ScimUser findOrCreate(String userName, String password, Instant now) {
+        return users.findByNormalizedUserName(NormalizedUserName.of(userName))
+                .orElseGet(() -> users.create(
+                        newUser(new SeededIdentity(userName, password), now)));
     }
 
     /**
@@ -346,9 +336,9 @@ public class ScimSeedService {
     static final String ADMIN_GROUP_DISPLAY_NAME = "Admins";
 
     /**
-     * One configured startup identity. Whether it is the recovery one is decided by which argument
-     * of {@link #seed} it is passed as, not by anything on this record: a seed that carried its own
-     * privilege would be a value a future caller could construct with the wrong one.
+     * One startup identity's credentials. Whether it is the recovery one is decided by which method
+     * it is passed to, not by anything on this record: a seed that carried its own privilege would
+     * be a value a future caller could construct with the wrong one.
      */
     public record SeededIdentity(String userName, String password) {
     }

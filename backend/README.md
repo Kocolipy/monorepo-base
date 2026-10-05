@@ -42,12 +42,16 @@ The service listens on `http://localhost:8080`. Its health endpoint is
 
 Authentication is database-backed, and the identity that logs in is a **SCIM
 User** — there is no separate account table. On startup the service idempotently
-seeds an ordinary User, the **Bootstrap Admin**, and the server-reserved **Admin
-group** with the Bootstrap Admin as its immutable member, creating whichever is
-absent. The development defaults are `user` / `P@ssw0rd` and `admin` /
-`P@ssw0rd`; `APP_USERNAME` / `APP_PASSWORD` configure the ordinary User and
-`APP_SECONDARY_USERNAME` / `APP_SECONDARY_PASSWORD` configure the Bootstrap
-Admin. These published defaults must not be used in production.
+seeds the **Bootstrap Admin** and the server-reserved **Admin group** with the
+Bootstrap Admin as its immutable member, creating whichever is absent. That is
+the only User every deployment gets: `APP_BOOTSTRAP_USERNAME` /
+`APP_BOOTSTRAP_PASSWORD` configure it, with the development default `admin` /
+`P@ssw0rd`, which must not be used in production.
+
+The non-administrative `user`, and one User per Role, are **development
+fixtures** (`authorization.yaml`, `app.dev-fixtures`), seeded only when
+`APP_DEV_FIXTURES_ENABLED=true`, all with the password in
+`APP_DEV_FIXTURES_PASSWORD`. `.env.example` enables them.
 
 There is no role column and no administrative role. Every active User holds
 baseline access (`ROLE_USER`), which is self-service only; everything else is
@@ -74,7 +78,7 @@ which accounts exist, which have a password set, or which are locked. An accepte
 login resets the count. `APP_LOCKOUT_MAX_ATTEMPTS` configures the threshold, with
 no enforced floor on the value; there is no duration setting to configure.
 
-The Bootstrap Admin (`APP_SECONDARY_USERNAME`) is the deployment's recovery
+The Bootstrap Admin (`APP_BOOTSTRAP_USERNAME`) is the deployment's recovery
 identity and is the one User exempt from lockout: its failed attempts are
 counted and audited, but it never locks. Without that exemption a permanent
 lockout would let an unauthenticated attacker brick the deployment by guessing at

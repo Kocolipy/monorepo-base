@@ -3,6 +3,7 @@ import { expect, request, test as setup, type Page } from "@playwright/test";
 import {
   ADMIN_PASSWORD,
   ADMIN_USERNAME,
+  FIXTURE_PASSWORD,
   SEED_PASSWORD,
   loginAs,
   submitLogin,
@@ -10,8 +11,9 @@ import {
 } from "./auth.helpers";
 import { sweepLeftovers } from "./scim.helpers";
 
+// `user` is the development fixture with no Role, on the fixture password.
 setup("authenticate USER", async ({ page }) => {
-  await loginAs(page, "user", SEED_PASSWORD);
+  await loginAs(page, "user", FIXTURE_PASSWORD);
   await page.context().storageState({ path: "test/e2e/.auth/user.json" });
 });
 

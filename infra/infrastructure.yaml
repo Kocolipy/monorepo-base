@@ -114,23 +114,12 @@ Parameters:
     Default: ""
 
   # Application Configuration
-  AppUsername:
-    Description: Application USER username
-    Type: String
-    Default: user
-
-  AppPassword:
-    Description: Application USER password
-    Type: String
-    NoEcho: true
-    MinLength: 8
-
-  AppSecondaryUsername:
+  AppBootstrapUsername:
     Description: Application ADMIN username
     Type: String
     Default: admin
 
-  AppSecondaryPassword:
+  AppBootstrapPassword:
     Description: Application ADMIN password
     Type: String
     NoEcho: true
@@ -498,10 +487,8 @@ Resources:
           SERVER_PORT=8080
           SESSION_TIMEOUT=15m
           SESSION_COOKIE_SECURE=false
-          APP_USERNAME=${AppUsername}
-          APP_PASSWORD=${AppPassword}
-          APP_SECONDARY_USERNAME=${AppSecondaryUsername}
-          APP_SECONDARY_PASSWORD=${AppSecondaryPassword}
+          APP_BOOTSTRAP_USERNAME=${AppBootstrapUsername}
+          APP_BOOTSTRAP_PASSWORD=${AppBootstrapPassword}
           APP_ENVIRONMENT=${AppEnvironment}
           LOG_FILE=/var/log/backend/backend.json
           EOF

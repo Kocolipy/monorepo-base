@@ -64,19 +64,11 @@
     "ParameterValue": "CHANGE_ME_SecureRedisPassword123"
   },
   {
-    "ParameterKey": "AppUsername",
-    "ParameterValue": "user"
-  },
-  {
-    "ParameterKey": "AppPassword",
-    "ParameterValue": "CHANGE_ME_SecureAppPassword123"
-  },
-  {
-    "ParameterKey": "AppSecondaryUsername",
+    "ParameterKey": "AppBootstrapUsername",
     "ParameterValue": "admin"
   },
   {
-    "ParameterKey": "AppSecondaryPassword",
-    "ParameterValue": "CHANGE_ME_SecureSecondaryPassword123"
+    "ParameterKey": "AppBootstrapPassword",
+    "ParameterValue": "CHANGE_ME_SecureBootstrapPassword123"
   }
 ]

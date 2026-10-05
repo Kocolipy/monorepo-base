@@ -26,7 +26,7 @@ if [[ -f $BACKEND_DIR/.env ]]; then
 else
   cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
   log "created backend/.env from .env.example"
-  warn "backend/.env carries the example credentials, and this remote is public — change APP_PASSWORD and APP_SECONDARY_PASSWORD before exposing the service."
+  warn "backend/.env carries the example credentials, and this remote is public — change APP_BOOTSTRAP_PASSWORD and APP_DEV_FIXTURES_PASSWORD before exposing the service."
 fi
 
 command -v semgrep >/dev/null 2>&1 ||

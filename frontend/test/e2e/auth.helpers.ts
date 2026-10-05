@@ -2,7 +2,7 @@ import { expect, type APIRequestContext, type BrowserContext, type Page } from "
 
 import { lockoutMaxAttempts } from "./lockoutThreshold";
 
-/** The seeded identities' configured password (`application.yaml`'s fallback). */
+/** The Bootstrap Admin's configured seed password (`application.yaml`'s fallback). */
 export const SEED_PASSWORD = "P@ssw0rd";
 
 /** The seeded Admin's user name. */

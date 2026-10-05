@@ -98,10 +98,10 @@ app:
     # Turn SCIM off with APP_SCIM_ENABLED=false; see README.md's Configuration
     # section.
   auth:
-    username: ${APP_USERNAME:user}
-    password: ${APP_PASSWORD:P@ssw0rd}
-    secondary-username: ${APP_SECONDARY_USERNAME:admin}
-    secondary-password: ${APP_SECONDARY_PASSWORD:P@ssw0rd}
+    # The Bootstrap Admin, the one User every deployment is seeded with. The
+    # non-administrative `user` is a development fixture (authorization.yaml).
+    bootstrap-username: ${APP_BOOTSTRAP_USERNAME:admin}
+    bootstrap-password: ${APP_BOOTSTRAP_PASSWORD:P@ssw0rd}
     lockout:
       # Consecutive failures that lock an account. There is deliberately no
       # duration setting: a lockout is lifted by an Admin's Unlock and by nothing

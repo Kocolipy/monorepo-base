@@ -9,16 +9,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * off unless {@code APP_DEV_FIXTURES_ENABLED} is set, with a password that has no published
  * fallback.
  *
- * @param enabled       whether to seed the fixtures at all
- * @param password      every fixture User's password
- * @param groups        one Group per non-Superuser Role, each with one User in it
- * @param dormantMember the userName of a User in no Group whose dormancy basis is backdated past
- *                      the lockout window at every startup, so the development profile's startup
- *                      dormancy run locks it; {@code null} for none
+ * @param enabled        whether to seed the fixtures at all
+ * @param password       every fixture User's password
+ * @param baselineMember the userName of a User in no Group, holding only the baseline
+ *                       Permissions; {@code null} for none
+ * @param groups         one Group per non-Superuser Role, each with one User in it
+ * @param dormantMember  the userName of a User in no Group whose dormancy basis is backdated past
+ *                       the lockout window at every startup, so the development profile's startup
+ *                       dormancy run locks it; {@code null} for none
  */
 @ConfigurationProperties("app.dev-fixtures")
 public record DevFixtureProperties(
-        boolean enabled, String password, List<GroupFixture> groups, String dormantMember) {
+        boolean enabled,
+        String password,
+        String baselineMember,
+        List<GroupFixture> groups,
+        String dormantMember) {
 
     /**
      * One Group fixture.
