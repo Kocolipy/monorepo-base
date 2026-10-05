@@ -50,6 +50,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
  * being an HTTP session to create. What the endpoint adds on top — the session, the CSRF
  * token, the bare {@code 401} — is asserted in {@code AuthControllerTests}.
  *
+ * <p>What a counted failure implies once it reaches the limit — the Lockout itself, its
+ * {@code LOCKOUT_SET}, the revocation of every Session, the Bootstrap Admin's exemption — is
+ * {@code FailureCounter}'s and is asserted in {@code FailureCounterTests}; this story keeps what
+ * only the whole chain can show: that refusals are counted, that a lock is enforced on the
+ * correct password, and that only an Unlock lifts it.
+ *
  * <p>The recovery identity is now recognised by its reservation marker, so it is seeded
  * through {@code createReserved} and is an administrator by membership of the reserved
  * Admin group rather than by a role column.
@@ -201,14 +207,6 @@ class LoginLockoutTests {
         assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(2);
     }
 
-    @Test
-    void theFifthRefusalLocksTheIdentity() {
-        failFiveTimes();
-
-        assertThat(users.require("ada").login().isLocked()).isTrue();
-        assertThat(users.require("ada").login().lockedAt()).isEqualTo(NOW);
-    }
-
     /**
      * The point of the lockout: while it holds, the right password is refused too, and no
      * authentication is handed back for it.
@@ -255,17 +253,6 @@ class LoginLockoutTests {
         assertThat(users.require("ada").login().isLocked()).isTrue();
     }
 
-    @Test
-    void aRefusalAfterAnyAmountOfTimeDoesNotStartAFreshRun() {
-        lockTheIdentity();
-
-        clock.advanceBy(A_LONG_TIME);
-        submit("wrong");
-
-        assertThat(users.require("ada").login().failedLoginAttempts()).isEqualTo(5);
-        assertThat(users.require("ada").login().isLocked()).isTrue();
-    }
-
     /**
      * Unlock is the whole mechanism: the password was never changed, so an accepted login
      * afterward proves the lock and only the lock was what refused it.
@@ -298,20 +285,6 @@ class LoginLockoutTests {
                             .isEqualTo(users.require(BOOTSTRAP_ADMIN).id());
                     assertThat(event.subjectId()).isEqualTo(users.require("ada").id());
                 });
-    }
-
-    /**
-     * A locked identity acts through the sessions it already holds unless the lock takes
-     * them, so the lock takes them.
-     */
-    @Test
-    void imposingTheLockoutEndsTheSessionsTheIdentityAlreadyHeld() {
-        sessions.open(users.require("ada").id(), "session-before-the-lock");
-
-        lockTheIdentity();
-        transaction.commit();
-
-        assertThat(sessions.sessionsOf(users.require("ada").id())).isEmpty();
     }
 
     /**
@@ -418,7 +391,6 @@ class LoginLockoutTests {
         assertThat(audit.of(AuditOperation.LOGIN_FAILURE)).hasSize(10)
                 .allSatisfy(event -> assertThat(event.subjectId())
                         .isEqualTo(users.require(BOOTSTRAP_ADMIN).id()));
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).isEmpty();
     }
 
     private static ScimUser withPassword(String userName, String passwordHash) {

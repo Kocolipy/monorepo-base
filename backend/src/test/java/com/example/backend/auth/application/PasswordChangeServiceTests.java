@@ -144,17 +144,20 @@ class PasswordChangeServiceTests {
                 .containsExactly("BAD_CURRENT_PASSWORD");
     }
 
+    /**
+     * The change endpoint's own half of the Lockout: its wrong current passwords count into the
+     * login run, and once that locks the User the endpoint refuses even the correct password as
+     * {@code ACCOUNT_LOCKED}, without counting it. What imposing the Lockout implies — its audit
+     * and the revocation of every Session — is {@code FailureCounterTests}'.
+     */
     @Test
-    void atTheThresholdTheUserLocksItsSessionsEndAndEvenTheCorrectPasswordIsRefused() {
+    void atTheThresholdTheUserLocksAndEvenTheCorrectPasswordIsRefused() {
         assertThatThrownBy(() -> service.changePassword(ada.id(), "wrong-once", NEXT))
                 .isInstanceOf(CurrentPasswordRejectedException.class);
         assertThatThrownBy(() -> service.changePassword(ada.id(), "wrong-twice", NEXT))
                 .isInstanceOf(CurrentPasswordRejectedException.class);
 
         assertThat(users.require("ada").login().isLocked()).isTrue();
-        assertThat(audit.of(AuditOperation.LOCKOUT_SET)).hasSize(1);
-        transaction.commit();
-        assertThat(accountSessions.sessionsOf(ada.id())).isEmpty();
 
         audit.reset();
         assertThatThrownBy(() -> service.changePassword(ada.id(), CURRENT, NEXT))
