@@ -519,9 +519,12 @@ describe("Accounts", () => {
     );
   });
 
-  it("reports an expired security token with transport-specific copy", async () => {
+  // The page names no 400 of its own, so this pins its own `default` over the
+  // hook's generic 400 copy — the status the page's action-specific sentence
+  // is written for.
+  it("reports a 400 refusal with the action's own copy, not the hook's generic one", async () => {
     routeApi({
-      actions: [{ kind: "csrf-expired" }],
+      actions: [{ kind: "failed", status: 400 }],
       users: { kind: "ok", data: [userRow({ locked: true })] },
     });
     const user = userEvent.setup();
@@ -530,9 +533,12 @@ describe("Accounts", () => {
     await user.click(await screen.findByRole("button", { name: "Unlock grace" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Your security token expired. Please try again.",
+      "Unable to unlock grace. Please try again.",
     );
   });
+
+  // The csrf-expired mapping is the seam's own, exercised generically by
+  // use-gated-write.test.tsx; this page proves only its own copy and wiring.
 
   it("clears the previous error when the next action succeeds", async () => {
     routeApi({
@@ -632,6 +638,20 @@ describe("Accounts", () => {
     );
     expect(screen.queryByText("No groups are provisioned.")).not.toBeInTheDocument();
     expect(screen.queryByText("Loading groups…")).not.toBeInTheDocument();
+  });
+
+  // Groups is listed first among the page's `supersedes`, so when both reads
+  // fail the Groups error is the one shown.
+  it("shows the Groups error, not the Users one, when both reads fail", async () => {
+    routeApi({
+      groups: { kind: "failed", status: 503 },
+      users: { kind: "failed", status: 503 },
+    });
+    renderAccounts();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Unable to load the groups. Please try again.",
+    );
   });
 
   // Through the real transport and decoders, against a backend whose Users body

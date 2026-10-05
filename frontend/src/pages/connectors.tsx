@@ -2,7 +2,8 @@ import { useState, type FormEvent, type ReactNode } from "react";
 
 import { VIEW_PERMISSIONS } from "@/auth/permissions";
 import { useGatedRead } from "@/auth/use-gated-read";
-import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
+import { type RefusalMessages, useGatedWrite } from "@/auth/use-gated-write";
+import { useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { jsonDecoder } from "@/lib/decode";
@@ -62,10 +63,12 @@ const PERMISSION_HINTS: Record<TokenPermission, string> = {
 };
 
 /** Copy for a refused request, keyed on what the backend refused. */
-function failure(what: string, status?: number): string {
-  if (status === 400) return `Refused: ${what} — check the values and try again.`;
-  if (status === 404) return `${what} failed: it no longer exists. Reload the page.`;
-  return `${what} failed. Please try again.`;
+function failureMessages(what: string): RefusalMessages {
+  return {
+    400: `Refused: ${what} — check the values and try again.`,
+    404: `${what} failed: it no longer exists. Reload the page.`,
+    default: `${what} failed. Please try again.`,
+  };
 }
 
 function TokenDisclosure({
@@ -284,8 +287,6 @@ interface ConnectorActions {
 function useConnectors() {
   const request = useSessionRequest();
 
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
   const [disclosure, setDisclosure] = useState<Disclosure | null>(null);
   // A failed read is reported as a failure, never as an empty list.
   const listing = useGatedRead({
@@ -294,33 +295,18 @@ function useConnectors() {
     path: CONNECTORS_PATH,
     permission: VIEW_PERMISSIONS.connectors,
   });
+  const write = useGatedWrite({ supersedes: [listing] });
 
   /**
-   * One mutation: clear the last error, run it, report a refusal, then re-read.
-   * The re-read's own refusal, when it has one, is the latest thing to go wrong,
-   * so it is what the error line shows.
+   * One mutation: run it, report a refusal, then re-read — still inside the
+   * pending window. The re-read's own refusal, when it has one, is the latest
+   * thing to go wrong, so it is what the error line shows.
    */
-  const mutate = async <T,>(
+  const mutate = <T,>(
     what: string,
     run: () => Promise<SessionResult<T>>,
     onOk?: (data: T) => void,
-  ) => {
-    setMutationError(null);
-    listing.clearError();
-    setPending(true);
-    try {
-      const result = await run();
-      if (result.kind === "ok") {
-        onOk?.(result.data);
-      } else {
-        const status = result.kind === "failed" ? result.status : undefined;
-        setMutationError(refusalMessage(result, failure(what, status)));
-      }
-      await listing.reload();
-    } finally {
-      setPending(false);
-    }
-  };
+  ) => write.run(run, { after: () => listing.reload(), messages: failureMessages(what), onOk });
 
   const create = (displayName: string, onCreated: () => void) =>
     void mutate(
@@ -372,8 +358,8 @@ function useConnectors() {
     create,
     disclosure,
     dismiss: () => setDisclosure(null),
-    error: listing.error ?? mutationError,
-    pending,
+    error: write.error,
+    pending: write.pending,
     unread: listing.failed,
   };
 }

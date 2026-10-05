@@ -63,7 +63,11 @@ them:
   features request through, `use-gated-read.ts` is the Permission-gated read
   every page listing goes through (a path, a decoder, the Permission and the
   failure copy in; data, failed and error out, with no request sent without
-  the Permission), `idle-sign-out.tsx` is the inactivity sign-out (see
+  the Permission), `use-gated-write.ts` is the one gated write every page
+  action goes through (a request already behind `useSessionRequest`, a
+  success handler and per-status copy in; the pending flag, the single error
+  line and a refusal mapped through the seam's own `refusalMessage` out, with
+  the read(s) it supersedes withdrawn the moment it starts), `idle-sign-out.tsx` is the inactivity sign-out (see
   "Backend contract"), and `password-policy.ts` mirrors the backend's password
   length bounds for the change form.
 - **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,

@@ -335,6 +335,24 @@ describe("Showcase", () => {
     );
   });
 
+  // The page names no status of its own, only a `default`, so this pins that
+  // default over the hook's generic 400/404/409 copy for each.
+  it.each([400, 404, 409])(
+    "reports a %i refusal with the page's own default copy, not the hook's generic one",
+    async (status) => {
+      resolveOnceWith({ kind: "ok", data: 0 });
+      resolveOnceWith({ kind: "failed", status });
+      const user = userEvent.setup();
+      renderShowcase();
+
+      await user.click(increment());
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Unable to update the counter. Please try again.",
+      );
+    },
+  );
+
   it("expires the auth state when an update is unauthenticated", async () => {
     resolveOnceWith({ kind: "ok", data: 0 });
     resolveOnceWith({ kind: "unauthenticated" });

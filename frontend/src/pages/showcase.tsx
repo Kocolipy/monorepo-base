@@ -1,11 +1,12 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/auth/auth-context-value";
 import { ADMINISTRATION_PERMISSIONS, holds, holdsAny } from "@/auth/permissions";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { useGatedRead } from "@/auth/use-gated-read";
-import { refusalMessage, useSessionRequest, type SessionResult } from "@/auth/use-session-request";
+import { useGatedWrite } from "@/auth/use-gated-write";
+import { useSessionRequest, type SessionResult } from "@/auth/use-session-request";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,8 +32,6 @@ const LINK_CLASS = "text-sm font-medium underline underline-offset-4";
  * the read's on the error line.
  */
 function useCounter() {
-  const [changeError, setChangeError] = useState<string | null>(null);
-  const [isChanging, setIsChanging] = useState(false);
   const request = useSessionRequest();
   const reading = useGatedRead({
     decode: decodeCount,
@@ -40,6 +39,7 @@ function useCounter() {
     path: "/api/count",
     permission: "counter:read",
   });
+  const write = useGatedWrite({ supersedes: [reading] });
 
   const incrementCount = useCallback(
     () => request("/api/count/increment", { method: "POST" }, decodeCount),
@@ -50,27 +50,17 @@ function useCounter() {
     [request],
   );
 
-  const updateCount = async (change: () => Promise<SessionResult<number>>) => {
-    setChangeError(null);
-    reading.clearError();
-    setIsChanging(true);
-    try {
-      const result = await change();
-      if (result.kind === "ok") {
-        reading.update(() => result.data);
-      } else {
-        setChangeError(refusalMessage(result, "Unable to update the counter. Please try again."));
-      }
-    } finally {
-      setIsChanging(false);
-    }
-  };
+  const updateCount = (change: () => Promise<SessionResult<number>>) =>
+    write.run(change, {
+      messages: { default: "Unable to update the counter. Please try again." },
+      onOk: (data) => reading.update(() => data),
+    });
 
   return {
     count: reading.data ?? 0,
-    error: changeError ?? reading.error,
+    error: write.error,
     increment: () => void updateCount(incrementCount),
-    isUpdating: reading.loading || isChanging,
+    isUpdating: reading.loading || write.pending,
     reset: () => void updateCount(resetCount),
   };
 }

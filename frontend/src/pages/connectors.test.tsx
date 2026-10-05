@@ -530,9 +530,28 @@ describe("Connectors", () => {
     );
   });
 
-  it("reports any other failure and an expired security token", async () => {
+  // The page names no 409 of its own, so this pins its own `default` over the
+  // hook's generic 409 copy.
+  it("reports a 409 refusal with the action's own default copy, not the hook's generic one", async () => {
     routeApi({
-      actions: [{ kind: "failed", status: 503 }, { kind: "failed" }, { kind: "csrf-expired" }],
+      actions: [{ kind: "failed", status: 409 }],
+      listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
+    });
+    const user = userEvent.setup();
+    renderConnectors();
+
+    await user.click(await screen.findByRole("button", { name: "Revoke token a1b2c3d4" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Revoking the token failed. Please try again.",
+    );
+  });
+
+  // The csrf-expired mapping is the seam's own, exercised generically by
+  // use-gated-write.test.tsx; this page proves only its own default copy.
+  it("reports any other failure with action-specific default copy", async () => {
+    routeApi({
+      actions: [{ kind: "failed", status: 503 }, { kind: "failed" }],
       listings: [{ kind: "ok", data: [connector({ tokens: [token()] })] }],
     });
     const user = userEvent.setup();
@@ -546,11 +565,6 @@ describe("Connectors", () => {
     await user.click(screen.getByRole("button", { name: "Revoke token a1b2c3d4" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Revoking the token failed. Please try again.",
-    );
-
-    await user.click(screen.getByRole("button", { name: "Delete Okta" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Your security token expired. Please try again.",
     );
   });
 
