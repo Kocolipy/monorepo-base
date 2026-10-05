@@ -152,22 +152,12 @@ get_inputs() {
     
     # Application configuration
     print_info "Application Configuration"
-    read -p "Enter application USER username (default: user): " APP_USERNAME
-    APP_USERNAME=${APP_USERNAME:-user}
+    read -p "Enter application ADMIN username (default: admin): " APP_BOOTSTRAP_USERNAME
+    APP_BOOTSTRAP_USERNAME=${APP_BOOTSTRAP_USERNAME:-admin}
     
-    read -sp "Enter application USER password: " APP_PASSWORD
+    read -sp "Enter application ADMIN password: " APP_BOOTSTRAP_PASSWORD
     echo
-    if [ -z "$APP_PASSWORD" ]; then
-        print_error "Application password is required"
-        exit 1
-    fi
-    
-    read -p "Enter application ADMIN username (default: admin): " APP_SECONDARY_USERNAME
-    APP_SECONDARY_USERNAME=${APP_SECONDARY_USERNAME:-admin}
-    
-    read -sp "Enter application ADMIN password: " APP_SECONDARY_PASSWORD
-    echo
-    if [ -z "$APP_SECONDARY_PASSWORD" ]; then
+    if [ -z "$APP_BOOTSTRAP_PASSWORD" ]; then
         print_error "Application ADMIN password is required"
         exit 1
     fi
@@ -240,20 +230,12 @@ create_parameters_file() {
     "ParameterValue": "${REDIS_PASSWORD}"
   },
   {
-    "ParameterKey": "AppUsername",
-    "ParameterValue": "${APP_USERNAME}"
+    "ParameterKey": "AppBootstrapUsername",
+    "ParameterValue": "${APP_BOOTSTRAP_USERNAME}"
   },
   {
-    "ParameterKey": "AppPassword",
-    "ParameterValue": "${APP_PASSWORD}"
-  },
-  {
-    "ParameterKey": "AppSecondaryUsername",
-    "ParameterValue": "${APP_SECONDARY_USERNAME}"
-  },
-  {
-    "ParameterKey": "AppSecondaryPassword",
-    "ParameterValue": "${APP_SECONDARY_PASSWORD}"
+    "ParameterKey": "AppBootstrapPassword",
+    "ParameterValue": "${APP_BOOTSTRAP_PASSWORD}"
   }
 ]
 EOF

@@ -451,9 +451,10 @@ What replaced each of its parts: `username` → the User's `userName`,
 DERIVED membership of the **Admin group**, the login history → the failure run and
 `locked_at` on the same row, and the creation timestamp → the resource row's
 `created_at`, which is no longer nullable because a resource cannot exist without
-one. Startup seeding creates the configured ordinary and recovery identities when
-their `userName`s are absent and never overwrites one that exists — so a rotated
-recovery password survives a restart.
+one. Startup seeding creates the configured recovery identity — the Bootstrap
+Admin, the only User every deployment is seeded with — when absent and never
+overwrites it, so a rotated recovery password survives a restart. The
+non-administrative users is a development fixture, seeded only when the fixtures are enabled.
 
 **Login** — the one operation that turns submitted credentials into an
 authentication or a refusal, and the only thing that records an attempt against
@@ -493,7 +494,7 @@ deployment edge throttles the rest, because it cannot see the `userName` in a Lo
 body (`infra/README.md`, "Edge throttling").
 
 **Bootstrap Admin exemption** — the seeded Admin
-(`app.auth.secondary-username`) is the deployment's local recovery identity and is
+(`app.auth.bootstrap-username`) is the deployment's local recovery identity and is
 the one principal lockout never applies to — neither cause, and neither dormancy
 step. Its failed attempts are counted and
 audited as `LOGIN_FAILURE` like anyone's, but no run of them locks it. With no

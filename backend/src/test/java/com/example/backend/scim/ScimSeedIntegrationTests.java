@@ -67,16 +67,10 @@ class ScimSeedIntegrationTests {
     @Autowired
     private JdbcTemplate jdbc;
 
-    @Value("${app.auth.username}")
-    private String userName;
-
-    @Value("${app.auth.password}")
-    private String password;
-
-    @Value("${app.auth.secondary-username}")
+    @Value("${app.auth.bootstrap-username}")
     private String recoveryUserName;
 
-    @Value("${app.auth.secondary-password}")
+    @Value("${app.auth.bootstrap-password}")
     private String recoveryPassword;
 
     @Test
@@ -161,9 +155,7 @@ class ScimSeedIntegrationTests {
     }
 
     private void seedAsConfigured() {
-        seeding.seed(
-                new SeededIdentity(userName, password),
-                new SeededIdentity(recoveryUserName, recoveryPassword));
+        seeding.seed(new SeededIdentity(recoveryUserName, recoveryPassword));
     }
 
     private long count(String sql) {

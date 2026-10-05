@@ -44,9 +44,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  */
 class ScimSeedServiceTests {
 
-    private static final SeededIdentity ORDINARY = new SeededIdentity("user", "user-password");
-
     private static final SeededIdentity RECOVERY = new SeededIdentity("admin", "admin-password");
+
+    /** The development fixtures' User in no Group, which used to be a configured identity. */
+    private static final String BASELINE = "user";
+
+    private static final String FIXTURE_PASSWORD = "fixture-password";
 
     private final InMemoryScimUserRepository users = new InMemoryScimUserRepository();
 
@@ -67,17 +70,23 @@ class ScimSeedServiceTests {
             Clock.fixed(ScimIdentities.NOW, ZoneOffset.UTC),
             TestRoleMappings.superuserOnly());
 
+    /**
+     * The Bootstrap Admin is the only User a deployment is seeded with: the non-administrative
+     * {@code user} is a development fixture, so a deployment that never enables the fixtures has no
+     * second configured credential.
+     */
     @Test
-    void a_fresh_database_gets_both_configured_identities() {
-        seeding.seed(ORDINARY, RECOVERY);
+    void a_fresh_database_gets_the_bootstrap_admin_and_no_other_user() {
+        seeding.seed(RECOVERY);
 
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isPresent();
         assertThat(users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)).isPresent();
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of(BASELINE))).isEmpty();
+        assertThat(users.size()).isEqualTo(1);
     }
 
     @Test
     void the_recovery_identity_is_the_secondary_one_and_is_reserved_as_the_bootstrap_admin() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
@@ -87,23 +96,24 @@ class ScimSeedServiceTests {
     }
 
     /**
-     * The ordinary identity is NOT reserved and is in no Group, so it holds baseline access and
-     * nothing more. A seeding that reserved both would give the deployment two unprotectable
-     * identities and no ordinary one to exercise the non-administrative paths with.
+     * The baseline fixture is NOT reserved and is in no Group, so it holds baseline access and
+     * nothing more — the identity the non-administrative paths are exercised as.
      */
     @Test
-    void the_ordinary_identity_is_unreserved_and_in_no_group() {
-        seeding.seed(ORDINARY, RECOVERY);
+    void the_baseline_fixture_is_unreserved_and_in_no_group() {
+        seeding.seed(RECOVERY);
+        seeding.seedDevFixtures(List.of(), BASELINE, FIXTURE_PASSWORD);
 
-        ScimUser ordinary = users.require("user");
-        assertThat(ordinary.isProtectedFromWrites()).isFalse();
-        assertThat(groups.findGroupsOfUser(ordinary.id())).isEmpty();
-        assertThat(ordinary.login().isPasswordChangeRequired()).isFalse();
+        ScimUser baseline = users.require(BASELINE);
+        assertThat(baseline.isProtectedFromWrites()).isFalse();
+        assertThat(groups.findGroupsOfUser(baseline.id())).isEmpty();
+        assertThat(baseline.login().isPasswordChangeRequired()).isFalse();
+        assertThat(baseline.login().passwordHash()).isNotEqualTo(FIXTURE_PASSWORD);
     }
 
     @Test
     void a_fresh_database_gets_an_admin_group_with_the_bootstrap_admin_in_it() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
@@ -121,7 +131,7 @@ class ScimSeedServiceTests {
      */
     @Test
     void the_bootstrap_admin_derives_administrative_authority_from_that_membership() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
@@ -129,14 +139,11 @@ class ScimSeedServiceTests {
         assertThat(groups.isMemberOfReservedGroup(
                         bootstrapAdmin.id(), ReservedResourceName.ADMIN_GROUP))
                 .isTrue();
-        assertThat(groups.isMemberOfReservedGroup(
-                        users.require("user").id(), ReservedResourceName.ADMIN_GROUP))
-                .isFalse();
     }
 
     @Test
     void each_seeded_reserved_resource_records_its_own_event_with_no_actor() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(audit.of(AuditOperation.SCIM_RESOURCE_SEED)).hasSize(2)
                 .allSatisfy(event -> assertThat(event.actorId())
@@ -155,14 +162,15 @@ class ScimSeedServiceTests {
     }
 
     /**
-     * Both identities are stamped with the seeding clock and carry their userName as their
-     * displayName, which is what the Accounts page lists them by.
+     * The Bootstrap Admin and the baseline fixture are stamped with the seeding clock and carry
+     * their userName as their displayName, which is what the Accounts page lists them by.
      */
     @Test
     void the_seeded_identities_are_created_now_and_displayed_by_their_user_name() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
+        seeding.seedDevFixtures(List.of(), BASELINE, FIXTURE_PASSWORD);
 
-        assertThat(List.of(users.require("user"), users.require("admin")))
+        assertThat(List.of(users.require(BASELINE), users.require("admin")))
                 .allSatisfy(seeded -> {
                     assertThat(seeded.createdAt()).isEqualTo(ScimIdentities.NOW);
                     assertThat(seeded.lastModifiedAt()).isEqualTo(ScimIdentities.NOW);
@@ -180,7 +188,7 @@ class ScimSeedServiceTests {
      */
     @Test
     void the_bootstrap_admin_is_seeded_with_a_password_change_required() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
@@ -194,26 +202,28 @@ class ScimSeedServiceTests {
      */
     @Test
     void a_later_run_does_not_re_flag_a_bootstrap_admin_that_changed_its_password() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
         users.completePasswordChange(bootstrapAdmin.id(), "hashed:rotated", ScimIdentities.NOW);
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(users.findById(bootstrapAdmin.id()).orElseThrow()
                         .login().isPasswordChangeRequired())
                 .isFalse();
     }
 
-    /** The ordinary identity is not a reserved resource, so its creation records no seed event. */
+    /** The baseline fixture is not a reserved resource, so its creation records nothing. */
     @Test
-    void the_ordinary_identity_records_no_seed_event() {
-        seeding.seed(ORDINARY, RECOVERY);
+    void the_baseline_fixture_records_no_audit_event() {
+        seeding.seed(RECOVERY);
+        audit.reset();
 
-        assertThat(audit.of(AuditOperation.SCIM_RESOURCE_SEED))
-                .extracting(RecordingAuditTrail.Recorded::subjectId)
-                .doesNotContain(users.require("user").id());
+        seeding.seedDevFixtures(List.of(), BASELINE, FIXTURE_PASSWORD);
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of(BASELINE))).isPresent();
+        assertThat(audit.recorded()).isEmpty();
     }
 
     // ---- idempotence --------------------------------------------------------------------------
@@ -226,27 +236,12 @@ class ScimSeedServiceTests {
      */
     @Test
     void every_run_takes_the_seeding_lock_before_creating_anything() {
-        seeding.seed(ORDINARY, RECOVERY);
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(seedLock.usersSeenAtEachAcquire)
                 .as("one acquisition per run, each before that run created anything")
-                .containsExactly(0L, 2L);
-    }
-
-    /**
-     * The ordinary identity is a first-run convenience, not a recovery resource: once seeding has
-     * completed it is an ordinary provisionable User, and a restart that recreated it would undo a
-     * deliberate deletion.
-     */
-    @Test
-    void a_later_run_does_not_recreate_a_deleted_ordinary_identity() {
-        seeding.seed(ORDINARY, RECOVERY);
-        users.deleteById(users.require("user").id(), ScimIdentities.NOW);
-
-        seeding.seed(ORDINARY, RECOVERY);
-
-        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isEmpty();
+                .containsExactly(0L, 1L);
     }
 
     /**
@@ -256,41 +251,39 @@ class ScimSeedServiceTests {
      */
     @Test
     void a_later_run_hashes_nothing() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         int afterFirst = passwordEncoder.encodes;
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(passwordEncoder.encodes).isEqualTo(afterFirst);
     }
 
     /**
-     * A database that already has a User under the ordinary name but no Bootstrap Admin — a User
-     * provisioned before seeding first ran — is seeded around it. The existing User is not
-     * replaced, and its presence is found by a lookup rather than by a failed INSERT, which against
-     * Postgres would abort the seed transaction.
+     * A User already holding the baseline fixture's name — one provisioned before the fixtures
+     * were enabled — is left alone: not replaced, not re-hashed, and found by a lookup rather than
+     * by a failed INSERT, which against Postgres would abort the seed transaction.
      */
     @Test
-    void a_first_run_leaves_an_existing_user_under_the_ordinary_name_alone() {
-        ScimUser existing = users.create(ScimIdentities.user("user"));
+    void the_baseline_fixture_leaves_an_existing_user_under_its_name_alone() {
+        ScimUser existing = users.create(ScimIdentities.user(BASELINE));
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seedDevFixtures(List.of(), BASELINE, FIXTURE_PASSWORD);
 
-        assertThat(users.require("user").id()).isEqualTo(existing.id());
-        assertThat(users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN)).isPresent();
-        assertThat(passwordEncoder.encodes)
-                .as("only the Bootstrap Admin's password was hashed")
-                .isEqualTo(1);
+        assertThat(users.require(BASELINE).id()).isEqualTo(existing.id());
+        assertThat(users.require(BASELINE).login().passwordHash())
+                .isEqualTo(existing.login().passwordHash());
+        assertThat(passwordEncoder.encodes).isZero();
     }
 
     @Test
     void a_second_run_creates_nothing_and_records_nothing() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         long usersAfterFirst = users.size();
         long groupsAfterFirst = groups.size();
         audit.reset();
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(users.size()).isEqualTo(usersAfterFirst);
         assertThat(groups.size()).isEqualTo(groupsAfterFirst);
@@ -303,11 +296,11 @@ class ScimSeedServiceTests {
      */
     @Test
     void a_second_run_does_not_overwrite_the_recovery_password() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         ScimUser afterFirst =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
 
-        seeding.seed(ORDINARY, new SeededIdentity("admin", "a-different-password"));
+        seeding.seed(new SeededIdentity("admin", "a-different-password"));
 
         assertThat(users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow()
                         .login().passwordHash())
@@ -316,13 +309,13 @@ class ScimSeedServiceTests {
 
     @Test
     void a_second_run_does_not_reset_the_recovery_identitys_failure_run_or_lock() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         ScimUser bootstrapAdmin =
                 users.findByReservedName(ReservedResourceName.BOOTSTRAP_ADMIN).orElseThrow();
         users.updateLoginState(
                 bootstrapAdmin.id(), bootstrapAdmin.login().withFailureCounted());
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(users.findById(bootstrapAdmin.id()).orElseThrow()
                         .login().failedLoginAttempts())
@@ -332,7 +325,7 @@ class ScimSeedServiceTests {
     /** Ordinary membership provisioning put into the Admin group survives a restart. */
     @Test
     void a_second_run_leaves_ordinary_admin_group_membership_alone() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         ScimGroup adminGroup =
                 groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow();
         ScimUser promoted = users.create(ScimIdentities.user("carol"));
@@ -341,7 +334,7 @@ class ScimSeedServiceTests {
         groups.replace(adminGroup.replacedWith(
                 adminGroup.displayName(), withCarol, ScimIdentities.NOW));
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow()
                         .hasMember(promoted.id()))
@@ -355,7 +348,7 @@ class ScimSeedServiceTests {
      */
     @Test
     void a_later_run_restores_the_bootstrap_admins_membership_if_it_went_missing() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         ScimGroup adminGroup =
                 groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow();
         ScimUser bootstrapAdmin =
@@ -369,7 +362,7 @@ class ScimSeedServiceTests {
                 adminGroup.createdAt(),
                 adminGroup.lastModifiedAt()));
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow()
                         .hasMember(bootstrapAdmin.id()))
@@ -392,10 +385,10 @@ class ScimSeedServiceTests {
     /** A run that finds the membership intact restores nothing, so it records no restore. */
     @Test
     void a_later_run_that_finds_the_membership_intact_records_no_restore() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
         audit.reset();
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(audit.of(AuditOperation.SCIM_RESOURCE_SEED))
                 .as("an idempotent restart is not an authority change and must not read as one")
@@ -404,17 +397,16 @@ class ScimSeedServiceTests {
     }
 
     /**
-     * The seeded passwords are hashed, never stored as submitted. Asserted through the encoder's
+     * The seeded password is hashed, never stored as submitted. Asserted through the encoder's
      * invocation count and the stored value differing from the plaintext, because the real encoder's
      * output cannot be predicted.
      */
     @Test
-    void the_seeded_passwords_are_hashed_before_they_are_stored() {
-        seeding.seed(ORDINARY, RECOVERY);
+    void the_seeded_password_is_hashed_before_it_is_stored() {
+        seeding.seed(RECOVERY);
 
-        assertThat(passwordEncoder.encodes).isEqualTo(2);
+        assertThat(passwordEncoder.encodes).isEqualTo(1);
         assertThat(users.require("admin").login().passwordHash()).isNotEqualTo("admin-password");
-        assertThat(users.require("user").login().passwordHash()).isNotEqualTo("user-password");
     }
 
     // The role mapping's Superuser Group
@@ -422,7 +414,7 @@ class ScimSeedServiceTests {
     /** The Admin group is created under the mapping's Superuser Group id: they are one Group. */
     @Test
     void the_admin_group_is_created_under_the_superuser_group_id() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow().id())
                 .isEqualTo(TestRoleMappings.SUPERUSER_GROUP_ID);
@@ -430,7 +422,7 @@ class ScimSeedServiceTests {
 
     @Test
     void a_seeded_directory_satisfies_a_superuser_only_mapping() {
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThatCode(seeding::verifyMappedGroups).doesNotThrowAnyException();
     }
@@ -447,7 +439,7 @@ class ScimSeedServiceTests {
                 ScimIdentities.group("Admins", bootstrapAdmin), ReservedResourceName.ADMIN_GROUP)
                 .id();
 
-        seeding.seed(ORDINARY, RECOVERY);
+        seeding.seed(RECOVERY);
 
         assertThat(groups.findByReservedName(ReservedResourceName.ADMIN_GROUP).orElseThrow().id())
                 .isEqualTo(earlier);
@@ -463,7 +455,7 @@ class ScimSeedServiceTests {
         UUID auditors = UUID.fromString("00000000-0000-4000-8000-0000000000c2");
         ScimSeedService withHelpdesk = seedingUnder(mappingWith(helpdesk, auditors));
         groups.given(ScimGroup.created(auditors, "Auditors", List.of(), ScimIdentities.NOW));
-        withHelpdesk.seed(ORDINARY, RECOVERY);
+        withHelpdesk.seed(RECOVERY);
 
         assertThatThrownBy(withHelpdesk::verifyMappedGroups)
                 .isInstanceOf(InvalidRoleMappingException.class)
@@ -500,7 +492,7 @@ class ScimSeedServiceTests {
 
     @Test
     void the_fixtures_create_each_group_under_its_id_with_its_user_in_it() {
-        seeding.seedDevFixtures(FIXTURES, "fixture-password");
+        seeding.seedDevFixtures(FIXTURES, null, "fixture-password");
 
         ScimUser member = users.require("account-admin");
         ScimGroup group = groups.findById(FIXTURE_GROUP).orElseThrow();
@@ -522,8 +514,8 @@ class ScimSeedServiceTests {
     void the_fixtures_are_idempotent_and_never_overwrite() {
         ScimUser existing = users.given(ScimIdentities.user("account-admin"));
 
-        seeding.seedDevFixtures(FIXTURES, "fixture-password");
-        seeding.seedDevFixtures(FIXTURES, "another-password");
+        seeding.seedDevFixtures(FIXTURES, null, "fixture-password");
+        seeding.seedDevFixtures(FIXTURES, null, "another-password");
 
         assertThat(users.require("account-admin").login().passwordHash())
                 .isEqualTo(existing.login().passwordHash());
@@ -544,7 +536,7 @@ class ScimSeedServiceTests {
         groups.given(ScimGroup.created(FIXTURE_GROUP, "Renamed since",
                 List.of(ScimGroupMember.reference(other.id())), ScimIdentities.NOW));
 
-        seeding.seedDevFixtures(FIXTURES, "fixture-password");
+        seeding.seedDevFixtures(FIXTURES, null, "fixture-password");
 
         ScimGroup group = groups.findById(FIXTURE_GROUP).orElseThrow();
         assertThat(group.displayName()).isEqualTo("Renamed since");
@@ -554,10 +546,10 @@ class ScimSeedServiceTests {
 
     @Test
     void the_fixtures_are_refused_without_a_password() {
-        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, " "))
+        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, null, " "))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("APP_DEV_FIXTURES_PASSWORD");
-        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, null))
+        assertThatThrownBy(() -> seeding.seedDevFixtures(FIXTURES, null, null))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(users.size()).isZero();
         assertThat(groups.size()).isZero();

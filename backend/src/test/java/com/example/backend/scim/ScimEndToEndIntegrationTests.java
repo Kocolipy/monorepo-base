@@ -62,7 +62,7 @@ class ScimEndToEndIntegrationTests {
 
     private static final MediaType SCIM_JSON = MediaType.valueOf("application/scim+json");
 
-    /** The configured recovery identity — {@code app.auth.secondary-username} in test resources. */
+    /** The configured recovery identity — {@code app.auth.bootstrap-username} in test resources. */
     private static final String BOOTSTRAP_ADMIN = "test-admin";
 
     private static final String BOOTSTRAP_PASSWORD = "test-admin-password";

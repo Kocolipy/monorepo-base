@@ -50,11 +50,11 @@ takes traffic.
 
 ### What must be throttled
 
-| Surface                      | Path                              | Rate-based key                             |
-| ---------------------------- | --------------------------------- | ------------------------------------------ |
-| SCIM                         | `/scim/v2/` and everything below  | the `Authorization` header (one connector token) |
-| Login                        | `POST /api/auth/login`            | count-all, scoped down to the path         |
-| Self-service password change | `POST /api/auth/change-password`  | the `JSESSIONID` cookie (one session)      |
+| Surface                      | Path                             | Rate-based key                                   |
+| ---------------------------- | -------------------------------- | ------------------------------------------------ |
+| SCIM                         | `/scim/v2/` and everything below | the `Authorization` header (one connector token) |
+| Login                        | `POST /api/auth/login`           | count-all, scoped down to the path               |
+| Self-service password change | `POST /api/auth/change-password` | the `JSESSIONID` cookie (one session)            |
 
 Also give `/scim/v2/` a count-all ceiling scoped down to the path, so random
 bearer values cannot dodge the per-token rule by presenting a different key on
@@ -111,7 +111,7 @@ log destination.
    # Set region: ap-southeast-1
    ```
 
-3. **Application built** — the *integrated* JAR (SPA + backend), from the repo
+3. **Application built** — the _integrated_ JAR (SPA + backend), from the repo
    root:
 
    ```bash
@@ -135,11 +135,10 @@ log destination.
 ./deploy.sh
 ```
 
-The script prompts separately for the database-backed `USER` and `ADMIN` seed
-credentials. The corresponding CloudFormation parameters retain their existing
-names for compatibility: `AppUsername` / `AppPassword` seed the `USER`, while
-`AppSecondaryUsername` / `AppSecondaryPassword` seed the `ADMIN`. Existing
-accounts are never overwritten on restart.
+The script prompts for the database-backed `ADMIN` seed credentials, the only
+User a deployment is seeded with: `AppBootstrapUsername` /
+`AppBootstrapPassword`. Existing accounts are never overwritten
+on restart
 
 ### Option 2: Manual
 
@@ -333,13 +332,13 @@ The alert rules are code: `backend/ops/prometheus/alerts.yaml`. Load them with
 `rule_files:` in the Prometheus that scrapes the service. Each rule carries its
 own runbook text:
 
-| Alert | Fires on | Usually means |
-| ----- | -------- | ------------- |
-| `ScimAuthenticationFailuresSustained` | sustained SCIM `401` | a connector's token expired or was revoked, or probing |
-| `LoginAuthenticationFailuresSustained` | sustained Login `401` | a guessing campaign spread across accounts |
-| `ScimPreconditionFailuresSustained` | sustained SCIM `412` | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
-| `ScimUniquenessConflictsSustained` | sustained SCIM `409` | a connector re-creating identities it believes are missing |
-| `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h | dormant accounts are not being locked, nor their Roles revoked |
+| Alert                                         | Fires on                                               | Usually means                                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ScimAuthenticationFailuresSustained`         | sustained SCIM `401`                                   | a connector's token expired or was revoked, or probing                                                                                               |
+| `LoginAuthenticationFailuresSustained`        | sustained Login `401`                                  | a guessing campaign spread across accounts                                                                                                           |
+| `ScimPreconditionFailuresSustained`           | sustained SCIM `412`                                   | writers colliding on a stale `If-Match` (writes without `If-Match` apply unconditionally; see the `scim:unconditional_writes:rate1h` recording rule) |
+| `ScimUniquenessConflictsSustained`            | sustained SCIM `409`                                   | a connector re-creating identities it believes are missing                                                                                           |
+| `DormancyJobFailed` / `DormancyJobNotRunning` | the dormancy job throws, or has not succeeded for 26 h | dormant accounts are not being locked, nor their Roles revoked                                                                                       |
 
 The thresholds are starting points. Tune them against a week of normal traffic.
 The dormancy job publishes its series under `job="dormancy"` from startup.
@@ -355,24 +354,22 @@ of silently disarming an alert.
 
 ## Parameters Reference
 
-| Parameter            | Description        | Required | Default            |
-| -------------------- | ------------------ | -------- | ------------------ |
-| VpcId                | Existing VPC ID    | Yes      | -                  |
-| PublicSubnet1Id      | Public subnet 1    | Yes      | -                  |
-| PublicSubnet2Id      | Public subnet 2    | Yes      | -                  |
-| PrivateSubnet1Id     | Private subnet 1   | Yes      | -                  |
-| PrivateSubnet2Id     | Private subnet 2   | Yes      | -                  |
-| CreateKeyPair        | Create key pair    | No       | true               |
-| KeyName              | Key pair name      | Yes      | spring-backend-key |
-| InstanceType         | EC2 type           | No       | t3.small           |
-| DBPassword           | Database password  | Yes      | -                  |
-| RedisPassword        | Redis password        | No       | (empty)            |
-| AppUsername          | Seeded USER username  | No       | user               |
-| AppPassword          | Seeded USER password  | Yes      | -                  |
-| AppSecondaryUsername | Seeded ADMIN username | No       | admin              |
-| AppSecondaryPassword | Seeded ADMIN password | Yes      | -                  |
-| AppEnvironment       | `service.environment` on every log record | No | production |
-| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No | 90 |
+| Parameter            | Description                                   | Required | Default            |
+| -------------------- | --------------------------------------------- | -------- | ------------------ |
+| VpcId                | Existing VPC ID                               | Yes      | -                  |
+| PublicSubnet1Id      | Public subnet 1                               | Yes      | -                  |
+| PublicSubnet2Id      | Public subnet 2                               | Yes      | -                  |
+| PrivateSubnet1Id     | Private subnet 1                              | Yes      | -                  |
+| PrivateSubnet2Id     | Private subnet 2                              | Yes      | -                  |
+| CreateKeyPair        | Create key pair                               | No       | true               |
+| KeyName              | Key pair name                                 | Yes      | spring-backend-key |
+| InstanceType         | EC2 type                                      | No       | t3.small           |
+| DBPassword           | Database password                             | Yes      | -                  |
+| RedisPassword        | Redis password                                | No       | (empty)            |
+| AppBootstrapUsername | Seeded ADMIN username                         | No       | admin              |
+| AppBootstrapPassword | Seeded ADMIN password                         | Yes      | -                  |
+| AppEnvironment       | `service.environment` on every log record     | No       | production         |
+| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No       | 90                 |
 
 ---
 

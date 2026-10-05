@@ -134,11 +134,15 @@ function renderAccounts(value: AuthContextState = auth) {
 const usersTable = () => screen.getByRole("table", { name: "Users" });
 const groupsTable = () => screen.getByRole("table", { name: "Groups" });
 
-/** The row for a named User or Group, addressed by its row header. */
+/**
+ * The row for a named User or Group, addressed by its row header. A prefix match
+ * on the accessible name, written as a predicate rather than a RegExp built
+ * from `name`, so no regex metacharacter in a fixture name can change it.
+ */
 const row = (name: string, table = usersTable()) =>
   within(
     within(table)
-      .getByRole("rowheader", { name: new RegExp(`^${name}`) })
+      .getByRole("rowheader", { name: (accessibleName) => accessibleName.startsWith(name) })
       .closest("tr")!,
   );
 

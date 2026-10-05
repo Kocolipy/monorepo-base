@@ -62,9 +62,41 @@ class ScimSeedConfigStartupTests {
             .withBean(DormancyPolicy.class, DormancyPolicy::defaults)
             .withUserConfiguration(ScimSeedConfig.class)
             .withPropertyValues(
-                    "app.auth.username=user", "app.auth.password=user-password",
-                    "app.auth.secondary-username=admin",
-                    "app.auth.secondary-password=admin-password");
+                    "app.auth.bootstrap-username=admin",
+                    "app.auth.bootstrap-password=admin-password");
+
+    /**
+     * Fixtures off: the Bootstrap Admin is the only User seeded — the baseline member, though
+     * configured, is a fixture and is not. (The Helpdesk Group is then missing, so the check after
+     * seeding refuses; seeding has already run by then.)
+     */
+    @Test
+    void withTheFixturesOffTheBootstrapAdminIsTheOnlyUserSeeded() {
+        contexts.withPropertyValues("app.dev-fixtures.baseline-member=user")
+                .run(context -> assertThatThrownBy(
+                        () -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS))
+                        .isInstanceOf(InvalidRoleMappingException.class));
+
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("admin"))).isPresent();
+        assertThat(users.findByNormalizedUserName(NormalizedUserName.of("user"))).isEmpty();
+    }
+
+    /** Fixtures on with a baseline member: it is seeded in no Group, on the fixture password. */
+    @Test
+    void theBaselineFixtureIsSeededInNoGroup() {
+        contexts.withPropertyValues(
+                        "app.dev-fixtures.enabled=true",
+                        "app.dev-fixtures.password=fixture-password",
+                        "app.dev-fixtures.baseline-member=user",
+                        "app.dev-fixtures.groups[0].id=" + HELPDESK,
+                        "app.dev-fixtures.groups[0].display-name=Helpdesk",
+                        "app.dev-fixtures.groups[0].member=helpdesk")
+                .run(context -> context.getBean(ApplicationRunner.class).run(NO_ARGUMENTS));
+
+        ScimUser baseline = users.require("user");
+        assertThat(baseline.login().passwordHash()).isEqualTo("encoded:fixture-password");
+        assertThat(groups.findAllOrderedByNormalizedDisplayName()).noneMatch(group -> group.hasMember(baseline.id()));
+    }
 
     /** Fixtures off: the Helpdesk Group was never created, so startup refuses, naming it. */
     @Test

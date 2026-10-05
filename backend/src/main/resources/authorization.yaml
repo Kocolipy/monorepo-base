@@ -64,8 +64,9 @@ app:
         role: Monitoring
 
   # One Group per non-Superuser Role above, each with one User in it, so local
-  # runs and the e2e suite have a User per Role to sign in as. The Superuser's
-  # User is the Bootstrap Admin, which is seeded regardless.
+  # runs and the e2e suite have a User per Role to sign in as, plus a User with
+  # no Role at all. The Superuser's User is the Bootstrap Admin, which is the
+  # only User seeded regardless.
   #
   # OFF unless APP_DEV_FIXTURES_ENABLED=true (`.env.example` sets it). The
   # password has no fallback here: this remote is public, so a deployment that
@@ -74,6 +75,9 @@ app:
   dev-fixtures:
     enabled: ${APP_DEV_FIXTURES_ENABLED:false}
     password: ${APP_DEV_FIXTURES_PASSWORD:}
+    # A User in no Group, so it holds only the baseline Permissions: the e2e
+    # suite's `user` project and the non-administrative paths sign in as it.
+    baseline-member: user
     # A User in no Group whose dormancy basis is put a day past the lockout
     # window at every startup, and whose password and lock are reset with it, so
     # the startup dormancy run the fixtures enable (DevDormancyStartupConfig) locks
