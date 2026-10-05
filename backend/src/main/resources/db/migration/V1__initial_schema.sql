@@ -140,8 +140,15 @@ CREATE TABLE scim_users (
     -- column's presence is the state and no clock is consulted to read it.
     locked_at                      TIMESTAMPTZ,
 
+    -- Why the User is locked (ADR 0011): a failure run (ADR 0007) or dormancy,
+    -- imposed by the dormancy job at the lockout window. It sits beside
+    -- `locked_at`, set whenever it is set and cleared with it, so a helpdesk
+    -- operator can tell a forgotten password from an abandoned account before
+    -- unlocking.
+    lock_cause                     VARCHAR(16),
+
     -- When the User last logged in successfully. Nullable, because a User that
-    -- has never authenticated has no such instant — the dormancy jobs then
+    -- has never authenticated has no such instant — the dormancy job then
     -- measure from `scim_resources.created_at`, so a credentialless User is not
     -- treated as dormant the moment it is provisioned. An explicit
     -- inactive-to-active transition also writes it (the reactivation time),
@@ -163,13 +170,26 @@ CREATE TABLE scim_users (
     -- userName reusable.
     CONSTRAINT uq_scim_users_normalized_user_name UNIQUE (normalized_user_name),
 
+    -- The last line behind the application: a write path that set one of
+    -- `locked_at` and `lock_cause` without the other cannot store it. `NULL IN
+    -- (...)` is NULL and a CHECK accepts NULL, so the locked branch spells
+    -- `lock_cause IS NOT NULL` explicitly: without it a lock with no cause would
+    -- evaluate to `FALSE OR NULL` and be stored.
+    CONSTRAINT ck_scim_users_lock_cause
+        CHECK ((locked_at IS NULL AND lock_cause IS NULL)
+               OR (locked_at IS NOT NULL AND lock_cause IS NOT NULL
+                   AND lock_cause IN ('FAILURES', 'DORMANCY'))),
+
     CONSTRAINT fk_scim_users_resource
         FOREIGN KEY (resource_id) REFERENCES scim_resources (id) ON DELETE CASCADE
 );
 
 COMMENT ON COLUMN scim_users.locked_at IS
-    'When the User was locked by its failure run; NULL when it is not locked. '
-    'A lock has no expiry — only an administrator''s Unlock clears this.';
+    'When the User was locked, by its failure run or by the dormancy job; NULL when it is not '
+    'locked. A lock has no expiry — only an administrator''s Unlock clears this.';
+
+COMMENT ON COLUMN scim_users.lock_cause IS
+    'Why the User is locked: FAILURES or DORMANCY. NULL exactly when locked_at is.';
 
 COMMENT ON COLUMN scim_users.last_authenticated_at IS
     'When the User last logged in successfully, or was last explicitly reactivated; '
@@ -368,8 +388,10 @@ CREATE TABLE scim_connector_tokens (
     -- ConnectorTokenSecret, which says so at the one place that computes it.
     token_hash           BYTEA        NOT NULL,
 
-    -- READ_ONLY or READ_WRITE; write implies read.
-    scope                VARCHAR(16)  NOT NULL,
+    -- The Permissions the token carries (ADR 0010), from the same vocabulary a
+    -- User's Roles grant, spelled as the wire spells them ('user:read'). An
+    -- empty set authenticates and may read discovery but nothing else.
+    permissions          TEXT[]       NOT NULL,
 
     issued_at            TIMESTAMPTZ  NOT NULL,
 
@@ -403,7 +425,16 @@ CREATE TABLE scim_connector_tokens (
     -- so the rule holds against a future code path that never read the policy
     -- class.
     CONSTRAINT ck_scim_connector_tokens_expiry_never_extended
-        CHECK (expires_at <= original_expires_at)
+        CHECK (expires_at <= original_expires_at),
+
+    -- A token can carry only the four directory Permissions: the rest of the
+    -- vocabulary guards the application chain, which no bearer token reaches. The
+    -- application refuses the others first; this is the last line, so a write path
+    -- that forgot the rule cannot store a token that would mean more the day a route
+    -- began to honour it.
+    CONSTRAINT ck_scim_connector_tokens_directory_permissions
+        CHECK (permissions <@ ARRAY['user:read', 'user:write', 'group:read', 'group:write']::TEXT[]
+               AND array_position(permissions, NULL) IS NULL)
 );
 
 -- Deleting a connector revokes every token it holds, and the Admin view lists a
@@ -509,6 +540,24 @@ CREATE TABLE audit_events (
     -- expressions).
     filter_shape  TEXT,
 
+    -- The Role a membership change on a mapped Group granted or revoked. The
+    -- Group's id alone does not say which power changed hands, because the role
+    -- mapping that turns it into a Role is deployment configuration and can be
+    -- replaced by the next deploy; so the event carries the Role's NAME as the
+    -- mapping stated it when the change happened. A name from deployment
+    -- configuration, never a value a caller submitted. NULL for every event but
+    -- ROLE_GRANT and ROLE_REVOKE. TEXT, not a bounded VARCHAR: the mapping does
+    -- not bound a Role's name, and a fail-closed append that a long name could
+    -- refuse would roll back the membership change it records.
+    role_name     TEXT,
+
+    -- The Permissions a token was issued or rotated with, or — on a refused
+    -- escalation — the Permissions that were asked for. Names from the closed
+    -- vocabulary in code, comma-joined as changed_paths is, never a value a
+    -- caller submitted unchecked: a name that is no Permission is refused before
+    -- anything is recorded. NULL for every other event.
+    permissions   TEXT,
+
     CONSTRAINT pk_audit_events PRIMARY KEY (id),
 
     CONSTRAINT ck_audit_events_result_count_non_negative
@@ -538,8 +587,7 @@ CREATE TABLE scheduled_job_locks (
 );
 
 INSERT INTO scheduled_job_locks (job_name) VALUES
-    ('inactivity-deactivation'),
-    ('dormant-authority-revocation'),
+    ('dormancy'),
     ('audit-retention');
 
 CREATE TABLE user_counters (
