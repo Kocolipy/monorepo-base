@@ -19,7 +19,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * The startup pass that ends sessions issued under another role mapping: every User is checked
- * against the running mapping's hash, and the pass is reported as the spec's two
+ * against the running mapping's hash, and the pass is reported as ADR 0003's two
  * {@code application-startup} records.
  */
 class RoleMappingSessionServiceTests {

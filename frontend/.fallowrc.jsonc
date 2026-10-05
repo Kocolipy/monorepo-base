@@ -3,11 +3,10 @@
 
   // Entry points fallow cannot discover on its own. It walks JS/TS import
   // graphs, so anything reached purely through a config file is invisible to
-  // it and gets reported as an unused file. Nothing qualifies yet — the
-  // Playwright specs are reached by `testMatch` regex, but fallow treats
-  // *.spec.ts as test files rather than unused source. Add a line here (with
-  // its reason) the moment a config starts pointing at a source file nothing
-  // imports.
+  // it and gets reported as an unused file. The Playwright specs are reached
+  // by `testMatch` regex too, but fallow treats *.spec.ts as test files rather
+  // than unused source. Add a line here (with its reason) the moment a config
+  // starts pointing at a source file nothing imports.
   "entry": [
     // Selected by playwright.config.ts's setup-project testMatch. Fallow does
     // not follow that regex edge, but Playwright executes this file directly.

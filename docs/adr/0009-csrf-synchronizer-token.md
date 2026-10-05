@@ -4,9 +4,8 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Reverses the "CSRF double-submit" choice in
-`docs/specs/scim-v2-account-management-plan.md` ("Security boundaries"). Implemented
-in #65.
+Accepted. Reverses the original design's double-submit cookie choice for CSRF.
+Implemented in #65.
 
 ## Context
 

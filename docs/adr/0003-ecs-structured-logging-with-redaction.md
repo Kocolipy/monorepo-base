@@ -126,24 +126,24 @@ service's own `app.` key — rather than a member being invented for the standar
 enum. Semgrep `be-log-event-action-outside-the-vocabulary` holds `classify` to
 being the only writer of either key.
 
-| Operation (old `event.action`)            | `event.action`                | `app.event.action`                     | `event.category` | `event.type`                     |
-| ----------------------------------------- | ----------------------------- | -------------------------------------- | ---------------- | -------------------------------- |
-| `login`, accepted                         | `user-authentication`         | —                                      | `process`        | `user`, `allowed`                |
-| `login`, refused                          | `user-authentication`         | —                                      | `process`        | `user`, `denied`                 |
-| `identity.unlock`, applied / refused      | `access-control`              | `identity.unlock`                      | `process`        | `admin`, `user`, `change`/`denied` |
-| `identity.force_password_change`, applied / refused | `password-change-enforcement` | —                            | `process`        | `admin`, `user`, `change`/`denied` |
-| `identity.password_change` (self-service), applied / refused | `user-administration` | `identity.password_change`  | `process`        | `user`, `change`/`denied`        |
-| `scim.connector.create`                   | `access-control`              | `scim.connector.create`                | `configuration`  | `admin`, `creation`              |
-| `scim.connector.delete`                   | `access-control`              | `scim.connector.delete`                | `configuration`  | `admin`, `deletion`              |
-| `scim.connector.token.issue`              | `access-control`              | `scim.connector.token.issue`           | `configuration`  | `admin`, `creation`              |
-| `scim.connector.token.rotate`             | `access-control`              | `scim.connector.token.rotate`          | `configuration`  | `admin`, `change`                |
-| `scim.connector.token.revoke`             | `access-control`              | `scim.connector.token.revoke`          | `configuration`  | `admin`, `deletion`              |
-| `scim.write` (integrity violation)        | `user-provisioning`           | `scim.write`                           | `database`       | `error`                          |
-| `identity.inactivity_deactivation`, run   | `user-administration`         | `identity.inactivity_deactivation`     | `batch`          | `job-end`                        |
-| `identity.dormant_authority_revocation`, run | `access-control`           | `identity.dormant_authority_revocation` | `batch`         | `job-end`                        |
-| `audit.retention`, run                    | — (no action fits)            | `audit.retention`                      | `batch`          | `job-end`                        |
-| any job's schedule at startup             | as the job's row              | as the job's row                       | `configuration`  | `info`                           |
-| `audit.append` (append failed)            | — (no action fits)            | `audit.append`                         | `database`       | `error`, plus `event.severity` `high` |
+| Operation (old `event.action`)                               | `event.action`                | `app.event.action`                      | `event.category` | `event.type`                          |
+| ------------------------------------------------------------ | ----------------------------- | --------------------------------------- | ---------------- | ------------------------------------- |
+| `login`, accepted                                            | `user-authentication`         | —                                       | `process`        | `user`, `allowed`                     |
+| `login`, refused                                             | `user-authentication`         | —                                       | `process`        | `user`, `denied`                      |
+| `identity.unlock`, applied / refused                         | `access-control`              | `identity.unlock`                       | `process`        | `admin`, `user`, `change`/`denied`    |
+| `identity.force_password_change`, applied / refused          | `password-change-enforcement` | —                                       | `process`        | `admin`, `user`, `change`/`denied`    |
+| `identity.password_change` (self-service), applied / refused | `user-administration`         | `identity.password_change`              | `process`        | `user`, `change`/`denied`             |
+| `scim.connector.create`                                      | `access-control`              | `scim.connector.create`                 | `configuration`  | `admin`, `creation`                   |
+| `scim.connector.delete`                                      | `access-control`              | `scim.connector.delete`                 | `configuration`  | `admin`, `deletion`                   |
+| `scim.connector.token.issue`                                 | `access-control`              | `scim.connector.token.issue`            | `configuration`  | `admin`, `creation`                   |
+| `scim.connector.token.rotate`                                | `access-control`              | `scim.connector.token.rotate`           | `configuration`  | `admin`, `change`                     |
+| `scim.connector.token.revoke`                                | `access-control`              | `scim.connector.token.revoke`           | `configuration`  | `admin`, `deletion`                   |
+| `scim.write` (integrity violation)                           | `user-provisioning`           | `scim.write`                            | `database`       | `error`                               |
+| `identity.inactivity_deactivation`, run                      | `user-administration`         | `identity.inactivity_deactivation`      | `batch`          | `job-end`                             |
+| `identity.dormant_authority_revocation`, run                 | `access-control`              | `identity.dormant_authority_revocation` | `batch`          | `job-end`                             |
+| `audit.retention`, run                                       | — (no action fits)            | `audit.retention`                       | `batch`          | `job-end`                             |
+| any job's schedule at startup                                | as the job's row              | as the job's row                        | `configuration`  | `info`                                |
+| `audit.append` (append failed)                               | — (no action fits)            | `audit.append`                          | `database`       | `error`, plus `event.severity` `high` |
 
 `event.kind` is `event` on every record. Two operations have no standard action:
 the enum offers nothing for deleting aged-out audit rows or for an audit write
@@ -163,7 +163,7 @@ produce, and a durable local file for a forwarding agent.
 `spring-boot-micrometer-tracing-opentelemetry` module, gives each observation a
 span: every HTTP request (Boot's `ServerHttpObservationFilter`) and, through an
 observation opened in `ScheduledJobMetrics.instrumentLocked`, every scheduled-job run.
-All three jobs now run through `instrumentLocked`, so every job record is correlated.
+Every scheduled job now runs through `instrumentLocked`, so every job record is correlated.
 `TraceLogCorrelationConfig` replaces Boot's `Slf4JEventListener` with one writing
 the ECS keys `trace.id` and `span.id` — the defaults (`traceId`, `spanId`) would
 land as top-level fields no ECS query selects on. These are the first context keys
@@ -275,11 +275,11 @@ configuration (`APP_SESSION_ABSOLUTE_LIFETIME`, `APP_LOCKOUT_MAX_ATTEMPTS`,
 `server.servlet.session.timeout`), not from the log. The lifecycle tests assert
 the keys stay off the record.
 
-| Operation               | `event.action`         | `app.event.action` | `event.category` | `event.type`     |
-| ----------------------- | ---------------------- | ------------------ | ---------------- | ---------------- |
-| inbound HTTP request    | — (no action fits)     | `http.request`     | `network`        | `access`, `end`  |
-| application ready       | `application-startup`  | —                  | `process`        | `start`          |
-| application context closing | `application-shutdown` | —              | `process`        | `end`            |
+| Operation                   | `event.action`         | `app.event.action` | `event.category` | `event.type`    |
+| --------------------------- | ---------------------- | ------------------ | ---------------- | --------------- |
+| inbound HTTP request        | — (no action fits)     | `http.request`     | `network`        | `access`, `end` |
+| application ready           | `application-startup`  | —                  | `process`        | `start`         |
+| application context closing | `application-shutdown` | —                  | `process`        | `end`           |
 
 Both lifecycle records carry `event.outcome` `success` and `event.severity` `low`,
 as the standard's lifecycle recipe has them.
@@ -347,13 +347,13 @@ record: the closed namespace is meant to look like no namespace at all. Spring M
 those same dispatcher refusals, quoting the method, `Content-Type` or `Accept` the caller sent,
 so `log-levels.yaml` turns that category `OFF`, as it does Hibernate's JDBC error logger.
 
-| Operation                 | `event.action`        | `app.event.action`       | `event.category` | `event.type`        |
-| ------------------------- | --------------------- | ------------------------ | ---------------- | ------------------- |
-| request refused, `403`    | `access-control`      | `access.denied`          | `process`        | `access`, `denied`  |
-| request refused, `401`    | `access-control`      | `access.unauthenticated` | `process`        | `access`, `denied`  |
-| logout                    | `user-logout`         | —                        | `process`        | `user`, `end`       |
-| session ended             | `session-end`         | —                        | `process`        | `end`               |
-| SCIM refusal, 4xx / 5xx   | `user-provisioning`   | `scim.refusal`           | `process`        | `denied` / `error`  |
+| Operation               | `event.action`      | `app.event.action`       | `event.category` | `event.type`       |
+| ----------------------- | ------------------- | ------------------------ | ---------------- | ------------------ |
+| request refused, `403`  | `access-control`    | `access.denied`          | `process`        | `access`, `denied` |
+| request refused, `401`  | `access-control`    | `access.unauthenticated` | `process`        | `access`, `denied` |
+| logout                  | `user-logout`       | —                        | `process`        | `user`, `end`      |
+| session ended           | `session-end`       | —                        | `process`        | `end`              |
+| SCIM refusal, 4xx / 5xx | `user-provisioning` | `scim.refusal`           | `process`        | `denied` / `error` |
 
 ## Addendum (2026-10-02): scheduled job start, end, failure and run identity
 
@@ -416,12 +416,12 @@ timestamps in). They replace `audit.retention.schedule` and `dormancy.schedule`.
 `ScheduledJobMetrics.scheduled` builds them, so the configuration classes only add the job's
 window and log.
 
-| Operation                                   | `event.action`        | `app.event.action`                      | `event.category` | `event.type`          |
-| ------------------------------------------- | --------------------- | --------------------------------------- | ---------------- | --------------------- |
-| any job, run start / end                    | as the job's row      | as the job's row                        | `batch`          | `job-start` / `job-end` |
-| `identity.inactivity_deactivation`, summary | `user-administration` | `identity.inactivity_deactivation`      | `batch`          | `info`                |
-| `identity.dormant_authority_revocation`, summary | `access-control` | `identity.dormant_authority_revocation` | `batch`          | `info`                |
-| `audit.retention`, summary                  | —                     | `audit.retention`                       | `batch`          | `info`                |
+| Operation                                        | `event.action`        | `app.event.action`                      | `event.category` | `event.type`            |
+| ------------------------------------------------ | --------------------- | --------------------------------------- | ---------------- | ----------------------- |
+| any job, run start / end                         | as the job's row      | as the job's row                        | `batch`          | `job-start` / `job-end` |
+| `identity.inactivity_deactivation`, summary      | `user-administration` | `identity.inactivity_deactivation`      | `batch`          | `info`                  |
+| `identity.dormant_authority_revocation`, summary | `access-control`      | `identity.dormant_authority_revocation` | `batch`          | `info`                  |
+| `audit.retention`, summary                       | —                     | `audit.retention`                       | `batch`          | `info`                  |
 
 ## Addendum (2026-10-02): the app-wide error handler, and `error.*` on every ERROR
 
@@ -448,14 +448,14 @@ HTTP status a request fault was answered with, or `500` off any request; `error.
 `database` or `application` (and `data` for a caller's refusal); `error.follow_up_action` is
 `true` on every `ERROR`. The records:
 
-| Record | `error.code` | `error.category` | cause attached |
-| ------ | ------------ | ---------------- | -------------- |
-| scheduled job failed | `500` | `database` / `application` | whole |
-| SCIM 5xx refusal (advice, and `ScimErrorDocument`) | the status | `application` | the refusal (advice); none (filter) |
-| SCIM unmapped integrity violation | `500` | `database` | redacted copy |
-| audit append failed | `500` | `database` | none — see below |
-| request record, 5xx no handler recorded | the status | `application` | none |
-| app-wide handler, unexpected exception | the status | `application` | whole; redacted for a data-access failure |
+| Record                                             | `error.code` | `error.category`           | cause attached                            |
+| -------------------------------------------------- | ------------ | -------------------------- | ----------------------------------------- |
+| scheduled job failed                               | `500`        | `database` / `application` | whole                                     |
+| SCIM 5xx refusal (advice, and `ScimErrorDocument`) | the status   | `application`              | the refusal (advice); none (filter)       |
+| SCIM unmapped integrity violation                  | `500`        | `database`                 | redacted copy                             |
+| audit append failed                                | `500`        | `database`                 | none — see below                          |
+| request record, 5xx no handler recorded            | the status   | `application`              | none                                      |
+| app-wide handler, unexpected exception             | the status   | `application`              | whole; redacted for a data-access failure |
 
 The audit-append alert attaches no exception because it has none: the `OperationalAlerts` port
 carries the failure's type, deliberately, so the alert cannot leak what the event withheld. The
@@ -490,10 +490,10 @@ error classification: still the `5xx`, still `failure`, but not the same failure
 advice's and `ScimErrorDocument`'s `5xx` records mark it too. A `5xx` nobody recorded — an
 exception escaping the chain — keeps its `ERROR` request record, now classified.
 
-| Operation                     | `event.action`     | `app.event.action`     | `event.category` | `event.type` |
-| ----------------------------- | ------------------ | ---------------------- | ---------------- | ------------ |
-| request refused by the API    | — (no action fits) | `http.request.refusal` | `process`        | `denied`     |
-| request failed unexpectedly   | — (no action fits) | `http.request.fault`   | `process`        | `error`      |
+| Operation                   | `event.action`     | `app.event.action`     | `event.category` | `event.type` |
+| --------------------------- | ------------------ | ---------------------- | ---------------- | ------------ |
+| request refused by the API  | — (no action fits) | `http.request.refusal` | `process`        | `denied`     |
+| request failed unexpectedly | — (no action fits) | `http.request.fault`   | `process`        | `error`      |
 
 ## Addendum (2026-10-02): user.id on the request record, and every record's event.action
 
@@ -512,7 +512,7 @@ record, which is exactly the record the request-record addendum above exists to 
 
 So the request record carries `user.id` when the request was authenticated by session,
 and `scim.connector.id` when it was authenticated by a SCIM bearer token. That includes
-a bearer call refused for scope, which did authenticate. Neither field appears on an
+a bearer call refused for a missing Permission, which did authenticate. Neither field appears on an
 anonymous request, or on one refused before it authenticated (a missing session, or a
 token that was not accepted). Only resolved ids are marked, never a userName or anything
 of a presented token. The record stays one per request, and the probes and the scrape
@@ -522,10 +522,11 @@ still get none.
 list. Every `Operation` now maps onto its nearest allowed value, with
 `app.event.action` naming the precise operation wherever the action is shared. Two
 mappings changed. Dormant-authority revocation is now `user-administration`: it changes
-a User's standing, as inactivity deactivation does. A connector and its tokens are now
-`user-provisioning`, because they are the lifecycle of the provisioning channel. That
-leaves `access-control` to the access decisions themselves: unlock, access denied and
-unauthenticated.
+a User's standing, as inactivity deactivation does. Creating and deleting a connector,
+and revoking its token, are now `user-provisioning`, because they are the lifecycle of
+the provisioning channel. Issuing and rotating a token are `user-administration`
+(#117): each grants the token its Permissions. That leaves `access-control` to the
+access decisions themselves: unlock, access denied and unauthenticated.
 
 ### Operations with no event.action
 
@@ -534,13 +535,13 @@ Each still carries a stable `app.event.action`. The allowed list names authentic
 provisioning, administration, password, session, access-control and lifecycle actions,
 and all of them describe something done to or by an identity, or to the application.
 
-| `app.event.action`     | Why no allowed value fits                                                                                                                                                   |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app.event.action`     | Why no allowed value fits                                                                                                                                                                                                                 |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `http.request`         | It is the access record for every request, whatever the request did. Any one action would mislabel most requests, and `access-control` would merge every request into the authorization decisions a security search on that value is for. |
-| `http.request.refusal` | It records the API refusing malformed input, not an identity operation or an access decision.                                                                                  |
-| `http.request.fault`   | It records an unexpected failure, which is not an operation of any kind.                                                                                                       |
-| `audit.retention`      | It deletes aged-out audit rows. No User, session or access is involved.                                                                                                        |
-| `audit.append`         | It records an audit write failing, which is an operational alert rather than an identity operation.                                                                            |
+| `http.request.refusal` | It records the API refusing malformed input, not an identity operation or an access decision.                                                                                                                                             |
+| `http.request.fault`   | It records an unexpected failure, which is not an operation of any kind.                                                                                                                                                                  |
+| `audit.retention`      | It deletes aged-out audit rows. No User, session or access is involved.                                                                                                                                                                   |
+| `audit.append`         | It records an audit write failing, which is an operational alert rather than an identity operation.                                                                                                                                       |
 
 `LogEventTests.everyOperationHasAnActionOrADocumentedException` holds this list to the
 code. An operation with no action that is not listed here fails the test, and so does a
@@ -551,36 +552,37 @@ listed operation that has gained an action.
 This table supersedes the per-addendum tables above for `event.action` and
 `app.event.action`. Their category and type columns still stand.
 
-| `Operation`                    | `event.action`                | `app.event.action`                      |
-| ------------------------------ | ----------------------------- | --------------------------------------- |
-| `LOGIN`                        | `user-authentication`         | —                                       |
-| `UNLOCK`                       | `access-control`              | `identity.unlock`                       |
-| `FORCE_PASSWORD_CHANGE`        | `password-change-enforcement` | —                                       |
-| `PASSWORD_CHANGE`              | `user-administration`         | `identity.password_change`              |
-| `INACTIVITY_DEACTIVATION`      | `user-administration`         | `identity.inactivity_deactivation`      |
-| `DORMANT_AUTHORITY_REVOCATION` | `user-administration`         | `identity.dormant_authority_revocation` |
-| `CONNECTOR_CREATE`             | `user-provisioning`           | `scim.connector.create`                 |
-| `CONNECTOR_DELETE`             | `user-provisioning`           | `scim.connector.delete`                 |
-| `CONNECTOR_TOKEN_ISSUE`        | `user-provisioning`           | `scim.connector.token.issue`            |
-| `CONNECTOR_TOKEN_ROTATE`       | `user-provisioning`           | `scim.connector.token.rotate`           |
-| `CONNECTOR_TOKEN_REVOKE`       | `user-provisioning`           | `scim.connector.token.revoke`           |
-| `SCIM_WRITE`                   | `user-provisioning`           | `scim.write`                            |
-| `SCIM_REFUSAL`                 | `user-provisioning`           | `scim.refusal`                          |
-| `ACCESS_DENIED`                | `access-control`              | `access.denied`                         |
-| `UNAUTHENTICATED`              | `access-control`              | `access.unauthenticated`                |
-| `LOGOUT`                       | `user-logout`                 | —                                       |
-| `ROLE_GRANT`                   | `user-administration`         | `identity.role_grant`                   |
-| `ROLE_REVOKE`                  | `user-administration`         | `identity.role_revoke`                  |
-| `ROLE_MAPPING_STARTUP`         | `application-startup`         | `authorization.role_mapping`            |
-| `SESSION_START`                | `session-start`               | —                                       |
-| `SESSION_END`                  | `session-end`                 | —                                       |
-| `AUDIT_RETENTION`              | — (exception, above)          | `audit.retention`                       |
-| `AUDIT_APPEND`                 | — (exception, above)          | `audit.append`                          |
-| `HTTP_REQUEST`                 | — (exception, above)          | `http.request`                          |
-| `HTTP_REQUEST_REFUSAL`         | — (exception, above)          | `http.request.refusal`                  |
-| `HTTP_REQUEST_FAULT`           | — (exception, above)          | `http.request.fault`                    |
-| `APPLICATION_STARTUP`          | `application-startup`         | —                                       |
-| `APPLICATION_SHUTDOWN`         | `application-shutdown`        | —                                       |
+| `Operation`                | `event.action`                | `app.event.action`                  |
+| -------------------------- | ----------------------------- | ----------------------------------- |
+| `LOGIN`                    | `user-authentication`         | —                                   |
+| `UNLOCK`                   | `access-control`              | `identity.unlock`                   |
+| `FORCE_PASSWORD_CHANGE`    | `password-change-enforcement` | —                                   |
+| `PASSWORD_CHANGE`          | `user-administration`         | `identity.password_change`          |
+| `DORMANCY`                 | `user-administration`         | `identity.dormancy`                 |
+| `DORMANCY_LOCKOUT`         | `user-administration`         | `identity.dormancy_lockout`         |
+| `DORMANCY_ROLE_REVOCATION` | `user-administration`         | `identity.dormancy_role_revocation` |
+| `CONNECTOR_CREATE`         | `user-provisioning`           | `scim.connector.create`             |
+| `CONNECTOR_DELETE`         | `user-provisioning`           | `scim.connector.delete`             |
+| `CONNECTOR_TOKEN_ISSUE`    | `user-administration`         | `scim.connector.token.issue`        |
+| `CONNECTOR_TOKEN_ROTATE`   | `user-administration`         | `scim.connector.token.rotate`       |
+| `CONNECTOR_TOKEN_REVOKE`   | `user-provisioning`           | `scim.connector.token.revoke`       |
+| `SCIM_WRITE`               | `user-provisioning`           | `scim.write`                        |
+| `SCIM_REFUSAL`             | `user-provisioning`           | `scim.refusal`                      |
+| `ACCESS_DENIED`            | `access-control`              | `access.denied`                     |
+| `UNAUTHENTICATED`          | `access-control`              | `access.unauthenticated`            |
+| `LOGOUT`                   | `user-logout`                 | —                                   |
+| `ROLE_GRANT`               | `user-administration`         | `identity.role_grant`               |
+| `ROLE_REVOKE`              | `user-administration`         | `identity.role_revoke`              |
+| `ROLE_MAPPING_STARTUP`     | `application-startup`         | `authorization.role_mapping`        |
+| `SESSION_START`            | `session-start`               | —                                   |
+| `SESSION_END`              | `session-end`                 | —                                   |
+| `AUDIT_RETENTION`          | — (exception, above)          | `audit.retention`                   |
+| `AUDIT_APPEND`             | — (exception, above)          | `audit.append`                      |
+| `HTTP_REQUEST`             | — (exception, above)          | `http.request`                      |
+| `HTTP_REQUEST_REFUSAL`     | — (exception, above)          | `http.request.refusal`              |
+| `HTTP_REQUEST_FAULT`       | — (exception, above)          | `http.request.fault`                |
+| `APPLICATION_STARTUP`      | `application-startup`         | —                                   |
+| `APPLICATION_SHUTDOWN`     | `application-shutdown`        | —                                   |
 
 ## Addendum (2026-10-02): `session-start`
 
@@ -613,14 +615,13 @@ login for all four spellings.
 `session.yaml` leaves off (`configure-action: none`) because ElastiCache disables `CONFIG`; the
 infrastructure is unchanged, as recorded under the #69 addendum above.
 
-| Operation                 | `event.action`  | `app.event.action` | `event.category` | `event.type` |
-| ------------------------- | --------------- | ------------------ | ---------------- | ------------ |
-| session started (login)   | `session-start` | —                  | `process`        | `start`      |
+| Operation               | `event.action`  | `app.event.action` | `event.category` | `event.type` |
+| ----------------------- | --------------- | ------------------ | ---------------- | ------------ |
+| session started (login) | `session-start` | —                  | `process`        | `start`      |
 
 ## Addendum (2026-10-03): Role changes and the role mapping at startup (#116)
 
-Three operations, each with the action the permission-authorization spec's
-Observability table gives it:
+Three operations, each on an existing `event.action` value:
 
 | Operation                                  | `event.action`        | `app.event.action`           | `event.category` | `event.type` | Level  |
 | ------------------------------------------ | --------------------- | ---------------------------- | ---------------- | ------------ | ------ |
@@ -647,15 +648,14 @@ One job replaces inactivity deactivation and dormant-authority revocation, so th
 operations `identity.inactivity_deactivation` and
 `identity.dormant_authority_revocation` — and the tables above that name them — are
 retired, as are the `dormancy.window` and `dormancy.processed` fields and the old
-jobs' per-run summary record. In their place, with the actions the
-permission-authorization spec's Observability table gives:
+jobs' per-run summary record. In their place, each on an existing `event.action` value:
 
-| Operation                      | `event.action`        | `app.event.action`                  | `event.category` | `event.type`              | Level  |
-| ------------------------------ | --------------------- | ----------------------------------- | ---------------- | ------------------------- | ------ |
-| `DORMANCY`, schedule at startup | `user-administration` | `identity.dormancy`                | `configuration`  | `info`                    | `INFO` |
-| `DORMANCY`, run start / end     | `user-administration` | `identity.dormancy`                | `batch`          | `job-start` / `job-end`   | `INFO` |
-| `DORMANCY_LOCKOUT`, per User    | `user-administration` | `identity.dormancy_lockout`        | `process`        | `change`                  | `WARN` |
-| `DORMANCY_ROLE_REVOCATION`, per User | `user-administration` | `identity.dormancy_role_revocation` | `process`   | `change`                  | `INFO` |
+| Operation                            | `event.action`        | `app.event.action`                  | `event.category` | `event.type`            | Level  |
+| ------------------------------------ | --------------------- | ----------------------------------- | ---------------- | ----------------------- | ------ |
+| `DORMANCY`, schedule at startup      | `user-administration` | `identity.dormancy`                 | `configuration`  | `info`                  | `INFO` |
+| `DORMANCY`, run start / end          | `user-administration` | `identity.dormancy`                 | `batch`          | `job-start` / `job-end` | `INFO` |
+| `DORMANCY_LOCKOUT`, per User         | `user-administration` | `identity.dormancy_lockout`         | `process`        | `change`                | `WARN` |
+| `DORMANCY_ROLE_REVOCATION`, per User | `user-administration` | `identity.dormancy_role_revocation` | `process`        | `change`                | `INFO` |
 
 The startup record carries `dormancy.lockout.window` and
 `dormancy.role_revocation.window`. The run's `job-end` now carries what it counted —
@@ -681,18 +681,18 @@ meant editing every file that wrote one. `LogEvent` now builds the whole record.
 message for that shape. The caller names the operation, adds only the ids and counts it alone can
 supply, and calls `log()`.
 
-| Shape | Level | Sets |
-| ----- | ----- | ---- |
-| `success` | `INFO` | `event.outcome` `success` (an overload adds `event.duration_ms`) |
-| `successAtWarn` | `WARN` | the same, for the dormancy lockout the #118 addendum puts at `WARN` |
-| `refused` | `WARN` | `event.outcome` `failure`; the caller adds `event.reason` |
-| `error` | `ERROR` | the §Error fields with follow-up `true`, `event.outcome` `failure` |
-| `jobScheduled` | `INFO` | `batch.job.name`, `app.job.description`, `trigger.cron.*` |
-| `jobStart` | `INFO` | — |
-| `jobEnd` | `INFO` | `success`, `event.duration_ms`, and `event.reason` `lock-held` when skipped |
-| `jobFailed` | `ERROR` | `error.code` `500`, `failure`, `event.severity` `high`, `event.duration_ms` |
-| `jobSummary` | `INFO` | nothing: a run's outcome is its `job-end`'s |
-| `requestEnd` | by status | `http.response.status_code`, `event.duration_ms`, `event.outcome` |
+| Shape           | Level     | Sets                                                                        |
+| --------------- | --------- | --------------------------------------------------------------------------- |
+| `success`       | `INFO`    | `event.outcome` `success` (an overload adds `event.duration_ms`)            |
+| `successAtWarn` | `WARN`    | the same, for the dormancy lockout the #118 addendum puts at `WARN`         |
+| `refused`       | `WARN`    | `event.outcome` `failure`; the caller adds `event.reason`                   |
+| `error`         | `ERROR`   | the §Error fields with follow-up `true`, `event.outcome` `failure`          |
+| `jobScheduled`  | `INFO`    | `batch.job.name`, `app.job.description`, `trigger.cron.*`                   |
+| `jobStart`      | `INFO`    | —                                                                           |
+| `jobEnd`        | `INFO`    | `success`, `event.duration_ms`, and `event.reason` `lock-held` when skipped |
+| `jobFailed`     | `ERROR`   | `error.code` `500`, `failure`, `event.severity` `high`, `event.duration_ms` |
+| `jobSummary`    | `INFO`    | nothing: a run's outcome is its `job-end`'s                                 |
+| `requestEnd`    | by status | `http.response.status_code`, `event.duration_ms`, `event.outcome`           |
 
 `classify` and `atError` are no longer public: every record starts in a shape. `withError` stays
 public, for the one refusal that carries a `data` error classification (`http.request.refusal`).
@@ -704,13 +704,13 @@ An operation a shape has no entry for gets that shape's generic message ("Operat
 rather than an exception, because a record is never worth failing the path that writes it.
 Field names, values and levels are unchanged. One operation is keyed by type as well: the
 role-mapping startup pass writes a `change` record for the sessions it ended beside the `info`
-record of the validated hash, both under `authorization.role_mapping` as the spec's table
-requires, so the `change` record keeps its own message ("Sessions issued under another role
+record of the validated hash, both under `authorization.role_mapping` as the role-mapping
+addendum requires, so the `change` record keeps its own message ("Sessions issued under another role
 mapping ended") rather than reading as a routine validation. One message changed, because one
 operation wrote two different messages for one shape:
 
-| Record | Was | Now |
-| ------ | --- | --- |
+| Record                                              | Was              | Now                                                                  |
+| --------------------------------------------------- | ---------------- | -------------------------------------------------------------------- |
 | `session-end` from a revocation (`AccountSessions`) | `Sessions ended` | `Session ended`, as the absolute-lifetime `session-end` already said |
 
 **The rule.** Semgrep `be-log-record-outside-log-event` refuses, in production code outside

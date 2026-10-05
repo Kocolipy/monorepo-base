@@ -79,7 +79,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Every refusal is raised before anything is written, and each is audited fail-open, as a
  * refused Group write is. A refused precondition is NOT audited: it is the ordinary signal of two
  * writers colliding, carries nothing about the User, and is counted by the operational telemetry
- * the specification plan alerts on instead.
+ * instead ({@code ops/prometheus/alerts.yaml}).
  */
 @Service
 public class ScimUserService {
@@ -189,9 +189,8 @@ public class ScimUserService {
      *
      * <p>Deliberately not audited. A single-resource retrieval is the ordinary unit of
      * provisioning traffic; recording it would bury the collection reads that indicate
-     * an enumeration under millions of reads that indicate nothing. The distinction is
-     * stated in the specification plan's audit contract, and the absence of a call here
-     * is where it is enforced.
+     * an enumeration under millions of reads that indicate nothing. The absence of a call
+     * here is where that distinction is enforced.
      */
     @Transactional(readOnly = true)
     public Optional<ScimUserResource> findById(AuthenticatedConnector connector, UUID id) {

@@ -19,7 +19,7 @@ import com.example.backend.scim.domain.ScimUserProfile;
  * <p>{@code active} is the second exception. A PUT that does not assert it keeps the stored value
  * rather than reading the omission as the create default: {@code active} has no unassigned state,
  * and reading "omitted" as {@code true} would let a connector that simply does not map the
- * attribute reactivate a User the inactivity job or an earlier write deactivated. Only an explicit
+ * attribute reactivate a User an earlier write deactivated. Only an explicit
  * {@code active=true} reactivates.
  *
  * @param profile        the replacement profile; its {@code active} is meaningful only when

@@ -8,8 +8,12 @@ Accepted.
 
 Written before the login identity moved onto SCIM Users: `AccountService` and
 `AccountAdministrationService` below are today's `LoginIdentityService` and
-`IdentityAdministrationService`. The decision — attempts are counted by
-`LoginService`, on the login path — is unchanged.
+`IdentityAdministrationService`, and what counts as locked is decided by
+`ScimLoginState`. The decision — attempts are counted explicitly by the code that
+checks the password, never by a listener — is unchanged. Two paths now do so:
+`LoginService`, and `PasswordChangeService`, whose wrong current password
+lengthens the same failure run. Both record through `LoginAttemptService`, and
+both carry out the count and any lockout it imposes through one `FailureCounter`.
 
 ## Context
 
@@ -28,7 +32,7 @@ alternative is for the code performing the login to record the attempt itself.
 The distinction matters because enforcement is *not* where recording is:
 `AccountService.loadUserByUsername` reports a locked account to Spring Security,
 which refuses it before comparing passwords. So the rule already spans the domain
-(`Account` decides what counts as locked), the application layer (the account is
+(`ScimLoginState` decides what counts as locked), the application layer (the account is
 reported as locked), and whatever records the attempt.
 
 ## Decision
@@ -54,7 +58,9 @@ the failure run with it, or it does not authenticate submitted credentials at al
   cost we accept, and the reason the recording sits behind one module rather than
   at an endpoint: adding such a path means routing it through `LoginService`.
 - Events remain unpublished by this path, so nothing else can observe logins by
-  subscribing. Auditing, if it is ever wanted, is a change here.
+  subscribing. Auditing is recorded here instead: `LoginAttemptService` appends
+  `LOGIN_SUCCESS` and `LOGIN_FAILURE`, and `FailureCounter` appends `LOCKOUT_SET`
+  when a lockout is imposed.
 
 ## Alternatives considered
 
@@ -68,6 +74,5 @@ is hypothetical while the indirection is immediate.
 
 **Counting inside `AccountService.loadUserByUsername`.** Rejected: that method is
 called before the password is compared, so it cannot know whether the attempt
-ended in a refusal, and it is deliberately the read-only half of the account
-slice — `AccountAdministrationService` is the only application service that
-mutates an account besides attempt recording.
+ended in a refusal, and it is deliberately the read-only half of the login
+identity: writes belong to the services that own a change.

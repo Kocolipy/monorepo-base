@@ -12,7 +12,7 @@ instances.
 
 - Java 25
 - Maven — not required; the checked-in wrapper (`./mvnw`) downloads and
-  checksum-verifies the pinned 3.9.11 release
+  checksum-verifies the release pinned in `.mvn/wrapper/maven-wrapper.properties`
 - Docker with Docker Compose (recommended for local Redis and PostgreSQL)
 
 ## Run locally
@@ -62,8 +62,8 @@ User removed from one loses them at once, because the removal ends its sessions 
 and reported, sorted by name, as
 `permissions` on `GET /api/auth/me`. With the
 development fixtures enabled there is a User per development Role to sign in
-as, all with `APP_DEV_FIXTURES_PASSWORD`: `account-admin`, `auditor`,
-`connector-admin` and `monitoring`; the Superuser's is the Bootstrap Admin. See
+as, all with `APP_DEV_FIXTURES_PASSWORD` (the Superuser's is the Bootstrap
+Admin), plus a Group-less `dormant` User the startup dormancy run locks. See
 [Role mapping](#role-mapping).
 
 Three consecutive refused logins lock an account (`APP_LOCKOUT_MAX_ATTEMPTS`,
@@ -168,17 +168,15 @@ app:
         permissions: [user:read, user:write, group:read]
       # ...
     groups:
-      - id: 00000000-0000-4000-8000-00000000a001   # a Group's SCIM stable id
+      - id: 00000000-0000-4000-8000-00000000a001 # a Group's SCIM stable id
         role: Superuser
-        superuser: true                           # exactly one entry
+        superuser: true # exactly one entry
       - id: 00000000-0000-4000-8000-00000000a002
         role: Account admin
 ```
 
-The Permission names are a closed set defined in code: `user:read`,
-`user:write`, `group:read`, `group:write`, `audit:read`, `connector:read`,
-`connector:write`, `connector:token`, `ops:read`, `counter:read`,
-`counter:write`.
+The Permission names are a closed set defined in code, in
+`authorization/domain/Permission.java`.
 
 `counter:read` and `counter:write` are also **baseline Permissions**: every
 active User holds them at sign-in whatever its Groups, so no Role needs to list
@@ -206,20 +204,26 @@ or indexed environment variables (`APP_AUTHORIZATION_GROUPS_0_ID`,
 has. With the fixtures enabled, startup seeds them under those ids, each with one
 User, so local runs and the e2e suite have a User per Role; without them, a
 deployment that did not replace the mapping fails startup instead of running with
-it. Fixtures never overwrite a User or Group that already exists.
+it. They also seed two Users in no Group: `user`, holding only baseline access, and
+`dormant`, whose dormancy basis is reset
+past the lockout window at every startup (see [Dormancy](#dormancy)). Fixtures
+never overwrite a User or Group that already exists.
 
-| Variable                     | Default  | Meaning                                                                    |
-| ---------------------------- | -------- | -------------------------------------------------------------------------- |
-| `APP_DEV_FIXTURES_ENABLED`   | `false`  | Seed the development Groups and their Users (`.env.example` sets `true`)   |
-| `APP_DEV_FIXTURES_PASSWORD`  | none     | Every fixture User's password; required when enabled, with no fallback     |
+| Variable                    | Default | Meaning                                                                  |
+| --------------------------- | ------- | ------------------------------------------------------------------------ |
+| `APP_DEV_FIXTURES_ENABLED`  | `false` | Seed the development Groups and their Users (`.env.example` sets `true`) |
+| `APP_DEV_FIXTURES_PASSWORD` | none    | Every fixture User's password; required when enabled, with no fallback   |
 
-| Role            | Permissions                                                                                         | Fixture Group      | Fixture User      |
-| --------------- | --------------------------------------------------------------------------------------------------- | ------------------ | ----------------- |
-| Superuser       | every Permission                                                                                    | the Admin group    | the Bootstrap Admin |
-| Account admin   | `user:read`, `user:write`, `group:read`                                                             | `Account admins`   | `account-admin`   |
-| Auditor         | `audit:read`                                                                                        | `Auditors`         | `auditor`         |
-| Connector admin | `connector:read`, `connector:write`, `connector:token`, `user:read`, `user:write`, `group:read`, `group:write` | `Connector admins` | `connector-admin` |
-| Monitoring      | `ops:read`                                                                                          | `Monitoring`       | `monitoring`      |
+Each development Role's Permissions are in `authorization.yaml`; the Superuser
+holds every one.
+
+| Role            | Fixture Group      | Fixture User        |
+| --------------- | ------------------ | ------------------- |
+| Superuser       | the Admin group    | the Bootstrap Admin |
+| Account admin   | `Account admins`   | `account-admin`     |
+| Auditor         | `Auditors`         | `auditor`           |
+| Connector admin | `Connector admins` | `connector-admin`   |
+| Monitoring      | `Monitoring`       | `monitoring`        |
 
 A session records the hash of the mapping its Permissions were resolved under,
 and startup ends every authenticated session issued under a different hash, so a
@@ -246,11 +250,11 @@ until the mapping is replaced.
 
 ### Logging
 
-| Variable                | Default  | Meaning                                                      |
-| ----------------------- | -------- | ------------------------------------------------------------ |
-| `LOG_FILE`              | (unset)  | Also write ECS JSON to this file, rolling; unset means no file |
-| `APP_ENVIRONMENT`       | `local`  | `service.environment` on every record                        |
-| `LOG_STRUCTURED_FORMAT` | `ecs`    | Console format; set empty for Boot's human-readable pattern  |
+| Variable                | Default | Meaning                                                        |
+| ----------------------- | ------- | -------------------------------------------------------------- |
+| `LOG_FILE`              | (unset) | Also write ECS JSON to this file, rolling; unset means no file |
+| `APP_ENVIRONMENT`       | `local` | `service.environment` on every record                          |
+| `LOG_STRUCTURED_FORMAT` | `ecs`   | Console format; set empty for Boot's human-readable pattern    |
 
 Records are ECS JSON on stdout. Each one carries `service.name` (`backend`),
 `service.version` (the built project version), `service.environment`, and an
@@ -266,15 +270,15 @@ only, nothing is exported and an inbound `traceparent` is ignored
 
 With `LOG_FILE` set (deployed: `/var/log/backend/backend.json`, see
 `/infra/README.md` under "View Logs") the same records are also written to that
-file, one JSON object per line, rolled daily or at 50 MB, kept 14 days, capped at
-1 GB in total. Stdout keeps working. Local development and the tests leave it
-unset and write no file. The settings live in `src/main/resources/logging.yaml`.
+file, one JSON object per line, rolled by date and size with a bounded total;
+the rolling limits live in `src/main/resources/logging.yaml`. Stdout keeps
+working. Local development and the tests leave it unset and write no file.
 
 ### SCIM release gate
 
-| Variable           | Default | Meaning                                    |
-| ------------------ | ------- | ------------------------------------------ |
-| `APP_SCIM_ENABLED` | `true`  | Whether this deployment serves `/scim/v2`  |
+| Variable           | Default | Meaning                                   |
+| ------------------ | ------- | ----------------------------------------- |
+| `APP_SCIM_ENABLED` | `true`  | Whether this deployment serves `/scim/v2` |
 
 **On by default.** Every path needs a connector token: the discovery documents
 (`ServiceProviderConfig`, `ResourceTypes`, `Schemas`) take any valid one, and the
@@ -289,10 +293,10 @@ whatever a replaced config file happens to say.
 
 ### Audit trail retention
 
-| Variable                       | Default        | Meaning                                       |
-| ------------------------------ | -------------- | --------------------------------------------- |
-| `APP_AUDIT_RETENTION_PERIOD`   | `365d` (1 year)| How long a recorded audit event is kept       |
-| `APP_AUDIT_RETENTION_SCHEDULE` | `0 30 3 * * *` | When the retention job runs (Spring cron)     |
+| Variable                       | Default         | Meaning                                   |
+| ------------------------------ | --------------- | ----------------------------------------- |
+| `APP_AUDIT_RETENTION_PERIOD`   | `365d` (1 year) | How long a recorded audit event is kept   |
+| `APP_AUDIT_RETENTION_SCHEDULE` | `0 30 3 * * *`  | When the retention job runs (Spring cron) |
 
 The **floor is 90 days**, and it is enforced rather than advised: a configured
 period below it fails startup with the value in the message, instead of quietly
@@ -305,22 +309,22 @@ Each run logs its schedule at startup and, per run, the rows it deleted and how
 long it took (`event.action: audit.retention`). A run that deleted nothing is
 logged too — "nothing had aged out" and "the job has not run for a month" are
 different facts. The job is serialized on its own `audit-retention` row in
-`scheduled_job_locks`, as the dormancy jobs are (see below): with several instances
+`scheduled_job_locks`, as the dormancy job is (see below): with several instances
 on the same cron one run deletes, and the others end `job-end` with
 `event.reason: lock-held` and delete nothing.
 
 ### Operational telemetry
 
-| Variable                 | Default    | Meaning                                              |
-| ------------------------ | ---------- | ---------------------------------------------------- |
-| `MANAGEMENT_SERVER_PORT` | the app's  | Serve `/actuator/**` on this port instead of the app's |
+| Variable                 | Default   | Meaning                                                |
+| ------------------------ | --------- | ------------------------------------------------------ |
+| `MANAGEMENT_SERVER_PORT` | the app's | Serve `/actuator/**` on this port instead of the app's |
 
 `/actuator/prometheus` is the metrics scrape, and it requires the `ops:read`
 Permission (the Monitoring Role holds it alone): a session without it gets `403`,
 and a connector token gets `401` because the SCIM bearer chain
-does not cover `/actuator`. Setting `MANAGEMENT_SERVER_PORT` moves all of actuator,
-including `/actuator/health`, to that port and keeps it behind the same `ops:read`
-rule. The exposure and histogram settings live in `src/main/resources/telemetry.yaml`,
+does not cover `/actuator`. Setting `MANAGEMENT_SERVER_PORT` moves all of actuator
+to that port under the same rules: `/actuator/health` stays public and every other
+actuator path keeps requiring `ops:read`. The exposure and histogram settings live in `src/main/resources/telemetry.yaml`,
 which the test configuration imports too. The tag policy (what a metric may be
 labelled with) lives in `ScimRequestObservationConvention`. The alert rules are
 `ops/prometheus/alerts.yaml`. Deployment steps, the internal-port setup and the
@@ -337,9 +341,9 @@ lockout or revocation is a spike on an existing series.
 
 ### Dormancy
 
-| Variable                              | Default           | Meaning                                                                                   |
-| ------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
-| `APP_DORMANCY_LOCKOUT_WINDOW`         | `90d` (90 days)   | How long a User may go without logging in before it is locked for dormancy                |
+| Variable                              | Default           | Meaning                                                                                                        |
+| ------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `APP_DORMANCY_LOCKOUT_WINDOW`         | `90d` (90 days)   | How long a User may go without logging in before it is locked for dormancy                                     |
 | `APP_DORMANCY_ROLE_REVOCATION_WINDOW` | `180d` (180 days) | How long before its direct membership of every mapped Group is removed; must be longer than the lockout window |
 
 One daily job (04:00 `Asia/Singapore`) applies them, both measured from the User's
@@ -357,7 +361,7 @@ User does not count; the completed change does (see
   logged at `WARN`. A User already locked keeps its lock and its cause.
 
 The job never writes `active` and never deletes anything. A dormancy lock never
-lifts on its own: only an Admin's **Unlock** ends it, which also restarts the
+lifts on its own: only an **Unlock** (`user:write`) ends it, which also restarts the
 dormancy window and requires a password change of a User that has one. The
 Accounts page shows the lock's cause. The Bootstrap Admin is never processed. A
 connector re-asserting `active=true` resets nothing, and a connector that re-adds
@@ -384,13 +388,13 @@ and `APP_DORMANCY_AUTHORITY_REVOCATION_WINDOW` settings are gone and ignored.
 ### Required password change
 
 A password change is required of a User — the change-required flag — by every
-connector password write (SCIM create, PUT or PATCH carrying `password`), by an
-Admin's **Force password change** and by an Admin **Unlock** of an account that
-has a password. Only a successful self-service change
+connector password write (SCIM create, PUT or PATCH carrying `password`), by a
+**Force password change** and by an **Unlock** of an account that has a password
+(each requiring `user:write`). Only a successful self-service change
 (`POST /api/auth/change-password`) clears it; a connector write never does. While
 flagged, a session may call `GET /api/auth/me`, the change and
-`DELETE /api/auth/logout`, and nothing else — `/api/admin/**` included, for a
-flagged Admin. Any User may change its password at any time through the same
+`DELETE /api/auth/logout`, and nothing else — `/api/admin/**` included, whatever
+Permissions the User's Groups confer. Any User may change its password at any time through the same
 endpoint.
 
 There is no deadline for the change. Instead, a flagged User's logins do not move
@@ -405,13 +409,15 @@ The audit table is append-only, and that is a property of the database rather th
 of the code writing to it. The `V1` migration creates two roles:
 
 - **`backend_app`** — what every runtime connection assumes, through
-  `spring.datasource.hikari.connection-init-sql`. It holds DML on the tables the
-  application writes — the `scim_*` directory tables, `user_counters`,
-  `scheduled_job_locks` — insert-only access to `scim_tombstones`, and
-  `INSERT`/`SELECT` only on `audit_events`. An `UPDATE` or `DELETE` of a recorded
-  event from application code is refused by the server. The migrations' `GRANT`
-  statements are the exact list.
-- **`backend_audit_retention`** — holds `UPDATE`/`DELETE` on `audit_events` and is
+  `spring.datasource.hikari.connection-init-sql`. It holds full DML on the tables
+  whose lifecycle the application owns (the `scim_*` directory tables and
+  `user_counters`) and narrower grants where a table's rule is narrower:
+  `SELECT`/`INSERT` only on `scim_tombstones` and `audit_events`, no `UPDATE` on
+  `scim_user_password_history`, and `SELECT`/`UPDATE` only on
+  `scheduled_job_locks`, so the runtime role cannot remove the row a job
+  serializes on. An `UPDATE` or `DELETE` of a recorded event from application code
+  is refused by the server. The migration's `GRANT` statements are the exact list.
+- **`backend_audit_retention`** — holds `SELECT`/`UPDATE`/`DELETE` on `audit_events` and is
   reserved for the retention job, which assumes it with a transaction-scoped
   `SET LOCAL ROLE` and reverts on commit.
 

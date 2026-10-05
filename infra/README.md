@@ -253,11 +253,24 @@ ALB_URL=$(aws cloudformation describe-stacks \
 # Test health
 curl $ALB_URL/actuator/health
 
-# Login
-curl -X POST $ALB_URL/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
-  -c cookies.txt
+# Every unsafe request, Login included, sends the session's CSRF token in the
+# header GET /api/auth/csrf names. Login replaces the token, so fetch a fresh
+# one before each unsafe request.
+post() {
+  local csrf; csrf=$(curl -s -b cookies.txt -c cookies.txt $ALB_URL/api/auth/csrf)
+  curl -X POST "$ALB_URL$1" -b cookies.txt -c cookies.txt \
+    -H "Content-Type: application/json" \
+    -H "$(echo "$csrf" | jq -r .headerName): $(echo "$csrf" | jq -r .token)" \
+    -d "$2"
+}
+
+# Login as the Bootstrap Admin. Its seeded password must be replaced first:
+# until then the session reaches only the password change, which ends every
+# session, so log in again with the new password.
+post /api/auth/login '{"username":"admin","password":"YOUR_BOOTSTRAP_PASSWORD"}'
+post /api/auth/change-password \
+  '{"currentPassword":"YOUR_BOOTSTRAP_PASSWORD","newPassword":"A_NEW_PASSWORD"}'
+post /api/auth/login '{"username":"admin","password":"A_NEW_PASSWORD"}'
 
 # Test authenticated endpoint
 curl $ALB_URL/api/count -b cookies.txt
@@ -300,7 +313,7 @@ MANAGEMENT_SERVER_PORT=9090
 ```
 
 With that set, port 8080 stops serving `/actuator/**`, and port 9090 serves it
-**still behind the Admin gate**. The port adds a network boundary; it does not
+**still behind `ops:read`**. The port adds a network boundary; it does not
 replace the access rule. Two things change with it:
 
 - **The ALB health check moves too.** Set the target group's `HealthCheckPort` to
@@ -354,22 +367,28 @@ of silently disarming an alert.
 
 ## Parameters Reference
 
-| Parameter            | Description                                   | Required | Default            |
-| -------------------- | --------------------------------------------- | -------- | ------------------ |
-| VpcId                | Existing VPC ID                               | Yes      | -                  |
-| PublicSubnet1Id      | Public subnet 1                               | Yes      | -                  |
-| PublicSubnet2Id      | Public subnet 2                               | Yes      | -                  |
-| PrivateSubnet1Id     | Private subnet 1                              | Yes      | -                  |
-| PrivateSubnet2Id     | Private subnet 2                              | Yes      | -                  |
-| CreateKeyPair        | Create key pair                               | No       | true               |
-| KeyName              | Key pair name                                 | Yes      | spring-backend-key |
-| InstanceType         | EC2 type                                      | No       | t3.small           |
-| DBPassword           | Database password                             | Yes      | -                  |
-| RedisPassword        | Redis password                                | No       | (empty)            |
-| AppBootstrapUsername | Seeded ADMIN username                         | No       | admin              |
-| AppBootstrapPassword | Seeded ADMIN password                         | Yes      | -                  |
-| AppEnvironment       | `service.environment` on every log record     | No       | production         |
-| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No       | 90                 |
+| Parameter            | Description                                   | Required | Default               |
+| -------------------- | --------------------------------------------- | -------- | --------------------- |
+| VpcId                | Existing VPC ID                               | Yes      | -                     |
+| PublicSubnet1Id      | Public subnet 1                               | Yes      | -                     |
+| PublicSubnet2Id      | Public subnet 2                               | Yes      | -                     |
+| PrivateSubnet1Id     | Private subnet 1                              | Yes      | -                     |
+| PrivateSubnet2Id     | Private subnet 2                              | Yes      | -                     |
+| CreateKeyPair        | Create key pair                               | No       | true                  |
+| KeyName              | Key pair name                                 | No       | spring-backend-key    |
+| InstanceType         | EC2 type                                      | No       | t3.small              |
+| SSHLocation          | CIDR allowed to SSH to the instance           | No       | 0.0.0.0/0 — narrow it |
+| DBInstanceClass      | RDS instance type                             | No       | db.t3.micro           |
+| DBAllocatedStorage   | RDS storage, GB (20–100)                      | No       | 20                    |
+| DBName               | PostgreSQL database name                      | No       | backend               |
+| DBUsername           | PostgreSQL master username                    | No       | backend               |
+| DBPassword           | Database password                             | Yes      | -                     |
+| RedisNodeType        | ElastiCache node type                         | No       | cache.t3.micro        |
+| RedisPassword        | Redis password                                | No       | (empty)               |
+| AppBootstrapUsername | Bootstrap Admin's username                    | No       | admin                 |
+| AppBootstrapPassword | Bootstrap Admin's password                    | Yes      | -                     |
+| AppEnvironment       | `service.environment` on every log record     | No       | production            |
+| LogRetentionDays     | Retention of the `/<stack>/backend` log group | No       | 90                    |
 
 ---
 

@@ -61,9 +61,9 @@ public class ScimErrorException extends RuntimeException {
      * The write targeted something that cannot be changed — a resource this deployment
      * reserves for its own recovery.
      *
-     * <p>{@code 400} and not {@code 403}. The caller's token may be a perfectly valid
-     * read-write one: it is the TARGET that is refused, not the credential, and answering
-     * {@code 403} would send an integrator to re-check a token scope that is fine. SCIM's
+     * <p>{@code 400} and not {@code 403}. The caller's token may hold every Permission the
+     * write needs: it is the TARGET that is refused, not the credential, and answering
+     * {@code 403} would send an integrator to re-check token Permissions that are fine. SCIM's
      * own {@code scimType} for this condition is {@code mutability}.
      */
     public static ScimErrorException mutability(String detail) {

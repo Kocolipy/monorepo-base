@@ -4,10 +4,11 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the SCIM plan that spans #19 (password-change
-lifecycle, which shipped the grace period), #18 (inactivity governance) and the
-confinement work in #46 and #47. Implemented in #48, for which no issue was filed.
-The dormancy jobs it relies on are to be replaced by ADR 0011 (proposed).
+Accepted. Records a departure from the original design that spans #19
+(password-change lifecycle, which shipped the grace period), #18 (inactivity
+governance) and the confinement work in #46 and #47. Implemented in #48, for which
+no issue was filed. ADR 0011 has since replaced the inactivity job with the
+dormancy lockout; the consequences below are stated against it.
 
 ## Context
 
@@ -39,10 +40,11 @@ only on a successful change. #46 and #47 had already delivered all of that.
 
 ## Consequences
 
-- An imposed credential that is never replaced is bounded by inactivity
-  deactivation, 90 days by default, measured from the last real use, instead of
-  by a separate deadline. One job owns "this User is not using the account".
-- The Bootstrap Admin is seeded flagged and is exempt from inactivity
-  deactivation, so an unchanged recovery credential never removes the recovery
-  path. It stays confined until it is changed.
-- Session revocation has one fewer trigger. The scheduler pool shrinks from 4 to 3.
+- An imposed credential that is never replaced is bounded by the dormancy
+  lockout, 90 days by default, measured from the last real use, instead of by a
+  separate deadline. One job owns "this User is not using the account".
+- The Bootstrap Admin is seeded flagged and is exempt from the dormancy job, so
+  an unchanged recovery credential never removes the recovery path. It stays
+  confined until it is changed.
+- Session revocation has one fewer trigger, and the grace job no longer holds a
+  scheduler thread.

@@ -13,7 +13,7 @@ You bring `graphify-out/` back in sync with the code. One command, one short rep
 
 **1. Locate the graph.** Work from the repo root the prompt names, or the current directory otherwise. `graphify-out/graph.json` must be there; when it is absent, stop and report that the repo has no graph to update.
 
-**2. Confirm the interpreter.** `graphify` is absent from `PATH` here — every invocation goes through the interpreter recorded in `graphify-out/.graphify_python`. Restore that file when it is missing:
+**2. Confirm the interpreter.** Every invocation goes through the interpreter recorded in `graphify-out/.graphify_python`, never a bare `graphify`, as `/AGENTS.md` requires. When that file is missing, run the graphify skill's interpreter guard, reproduced here:
 
 ```bash
 if [ ! -f graphify-out/.graphify_python ]; then

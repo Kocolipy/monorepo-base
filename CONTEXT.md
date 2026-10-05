@@ -131,6 +131,24 @@ _Avoid_: disabled, inactive User
 **Reactivation**:
 A SCIM write that takes a User's `active` from false to true.
 
+**Resource version**:
+The opaque value each User and Group carries, advanced exactly once by every
+write that changes its rendered document, and exposed as its strong ETag.
+_Avoid_: revision, weak ETag
+
+**Conditional write**:
+A SCIM `PUT`, `PATCH` or `DELETE` carrying `If-Match`, applied only while the
+resource version still matches; optional, so a write without one is
+unconditional.
+
+**Practical SCIM protocol profile**:
+The part of SCIM 2.0 this application implements and advertises in discovery;
+everything outside it is refused rather than ignored.
+
+**SCIM release gate**:
+The deployment switch (`APP_SCIM_ENABLED`) that, when closed, makes the whole
+`/scim/v2` namespace answer `404` ahead of authentication.
+
 ### Authorization
 
 **Permission**:
@@ -171,12 +189,21 @@ cannot be renamed or deleted and the Bootstrap Admin's membership of it is
 frozen; every other mapped Group is writable and deletable.
 _Avoid_: enabling
 
+**Superuser Role**:
+The Role the Superuser Group confers, required at startup to hold every
+Permission.
+
+**Deny by default**:
+The rule that every operation of the application chain declares what it needs —
+public, self-service or one Permission — and whatever declares nothing is
+refused.
+
 **Token Permissions**:
 The Permissions a connector token carries, from the same vocabulary a Role
 grants but only the four directory ones — `user:read`, `user:write`,
 `group:read`, `group:write` — each enforced per resource type on the SCIM
-interface. Write does not imply read. A token holding none, from before tokens
-carried Permissions, reaches discovery and nothing else.
+interface. Write does not imply read. A token is issued with at least one; a
+stored token holding none would authenticate and reach discovery alone.
 _Avoid_: scope, `scim.read`, `scim.write` (they no longer exist)
 
 **No escalation**:
@@ -190,6 +217,14 @@ What every active User holds without any Role and without a required
 password change: self-service (`/api/auth/me`, change-password, logout,
 `/api/self`, `/api/session`), spelled `ROLE_USER` in the session and not a Role,
 and the baseline Permissions `counter:read` and `counter:write`.
+
+**Counter**:
+Each User's own tally at `/api/count`, the application's sample feature, read
+and changed through the baseline Permissions.
+
+**Development fixtures**:
+The development Role mapping's Groups and Users, seeded only when
+`APP_DEV_FIXTURES_ENABLED` is on.
 
 **Self-service**:
 An operation needing a signed-in session and no Permission, acting only on the
@@ -205,12 +240,12 @@ _Avoid_: forbidden (for a CSRF refusal, which is not an authorization decision)
 ### Authentication
 
 **Login**:
-The one operation that turns submitted credentials into a session or a refusal,
-and the only one that records an attempt.
+The one operation that turns submitted credentials into a session or a refusal.
 _Avoid_: sign-on, authenticate (as a noun for the operation)
 
 **Failure run**:
-The consecutive rejected Logins recorded against one User.
+The consecutive failures recorded against one User: rejected Logins, and wrong
+current passwords on the self-service password change.
 
 **Lockout**:
 The permanent state a User enters for one of two causes — its failure run
@@ -244,6 +279,15 @@ ending its sessions, without ever seeing a password.
 **Self-service password change**:
 A User replacing its own password from its own session.
 
+**Password policy**:
+The one set of rules every path that sets a password applies: length, no
+`userName` inside it, and no reuse from the password history.
+_Avoid_: complexity rules (there are none)
+
+**Password history**:
+The User's three most recent passwords, the current one included, kept as
+hashes so a new password can be refused for repeating one.
+
 **Recovery guard**:
 The rules that keep a deployment recoverable: no Admin may Unlock or
 force-change its own User, whatever Permissions it holds (the Bootstrap Admin
@@ -269,14 +313,22 @@ basis and "now" alone: not due, Lockout, or Lockout + Role revocation. It owns
 the basis choice and both cutoffs, answers not due for the Bootstrap Admin, and
 is the only place the job compares a basis with a window.
 
+**Role revocation**:
+The dormancy job's second step: removing every mapped-Group membership of a User
+past the role-revocation window.
+
 **Dormancy job**:
-The one scheduled job, daily at 04:00 Singapore time, that locks every unlocked
+The scheduled job, daily at 04:00 Singapore time, that locks every unlocked
 User past the lockout window with cause `DORMANCY`, and removes the direct
 membership of every mapped Group from every User past the role-revocation
 window. It never writes `active` and never deletes; the Bootstrap Admin is
 exempt from both steps.
 _Avoid_: inactivity deactivation, dormant-authority revocation (the two jobs it
 replaced)
+
+**Audit retention job**:
+The scheduled job, daily at 03:30 by default, that deletes audit events older
+than the retention period.
 
 **Scheduled job lock**:
 The per-job row a scheduled job run holds, so two runs of one job never overlap
@@ -311,14 +363,3 @@ _Avoid_: log (the application log is a different stream)
 
 **Audit listing**:
 The read of the audit trail, by a holder of `audit:read`.
-
-### Retired
-
-**Account**:
-The former login identity, merged into User; the word survives only in the
-`/accounts` route names.
-
-**Last enabled administrator guard**:
-The former refusal to disable the last Admin able to act; gone with the Disable
-action, and replaced by the Bootstrap Admin's frozen Superuser Group membership
-plus startup validation of the Superuser Role.

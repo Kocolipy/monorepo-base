@@ -7,9 +7,8 @@ import java.util.UUID;
  * A SCIM User as the directory holds it, and the one login identity this application
  * has.
  *
- * <p>There is no separate account aggregate. The specification plan settled that "SCIM
- * User replaces Account and owns profile plus authentication state", and this record is
- * where that lands: the profile a connector writes, the {@link ScimLoginState} the
+ * <p>There is no separate account aggregate: the SCIM User replaced Account and owns the
+ * profile plus the authentication state, and this record is where that lands: the profile a connector writes, the {@link ScimLoginState} the
  * password-login surface writes, and the reservation marker that says whether the
  * resource may be written at all.
  *

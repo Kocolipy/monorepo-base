@@ -15,13 +15,13 @@ that directory:
 frontend/         Vite + React + TypeScript SPA
 backend/          Spring Boot 4 service (Java 25, Maven)
 infra/            AWS CloudFormation template + deploy/cleanup scripts
-packages/         shared code, when any appears
 scripts/          shell layer the Makefile targets call
 CONTEXT.md        domain glossary (see /docs/agents/domain.md)
 docs/domain-rules.md  the behavior behind the glossary's terms
 docs/adr/         architectural decision records
 docs/agents/      agent documentation shared by both apps
 graphify-out/     knowledge graph, tracked (see "graphify" below)
+.agents/ .claude/ .codex/ .kiro/  per-runtime agent tooling (see "Agent" below)
 Makefile          cross-app orchestration; `make help` lists every target
 ```
 
@@ -60,9 +60,9 @@ Each app owns **one baseline gate** — a single command, named in the app's own
 holds no copy of what it runs: the command itself is the source of truth, and
 this file only routes you to it.
 
-| Scope | Command        | From      |
-| ----- | -------------- | --------- |
-| both  | `make verify`  | repo root |
+| Scope | Command       | From      |
+| ----- | ------------- | --------- |
+| both  | `make verify` | repo root |
 
 `make verify` invokes each app's baseline gate in sequence; it adds nothing of
 its own, so it is exactly the two app gates and never a stricter superset.
@@ -186,12 +186,13 @@ fallbacks and never add new ones.
   it before exploring or changing domain behavior, terminology, or
   architecture.
 
-These two are tracked. **Skills are not**: each runtime's skill directory
-(`.kiro/skills/`, `.claude/skills/`, `.codex/skills/`) and `skills-lock.json`
-are gitignored, so a skill is fetched per machine rather than reviewed here. The
-shared one to know about is **`mutation-testing`** — tool-agnostic, with
-`references/tool-adapters.md` covering Stryker and PIT; each app's `AGENTS.md`
-documents its own invocation.
+Skills are fetched per machine, so each runtime's skill directory
+(`.claude/skills/`, `.codex/skills/`, `.kiro/skills/`, the rest of `.agents/`)
+and `skills-lock.json` are gitignored. The one exception is the shared
+**`mutation-testing`** skill, tracked at `/.agents/skills/mutation-testing/` and
+reviewed like any other doc — tool-agnostic, with `references/tool-adapters.md`
+covering Stryker and PIT; each app's `AGENTS.md` documents its own invocation
+and completion criterion.
 
 ### graphify
 

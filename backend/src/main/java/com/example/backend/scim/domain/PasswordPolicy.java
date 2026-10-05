@@ -19,9 +19,9 @@ import java.util.function.Predicate;
  * ({@link PasswordNormalization}), so a length is counted in code points of the form that would be
  * stored, and one code point is one character.
  *
- * <p>The specification plan's policy also names a deployment-configurable blocklist. It is not
- * here: no corpus is shipped yet, and a rule with nothing to check against would be a rule that
- * always passes.
+ * <p>The intended policy also has a deployment-configurable blocklist of known-compromised
+ * passwords, read from a local corpus and never an external service. It is not here: no corpus
+ * is shipped yet, and a rule with nothing to check against would be a rule that always passes.
  */
 public final class PasswordPolicy {
 

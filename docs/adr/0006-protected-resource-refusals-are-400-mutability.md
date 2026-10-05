@@ -4,22 +4,19 @@ Date: 2026-10-01
 
 ## Status
 
-Accepted. Records a departure from the SCIM plan that spans #14 (Group CRUD and
-protected recovery resources), #16 (DELETE) and #24 (conformance fixtures).
+Accepted. Records a departure from the original SCIM design that spans #14 (Group
+CRUD and protected recovery resources), #16 (DELETE) and #24 (conformance fixtures).
 
 ## Context
 
 Two resources exist to keep a deployment recoverable: the Bootstrap Admin, and
-the Admin group's Bootstrap membership. The plan
-(`/docs/specs/scim-v2-account-management-plan.md`) said SCIM writes against them
-return `403` with no `scimType`. That rule appears in its Bootstrap Admin section, its error table and the
-acceptance list for Slice 4 (Groups and Admin authority).
+the Admin group's Bootstrap membership. The original design said SCIM writes
+against them return `403` with no `scimType`.
 
 #14 implemented the refusal as `400` with `scimType: mutability`, and #16 extended
 it to `DELETE`. `ScimGroupProvisioningIntegrationTests` and
 `backend/docs/openapi.yaml` pin that response, and #24's OpenAPI contract check
-holds the document to the implementation. The plan was never updated to match,
-and #49 left the mismatch to this sweep.
+holds the document to the implementation.
 
 ## Decision
 
@@ -30,15 +27,17 @@ membership. The detail says which kind of resource was protected, but not which
 resource or why. `ScimExceptionHandler` maps `ProtectedResourceException` to it.
 
 `mutability` is RFC 7644's error for an attempt to change something that cannot
-be changed, and that is what happened. A `403` is about the credential. A
-connector that got one from a valid read-write token would re-check its token
-scope, which is the wrong investigation. Here the refusal concerns the target.
+be changed, and that is what happened. A `403` on a write is about the
+credential. A connector that got one from a valid token would re-check the
+Permissions its token carries, which is the wrong investigation. Here the refusal
+concerns the target.
 
 ## Consequences
 
-- The same token gets `403` from SCIM only as Bearer `insufficient_scope`, a
-  read-only token attempting a mutation. A `403` from SCIM therefore always means
+- A SCIM write gets `403` only as Bearer `insufficient_scope`: a token lacking the
+  Permission the write needs (ADR 0010). The one other SCIM `403` is
+  `unsupportedQuery`, a query capability the service does not offer, which RFC
+  7644 §3.4.2.2 prescribes and which no write returns. So a `403` on a write means
   the credential, and a `400 mutability` always means the target.
 - Connectors that treat `mutability` as non-retryable stop retrying, which is
   correct: the refusal never succeeds later.
-- The plan's three `403` statements now point here instead of stating the old rule.

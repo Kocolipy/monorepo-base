@@ -193,7 +193,7 @@ class LoginAttemptServiceTests {
     }
 
     /**
-     * Every accepted login records when it happened — the basis the inactivity jobs measure
+     * Every accepted login records when it happened — the basis the dormancy job measures
      * dormancy from — and a later login moves it forward.
      */
     @Test

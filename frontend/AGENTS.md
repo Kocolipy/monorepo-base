@@ -1,7 +1,7 @@
 # AGENTS.md — frontend
 
-React + Vite + Tailwind baseline, and the full tooling gate around it. Four
-pages behind a session-backed login: `react-router-dom` routes them, `src/auth/`
+React + Vite + Tailwind baseline, and the full tooling gate around it. Its
+pages sit behind a session-backed login: `react-router-dom` routes them, `src/auth/`
 owns the session, and requests receive typed semantic results from
 `src/lib/http.ts`. There is no global state library and no service worker — this
 file describes what is actually here, not what is planned.
@@ -33,8 +33,9 @@ implementation loop, so it belongs to CI. Reach for scoped Stryker instead, whic
 
 ## Architecture
 
-Five folders under `src/` plus the composition root, and the dependency direction runs one way through
-them:
+The folders under `src/` plus the composition root, and the dependency direction
+runs one way through them. `docs/ARCHITECTURE.md` holds the per-file map and
+each page's endpoints and Permissions; this list holds the rules.
 
 - **`src/components/ui/`** — the shadcn primitives. This is a **placeholder**
   for the in-house component library (see below). It may import `cn` from
@@ -50,52 +51,27 @@ them:
   no `status`. Each wire type's decoder lives beside the type, in the module
   that owns it. Shared hooks belong here too — `components.json` points the
   shadcn CLI at `@/lib/hooks`.
-- **`src/auth/`** — the session and Permission-based authorization. `api.ts` maps semantic HTTP results for the
-  four `/api/auth/*` endpoints and decodes the session's `permissions`,
-  `permissions.ts` names the Permission each administrative view requires
-  (`VIEW_PERMISSIONS`) and the `holds` / `holdsAny` checks every guard and page
-  reads, `auth-context.tsx` holds the
-  `checking | authenticated | guest` status, the expiry transition and the
-  password-change transition,
-  `auth-context-value.ts` is the context plus the `useAuth` hook,
-  `session-route.ts` is the pure routing contract, `route-guards.tsx` adapts it
-  into `ProtectedRoute` / `GuestRoute`, `use-session-request.ts` is the seam
-  features request through, `use-gated-read.ts` is the Permission-gated read
-  every page listing goes through (a path, a decoder, the Permission and the
-  failure copy in; data, failed and error out, with no request sent without
-  the Permission), `use-gated-write.ts` is the one gated write every page
-  action goes through (a request already behind `useSessionRequest`, a
-  success handler and per-status copy in; the pending flag, the single error
-  line and a refusal mapped through the seam's own `refusalMessage` out, with
-  the read(s) it supersedes withdrawn the moment it starts), `idle-sign-out.tsx` is the inactivity sign-out (see
-  "Backend contract"), and `password-policy.ts` mirrors the backend's password
-  length bounds for the change form.
-- **`src/pages/`** — one component per page (`login.tsx`, `showcase.tsx`,
-  `accounts.tsx`, `change-password.tsx`). A page requests through
-  `useSessionRequest`, never `apiFetch` directly — the
+- **`src/auth/`** — the session and Permission-based authorization: session
+  state, the pure routing contract and its guards, the Permission checks
+  (`permissions.ts`), the request seam (`use-session-request.ts`), the gated
+  read and gated write every page listing and action goes through
+  (`use-gated-read.ts`, `use-gated-write.ts`), and the idle sign-out (see
+  "Backend contract"). A gated read sends nothing for a session lacking its
+  Permission; a gated write owns the pending flag, the page's single error line
+  and the refusal copy.
+- **`src/pages/`** — one component per page, plus `accounts-api.ts` for the
+  wire types and paths the Accounts page and its connector panel share. A page
+  requests through `useSessionRequest` — in practice through `useGatedRead` /
+  `useGatedWrite` — never `apiFetch` directly; the
   `mb-transport-is-behind-the-session-seam` rule enforces it. The one exception
   in kind is `change-password.tsx`, which submits through the auth context's
   `changePassword`, because its `401` is about the current password and must
-  not end the session through the seam. Free
-  to import from `auth/`, `ui/` and `lib/`. `accounts.tsx` is the administrative
-  Accounts page, each view rendered — and its listing requested — only for a
-  session holding that view's Permission: the read-only Users projection
-  (`GET /api/admin/accounts`, `user:read`), the Groups projection
-  (`GET /api/admin/groups`, `group:read`), and the connector panel
-  (`connector:read`). It posts Unlock and the forced password change by the
-  User's stable id (`POST /api/admin/accounts/{id}/unlock`,
-  `.../force-password-change`), offered only with `user:write`, and owns the
-  copy for what each refusal status means to an administrator. `connectors.tsx`
-  is its connector/token panel (`/api/admin/connectors/**`), offering create and
-  delete only with `connector:write` and issue, rotate and revoke only with
-  `connector:token`; `accounts-api.ts` holds both files' wire types and paths.
-  `showcase.tsx` reads the counter only with `counter:read`, offers its buttons
-  only with `counter:write` — both baseline Permissions every active User
-  holds — and links to the Accounts page only for a session
-  that may see one of its views. `active` and Group membership are the
-  directory's, so the page has no control that writes them.
-- **`src/components/`** — shared non-primitive components; today only
-  `error-boundary.tsx`.
+  not end the session through the seam. Free to import from `auth/`, `ui/` and
+  `lib/`. Each view is rendered — and its listing requested — only for a
+  session holding that view's Permission, and each action is offered only with
+  its own. `active` and Group membership are the directory's, so no page has a
+  control that writes them.
+- **`src/components/`** — shared non-primitive components (`error-boundary.tsx`).
 - **`src/App.tsx` / `src/main.tsx`** — the composition root. `main.tsx` mounts
   and owns the one `src/index.css` import; `App.tsx` owns the `BrowserRouter`,
   wraps everything in `AuthProvider`, and states what each route requires with
@@ -199,7 +175,8 @@ backend side moves. What the SPA has to honour:
 - **One session per User.** A login ends every other session the same User
   holds, so signing in from a second browser or profile signs the first
   out; the first presents as the ordinary `401` path above.
-- **Logout answers `Clear-Site-Data: "cache","cookies","storage"`.** The
+- **Logout answers `Clear-Site-Data: "cache","cookies","storage"`** — on a
+  successful logout and on the `401` a logout with no live session gets. The
   browser drops anything in `localStorage` / `sessionStorage` along with the
   session cookie. Nothing in the SPA may rely on storage surviving logout. The
   CSRF token is unaffected: it lives in memory only and in the session the
@@ -212,7 +189,7 @@ backend side moves. What the SPA has to honour:
 ## Component library
 
 `src/components/ui/` holds hand-written stand-ins for `Button` and the `Card`
-family — enough for the four pages to render, and deliberately no more. They
+family — enough for the pages to render, and deliberately no more. They
 follow the shadcn shape (a `cva` variant table, `cn()` merging a `className`
 override) so that swapping them out is a delete plus an import rewrite. Keep
 them cheap to delete: no `asChild` / Radix `Slot` (the real library owns that),
@@ -261,8 +238,8 @@ routed, and the flakiness rules.
 
 ## Semgrep
 
-`npm run test:security` runs the local ruleset in `semgrep/rules/` — six rules
-covering the DOM injection sinks (`dangerouslySetInnerHTML`, `innerHTML`,
+`npm run test:security` runs the local ruleset in `semgrep/rules/`, covering
+the DOM injection sinks (`dangerouslySetInnerHTML`, `innerHTML`,
 `document.write`), `eval` / `new Function`, `target="_blank"` without
 `noopener`, and credential-shaped names assigned string literals.
 

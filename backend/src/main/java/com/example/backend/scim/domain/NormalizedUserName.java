@@ -27,10 +27,10 @@ import java.util.Locale;
  *
  * <p><strong>What it is not:</strong> PRECIS's disallowed-code-point rules are not
  * applied. A username containing a control character or an unassigned code point is
- * normalized rather than refused. That check belongs with the rest of the
- * attribute's validation and is a deliberate omission here rather than an oversight;
- * it is recorded as an open item in the specification plan's query and write
- * contract work.
+ * normalized rather than refused here. That check belongs with the rest of the
+ * attribute's validation, so its absence here is deliberate rather than an oversight:
+ * {@link ScimAttributeLimits} refuses control characters, and nothing yet refuses an
+ * unassigned code point.
  */
 public record NormalizedUserName(String value) {
 

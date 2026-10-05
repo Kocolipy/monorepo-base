@@ -8,16 +8,15 @@ Accepted.
 
 ## Context
 
-The specification requires the scheduled dormancy jobs — inactivity deactivation and
-dormant-authority revocation — to be "serialized per job name so that no two runs of the
-same job overlap across instances", and the two jobs must not block each other. Spring's
+Every scheduled job — today the dormancy job (ADR 0011) and the audit retention job — must
+be serialized per job name so that no two runs of the same job overlap across instances,
+and two different jobs must not block each other. Spring's
 scheduler only knows about its own process, so any number of instances would each fire the
 same cron. Nothing in the codebase serialized work across instances before this.
 
 ## Decision
 
-Each job has a row in `scheduled_job_locks`, written by the migration that introduces the
-job. A run opens its transaction, takes its own row with
+Each job has a row in `scheduled_job_locks`, inserted by the schema migration. A run opens its transaction, takes its own row with
 `SELECT … FOR UPDATE SKIP LOCKED`, and holds it until the transaction ends. An empty result
 means another run holds it, and the run skips rather than waits. A missing row fails the run
 loudly instead of reading as "someone else is running it" forever. The port is

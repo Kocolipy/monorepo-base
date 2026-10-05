@@ -7,11 +7,11 @@ Date: 2026-09-25
 Accepted.
 
 The disable endpoint this ADR was written against has since been removed;
-deactivation now comes from the directory (SCIM) and the inactivity job. The
-decision stands and is carried by the `AfterCommit` port
-(`auth.application.AfterCommit`), through which `IdentityAdministrationService`,
-`ScimUserSessionRevocationService` and `LoginAttemptService` revoke sessions only
-once their transaction commits.
+deactivation now comes only from the directory (SCIM). The decision stands and is
+carried by the `AfterCommit` port (`auth.application.AfterCommit`): every service
+that ends sessions as part of a write — a lockout imposed by `FailureCounter`, a
+dormancy lockout, a password change, a SCIM User or Group write — revokes them
+only once its transaction commits.
 
 ## Context
 
@@ -75,12 +75,11 @@ disabling does.
   repeating the disable writes nothing and revokes again. Under the previous
   ordering the same failure rolled the disable back entirely.
 - The revocation runs outside the transaction and outside the persistence context,
-  so it must not lazily load anything. It takes a username, which is why this is
-  cheap.
-- Testable at last: `disablingRevokesNothingUntilTheTransactionCommits` and
-  `aDisableWhoseTransactionRollsBackRevokesNothing` distinguish the orderings via
-  the `PendingCommit` double, and `AfterCommitAdapterTests` drives Spring's real
-  synchronization registry.
+  so it must not lazily load anything. It takes the account's id
+  (`AccountSessions.revokeAll(UUID)`), which is why this is cheap.
+- Testable: the `PendingCommit` double distinguishes the orderings — e.g.
+  `FailureCounterTests.aRolledBackLockoutRevokesNothing` — and
+  `AfterCommitAdapterTests` drives Spring's real synchronization registry.
 
 ## Alternatives considered
 

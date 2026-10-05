@@ -1,7 +1,8 @@
 # Prometheus alerting rules for the provisioning surface.
 #
-# The four conditions the SCIM plan's "Operational telemetry" section names: each
-# means an integration is broken or hostile rather than merely busy. A second
+# Four alerts, each a condition that means an integration is broken or hostile
+# rather than merely busy; infra/README.md's "Alerts" table says what each means
+# and what to do about it. A second
 # group holds recording rules: series an operator reads on a dashboard, which
 # describe how an integration behaves but are not a fault to page on. Load this file
 # with `rule_files:` in the Prometheus that scrapes /actuator/prometheus; the

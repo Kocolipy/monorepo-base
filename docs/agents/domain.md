@@ -8,8 +8,8 @@ domain behavior, terminology, or architecture.
 - **`/CONTEXT.md`** — the glossary: what each domain term means in a sentence or
   two, and the synonyms it rules out.
 - **`/docs/domain-rules.md`** — the behavior behind those terms (lockout,
-  session revocation, dormancy, the change-required flag, the SCIM profile),
-  under the same names. Read the sections for the terms your change touches.
+  session revocation, dormancy, the change-required flag, the password policy,
+  the SCIM profile), and the reasoning behind them, under the same names. Read the sections for the terms your change touches.
 - **`/docs/adr/`** — the architectural decisions, numbered. Read every ADR that
   touches the area you are about to work in. An ADR is a record of its date: a
   later addendum or ADR can refine it, and a class it names may since have moved.

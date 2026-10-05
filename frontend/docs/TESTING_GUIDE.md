@@ -57,7 +57,7 @@ Playwright's `toHaveText` is exact by default, so E2E does not have this trap.
 `vitest.config.ts` lists each exclusion rather than globbing. v8 reports a file
 with zero executable statements as 0%, so leaving those in drags the report
 down with rows no test can ever cover: `*.css`, `*.d.ts`, the e2e and scripts
-trees, and `src/main.tsx` (a `createRoot` call against the real document, with
+trees, `playwright.config.ts`, and `src/main.tsx` (a `createRoot` call against the real document, with
 no branch to assert — the smoke E2E covers that it mounts). Drop a file from
 that list the moment it gains coverable code.
 
@@ -74,7 +74,7 @@ actually see the thing it governs:
   in CSS. Each file names its rule in a comment at the top, in the same
   `snake_case` id AGENTS.md uses.
 
-There are two of the latter today:
+For example:
 
 - `designTokens.test.ts` — no colour literal outside `src/index.css`.
 - `e2eSpecRouting.test.ts` — every Playwright spec is matched by exactly one
@@ -158,22 +158,35 @@ Playwright specs in `test/e2e/`, run against `npm run dev` on `:5173`
 (`webServer` starts it, `reuseExistingServer` outside CI reuses one you already
 have up). First run on a machine needs `npx playwright install chromium`.
 
-The `setup` project signs in the seeded User and Admin once and saves separate
+The `setup` project signs in the fixture `user` and the Bootstrap Admin once and saves separate
 Playwright `storageState` files under the ignored `test/e2e/.auth/` directory.
-The `user` and `admin` projects reuse those sessions; `guest` starts with
-explicitly empty browser storage. Role-guard specs are split by identity so a
-spec can never accidentally run with a more privileged session than it names.
+The `user` and `admin` projects reuse those sessions; `guest`,
+`connector-tokens` and `dormancy` start with explicitly empty browser storage
+and sign in for real. Role-guard specs are split by identity so a spec can
+never accidentally run with a more privileged session than it names.
 
 The backend keeps **one session per User**: an accepted login ends every other
 session that User holds. A spec that signs in as a seeded identity therefore
-revokes the session the matching project replays from `.auth/`. That is why
-`guest` declares `dependencies: ["admin"]` and runs last — `login.spec.ts` signs
-in as the seeded Admin, and beside the `admin` project it turned that project's
-specs into 401s — and why `login.spec.ts` opts out of `fullyParallel` with
+revokes the session the matching project replays from `.auth/`, or the one
+another project's sign-in holds. So the projects run as one chain, `setup` →
+`user` → `admin` → `guest` → `connector-tokens` → `dormancy`, each declaring the
+previous one in `dependencies`:
+
+- `guest` follows `admin` because `login.spec.ts` signs in as the seeded Admin,
+  and beside the `admin` project it turned that project's specs into 401s.
+- `connector-tokens` follows `guest` because `token-permissions.spec.ts` signs
+  in as the same development Role Users `dev-roles.spec.ts` does.
+- `dormancy` runs last and alone: it signs in as the Account admin fixture User
+  and consumes the `dormant` fixture's locked state, which only a backend
+  restart re-arms.
+
+`login.spec.ts` also opts out of `fullyParallel` with
 `test.describe.configure({ mode: "default" })`, since its two sign-ins would
 otherwise revoke each other. A new spec that must sign in for real should do it
 as a User it provisions (see `change-password.spec.ts`), not as a seeded one.
-Running `--project=guest` alone still runs `setup`, `user` and `admin` first.
+Running one project alone still runs every project ahead of it in the chain.
+`playwright.config.ts` carries the reason beside each `dependencies` line;
+update both together.
 
 ### Routing a new spec
 
@@ -186,7 +199,9 @@ doubly-matched spec, so adding a spec means adding it to a `testMatch`.
 
 Route a spec by the identity it needs: `user` or `admin` replays that seeded
 identity's saved session, and `guest` starts signed out for specs that exercise
-sign-in itself. Do not call `login()` in each test. Per-test `login()` under
+sign-in itself. A spec that signs in as a development Role User, or consumes a
+fixture's one-shot state, goes in its own project appended to the end of the
+chain above, as `connector-tokens` and `dormancy` do. Do not call `login()` in each test. Per-test `login()` under
 `fullyParallel` fires N concurrent logins that can throttle and time out, and
 under one session per User each would revoke the session its project replays;
 shared storage state collapses that to one.
@@ -331,15 +346,17 @@ timing hacks:
 - **Assert the step you are on before acting on it.** StrictMode
   double-invokes mount effects in development, so an unguarded
   `useEffect(..., [])` fires twice and the loser's response lands whenever it
-  lands. A `toHaveText("Step 3 of 5")` names the step the app actually reached;
-  a `toBeVisible` on its content would just time out.
+  lands. Assert the landmark of the state the app actually reached — a
+  heading, or the `status` / `alert` text, as `change-password.spec.ts` does
+  with `toHaveText("The current password is incorrect.")` — before acting on
+  what follows it.
 - **A full page reload wipes in-memory state, and `npm run dev` causes them.**
   Vite full-reloads every connected page when a watched `.html` under the root
   changes — see `server.watch.ignored` in `vite.config.ts`. Symptom: the failure
   screenshot shows the app back on its first screen, fully loaded, nothing in
   flight.
 - **Prefer role and label selectors over CSS.** `getByRole("button", { name: "Reset" })`,
-  `getByLabel("Display Name")`. `getByTestId` is fine for a value with no
+  `getByLabel("Current password")`. `getByTestId` is fine for a value with no
   accessible name of its own, as `showcase.spec.ts` uses for the counter.
 - **Restore anything a spec mutates, or own it.** A spec either resets the
   shared state it changes (`showcase.spec.ts` resets the counter) or acts only
@@ -377,9 +394,10 @@ composes on it.
 
 **A file nothing imports needs an `entry` line in `.fallowrc.jsonc`.** Fallow
 walks JS/TS imports, so anything reached only through a config file — a service
-worker source, a script a CI job calls — reads as an unused file. The `entry`
-array is empty today and each future line carries its reason in a comment
-beside it. `ignoreDependencies` lists `tailwindcss` for the same reason: it is
+worker source, a script a CI job calls — reads as an unused file. Each `entry`
+line carries its reason in a comment beside it, as `test/e2e/auth.setup.ts`
+does (Playwright selects it by `testMatch` regex, an edge fallow does not
+follow). `ignoreDependencies` lists `tailwindcss` for the same reason: it is
 resolved by `@tailwindcss/vite` and by the `@import "tailwindcss"` in
 `src/index.css`, never by a JS import statement.
 

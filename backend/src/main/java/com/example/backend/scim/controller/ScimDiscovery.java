@@ -39,8 +39,8 @@ public final class ScimDiscovery {
     public static final boolean PATCH_SUPPORTED = true;
 
     /**
-     * Bulk is not implemented and will not be: the specification settled on no Bulk
-     * support at all, so this is a permanent answer rather than a staged one. Its limits
+     * Bulk is not implemented and will not be: no Bulk support at all is a settled
+     * decision, so this is a permanent answer rather than a staged one. Its limits
      * are advertised as zero because RFC 7643 requires the sub-attributes to be present,
      * and zero is the honest value for an operation that cannot be performed.
      */
