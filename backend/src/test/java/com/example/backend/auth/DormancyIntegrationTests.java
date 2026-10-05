@@ -577,11 +577,17 @@ class DormancyIntegrationTests {
 
         userService.patch(connector, ada, ifMatch(ada), List.of(
                 new ScimUserPatchOperation.SetActive(false)));
+        long versionBeforeUpdateActive = version(ada);
         new TransactionTemplate(transactionManager).executeWithoutResult(status ->
                 users.updateActive(ada, true, clock.instant()));
         assertThat(passwordChangeRequiredSince(ada))
                 .as("updateActive(true) reactivated a credentialed User")
                 .isEqualTo(clock.instant());
+        // `active` is a SCIM attribute, so the write is a RepresentationChange: a connector
+        // holding the old ETag must see it go stale.
+        assertThat(version(ada))
+                .as("updateActive advanced the User's version exactly once")
+                .isEqualTo(versionBeforeUpdateActive + 1);
     }
 
     /** A credentialless User has no credential to distrust: reactivating it sets no flag. */
