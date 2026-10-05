@@ -15,19 +15,14 @@ import org.springframework.context.annotation.Configuration;
  * Runs the directory's seeding at startup, so a fresh deployment has a recovery path before it
  * serves a request.
  *
- * <p>Replaces {@code AccountSeedConfig}, which seeded two rows of a table that no longer exists.
- * {@code app.auth.bootstrap-username} / {@code bootstrap-password} ({@code APP_BOOTSTRAP_*}) name
- * the deployment's recovery identity. They were {@code app.auth.secondary-*}
- * ({@code APP_SECONDARY_*}) while a second, ordinary identity was configured beside it; that one is
- * a development fixture now, so a deployment upgrading across the rename must rename the two
- * variables in its environment, or it seeds the {@code application.yaml} fallback instead.
+ * <p>{@code app.auth.bootstrap-username} / {@code bootstrap-password} ({@code APP_BOOTSTRAP_*})
+ * name the deployment's recovery identity, the one configured identity every deployment gets. A
+ * deployment still setting the former {@code APP_SECONDARY_*} variables must rename them, or it
+ * seeds the {@code application.yaml} fallback instead.
  *
- * <p>The Bootstrap Admin is the one configured identity every deployment gets; the
- * non-administrative {@code user} is a development fixture now, seeded only beside the others. The
- * Bootstrap Admin is the one {@code LoginLockoutConfig} used to name as the lockout-exempt
- * account. That is no longer a second reading of the same setting, though: the exemption is now the
- * reservation marker on the seeded row, so this file is the only place the configured name is
- * turned into a privilege, and nothing downstream compares a username to decide anything.
+ * <p>This file is the only place the configured name is turned into a privilege: seeding writes
+ * the reservation marker on the Bootstrap Admin's row, and nothing downstream compares a username
+ * to decide anything.
  *
  * <p>Seeding reads the clock through the {@code Clock} bean rather than {@code Instant.now()}, so
  * what a seeded resource records as its creation time is assertable. That bean is declared once, by

@@ -54,7 +54,7 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>Independent of every feature ticket's own tests on purpose: those were written beside the
  * code they test and share its reading of the RFC, so a misreading passes both. These are written
- * from the RFC, the plan's error contract and {@code docs/openapi.yaml} alone, and each fixture is
+ * from the RFC and {@code docs/openapi.yaml} alone, and each fixture is
  * one externally observable claim. Users and Groups are run through the SAME fixtures wherever the
  * RFC says the same thing about both, so a condition one resource type honours and the other
  * forgets shows up as one red row rather than as a gap nobody wrote a test for.
@@ -310,7 +310,7 @@ class ScimConformanceFixtureTests {
         return request;
     }
 
-    /** A request bearing the read-write token. */
+    /** A request bearing the token that holds every SCIM Permission. */
     MockHttpServletRequestBuilder scim(HttpMethod method, String path) {
         return as(writeToken, method, path);
     }

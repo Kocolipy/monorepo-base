@@ -4,8 +4,9 @@ Date: 2026-10-03
 
 ## Status
 
-Proposed. Specified in `docs/specs/permission-authorization-spec.md`. When
-implemented, it supersedes the SCIM plan's §"Authorization matrix", replaces #99
+Accepted. Implemented in #115–#117. It supersedes the original design's
+authorization matrix — reachability per authority (`ROLE_USER`, `ROLE_ADMIN`)
+declared as path and method rules in deployment configuration — replaces #99
 (method security), and closes App-Standards finding USR-2.
 
 ## Context
@@ -93,6 +94,10 @@ for access.
   its Permission, and a contract test proves each declaration against the
   running application.
 - Connector tokens and the connector admin API change shape. There is no
-  production data, so no conversion is needed, only a forward migration.
+  production data, so no conversion is needed.
 - IM8 ac-2 (MFA for privileged actions) and ac-4 (access review) are still not
-  met, and this decision does not address them.
+  met, and this decision does not address them (ADR 0012).
+- Out of scope, deliberately: per-resource authorization (for example "may unlock
+  Users in Group X only"), editing Roles or the mapping at runtime or through any
+  UI, and Group nesting. A Permission applies to every resource of its kind, and
+  a mapping changes only by redeploying.

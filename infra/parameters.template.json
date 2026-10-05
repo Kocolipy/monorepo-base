@@ -70,5 +70,13 @@
   {
     "ParameterKey": "AppBootstrapPassword",
     "ParameterValue": "CHANGE_ME_SecureBootstrapPassword123"
+  },
+  {
+    "ParameterKey": "AppEnvironment",
+    "ParameterValue": "production"
+  },
+  {
+    "ParameterKey": "LogRetentionDays",
+    "ParameterValue": "90"
   }
 ]

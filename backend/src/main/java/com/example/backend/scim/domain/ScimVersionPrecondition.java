@@ -7,8 +7,8 @@ import java.util.regex.Pattern;
  * The {@code If-Match} precondition a connector sent with a write against an existing resource,
  * held unevaluated until the resource it names has been found.
  *
- * <p>Unevaluated on purpose. The specification plan orders the checks — authorization, then
- * existence, then the precondition — so a malformed or stale header against an id that names
+ * <p>Unevaluated on purpose. The checks run in a fixed order — authorization, then existence,
+ * then the precondition — so a malformed or stale header against an id that names
  * nothing is a {@code 404}, not a {@code 400} or {@code 412}: answering the precondition first
  * would tell a caller that an id exists by the shape of the refusal. So the adapter only captures
  * what was sent, and the use case calls {@link #requireSatisfiedBy(long)} once it holds the

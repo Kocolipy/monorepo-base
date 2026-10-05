@@ -4,8 +4,7 @@
 # unsourceable, and corrupts the Maven wrapper, so pin the working tree to LF
 # regardless of the machine's git config.
 #
-# This is repo-wide policy: frontend/ keeps its own copy so it stays
-# self-contained if extracted, and both agree.
+# This is repo-wide policy and the only copy: the apps carry none of their own.
 * text=auto eol=lf
 
 # Binary fixtures: never touch these.

@@ -36,7 +36,7 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * The conformance cases {@link ScimConformanceFixtureTests} runs, grouped by what RFC 7643/7644 and the
- * plan's error contract say: discovery, the resource lifecycle, every documented error condition,
+ * errors {@code docs/openapi.yaml} documents say: discovery, the resource lifecycle, every documented error condition,
  * attribute mutability, the filter and PATCH grammars, and pagination. Each case drives a request
  * and asserts the response, so this is a library of checks rather than a fixture.
  *
@@ -364,7 +364,7 @@ final class ScimConformanceCases {
         });
     }
 
-    // ==== every documented error condition (plan "Error contract"; RFC 7644 §3.12) ========
+    // ==== every documented error condition (docs/openapi.yaml; RFC 7644 §3.12) ============
 
     /** A request against one existing resource of a kind. */
     private interface Probe extends BiFunction<ScimConformanceFixtureTests, Resource,

@@ -40,6 +40,9 @@ playwright-report/
 
 # AI tooling: agent definitions are tracked, fetched skills are not.
 **/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/mutation-testing/
 **/.claude/skills/*
 **/.codex/skills/*
 **/.kiro/skills/*

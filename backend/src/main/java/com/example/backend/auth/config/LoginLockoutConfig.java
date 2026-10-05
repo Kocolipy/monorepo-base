@@ -13,18 +13,15 @@ import org.springframework.context.annotation.Configuration;
  * system clock.
  *
  * <p>There is no lockout duration to configure. A lock is lifted by an administrator's
- * Unlock and by nothing else, so a window would express a lift that no code performs —
- * {@code app.auth.lockout.duration} is gone from configuration rather than defaulted here.
+ * Unlock and by nothing else, so a window would express a lift that no code performs.
  *
- * <p><strong>There is no longer a {@code BootstrapAdmin} bean either</strong>, and that is
- * the substantive change. The recovery identity used to be named here, by reading
- * {@code app.auth.secondary-username} a second time, so "which account must never lock" was
- * a string comparison against a configured value — which a rename could silently move, and
- * which a second identity could acquire by taking the name. It is now the reservation marker
- * on the seeded SCIM User's own resource row, written once by seeding and reachable by no
- * UPDATE. {@code ScimSeedConfig} is the one place the configured name still becomes a
- * privilege, and it does so by creating the marked row rather than by leaving a name for
- * something downstream to compare.
+ * <p>Nor is the lockout-exempt identity named here. Which User must never lock is the
+ * reservation marker on the seeded Bootstrap Admin's own resource row, written once by seeding
+ * and reachable by no UPDATE, rather than a comparison against
+ * {@code app.auth.bootstrap-username}: a rename could silently move a name, and a second
+ * identity could acquire the exemption by taking it. {@code ScimSeedConfig} is the one place the
+ * configured name becomes a privilege, and it does so by creating the marked row rather than by
+ * leaving a name for something downstream to compare.
  */
 @Configuration
 public class LoginLockoutConfig {

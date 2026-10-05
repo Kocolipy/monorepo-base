@@ -16,9 +16,8 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
  * its daily cron, what it does, the windows its startup record states, and the two counts its
  * runs report that are also counters.
  *
- * <p>The schedule is fixed rather than configurable; the specification makes the windows a
- * deployment decision and fixes the time of day at 04:00, staggered from the audit retention
- * job's 03:30. Both are evaluated in {@link ServiceTimeZone#ZONE}, the zone the log timestamps
+ * <p>The schedule is fixed rather than configurable: the windows are a deployment decision, the
+ * time of day is not, and 04:00 is staggered from the audit retention job's 03:30. Both are evaluated in {@link ServiceTimeZone#ZONE}, the zone the log timestamps
  * are written in.
  *
  * <p>Beside the run metrics every job has, two counters make an unexpected mass lockout or

@@ -35,9 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>Imposing a lock also ends the identity's live sessions, because a lock that left them alone
  * would close the front door while the identity kept acting through a session it already held. The
- * revocation runs after the transaction commits, for the reason
- * {@link IdentityAdministrationService#deactivate} defers its own: Redis is not in the transaction,
- * and a revocation already performed cannot be undone by a rollback — see
+ * revocation runs after the transaction commits, because Redis is not in the transaction and a
+ * revocation already performed cannot be undone by a rollback — see
  * {@code /docs/adr/0002-revoke-sessions-after-commit.md}. Both failure paths carry that out through
  * one {@link FailureCounter}, which persists the counted failure and, on a newly imposed lock,
  * audits it and schedules the revocation; each path then records only its own refusal.

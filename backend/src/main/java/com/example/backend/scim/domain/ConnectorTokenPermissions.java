@@ -16,9 +16,9 @@ import java.util.Set;
  * application chain, which no bearer token reaches, so granting it would mean nothing today and a
  * back door the day a route started honouring it.
  *
- * <p>The constructor admits an EMPTY set, because a token stored before Permissions existed has
- * none, and loading it must not fail: such a token authenticates and may do nothing but read
- * discovery. A token being issued goes through {@link #requested}, which refuses the empty set.
+ * <p>A token being issued goes through {@link #requested}, which refuses the empty set. The
+ * constructor still admits one, so that loading a stored token with no Permissions never fails:
+ * such a token authenticates and may do nothing but read discovery.
  *
  * @param values the Permissions, every one of them a {@link #DIRECTORY} Permission
  */

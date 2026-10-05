@@ -10,8 +10,8 @@ src/
   App.tsx             app root — BrowserRouter, AuthProvider, the route table
   index.css           Tailwind entry + the design tokens
   vite-env.d.ts       /// <reference types="vite/client" />
-  auth/               session state and the route guard
-  pages/              one component per page, plus its own api.ts when it needs one
+  auth/               session state, Permission checks, route guards, request seam
+  pages/              one component per page, plus a shared *-api.ts for wire types
   components/         shared non-primitive components (error-boundary.tsx)
   components/ui/      shadcn primitives (placeholder — see "Component library")
   lib/                framework-agnostic helpers; a leaf
@@ -25,12 +25,16 @@ runs it.
 
 ### Why `auth/` is its own folder and not a page
 
-`src/auth/` is a _concern_, not a screen. It holds eight files:
+`src/auth/` is a _concern_, not a screen. This is the authoritative per-file
+map; `/frontend/AGENTS.md` points here rather than repeating it.
 
-- `api.ts` — the four `/api/auth/*` calls, each mapping a status code to a
-  domain outcome (`401` on `/me` is a guest, not an error; `401` on
-  change-password is a wrong current password or a lockout, never a reason to
-  end the session by itself).
+- `api.ts` — the `/api/auth/*` calls, each mapping a status code to a domain
+  outcome (`401` on `/me` is a guest, not an error; `401` on change-password is
+  a wrong current password or a lockout, never a reason to end the session by
+  itself), and the decoder for the session's `permissions`.
+- `permissions.ts` — the Permission each administrative view requires
+  (`VIEW_PERMISSIONS`), `ADMINISTRATION_PERMISSIONS`, and the `holds` /
+  `holdsAny` checks every guard and page reads.
 - `auth-context.tsx` — the `AuthProvider`, which checks the session once on
   mount and owns the session status plus the expiry provenance.
 - `auth-context-value.ts` — the context object and the `useAuth` hook, split out
@@ -44,6 +48,10 @@ runs it.
 - `use-session-request.ts` — the seam features request through. It handles an
   `unauthenticated` result itself and returns a `SessionResult`, which has no
   `unauthenticated` member, so no page can forget to relay a session ending.
+- `use-gated-read.ts` — `useGatedRead`, the Permission-gated read every listing
+  goes through (see below).
+- `use-gated-write.ts` — `useGatedWrite`, the one gated write every page action
+  goes through (see below).
 - `idle-sign-out.tsx` — `IdleSignOut`, mounted by `AuthProvider` for an
   authenticated session. It times the backend's own idle window
   (`idleTimeoutSeconds`), counts only user input as activity, shares it across
@@ -52,14 +60,13 @@ runs it.
 - `password-policy.ts` — the backend's password length bounds, mirrored so the
   change form can state the rule; the backend still decides.
 
-`pages/login.tsx`, `pages/showcase.tsx`, `pages/accounts.tsx` and
-`pages/change-password.tsx` are screens that _consume_ this; they hold no
+The pages under `src/pages/` are screens that _consume_ this; they hold no
 session or Permission logic themselves, and none decides where a visitor goes next. A
 new protected area adds a route declaration, not a second copy of the guard.
 
-`pages/accounts.tsx` is the widest of the four. It reads two read-only
+`pages/accounts.tsx` is the widest page. It reads two read-only
 projections — Users from `GET /api/admin/accounts`, Groups from
-`GET /api/admin/groups` — and posts the two operations an Admin performs on a
+`GET /api/admin/groups` — and posts the two operations an administrator performs on a
 User, Unlock and the forced password change, to
 `/api/admin/accounts/{id}/unlock` and `/api/admin/accounts/{id}/force-password-change`
 by the User's stable id. Each action replaces the one affected row from its
@@ -68,7 +75,7 @@ state, so a refetch would only add a request that could disagree with it.
 Nothing the directory owns (`userName`, display name, `active`, Group
 membership) has a control on the page, and the backend has no endpoint that
 would accept one. The page hides Unlock and the forced change where the backend would
-refuse them — on the Admin's own row, and Unlock on the Bootstrap Admin, which
+refuse them — on the administrator's own row, and Unlock on the Bootstrap Admin, which
 cannot be locked and shows no lockout state.
 
 Its connector panel, `pages/connectors.tsx`, lists, creates and deletes
@@ -83,19 +90,28 @@ Every request goes through `useSessionRequest`, so a `401` ends the session in
 one place and a `403` never does: it reaches the page as `forbidden`, which shows
 permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
-mapped in the page, because only the page knows what was being attempted.
+copy the page supplies, because only the page knows what was being attempted.
 
 Every listing read — Users, Groups, connectors and the Showcase counter — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the path, the
 decoder, the Permission the read requires and its failure copy; the hook sends
 nothing without the Permission, and otherwise returns the data or the refusal
 and its message, resetting when the Permission or the path changes and
-dropping an answer for a key it has moved off. The page keeps only what is its
-own: the mutations, and which message its one error line shows.
+dropping an answer for a key it has moved off.
+
+Every page action — Unlock, the forced change, connector and token changes, the
+counter's buttons — goes through `auth/use-gated-write.ts`. A page names the
+request (already behind `useSessionRequest`), what to do on success, and the
+copy for the statuses it cares about; the hook owns the pending flag, the
+page's single error line, the mapping of a refusal to copy, and withdrawing
+the error of the read(s) the write supersedes the moment it starts
+(`useGatedWrite({ supersedes: [groups, users] })` in `accounts.tsx`). The page
+keeps only what is its own: the request, its success handling, and its copy.
 
 `mb-transport-is-behind-the-session-seam` in `test/.dependency-cruiser.cjs`
-enforces the direction: only `src/auth/` may import `lib/http.ts`, so a page
-cannot opt out of the seam by calling `apiFetch` itself.
+enforces the direction: only `src/auth/` and `src/lib/` may import
+`lib/http.ts`, so a page cannot opt out of the seam by calling `apiFetch`
+itself.
 
 ### Why every request goes through `lib/http.ts`
 
@@ -119,11 +135,10 @@ failure. Features retain their own human-facing copy while sharing status
 meaning. A no-content request omits the decoder, so its `ok` data is typed as
 `void` rather than pretending every success is JSON.
 
-It lives in `lib/` because every layer may call it. That places it under
-`mb-lib-is-a-leaf`, so it stays dependency-free — no auth types, no React. A
-page may call it directly when a separate request module would only forward an
-endpoint and result; a feature-specific module remains worthwhile when it owns
-actual feature mapping.
+It lives in `lib/` because `auth/` sits above it and it must not know about
+sessions. That places it under `mb-lib-is-a-leaf`, so it stays
+dependency-free — no auth types, no React. Pages reach it only through
+`useSessionRequest`, which strips the `unauthenticated` case after acting on it.
 
 ### Why `components/ui/` is fenced off
 
@@ -145,8 +160,8 @@ one folder every other layer may call, so an edge pointing out of it is a cycle
 waiting to happen — and `cn()` in particular is imported by every primitive, so
 anything it drags in is effectively in every bundle chunk. `http.ts` is held to
 the same line: it takes a path, request options, and an optional decoder, and
-knows nothing about auth or React. Both `auth/api.ts` and a page can consume its
-semantic results without creating a cycle.
+knows nothing about auth or React, so `src/auth/` can consume its semantic
+results without creating a cycle.
 
 ### Why there is no `src/types/`, `src/hooks/` or `src/utils/`
 
@@ -229,7 +244,7 @@ directory that a test run writes into belongs on this list.
 
 ## Routing
 
-`App.tsx` owns the whole route table — five routes, deliberately flat:
+`App.tsx` owns the whole route table, deliberately flat:
 
 | Path               | Element                                                                                          | Notes                                                                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -321,6 +336,4 @@ Already present, and where it lives: routing in `src/App.tsx`, authentication in
 `src/auth/` (the idle sign-out and its expiry warning included), typed HTTP
 results in `src/lib/http.ts`, and the top-level error
 boundary in `src/components/error-boundary.tsx`, wrapped around the whole tree
-in `App.tsx` because there is no app shell for it to sit inside. A feature module maps
-results only when it adds feature behavior; a page consumes pass-through
-results directly.
+in `App.tsx` because there is no app shell for it to sit inside.

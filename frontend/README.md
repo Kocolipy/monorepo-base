@@ -73,7 +73,7 @@ npm test -- -t "counts each click"
 src/
   main.tsx, App.tsx       composition root — mount, router, AuthProvider, the routes
   index.css               Tailwind entry + the design tokens
-  auth/                   session state, route guards, request seam, idle sign-out
+  auth/                   session state, Permission checks, route guards, request seam, gated read/write hooks, idle sign-out
   pages/                  one component per page, plus the admin API's wire shapes
   components/             shared components (error boundary)
   components/ui/          shadcn primitives (placeholder — see below)
@@ -121,13 +121,16 @@ has the details of each.
 Unit tests run on Vitest with happy-dom and Testing Library, colocated with the
 code they cover.
 
-E2E runs in four Playwright projects: `setup` signs in the seeded User and Admin
-once and saves separate storage states, `guest` runs signed-out and smoke
-coverage and signs in each development Role's User, `user` verifies what a
-baseline User (only the counter's baseline Permissions) sees and is refused, and `admin` drives the
-counter/session suites plus the Superuser's account administration page and its
-endpoints. The non-guest projects need the backend running — see the root
-`README.md` and `make integration-test`.
+E2E runs in Playwright projects split by identity: `setup` signs in the fixture
+`user` and the Bootstrap Admin once and saves separate storage states, `user` verifies what a
+baseline User (only the counter's baseline Permissions) sees and is refused,
+`admin` drives the counter/session suites plus the Superuser's account
+administration page and its endpoints, `guest` runs signed-out and smoke
+coverage and signs in each development Role's User, and `connector-tokens` and
+`dormancy` sign in as fixture Users for the token-Permission and dormancy
+specs. `playwright.config.ts` is the list; `docs/TESTING_GUIDE.md` explains why
+they run as one chain. Every spec that signs in needs the backend running — see
+the root `README.md` and `make integration-test`.
 
 The backend seeds the Bootstrap Admin with a password change required, so
 `setup` makes that change on first run: it moves `admin` from the seed password
@@ -146,7 +149,9 @@ environment variables; the SPA reads none of them:
 
 The backend's development role mapping seeds one User per Role when it runs with
 `APP_DEV_FIXTURES_ENABLED=true` (as `backend/.env.example` sets): `account-admin`,
-`auditor`, `connector-admin` and `monitoring`, the Superuser's being the Admin.
+`auditor`, `connector-admin` and `monitoring`, the Superuser's being the Admin —
+plus two Users in no Group: `user`, holding only baseline access, and `dormant`,
+which the startup dormancy run locks for the dormancy spec.
 `DEV_ROLES` and `loginAsRole()` in `test/e2e/auth.helpers.ts` sign in as each,
 and `dev-roles.spec.ts` checks, for each one, its Permissions on `/api/auth/me`,
 the pages and actions the SPA shows it, and that every Permission-guarded read
@@ -169,7 +174,8 @@ In development, `vite.config.ts` proxies `/api` to the backend on `:8080`, so
 
 - **React 19** with TypeScript (strict, `noUnusedLocals` / `noUnusedParameters`)
 - **react-router-dom 7** for routing (`/` login, `/showcase` and
-  `/change-password` authenticated, `/accounts` ADMIN-only)
+  `/change-password` authenticated, `/accounts` for a session holding any
+  administrative view's Permission)
 - **Vite 7** for development and building, with Brotli/gzip precompression
 - **Tailwind CSS v4** (CSS-first, no config file) with shadcn-shaped tokens
 - **Vitest 4** + Testing Library + happy-dom for unit tests

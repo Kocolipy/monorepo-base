@@ -228,8 +228,9 @@ class ScimExceptionHandler {
      *
      * <p>{@code mutability}, which is SCIM's {@code scimType} for an attempt to change something
      * that cannot be changed, with a {@code 400}. Deliberately NOT a {@code 403}: the caller's token
-     * may be a perfectly valid read-write one, and the refusal is about the target rather than about
-     * the credential — answering 403 would send an integrator to re-check its token scope.
+     * may hold every Permission the write needs, and the refusal is about the target rather than
+     * about the credential — answering 403 would send an integrator to re-check its token's
+     * Permissions (ADR 0006).
      *
      * <p>The detail says which kind of resource was protected but not which resource, and nothing
      * about why this deployment reserves it.

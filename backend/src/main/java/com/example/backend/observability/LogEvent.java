@@ -393,8 +393,8 @@ public final class LogEvent {
      * The success message for a record of these types. One operation writes two success records
      * an operator must not confuse: the role-mapping startup pass reports the validated hash
      * ({@code info}) and, when the hash changed, the sessions it ended ({@code change}). Both
-     * share the operation's fields, as the permission-authorization spec's observability table
-     * requires, so the {@code change} record is told apart by its message as well as its type.
+     * share the operation's fields, as ADR 0003's role-mapping addendum records, so the
+     * {@code change} record is told apart by its message as well as its type.
      */
     static String successMessage(Operation operation, Type... types) {
         if (operation == Operation.ROLE_MAPPING_STARTUP

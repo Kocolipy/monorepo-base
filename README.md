@@ -4,15 +4,9 @@ Monorepo holding the frontend SPA and the backend service.
 
 ## Layout
 
-```
-frontend/   Vite + React + TypeScript SPA
-backend/    Spring Boot 4 service (Java 25, Maven)
-infra/      AWS CloudFormation template + deploy/cleanup scripts
-scripts/    shell layer the Makefile targets call
-CONTEXT.md  domain glossary
-docs/       domain rules, decision records (adr/), agent docs (agents/), specs
-Makefile    cross-app orchestration
-```
+`frontend/` (Vite + React + TypeScript SPA) and `backend/` (Spring Boot 4
+service) are the two apps; `AGENTS.md` maps the rest of the tree and holds the
+repo-wide rules.
 
 Each app is self-contained: its own `README.md`, `AGENTS.md`,
 dependency manifest, and test/quality tooling. Start there for anything
@@ -23,24 +17,17 @@ prints every target with a description, so that list lives there rather than
 here; `make bootstrap`, `make dev`, `make verify`, and `make package` are the
 ones you will reach for.
 
-`infra/` is not an app — it holds the AWS deployment material (CloudFormation
-template, `deploy.sh`, `cleanup.sh`, `get-vpc-info.sh`) and is documented in
-`infra/README.md`. Note the name clash: `make infra-up` starts the **local**
-Postgres and Redis containers and has nothing to do with this directory.
-
-Shared code, when it appears, goes in a top-level `packages/` directory.
-
 ## Toolchain pins
 
 Every toolchain version is pinned in the repo, so a developer's machine and CI
 resolve the same one:
 
-| Tool  | Pinned in                                                      | Enforced by                                                                   |
-| ----- | -------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Node  | `/.nvmrc`, `/.tool-versions`, `frontend/package.json` `engines` | `frontend/.npmrc` (`engine-strict`), `scripts/lib.sh`                         |
-| npm   | `frontend/package.json` `packageManager`                        | Corepack, plus `engines.npm`                                                  |
-| Maven | `backend/.mvn/wrapper/maven-wrapper.properties`                 | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion`    |
-| JDK   | `/.tool-versions`                                              | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)                 |
+| Tool  | Pinned in                                                       | Enforced by                                                                 |
+| ----- | --------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Node  | `/.nvmrc`, `/.tool-versions`, `frontend/package.json` `engines` | `frontend/.npmrc` (`engine-strict`), `scripts/lib.sh`                       |
+| npm   | `frontend/package.json` `packageManager`                        | Corepack, plus `engines.npm`                                                |
+| Maven | `backend/.mvn/wrapper/maven-wrapper.properties`                 | `backend/mvnw` (checksum-verified download), Enforcer `requireMavenVersion` |
+| JDK   | `/.tool-versions`                                               | Enforcer `requireJavaVersion` in `backend/pom.xml` (`[25,26)`)              |
 
 Activate the Node and JDK pins with whichever manager you use — `nvm use` (reads
 `/.nvmrc`), or `asdf install` / `mise install` (both read `/.tool-versions`) from
@@ -63,7 +50,7 @@ because the failure surfaces as a build error somewhere unrelated.
 
 ```bash
 cd frontend
-npm ci               # always ci, never install — see below
+npm ci               # always ci, never install — see AGENTS.md
 npm run dev          # Vite dev server
 npm test             # vitest
 npm run test:e2e     # Playwright
@@ -72,13 +59,6 @@ npm run typecheck    # tsc -b
 ```
 
 Full script list is in `frontend/package.json`.
-
-**Use `npm ci`, not `npm install`.** `ci` installs exactly what
-`package-lock.json` records and fails if the lockfile and `package.json` have
-drifted apart; `install` resolves semver ranges afresh and rewrites the
-lockfile, which is how two machines end up on different dependency trees. Run
-`npm install` only when you are deliberately adding or upgrading a dependency,
-and commit the resulting lockfile change.
 
 ## Working on the backend
 
@@ -89,10 +69,8 @@ cd backend
 docker compose up        # Postgres + Redis dependencies
 ```
 
-Copy `backend/.env.example` to `.env` before running. Requires a JDK 25 on
-`PATH`; Maven itself does not need to be installed — `./mvnw` downloads and
-checksum-verifies the pinned release. The build's Enforcer rules fail fast on a
-wrong JDK or an older Maven.
+Copy `backend/.env.example` to `.env` before running. Requires the pinned JDK
+on `PATH` (see the table above); Maven itself comes from `./mvnw`.
 
 Logs are ECS JSON on stdout; set `LOG_FILE` to also write a rolling JSON file
 (deployed at `/var/log/backend/backend.json`). See `backend/README.md` under
@@ -100,25 +78,14 @@ Logs are ECS JSON on stdout; set `LOG_FILE` to also write a rolling JSON file
 
 ## Frontend/backend integration
 
-```
-frontend source -> frontend/dist -> backend/target/classes/static -> executable JAR
-```
-
-No build output is committed: `frontend/dist/` and `backend/target/` are both
-generated and ignored, and nothing generated is copied back into a source
-directory.
-
 ```bash
 make package     # build the SPA, then package it into the Spring Boot JAR
 ```
 
-That is the release path. It runs the backend's `with-frontend` Maven profile,
-which is off by default — `./mvnw clean verify` in `backend/` stays a pure
-backend build with no Node and no SPA in the JAR. The profile fails the build
-when `frontend/dist/index.html` is missing, rather than packaging a stale SPA.
-
-`frontend/AGENTS.md`'s "Backend contract" section documents the runtime contract
-(CSRF, CSP, sessions) — read it before changing either side's request handling.
+That is the release path; a plain `./mvnw clean verify` in `backend/` packages
+no SPA. The build contract is in `AGENTS.md` under "Frontend/backend
+integration", and the runtime contract (CSRF, CSP, sessions) in
+`frontend/AGENTS.md` under "Backend contract".
 
 ## Deploying to AWS
 
@@ -130,8 +97,11 @@ cd infra
 ```
 
 `infra/` holds the CloudFormation template (`infrastructure.yaml`) and its
-scripts. They resolve the repo root from their own location, so they work from
-any working directory, and `deploy.sh` builds the shippable JAR by calling
+scripts; it is not an app, and `make infra-up` (local Postgres and Redis) has
+nothing to do with it. Run the scripts from `infra/`: `deploy.sh` finds the
+template, the key and the repo from its own location, but writes
+`<stack>-outputs.txt` to the current directory, which is where `cleanup.sh`
+deletes it from. `deploy.sh` builds the shippable JAR by calling
 `scripts/package.sh` — the integrated path, so what reaches the instance has the
 SPA in it. The stack provisions ALB + EC2 + RDS PostgreSQL + ElastiCache Redis
 in `ap-southeast-1`; details, parameters, and troubleshooting are in
@@ -146,7 +116,7 @@ present one address. The stack provisions no AWS WAF web ACL, so attach one befo
 exposing the service. Scope, keys and rationale are in `infra/README.md`'s "Edge
 throttling" section.
 
-Deploy artefacts the scripts write locally — `parameters.json`,
-`*-outputs.txt`, and retrieved `*.pem` keys — are gitignored. Set the
-application's env vars explicitly on the instance: the backend's
-`application.yaml` fallbacks are published defaults, not credentials.
+The local deploy artefacts in `infra/` — a `parameters.json` copied from the
+template, `deploy.sh`'s `*-outputs.txt`, and the `*.pem` key you save — are
+gitignored. Set the application's env vars explicitly on the instance: the
+backend's `application.yaml` fallbacks are published defaults, not credentials.

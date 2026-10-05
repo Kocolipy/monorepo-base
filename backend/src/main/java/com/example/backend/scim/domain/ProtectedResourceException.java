@@ -10,8 +10,8 @@ package com.example.backend.scim.domain;
  * SCIM-managed administrator — can still be recovered, and a provisioning system able to
  * remove it could remove exactly that.
  *
- * <p>Not an authorization failure. The caller's token may be a perfectly valid read-write
- * one; it is the action that is refused, which is why the web adapter renders it as SCIM's
+ * <p>Not an authorization failure. The caller's token may hold every Permission the write
+ * needs; it is the action that is refused, which is why the web adapter renders it as SCIM's
  * {@code mutability} error rather than as a {@code 403}.
  *
  * <p>Raised before anything is written, so a refused write changes nothing — which is what

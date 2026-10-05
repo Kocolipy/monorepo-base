@@ -6,16 +6,18 @@ a reviewer to notice. The check lives in `src/test/java/com/example/backend/cont
 
 ## What is checked
 
-| Direction | Check | Where |
-| --- | --- | --- |
-| implementation → document | Every route a controller maps under `/api` or `/scim/v2` is a documented operation. | `RouteContractTests` |
-| document → implementation | Every documented operation under `/api` or `/scim/v2` is a mapped route. | `RouteContractTests` |
-| implementation → document | Every response a fixture receives has a status its operation documents — or, for a refusal made before any operation is selected, one `x-namespace-responses` documents — carries every header that response documents, has a documented media type, has no body where none is documented, and validates against the documented schema. A `writeOnly` property in a response is a violation. | `ContractRecorder`, `OpenApiContract` |
-| document → implementation | Every status the document gives an operation (and every namespace-level status) is produced by at least one fixture. | `every_documented_*_status_is_produced_by_some_fixture` |
+| Direction                 | Check                                                                                                                                                                                                                                                                                                                                                                                        | Where                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| implementation → document | Every route a controller maps under `/api` or `/scim/v2` is a documented operation.                                                                                                                                                                                                                                                                                                          | `RouteContractTests`                                    |
+| document → implementation | Every documented operation under `/api` or `/scim/v2` is a mapped route.                                                                                                                                                                                                                                                                                                                     | `RouteContractTests`                                    |
+| implementation → document | Every response a fixture receives has a status its operation documents — or, for a refusal made before any operation is selected, one `x-namespace-responses` documents — carries every header that response documents, has a documented media type, has no body where none is documented, and validates against the documented schema. A `writeOnly` property in a response is a violation. | `ContractRecorder`, `OpenApiContract`                   |
+| document → implementation | Every status the document gives an operation (and every namespace-level status) is produced by at least one fixture.                                                                                                                                                                                                                                                                         | `every_documented_*_status_is_produced_by_some_fixture` |
+| document → implementation | Every operation under `/api` and `/actuator` enforces the `security` requirement it declares — public, self-service, or exactly one Permission — and its handler declares the same Permission with method security (ADR 0010).                                                                                                                                                               | `AuthorizationContractTests`                            |
 
 The fixtures are `ScimConformanceFixtureTests` (the SCIM namespace: generic RFC 7643/7644
-conformance, both resource types through the same fixtures) and `ApiContractFixtureTests` (the
-application API and the actuator). Both go through the real filter chain, Postgres and Redis.
+conformance, both resource types through the same fixtures, with the cases themselves in
+`ScimConformanceCases`) and `ApiContractFixtureTests` (the application API and the actuator). Both
+go through the real filter chain, Postgres and Redis.
 
 `OpenApiContractTests` shows the checker reporting each kind of drift on a planted response, and
 fails if the document starts using a schema keyword the validator does not implement.
@@ -36,6 +38,7 @@ in the same JVM. It says so when they have not.
   make a response fit.
 - **"no fixture produced"** — the document promises a status nothing exercises. Add the fixture, or
   remove the status if the service cannot produce it. A status that genuinely cannot be produced in
-  a test context (a dependency being down) goes in that class's `NOT_PRODUCIBLE` set with its reason.
+  a test context (a dependency being down) goes in `ApiContractFixtureTests.NOT_PRODUCIBLE` with its
+  reason; the SCIM fixtures have no such set, so every SCIM status needs a fixture.
 - **"mapped routes … does not document" / "documented operations no handler maps"** — a route was
   added, removed or renamed on one side only.

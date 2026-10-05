@@ -76,7 +76,7 @@ glossary's. `/frontend/AGENTS.md` ("Backend contract") is the contract.
 holds, so signing in from a second browser signs the first out; the first sees an
 expired session. It is one of the **session revocation** triggers below.
 
-## Accounts and identity provisioning
+## Identity provisioning
 
 ### SCIM target model
 
@@ -88,12 +88,14 @@ separate application capability.
 
 **SCIM directory** — the single User-and-Group namespace owned by one application
 deployment. It is not partitioned by tenant. Multiple independently authenticated
-read-write connectors may operate on the same directory; resource versions and
-conditional requests provide their shared concurrency seam.
+connectors holding write Permissions may operate on the same directory; resource
+versions and conditional writes provide their shared concurrency seam.
 
 **Connector external identifier** — one connector's `externalId` alias for a User
 or Group. A resource has one stable, directory-wide SCIM `id` but may have a
-different `externalId` for each connector. Reads and filters expose only the
+different `externalId` for each connector — RFC 7643 §3.1 makes `externalId` the
+provisioning client's, always scoped to its provisioning domain, and a connector
+is that domain here. Reads and filters expose only the
 calling connector's alias, so independent client namespaces cannot collide. When
 a connector is deleted, all of its aliases are deleted too and its namespace may
 be reused by a future connector.
@@ -111,7 +113,9 @@ likelier to have the wrong id than to want a second no-op.
 **SCIM connector token** — a high-entropy opaque bearer credential restricted to
 the SCIM interface. The value is a non-secret lookup handle, a dot, and at least
 256 bits of `SecureRandom` material; only a SHA-256 digest of the **complete**
-value is stored, compared in constant time. A token carries **Token Permissions**
+value is stored, compared in constant time. An unstretched hash is right only
+because the value is full-entropy random material rather than a password, and is
+no precedent for hashing a password that way. A token carries **Token Permissions**
 (ADR 0010): a non-empty set of `user:read`, `user:write`, `group:read` and
 `group:write`, and nothing else — every other Permission guards the application
 chain, which no token reaches, and is refused on a token with `400`, as are an
@@ -127,7 +131,9 @@ the request's method and path, before any handler runs, so no handler carries a
 check of its own; a path no endpoint serves needs only a valid token and is a
 `404`. A refusal is `403` with `insufficient_scope` and no body, logged at `WARN`
 and audited as `ACCESS_DENIED` naming the connector, the operation and the
-generic reason — never the missing Permission.
+generic reason — never the missing Permission. Issuing requires at least one
+Permission; a stored token holding none still authenticates and reaches
+discovery alone.
 
 **No escalation** — a token may carry only Permissions the administrator minting
 it holds itself, by the Permissions its session was issued with. A request for
@@ -143,8 +149,9 @@ because `group:write` on a mapped Group is Role assignment.
 
 A holder of `connector:token` may mint, inspect, overlap, rotate, and revoke
 tokens; plaintext is disclosed once, on the issue and rotation responses alone,
-under `Cache-Control: no-store`. A token expires at most 365 days after issue,
-which is both the default and the hard maximum — a shorter lifetime may be
+under `Cache-Control: no-store`. A token expires at most 365 days after issue —
+RFC 7644 §7.4 requires bearer tokens to have a limited lifetime the service
+provider can determine — and 365 days is both the default and the hard maximum: a shorter lifetime may be
 chosen, a longer one is refused rather than silently clamped. Rotation mints a
 replacement carrying the old token's Permissions, or the ones it is given, with a
 fresh full lifetime and brings the old token's expiry **forward**
@@ -155,12 +162,14 @@ connector: the only credential refusals the interface makes are a bare `Bearer`
 challenge when no credential was presented, `invalid_token` for a malformed,
 unknown, expired or revoked one or one whose connector is deleted, and
 `insufficient_scope` for a valid token lacking the request's Permission. The
-token is accepted from the `Authorization` header and from nowhere else — a query
-string, a form body and a cookie are not rejected but never consulted. A token
+token is accepted from the `Authorization` header — the one method RFC 6750 §2.1
+requires — and from nowhere else: a query string, a form body and a cookie are
+not rejected but never consulted, because URLs are routinely logged. A token
 cannot reach `/api/**`: the application chain does not read bearer credentials.
 
-**User** — the domain identity that replaces Account rather than wrapping it.
-It owns the selected core User profile, stable SCIM id and version, active state,
+**User** — the one domain identity: Login authenticates against `scim_users`, and
+authority is the Permissions the role mapping confers through direct Group
+membership. It owns the selected core User profile, stable SCIM id and version, active state,
 encoded password, creation metadata, and recent login history. Its profile
 round-trips `userName`, the calling connector's `externalId`, `active`, `name`,
 `displayName`, `emails`, locale and time-zone attributes, Groups, and SCIM
@@ -168,15 +177,12 @@ metadata. The Enterprise User extension and application-specific extensions are
 not supported in the first release. SCIM may set the password as a write-only
 provisioning attribute; the application hashes it immediately and never returns
 it. SCIM may rename `userName` under its uniqueness rule while preserving the
-stable SCIM resource id. A password or username change, deactivation, deletion, or removal from a
+stable SCIM resource id. That rule, and Login, compare the normalized form:
+Unicode NFKC and case folding, the mapping half of PRECIS UsernameCaseMapped
+(RFC 8265), which RFC 7644 §5 requires. A password or username change, deactivation, deletion, or removal from a
 mapped Group revokes the User's existing sessions so a stale login principal never
 survives a security change (see **Session revocation**). Failure
 runs and lockouts remain application-owned authentication behavior on the User.
-
-The User is the only identity: the `accounts` table and the `Account`
-aggregate are gone, Login authenticates against `scim_users`, and authority is
-the Permissions the role mapping confers through direct Group membership rather
-than anything read from a role column, which no longer exists.
 
 **Normalized SCIM storage** — the PostgreSQL representation of the target model.
 Selected User fields use relational columns, while emails, Groups, memberships,
@@ -190,10 +196,11 @@ authority so an administrator can recover the application when external
 provisioning is unavailable or has removed every SCIM-managed administrator. It
 is visible through the SCIM interface as a read-only User and an immutable member
 of the Admin group: clients may discover its current state and authority, but no
-SCIM operation may mutate or delete the User or remove that membership.
+SCIM operation may mutate or delete the User or remove that membership. It is the
+only User every deployment is seeded with: startup creates it when absent and
+never overwrites it, so a rotated recovery password survives a restart.
 
-**Group** — a SCIM resource whose membership replaces the former Account role as
-the source of elevated application authorization. Every active User receives
+**Group** — a SCIM resource whose membership is the source of elevated application authorization. Every active User receives
 baseline User access without requiring membership in a redundant Users group.
 A Group may contain direct User members only; Group-valued members and transitive
 membership are unsupported. Users and Groups enter the SCIM interface together;
@@ -201,8 +208,7 @@ they are not separate future capabilities.
 
 **Admin group** — the server-seeded Group that is the **Superuser Group**: its
 members hold the Superuser Role, and with it every Permission, in addition to
-baseline User access. There is no `ROLE_ADMIN`: the Group confers authority only
-through the Role the mapping assigns it. Its stable resource id carries that
+baseline User access. The Group confers authority only through the Role the mapping assigns it. Its stable resource id carries that
 meaning: SCIM may change ordinary membership but may neither rename nor delete
 the Group, nor remove the Bootstrap Admin's membership. These protections are
 the Superuser Group's alone: every other mapped Group is an ordinary Group over
@@ -215,7 +221,8 @@ table has no column that could hold a profile, credential or membership value, a
 the application may insert and read tombstones but never change or remove one. It
 holds no hash of a former identifier, by design: historical correlation is by
 stable id through the audit stream. Tombstones never
-participate in uniqueness checks: a former `userName`, Group `displayName` or
+participate in uniqueness checks, as RFC 7644 §3.6 recommends of deleted
+resources: a former `userName`, Group `displayName` or
 connector-scoped `externalId` may be reused by a future resource. Readable profile
 and audit detail expire under the configured audit-retention policy.
 
@@ -246,7 +253,10 @@ sets one. Collection requests default `count` to 100 and clamp it to 200, while
 returning `totalResults`, one-based `startIndex`, and `itemsPerPage`. Filtering
 implements the complete RFC 7644 grammar over supported attributes, including
 comparison, presence, boolean, grouping, and value-path expressions; unsupported
-paths fail predictably rather than being silently misread. Sorting takes one
+paths fail predictably rather than being silently misread. "Complete" means full
+syntax and semantics over the attributes this service advertises: it makes no
+unadvertised attribute queryable, and a filter on `password` is
+`400 invalidFilter`. Sorting takes one
 attribute, puts missing values last ascending and first descending, and breaks ties
 by `id`. The same query may be sent as a `SearchRequest` body to `/Users/.search`,
 `/Groups/.search`, or the base `/.search`, which spans both types and treats an
@@ -255,7 +265,9 @@ attribute one type lacks as having no value there. `PUT`, `PATCH`, and
 allows: without one the write is applied unconditionally, last writer wins; when
 sent it must be exactly one strong ETag, checked after authorization and
 existence: a wildcard, list or malformed one is `400 invalidValue`, and a stale
-version is `412`. Concurrent writers holding the same ETag are serialized on the
+version is `412`. ETags are strong although RFC 7644's examples show weak ones,
+because HTTP `If-Match` compares strongly and this profile promises exact
+lost-update protection; a weak `W/` tag therefore never matches. Concurrent writers holding the same ETag are serialized on the
 resource, so exactly one succeeds; concurrent unconditional writers are serialized
 too, so both succeed and neither is half-applied. Unconditional writes are counted
 per connector so an operator can see which integrations run without lost-update
@@ -273,6 +285,17 @@ otherwise: per-request safety bounds are not rate limits, and throttling
 `/scim/v2/**`, Login and the self-service change is the deployment edge's job,
 specified in `infra/README.md` ("Edge throttling").
 
+The per-request safety bounds — request body, filter length, depth and node
+count, PATCH operations, page size (`ScimRequestLimits`, `ScimFilterParser`,
+`ScimPageRequest` hold the numbers), and the Login and password-change field
+lengths — fail with the closest standard error (`413`, `400 invalidFilter`,
+`400 invalidValue`) and never partially mutate a resource. An over-length Login
+or change-password field is a `400` from request validation, before
+authentication runs: it is not counted toward the failure run, not audited, and
+indistinguishable from any other malformed body, so it adds no enumeration
+signal. The password fields' bound is the password policy's own maximum, so no
+password the policy accepted is ever refused for its length.
+
 Every capability above is implemented, and `ServiceProviderConfig` advertises
 `patch`, `filter`, `sort`, `etag` and `changePassword` as supported. Bulk's
 `supported: false` is permanent. The rule the profile was reached under still
@@ -280,6 +303,33 @@ binds anything added later: discovery advertises a capability only once it is
 implemented, and a request for one that is not is refused rather than ignored —
 an ignored `filter` is indistinguishable from a match, which is the one failure a
 connector cannot detect.
+
+**Resource version** — every resource whose rendered document a SCIM write
+changed advances its version exactly once, and no other resource advances; the
+version is the resource's strong ETag and its `meta.version`.
+`RepresentationChange` is the one place that decides who moved. A User's
+document lists its Groups by `displayName`, and a Group's lists its members, so:
+
+- a User's own write — replacement, `PATCH`, an `active` change, a completed
+  password change — advances that User alone;
+- a Group membership that starts or stops advances the Group and each User whose
+  membership changed, and a member removed and re-added in one write advances
+  neither;
+- a Group rename advances the Group and every member, before and after;
+- Group creation advances each initial member, and Group deletion each former
+  member; User deletion advances each of its Groups;
+- a Group's `externalId` alias written alone advances the Group alone;
+- a Group write that changes neither name, membership nor alias advances
+  nothing, not even the Group, so a connector converging on a desired state does
+  not invalidate every cached copy on each re-send.
+
+**SCIM release gate** — `APP_SCIM_ENABLED` (on by default). Closed, the whole
+`/scim/v2` namespace answers `404` with a SCIM error body, discovery included and
+ahead of authentication, so a valid token, an expired one and none at all get the
+same answer and the gate cannot be probed for the interface behind it. `404`
+rather than `403` or `503`, because either of those would disclose a surface that
+is not being offered. The backend README ("SCIM release gate") is the
+configuration reference.
 
 **SCIM audit trail** — the append-only local history of provisioning and connector
 token activity, and of the authentication, lockout, administrative, password-change
@@ -296,9 +346,15 @@ first, paginated, filterable by operation, outcome, actor, resource and time win
 The listing returns the stored events as they are — redaction lives in what an event
 can hold, not in the read — and reading the trail is not itself recorded. The
 Accounts page has no audit view yet; this listing is the read one would be built on.
-Deployment configuration controls retention with a one-year default.
 
-### Current account model
+**Audit retention job** — the second scheduled job, daily at 03:30 by default on
+its own scheduled job lock row, deleting every audit event older than the
+retention period: 365 days unless deployment configuration says otherwise, and
+never less than 90. A configured period below the floor stops startup rather than
+shortening the trail, because 90 days is the shortest window in which an
+investigation into a User's activity is still possible.
+
+### Access model
 
 **Guest** — a person with no authenticated session. A Guest may use only the
 login page; asking for a protected route records the return destination and
@@ -307,36 +363,41 @@ sends them there.
 **User** — any identity in the SCIM directory, signed in or not. Every active
 User with a session receives baseline access — self-service: `GET /api/auth/me`,
 its own password change, logout, `/api/self` and `/api/session` — and nothing
-else without a Permission, in the browser or over the API. There is no role
-column: baseline access is `ROLE_USER`, granted to every session not confined by
+else without a Permission, in the browser or over the API. Baseline access is
+`ROLE_USER`, granted to every session not confined by
 the change-required flag, whatever Roles it holds or lacks, so a misconfigured
 mapping can never take self-service away.
 
 **Admin** — a User holding at least one administrative Permission through its
-Roles. There is no administrative role and no `ROLE_ADMIN`: what an Admin may do
-is exactly its Permissions — a helpdesk operator holding `user:read` and
-`user:write` sees and unlocks accounts, and nothing more.
+Roles. There is no administrative authority of its own: what an Admin may do is
+exactly its Permissions — a helpdesk operator holding `user:read` and
+`user:write` sees and unlocks Users, and nothing more.
 
 **Deny by default** — every operation of the application chain declares what it
-needs, and whatever declares nothing is refused. Three kinds, and nothing else:
+needs, and whatever declares nothing is refused. Three kinds of operation:
 
 - **Public** — `POST /api/auth/login`, `GET /api/auth/csrf` and
   `/actuator/health`, reachable with no session.
 - **Self-service** — authenticated, no Permission: the five baseline routes
-  above. They act only on the session's own User and take no account id from the
+  above. They act only on the session's own User and take no User id from the
   request, so there is no caller-supplied id to check ownership against.
 - **One Permission** — every other operation requires exactly one, declared on
   its handler with method security and repeated by the chain as a backstop:
-  `user:read` lists accounts; `user:write` unlocks and forces a password change;
+  `user:read` lists Users; `user:write` unlocks and forces a password change;
   `group:read` lists Groups and reads the Roles and the role mapping; `audit:read` lists audit events; `connector:read`
   lists connectors, `connector:write` creates and deletes them,
   `connector:token` issues, rotates and revokes their tokens; `ops:read` reaches
   every actuator endpoint but health, on whichever port actuator is served;
   `counter:read` / `counter:write` read and change the counter.
 
+Beside the operations the chain admits two things that are not operations: any
+`GET` outside the reserved server paths, which is the SPA shell or a file
+request, and the `/error` page a refusal is rendered through, at baseline access.
+
 An undeclared route under `/api/`, a method a declared route does not serve, and
-`/scim/**` for a session (the SCIM chain serves bearer tokens only) are all
-refused `403`. The API document declares each operation's requirement in its
+a `/scim` path outside `/scim/v2` are refused — `403` for a session. A session on `/scim/v2/**` never reaches this
+chain: the SCIM chain answers it, reads no session, and returns the bare `Bearer`
+`401` of a request with no credential. The API document declares each operation's requirement in its
 `security` field, and a contract test proves every declaration against the
 running application.
 
@@ -409,7 +470,7 @@ refuses the mapping rather than rewriting the id. Over SCIM it cannot be renamed
 or deleted, and the Bootstrap Admin's membership of it cannot change; its other
 members can all be removed. There is no "last enabled administrator" guard: the
 frozen Bootstrap Admin, together with startup's refusal of a Superuser Role
-missing any Permission, is what guarantees an account holding every Permission.
+missing any Permission, is what guarantees a User holding every Permission.
 
 **Role assignment** — holding a Role is being a direct member of a mapped
 Group, and nothing else assigns one. So **`group:write` on a mapped Group is
@@ -436,40 +497,28 @@ development default: Superuser, Account admin, Auditor, Connector admin and
 Monitoring, each Role but Superuser conferred by a Group with one User in it.
 With `APP_DEV_FIXTURES_ENABLED=true` startup seeds those Groups under the
 mapping's ids and their Users with `APP_DEV_FIXTURES_PASSWORD`, never
-overwriting one that exists. Without the fixtures those Groups do not exist, so a
+overwriting one that exists, together with two Users in no Group: `user`, holding
+only baseline access, and `dormant`, put past the dormancy lockout window at
+every startup. Without the fixtures those Groups do not exist, so a
 deployment that did not replace the development mapping fails startup instead of
 running with it.
 
-**Account** — **gone.** There is no longer a separate login identity: the
-`accounts` table and its aggregate were removed when the User became the one
-identity this application has, owning the profile, the credential and the
-authentication state together. The term survives only in two route paths
-(`/api/admin/accounts`, the SPA's `/accounts`) that were not worth churning.
-
-What replaced each of its parts: `username` → the User's `userName`,
-`password` → its `password_hash`, `enabled` → SCIM's own `active`, `role` →
-DERIVED membership of the **Admin group**, the login history → the failure run and
-`locked_at` on the same row, and the creation timestamp → the resource row's
-`created_at`, which is no longer nullable because a resource cannot exist without
-one. Startup seeding creates the configured recovery identity — the Bootstrap
-Admin, the only User every deployment is seeded with — when absent and never
-overwrites it, so a rotated recovery password survives a restart. The
-non-administrative users is a development fixture, seeded only when the fixtures are enabled.
-
 **Login** — the one operation that turns submitted credentials into an
-authentication or a refusal, and the only thing that records an attempt against
-the failure run. It lives in `LoginService`, so an entry point that authenticates
-submitted credentials without going through it has no **lockout** at all; the
+authentication or a refusal, and where attempts are recorded against the failure
+run; the self-service password change records the only other kind, a wrong
+current password, through the same counting. It lives in `LoginService`, so an
+entry point that authenticates submitted credentials without going through it
+has no **lockout** at all; the
 `/api/auth/login` endpoint adds only the session, the CSRF token, and the bare
 `401`. Why the counting is recorded here rather than driven by Spring Security's
 authentication events is
 `docs/adr/0001-count-login-attempts-on-the-login-path.md`.
 
-**Failure run** — the consecutive rejected logins recorded against one User,
-counted on the User's own row as `failed_login_attempts`. A login the backend
-accepts ends the run and returns the count to zero; a login it rejects lengthens
-it, and so does a wrong current password on the self-service password change. An unknown username has no run, because nothing is recorded for a name that
-names no User.
+**Failure run** — the consecutive failures recorded against one User, counted on
+the User's own row as `failed_login_attempts`. A login the backend accepts ends
+the run and returns the count to zero; a login it rejects lengthens it, and so
+does a wrong current password on the self-service password change. An unknown
+username has no run, because nothing is recorded for a name that names no User.
 
 **Lockout** — the state a User enters for one of two causes, closing it to
 logins **permanently**: its failure run reaches the configured limit
@@ -489,7 +538,7 @@ neither count nor deepen it. Imposing it **revokes the User's live sessions**,
 after the transaction commits, so a locked User stops acting immediately rather
 than when the session it already held expires. Enforcement is Spring Security's,
 which checks the User's status before it compares passwords; the counting is the login
-path's. The failure lockout is the per-account half of brute-force deterrence on Login; the
+path's and the self-service change's. The failure lockout is the per-User half of brute-force deterrence on Login; the
 deployment edge throttles the rest, because it cannot see the `userName` in a Login
 body (`infra/README.md`, "Edge throttling").
 
@@ -498,9 +547,9 @@ body (`infra/README.md`, "Edge throttling").
 the one principal lockout never applies to — neither cause, and neither dormancy
 step. Its failed attempts are counted and
 audited as `LOGIN_FAILURE` like anyone's, but no run of them locks it. With no
-automatic lift, a lockable recovery account would let an unauthenticated attacker
+automatic lift, a lockable recovery User would let an unauthenticated attacker
 brick the deployment; the accepted cost is unbounded online guessing against that
-single account, answered by the Argon2id verification cost every attempt pays, the
+single User, answered by the Argon2id verification cost every attempt pays, the
 uniform refusal, and the audited failures — not by a lock.
 
 **Deactivated User** — a User whose SCIM `active` attribute is false, set by a
@@ -509,9 +558,9 @@ it: `active` is directory-owned. It is refused at login exactly as a locked User
 is: a bare `401`, indistinguishable from a wrong password, so the response reveals
 nothing. The flag is never merely reported.
 
-There is one flag, not two. `active` was SCIM's and `enabled` was the account
-aggregate's, and they meant the same thing — "may authenticate" — so keeping both
-after the identities merged would have left one of them unreachable over the wire.
+There is one flag: SCIM's `active` is the whole of "may authenticate". The
+application keeps no enabled flag of its own, because one beside `active` would be
+unreachable over the wire.
 
 **Deactivating** and **unlocking** are **two separate capabilities**, and neither
 performs the other. Deactivation settles whether a User is permitted at all, and
@@ -530,7 +579,7 @@ logins right now, and is an Admin's. So:
   **dormancy basis**, so the next dormancy run does not lock it again before it
   has had the chance to sign in, and records the lifted lock's cause on its
   `LOCKOUT_LIFT` event. Unlocking a User that has a password also sets its
-  **change-required flag** (below); an Admin cannot unlock their own account.
+  **change-required flag** (below); an Admin cannot unlock themselves.
 
 **Change-required flag** — application-owned state on a User saying its current
 password was imposed by somebody else and must be replaced before the User may do
@@ -554,8 +603,8 @@ endpoint, `/api/admin/**`, `/api/self` and `/api/session` included, answers `403
 
 **Forced password change** — an action of a holder of `user:write`, setting the
 change-required flag on another User and ending every session it holds. The Admin
-never sees, chooses or transports the password. Refused (`403`) on the caller's own
-account whatever Permissions it holds — the Bootstrap Admin's included, which
+never sees, chooses or transports the password. Refused (`403`) on the caller itself
+whatever Permissions it holds — the Bootstrap Admin's included, which
 replaces its own password through the self-service change — and on the Bootstrap
 Admin by anyone; and (`409`) on a credentialless User.
 
@@ -567,18 +616,55 @@ echoing either value. Success hashes the new password, clears the flag, advances
 the version, records a `PASSWORD_CHANGE` audit event with no password value, and
 revokes every session of the User, the submitter's included.
 
-**Recovery guard** — what keeps the deployment recoverable now that Admins no
-longer deactivate anyone. Two rules. **Self-target refusal:** no Admin may Unlock
-or force-change their own account (`403`), whatever Permissions it holds — a
+**Password policy** — one policy, `PasswordPolicy`, governs every path that sets
+a password: SCIM `password` on `POST`, `PUT` and `PATCH`, and the self-service
+change. The password is first normalized by the mapping half of PRECIS's
+OpaqueString profile (RFC 8265, which RFC 7644 §5 requires), and that form is
+what is validated, compared and hashed. Then:
+
+- 12 to 256 characters, one code point counting as one character. Every printable
+  character is accepted, the space and any Unicode code point included; none is
+  stripped, substituted or refused for being "special".
+- Refused when it equals or contains the `userName`, case-insensitively.
+- Refused when it matches any entry of the **password history** — the User's
+  three most recent passwords, the current one included. The history is kept as
+  Argon2id hashes in `scim_user_password_history`, matched by verifying the
+  candidate against each, trimmed to the newest three on every change, and
+  deleted with the User. So a connector re-sending a password still in the
+  history is refused: a `PUT` that means no credential change omits `password`.
+- No composition rules, no expiry, and no hints or knowledge-based recovery
+  questions, because forced complexity, forced rotation and hint mechanisms all
+  reduce real-world strength.
+
+A violation is `400 invalidValue` over SCIM and a `400` naming the unmet rule on
+the application chain, never echoing the submitted value. The policy also calls
+for a blocklist of common and known-compromised passwords, deployment-configured
+and loaded from a local corpus so that no candidate, nor any hash or prefix of
+one, is ever sent to an external service. It is not implemented: no corpus ships
+yet, and a rule with nothing to check against would always pass.
+
+Every password, current or historical, is hashed with Argon2id (`m=19456` KiB,
+`t=2`, `p=1`) through a `DelegatingPasswordEncoder`, so every stored hash carries its `{argon2id}`
+prefix and the scheme can change later without a schema migration. Argon2id has
+no input-length ceiling, which is why the maximum is 256 characters rather than
+bcrypt's 72-byte truncation point. There is **no pepper**: it would be the only
+keyed secret in the system, a rotation and migration burden for no gain over
+Argon2id's per-hash salts. Nothing here or in session state has a key to rotate —
+hashes are self-describing and unkeyed, and Spring Session keeps state
+server-side with no signing key — by design rather than omission; the only
+rotatable credentials are connector tokens and the database and Redis passwords
+deployment configuration supplies.
+
+**Recovery guard** — what keeps the deployment recoverable. Two rules.
+**Self-target refusal:** no Admin may Unlock or force-change themselves (`403`), whatever Permissions it holds — a
 Superuser's included — so recovering from a self-inflicted state takes a second
 Admin, and nobody may force the Bootstrap Admin's password change at all. And the
 Bootstrap Admin can never be locked and is protected from every SCIM write,
 deactivation included, so a deployment whose other Admins are all locked is still
-recoverable: it signs in and unlocks them. The "last enabled administrator"
-guard is gone with the Disable action it protected against, and nothing replaces
-it at runtime: the Bootstrap Admin's frozen membership of the **Superuser
+recoverable: it signs in and unlocks them. No runtime guard counts the remaining
+administrators: the Bootstrap Admin's frozen membership of the **Superuser
 Group**, together with startup's validation that the Superuser Role holds every
-Permission, is what guarantees an account holding every Permission, so a
+Permission, is what guarantees a User holding every Permission, so a
 connector may remove every other member of the Superuser Group.
 
 The self-target check compares NORMALIZED `userName`s: a session names its
@@ -600,7 +686,7 @@ id, `userName` and display name, whether it is the Bootstrap Admin, whether the
 **Admin group** confers administrative authority on it, its `active` flag, whether
 a credential is set at all, whether a lockout is in force and its cause
 (`FAILURES` or `DORMANCY`, so an operator can tell a forgotten password from an
-abandoned account before unlocking), whether a change is
+abandoned User before unlocking), whether a change is
 required, its last authentication, its creation timestamp and its direct Groups.
 The directory-owned fields — identity, `active`, Groups — are read-only there.
 Never the password hash, which no projection type has a field for. There is no field for when a lockout lifts,
@@ -624,7 +710,8 @@ reservation marker. Read-only in its entirety; Groups and membership are the
 directory's.
 
 **Accounts page** — the SPA screen at `/accounts`, an Admin's operational view.
-The route keeps its name from the removed account aggregate; what it shows is the
+Despite the name of the route and of its endpoint `/api/admin/accounts`, it shows
+Users: the
 **Users projection** and the **Groups projection**, both read-only for everything
 the directory owns, plus the application-owned operations: **Unlock** (offered only
 while a lockout is in force, and described as the only way a lockout ends — one that
@@ -665,7 +752,8 @@ Admin is never treated as dormant, by its reservation marker, for the reason it 
 exempt from lockout. Avoid "inactive" for this: a deactivated User is one whose
 `active` flag is false, which a dormant User may or may not be.
 
-**Dormancy job** — the one scheduled job (ADR 0011), daily at 04:00
+**Dormancy job** — the scheduled job that enforces dormancy (ADR 0011), replacing
+the earlier inactivity-deactivation and dormant-authority jobs, daily at 04:00
 `Asia/Singapore` on its own scheduled job lock row, in two steps:
 
 - **Role revocation.** A User past the role-revocation window — active or not,
@@ -688,9 +776,9 @@ deprovisioning stays with SCIM `DELETE`. A connector re-asserting `active=true`
 resets nothing and lifts no lock. The Bootstrap Admin is exempt from both steps.
 Its runs are counted (`app.job.runs{job="dormancy"}`) and so are their changes
 (`app.dormancy.users.locked`, `app.dormancy.users.roles.revoked`), so a mass
-lockout or revocation shows as a spike. In the development profile only, the job
-also runs once at startup, so the backdated `dormant` fixture is locked without
-waiting for 04:00.
+lockout or revocation shows as a spike. With the development fixtures on
+(`APP_DEV_FIXTURES_ENABLED=true`), the job also runs once at startup, so the
+backdated `dormant` fixture is locked without waiting for 04:00.
 
 **Scheduled job lock** — how the dormancy job and the audit retention job are
 serialized: each run takes its own job's row in `scheduled_job_locks` with
@@ -703,7 +791,8 @@ next request arrives as a Guest and the SPA sends it back to login. Sessions are
 found by the User's stable id, never its `userName`, so a rename cannot hide one.
 The triggers in force:
 
-- an Admin forcing its password change, and the login path imposing a lockout on it;
+- an Admin forcing its password change, and its failure run imposing a lockout,
+  from Login or the self-service change;
 - a SCIM write that takes `active` from true to false;
 - a SCIM write that sets, changes or removes its password;
 - a SCIM write that changes its `userName`;
