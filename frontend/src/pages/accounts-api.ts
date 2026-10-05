@@ -55,7 +55,7 @@ export interface UserRow {
  * the limit, `DORMANCY` when the dormancy job found it unused past the lockout
  * window. Either lock stands until Unlock.
  */
-export const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
+const LOCK_CAUSES = ["FAILURES", "DORMANCY"] as const;
 
 export type LockCause = (typeof LOCK_CAUSES)[number];
 

@@ -85,7 +85,7 @@ export interface Connector {
 }
 
 /** Every Permission a connector token can carry: what a fixture connector is given by default. */
-export const ALL_TOKEN_PERMISSIONS = ["group:read", "group:write", "user:read", "user:write"];
+const ALL_TOKEN_PERMISSIONS = ["group:read", "group:write", "user:read", "user:write"];
 
 /** A connector and one token for it, through the admin API of `adminPage`'s session. */
 export async function createConnector(

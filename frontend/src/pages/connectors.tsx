@@ -134,22 +134,6 @@ function ConnectorSection({
   onRotate: (token: ConnectorToken) => void;
   pending: boolean;
 }) {
-  const [chosen, setChosen] = useState<readonly TokenPermission[]>([]);
-  const [lifetime, setLifetime] = useState("");
-  const lifetimeId = `lifetime-${connector.id}`;
-
-  const toggle = (permission: TokenPermission, checked: boolean) =>
-    setChosen((current) =>
-      checked ? [...current, permission] : current.filter((held) => held !== permission),
-    );
-
-  const issue = (event: FormEvent) => {
-    event.preventDefault();
-    // In the backend's order, so the request reads like the response.
-    const permissions = TOKEN_PERMISSIONS.filter((permission) => chosen.includes(permission));
-    onIssue(permissions, lifetime === "" ? null : Number(lifetime));
-  };
-
   return (
     <section
       aria-label={`Connector ${connector.displayName}`}
@@ -167,104 +151,168 @@ function ConnectorSection({
         ) : null}
       </div>
 
-      {connector.tokens.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tokens issued.</p>
-      ) : (
-        <table className="w-full border-collapse text-left text-sm">
-          <caption className="sr-only">Tokens of {connector.displayName}</caption>
-          <thead>
-            <tr className="border-b text-muted-foreground">
-              {["Token", "Permissions", "Issued", "Expires", "Status", "Actions"].map((heading) => (
-                <th className="py-2 pr-4 font-medium" key={heading} scope="col">
-                  {heading}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {connector.tokens.map((token) => (
-              <tr className="border-b last:border-0" key={token.id}>
-                <th className="py-2 pr-4 font-mono font-normal" scope="row">
-                  {token.id.slice(0, 8)}
-                </th>
-                <td className="py-2 pr-4">{permissionList(token.permissions)}</td>
-                <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.issuedAt)}</td>
-                <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
-                <td className="py-2 pr-4">{tokenStatus(token)}</td>
-                <td className="py-2">
-                  {token.active && canIssue ? (
-                    <span className="flex gap-2">
-                      <Button
-                        disabled={pending}
-                        onClick={() => onRotate(token)}
-                        size="sm"
-                        title="Issues a replacement and ends this token immediately"
-                        variant="outline"
-                      >
-                        Rotate token {token.id.slice(0, 8)}
-                      </Button>
-                      <Button
-                        disabled={pending}
-                        onClick={() => onRevoke(token)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Revoke token {token.id.slice(0, 8)}
-                      </Button>
-                    </span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <TokenTable
+        canIssue={canIssue}
+        connector={connector}
+        onRevoke={onRevoke}
+        onRotate={onRotate}
+        pending={pending}
+      />
 
       {canIssue ? (
-        <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
-            {TOKEN_PERMISSIONS.map((permission) => {
-              const allowed = grantable.includes(permission);
-              return (
-                <label className="flex items-center gap-2 text-sm" key={permission}>
-                  <input
-                    checked={chosen.includes(permission)}
-                    disabled={!allowed}
-                    onChange={(event) => toggle(permission, event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span className="font-mono">{permission}</span>
-                  <span className="text-muted-foreground">
-                    {allowed
-                      ? PERMISSION_HINTS[permission]
-                      : `${PERMISSION_HINTS[permission]} — you do not hold it`}
-                  </span>
-                </label>
-              );
-            })}
-          </fieldset>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium" htmlFor={lifetimeId}>
-              Lifetime in days for {connector.displayName} (default 365)
-            </label>
-            <input
-              className={INPUT_CLASS}
-              id={lifetimeId}
-              inputMode="numeric"
-              max={365}
-              min={1}
-              onChange={(event) => setLifetime(event.target.value)}
-              type="number"
-              value={lifetime}
-            />
-          </div>
-          <Button disabled={pending || chosen.length === 0} size="sm" type="submit">
-            Issue token for {connector.displayName}
-          </Button>
-        </form>
+        <IssueTokenForm
+          connector={connector}
+          grantable={grantable}
+          onIssue={onIssue}
+          pending={pending}
+        />
       ) : null}
     </section>
+  );
+}
+
+function TokenTable({
+  canIssue,
+  connector,
+  onRevoke,
+  onRotate,
+  pending,
+}: {
+  canIssue: boolean;
+  connector: Connector;
+  onRevoke: (token: ConnectorToken) => void;
+  onRotate: (token: ConnectorToken) => void;
+  pending: boolean;
+}) {
+  if (connector.tokens.length === 0) {
+    return <p className="text-sm text-muted-foreground">No tokens issued.</p>;
+  }
+  return (
+    <table className="w-full border-collapse text-left text-sm">
+      <caption className="sr-only">Tokens of {connector.displayName}</caption>
+      <thead>
+        <tr className="border-b text-muted-foreground">
+          {["Token", "Permissions", "Issued", "Expires", "Status", "Actions"].map((heading) => (
+            <th className="py-2 pr-4 font-medium" key={heading} scope="col">
+              {heading}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {connector.tokens.map((token) => (
+          <tr className="border-b last:border-0" key={token.id}>
+            <th className="py-2 pr-4 font-mono font-normal" scope="row">
+              {token.id.slice(0, 8)}
+            </th>
+            <td className="py-2 pr-4">{permissionList(token.permissions)}</td>
+            <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.issuedAt)}</td>
+            <td className="py-2 pr-4 text-muted-foreground">{formatDate(token.expiresAt)}</td>
+            <td className="py-2 pr-4">{tokenStatus(token)}</td>
+            <td className="py-2">
+              {token.active && canIssue ? (
+                <span className="flex gap-2">
+                  <Button
+                    disabled={pending}
+                    onClick={() => onRotate(token)}
+                    size="sm"
+                    title="Issues a replacement and ends this token immediately"
+                    variant="outline"
+                  >
+                    Rotate token {token.id.slice(0, 8)}
+                  </Button>
+                  <Button
+                    disabled={pending}
+                    onClick={() => onRevoke(token)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Revoke token {token.id.slice(0, 8)}
+                  </Button>
+                </span>
+              ) : null}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function IssueTokenForm({
+  connector,
+  grantable,
+  onIssue,
+  pending,
+}: {
+  connector: Connector;
+  /**
+   * The token Permissions this session holds itself — the only ones the backend
+   * lets it put on a token. The others are shown but cannot be chosen.
+   */
+  grantable: readonly TokenPermission[];
+  onIssue: (permissions: TokenPermission[], lifetimeDays: number | null) => void;
+  pending: boolean;
+}) {
+  const [chosen, setChosen] = useState<readonly TokenPermission[]>([]);
+  const [lifetime, setLifetime] = useState("");
+  const lifetimeId = `lifetime-${connector.id}`;
+
+  const toggle = (permission: TokenPermission, checked: boolean) =>
+    setChosen((current) =>
+      checked ? [...current, permission] : current.filter((held) => held !== permission),
+    );
+
+  const issue = (event: FormEvent) => {
+    event.preventDefault();
+    // In the backend's order, so the request reads like the response.
+    const permissions = TOKEN_PERMISSIONS.filter((permission) => chosen.includes(permission));
+    onIssue(permissions, lifetime === "" ? null : Number(lifetime));
+  };
+
+  return (
+    <form className="flex flex-wrap items-end gap-3" onSubmit={issue}>
+      <fieldset className="flex flex-col gap-1">
+        <legend className="text-sm font-medium">Permissions for {connector.displayName}</legend>
+        {TOKEN_PERMISSIONS.map((permission) => {
+          const allowed = grantable.includes(permission);
+          return (
+            <label className="flex items-center gap-2 text-sm" key={permission}>
+              <input
+                checked={chosen.includes(permission)}
+                disabled={!allowed}
+                onChange={(event) => toggle(permission, event.target.checked)}
+                type="checkbox"
+              />
+              <span className="font-mono">{permission}</span>
+              <span className="text-muted-foreground">
+                {allowed
+                  ? PERMISSION_HINTS[permission]
+                  : `${PERMISSION_HINTS[permission]} — you do not hold it`}
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium" htmlFor={lifetimeId}>
+          Lifetime in days for {connector.displayName} (default 365)
+        </label>
+        <input
+          className={INPUT_CLASS}
+          id={lifetimeId}
+          inputMode="numeric"
+          max={365}
+          min={1}
+          onChange={(event) => setLifetime(event.target.value)}
+          type="number"
+          value={lifetime}
+        />
+      </div>
+      <Button disabled={pending || chosen.length === 0} size="sm" type="submit">
+        Issue token for {connector.displayName}
+      </Button>
+    </form>
   );
 }
 

@@ -2586,9 +2586,9 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/accounts-api.ts": {
-    "mtime": 1791159083.551313,
-    "seen": 1791167681.1590173,
-    "ast_hash": "8e8f0cc2d6c35a19dcbb1d40804e94db",
+    "mtime": 1791168129.4714062,
+    "seen": 1791168342.1254528,
+    "ast_hash": "c8c27c33d59de0b47f08f8489653283f",
     "semantic_hash": ""
   },
   "frontend/src/pages/connectors.test.tsx": {
@@ -2598,9 +2598,9 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/connectors.tsx": {
-    "mtime": 1791164351.0465498,
-    "seen": 1791167681.1590214,
-    "ast_hash": "74786aca39aa47e3fb5c28c3035d85c8",
+    "mtime": 1791168187.0794,
+    "seen": 1791168342.1255937,
+    "ast_hash": "e5928e52d0e8249856ba6be65ddf3c1e",
     "semantic_hash": ""
   },
   "frontend/src/auth/auth-context.test.tsx": {
@@ -3084,9 +3084,9 @@
     "semantic_hash": ""
   },
   "frontend/test/e2e/scim.helpers.ts": {
-    "mtime": 1791159083.553031,
-    "seen": 1791167681.1590362,
-    "ast_hash": "5de5cb1c1f8b213651a8fb7ac7bad50b",
+    "mtime": 1791168130.5514061,
+    "seen": 1791168342.1262062,
+    "ast_hash": "aa9083c550558eafdab43eb4ab7de649",
     "semantic_hash": ""
   },
   "frontend/test/e2e/session-revocation.spec.ts": {
@@ -3834,9 +3834,9 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/use-gated-read.ts": {
-    "mtime": 1791159083.5499668,
-    "seen": 1791167681.159004,
-    "ast_hash": "9a4a14de2fbe4243cb5a86625c822c45",
+    "mtime": 1791168215.115392,
+    "seen": 1791168342.1247923,
+    "ast_hash": "c74373a69c46fff654d3f31a6f178401",
     "semantic_hash": ""
   },
   "backend/src/main/java/com/example/backend/observability/ScheduledJobSpec.java": {
@@ -3882,9 +3882,9 @@
     "semantic_hash": ""
   },
   "frontend/src/auth/use-gated-write.ts": {
-    "mtime": 1791164656.3717558,
-    "seen": 1791167681.1590059,
-    "ast_hash": "7ef60ce8558a80169d2b46620e6fa3cc",
+    "mtime": 1791168128.0994062,
+    "seen": 1791168342.1248257,
+    "ast_hash": "95c053ef622fe4fec95824976adcf642",
     "semantic_hash": ""
   }
 }
