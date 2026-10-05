@@ -51,7 +51,9 @@ describe("Login", () => {
   ] as [string, SessionRouteState, string][])("says why for %s", (_, state, message) => {
     renderLogin(vi.fn(), state);
 
-    expect(screen.getByRole("status")).toHaveTextContent(new RegExp(`^${message}$`));
+    // The whole status, not a substring: exact text rather than an anchored
+    // RegExp built from `message`.
+    expect(screen.getByRole("status").textContent).toBe(message);
   });
 
   it("says nothing on a cold visit", () => {
