@@ -37,6 +37,10 @@ interface ScimResourceJpaRepository extends JpaRepository<ScimResourceEntity, UU
     /**
      * Advances the version of every named resource and records when it changed.
      *
+     * <p>Called only by {@link RepresentationChange}, which decides which resources a write
+     * changed; {@code ArchitectureTest} holds that, so an adapter cannot work the ids out for
+     * itself and miss one.
+     *
      * <p>A bulk statement rather than a read-modify-write per row, and that is the point:
      * renaming a Group with two hundred members has to advance two hundred and one
      * versions, and doing it row by row would both cost two hundred round trips and leave

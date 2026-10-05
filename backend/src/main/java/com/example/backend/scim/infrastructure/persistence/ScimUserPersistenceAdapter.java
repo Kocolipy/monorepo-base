@@ -165,7 +165,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         } catch (DataIntegrityViolationException violation) {
             throw translated(violation);
         }
-        resources.advanceVersions(List.of(user.id()), now);
+        RepresentationChange.userWritten(user.id(), now).advanceIn(resources);
         return findById(user.id());
     }
 
@@ -224,7 +224,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         if (written == 0 && users.updateActive(id, active) == 0) {
             return Optional.empty();
         }
-        resources.advanceVersions(List.of(id), now);
+        RepresentationChange.userWritten(id, now).advanceIn(resources);
         return findById(id);
     }
 
@@ -271,7 +271,7 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
         if (users.completePasswordChange(id, passwordHash) == 0) {
             return Optional.empty();
         }
-        resources.advanceVersions(List.of(id), now);
+        RepresentationChange.userWritten(id, now).advanceIn(resources);
         return findById(id);
     }
 
@@ -280,11 +280,12 @@ class ScimUserPersistenceAdapter implements ScimUserRepository {
      *
      * <p>Advanced before the delete, while the membership rows that name those Groups still
      * exist; the cascade from the resource row then removes the memberships with everything else.
-     * A User in no Group advances nothing: the update matches no row.
+     * A User in no Group advances nothing.
      */
     @Override
     public void deleteById(UUID id, Instant now) {
-        resources.advanceVersions(memberships.findGroupIdsOfUser(id), now);
+        RepresentationChange.userDeleted(memberships.findGroupIdsOfUser(id), now)
+                .advanceIn(resources);
         resources.deleteResource(id);
     }
 
