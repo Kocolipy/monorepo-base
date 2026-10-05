@@ -171,7 +171,6 @@ export function useGatedWrite({ supersedes = [] }: GatedWriteOptions = {}): Gate
     try {
       const result = await request();
       if (result.kind === "ok") {
-        setOwnError(null);
         await onOk?.(result.data);
       } else if (result.kind === "failed") {
         setOwnError(messageFor(result, messages));

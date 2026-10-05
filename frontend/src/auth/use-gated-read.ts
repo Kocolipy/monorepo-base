@@ -53,6 +53,55 @@ interface ReadState<T> {
 
 const UNREAD: ReadState<never> = { data: null, error: null, failed: false, settled: false };
 
+/**
+ * The read state, tied to what it was read for. When the gate closes or the
+ * path moves, the old answer is not this read's answer, so it is dropped during
+ * the render that notices — never painted alongside the new key.
+ */
+function useKeyedState<T>(key: string | null) {
+  const [state, setState] = useState<ReadState<T>>(UNREAD);
+  const [readFor, setReadFor] = useState(key);
+  if (readFor !== key) {
+    setReadFor(key);
+    setState(UNREAD);
+  }
+  return [state, setState] as const;
+}
+
+/**
+ * Opens a read whenever `allowed`, and returns the re-read. The open read is
+ * `null` while none is (gated off, or unmounted), and a response lands only
+ * while its read is still the open one, so an answer for a path the page has
+ * moved off, or for a gate that has since closed, is discarded rather than
+ * painted.
+ */
+function useOpenRead<T>(
+  allowed: boolean,
+  read: () => Promise<SessionResult<T>>,
+  land: (result: SessionResult<T>) => void,
+): () => Promise<void> {
+  const openRead = useRef<object | null>(null);
+
+  useEffect(() => {
+    if (!allowed) return;
+    const opened = {};
+    openRead.current = opened;
+    void read().then((result) => {
+      if (opened === openRead.current) land(result);
+    });
+    return () => {
+      openRead.current = null;
+    };
+  }, [allowed, read, land]);
+
+  return useCallback(async () => {
+    const opened = openRead.current;
+    if (opened === null) return;
+    const result = await read();
+    if (opened === openRead.current) land(result);
+  }, [read, land]);
+}
+
 export function useGatedRead<T>({
   decode,
   failureMessage,
@@ -62,29 +111,12 @@ export function useGatedRead<T>({
   const { user } = useAuth();
   const allowed = holds(user, permission);
   const request = useSessionRequest();
-  const [state, setState] = useState<ReadState<T>>(UNREAD);
-
-  // What the state was read for. When the gate closes or the path moves, the
-  // old answer is not this read's answer, so it is dropped during the render
-  // that notices — never painted alongside the new key.
-  const key = allowed ? path : null;
-  const [readFor, setReadFor] = useState(key);
-  if (readFor !== key) {
-    setReadFor(key);
-    setState(UNREAD);
-  }
-
-  // The read the current key opened, or `null` while none is open (gated off,
-  // or unmounted). A response lands only while its read is still the open one,
-  // so an answer for a path the page has moved off, or for a gate that has
-  // since closed, is discarded rather than painted.
-  const openRead = useRef<object | null>(null);
+  const [state, setState] = useKeyedState<T>(allowed ? path : null);
 
   const read = useCallback(() => request(path, {}, decode), [decode, path, request]);
 
-  const settle = useCallback(
-    (issuedFor: object, result: SessionResult<T>) => {
-      if (issuedFor !== openRead.current) return;
+  const land = useCallback(
+    (result: SessionResult<T>) => {
       if (result.kind === "ok") {
         setState({ data: result.data, error: null, failed: false, settled: true });
         return;
@@ -92,24 +124,10 @@ export function useGatedRead<T>({
       const error = refusalMessage(result, failureMessage);
       setState((current) => ({ data: current.data, error, failed: true, settled: true }));
     },
-    [failureMessage],
+    [failureMessage, setState],
   );
 
-  useEffect(() => {
-    if (!allowed) return;
-    const opened = {};
-    openRead.current = opened;
-    void read().then((result) => settle(opened, result));
-    return () => {
-      openRead.current = null;
-    };
-  }, [allowed, read, settle]);
-
-  const reload = useCallback(async () => {
-    const opened = openRead.current;
-    if (opened === null) return;
-    settle(opened, await read());
-  }, [read, settle]);
+  const reload = useOpenRead(allowed, read, land);
 
   // Neither needs memoising: `setState` is stable, and both are called from
   // event handlers, never named as a dependency.
