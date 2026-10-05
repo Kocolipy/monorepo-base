@@ -158,6 +158,48 @@ describe("App", () => {
     expect(window.location.pathname).toBe("/showcase");
   });
 
+  it("redirects a User holding no audit:read away from the audit trail", async () => {
+    window.history.replaceState(null, "", "/audit");
+    stubFetchWithCsrf(
+      vi.fn().mockResolvedValue(
+        Response.json({
+          idleTimeoutSeconds: 900,
+          passwordChangeRequired: false,
+          permissions: [],
+          username: "ada",
+        }),
+      ),
+    );
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Front End" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/showcase");
+  });
+
+  it("renders the audit trail for a session holding audit:read", async () => {
+    window.history.replaceState(null, "", "/audit");
+    stubFetchWithCsrf(
+      vi.fn((input: string) =>
+        Promise.resolve(
+          input.startsWith("/api/admin/audit-events")
+            ? Response.json({ events: [], page: 0, size: 50, totalElements: 0, totalPages: 0 })
+            : Response.json({
+                idleTimeoutSeconds: 900,
+                passwordChangeRequired: false,
+                permissions: ["audit:read"],
+                username: "grace",
+              }),
+        ),
+      ),
+    );
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Audit" })).toBeInTheDocument();
+    expect(
+      await screen.findByText("No audit events match the current filters."),
+    ).toBeInTheDocument();
+  });
+
   it("renders account administration for a Superuser", async () => {
     window.history.replaceState(null, "", "/accounts");
     stubFetchWithCsrf(
@@ -230,7 +272,7 @@ describe("App with the change-required flag", () => {
 
   const changePage = () => screen.findByRole("heading", { name: "Change your password" });
 
-  it.each(["/showcase", "/accounts", "/", "/no-such-page", "/change-password"])(
+  it.each(["/showcase", "/accounts", "/audit", "/", "/no-such-page", "/change-password"])(
     "lands a flagged session on /change-password from %s",
     async (path) => {
       window.history.replaceState(null, "", path);

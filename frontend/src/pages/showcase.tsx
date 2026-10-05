@@ -163,6 +163,11 @@ export function Showcase() {
                 Manage accounts
               </Link>
             ) : null}
+            {holds(user, "audit:read") ? (
+              <Link className={LINK_CLASS} to="/audit">
+                View audit log
+              </Link>
+            ) : null}
             <Link className={LINK_CLASS} to={CREDENTIAL_CHANGE_PATH}>
               Change password
             </Link>

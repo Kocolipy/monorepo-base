@@ -6,6 +6,7 @@ import { GuestRoute, ProtectedRoute } from "@/auth/route-guards";
 import { CREDENTIAL_CHANGE_PATH } from "@/auth/session-route";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Accounts } from "@/pages/accounts";
+import { Audit } from "@/pages/audit";
 import { ChangePassword } from "@/pages/change-password";
 import { Login } from "@/pages/login";
 import { Showcase } from "@/pages/showcase";
@@ -50,6 +51,14 @@ export function App() {
               element={
                 <ProtectedRoute requiredPermissions={ADMINISTRATION_PERMISSIONS}>
                   <Accounts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/audit"
+              element={
+                <ProtectedRoute requiredPermissions={["audit:read"]}>
+                  <Audit />
                 </ProtectedRoute>
               }
             />

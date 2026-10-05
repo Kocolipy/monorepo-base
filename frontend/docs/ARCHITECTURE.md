@@ -86,13 +86,23 @@ lives only in that component's state, shown once in the disclosure panel, so
 dismissing it, navigating away or reloading loses it for good.
 `pages/accounts-api.ts` holds the wire types and paths both files share.
 
+`pages/audit.tsx` is the audit listing at `/audit`, routed for a session holding
+`audit:read` alone. It reads `GET /api/admin/audit-events` a page of 50 at a
+time, filtered by operation, outcome, actor id, resource id and a time range.
+`pages/audit-api.ts` decodes every field and checks each filter before the
+request is built, so a malformed one is refused on the page and nothing is sent.
+Ids are shown as ids, never resolved to usernames, which would need `user:read`.
+The page reads on mount, on a filter submit, on paging and on Refresh, and never
+on a timer: every request renews the server session, so a page that polled
+would never reach the idle timeout.
+
 Every request goes through `useSessionRequest`, so a `401` ends the session in
 one place and a `403` never does: it reaches the page as `forbidden`, which shows
 permission-denied copy. What each status means to an
 administrator (`409` a refused change, `404` a User that has since gone) is
 copy the page supplies, because only the page knows what was being attempted.
 
-Every listing read — Users, Groups, connectors and the Showcase counter — goes
+Every listing read — Users, Groups, connectors, the audit trail and the Showcase counter — goes
 one level higher, through `auth/use-gated-read.ts`. A page names the path, the
 decoder, the Permission the read requires and its failure copy; the hook sends
 nothing without the Permission, and otherwise returns the data or the refusal
