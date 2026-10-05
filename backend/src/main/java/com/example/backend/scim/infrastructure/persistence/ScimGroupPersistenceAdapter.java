@@ -15,12 +15,10 @@ import com.example.backend.scim.infrastructure.persistence.entity.ScimResourceEn
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -28,8 +26,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
 /**
- * Maps the SCIM Group port onto the normalized JPA model, and owns the version bumps the
- * port promises.
+ * Maps the SCIM Group port onto the normalized JPA model. Each write describes itself to
+ * {@link RepresentationChange}, which decides whose versions the port's promise advances.
  *
  * <h2>Why every write flushes twice</h2>
  *
@@ -73,10 +71,9 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * every User the new Group names.
      *
      * <p>That last part is easy to miss, and was missed: a create with members IS a membership
-     * change for those Users — each one's rendered {@code groups} gains an entry, so its
-     * representation changed and an ETag that did not move would tell a connector nothing had
-     * happened. {@link #replace} and {@link #deleteById} were written with that rule in mind;
-     * this one was not, and an integration test caught the divergence.
+     * change for those Users — each one's rendered {@code groups} gains an entry. It is now
+     * {@link RepresentationChange#groupCreated}'s decision rather than this method's, so it
+     * cannot be forgotten here again.
      *
      * <p>The reservation is a literal {@code null}: a Group that arrives through the
      * provisioning path cannot claim the Admin group's authority, and that is a property of
@@ -132,23 +129,9 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
      * Replaces the display name and the whole membership, then advances the version of
      * every resource the change is visible in.
      *
-     * <p>Whose versions move is decided from what actually changed, and the two rules are
-     * different:
-     *
-     * <ul>
-     *   <li>A <strong>membership</strong> change is visible to the Users added and the
-     *       Users removed — their rendered {@code groups} gained or lost an entry — and to
-     *       nobody else.
-     *   <li>A <strong>display-name</strong> change is visible to every current member,
-     *       because the label rendered inside their {@code groups} changed. Combined with
-     *       the above, a write that changes both touches the union of the old and the new
-     *       membership: a member that stayed sees the new label, one that left loses the
-     *       entry, one that joined gains it.
-     * </ul>
-     *
-     * <p>Computed from the old and new sets rather than reported by the caller, because a
-     * caller that had to remember it is a caller that eventually forgets — leaving a User
-     * whose representation changed behind an ETag saying it did not.
+     * <p>Whose versions move — the membership's symmetric difference, every member on a rename,
+     * nothing at all for an identical re-send — is {@link RepresentationChange#groupReplaced}'s
+     * decision, made from the old and new state read here rather than reported by the caller.
      */
     @Override
     public Optional<ScimGroup> replace(ScimGroup group) {
@@ -162,34 +145,21 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         renameOrThrow(group);
         List<UUID> newMemberIds = replaceMemberships(group);
 
-        boolean renamed = !previousDisplayName.equals(group.displayName());
-        Set<UUID> movedMembers = renamed
-                ? union(previousMemberIds, newMemberIds)
-                : membershipDifference(previousMemberIds, newMemberIds);
-
-        // A replacement that changed NOTHING advances nothing — not even the Group's own
-        // version. Previously the Group id was added unconditionally, so re-PUTting identical
-        // state moved its version and meta.lastModified, and every connector holding a cached
-        // copy had that copy invalidated by its own idempotent re-send. A provisioning system
-        // converging on a desired state re-sends constantly, so this was the common case rather
-        // than an edge one; it also contradicted the audit event, which recorded no changed
-        // attribute for exactly this write.
-        if (!renamed && movedMembers.isEmpty()) {
-            return findById(group.id());
-        }
-
-        Set<UUID> changed = new LinkedHashSet<>();
-        changed.add(group.id());
-        changed.addAll(movedMembers);
-        resources.advanceVersions(changed, group.lastModifiedAt());
-
+        RepresentationChange.groupReplaced(
+                        group.id(),
+                        previousDisplayName,
+                        group.displayName(),
+                        previousMemberIds,
+                        newMemberIds,
+                        group.lastModifiedAt())
+                .advanceIn(resources);
         return findById(group.id());
     }
 
     @Override
     public Optional<ScimGroup> advanceVersion(UUID id, Instant now) {
         // A missing row advances nothing, and findById then reports the absence itself.
-        resources.advanceVersions(List.of(id), now);
+        RepresentationChange.groupTouched(id, now).advanceIn(resources);
         return findById(id);
     }
 
@@ -205,10 +175,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         if (groups.findById(id).isEmpty()) {
             return false;
         }
-        List<UUID> memberIds = memberships.findMemberIds(id);
-        if (!memberIds.isEmpty()) {
-            resources.advanceVersions(memberIds, now);
-        }
+        RepresentationChange.groupDeleted(memberships.findMemberIds(id), now).advanceIn(resources);
         memberships.deleteMembershipsOf(id);
         resources.deleteById(id);
         return true;
@@ -269,7 +236,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         if (memberships.deleteMembership(groupId, userId) == 0) {
             return false;
         }
-        resources.advanceVersions(List.of(groupId, userId), now);
+        RepresentationChange.memberRemoved(groupId, userId, now).advanceIn(resources);
         return true;
     }
 
@@ -291,11 +258,7 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
         }
         List<UUID> memberIds = memberIds(group);
         writeMemberships(group.id(), memberIds);
-        // The members' own representations just changed: each one's rendered `groups` gained this
-        // Group. Not the new Group's own version, which starts at 1 by definition.
-        if (!memberIds.isEmpty()) {
-            resources.advanceVersions(memberIds, group.lastModifiedAt());
-        }
+        RepresentationChange.groupCreated(memberIds, group.lastModifiedAt()).advanceIn(resources);
         // The row was written a few statements ago in this same transaction, so absence here is an
         // invariant broken, not a case: fail loudly rather than carry a branch no input can reach.
         return findById(group.id()).orElseThrow();
@@ -355,27 +318,6 @@ class ScimGroupPersistenceAdapter implements ScimGroupRepository {
 
     private static List<UUID> memberIds(ScimGroup group) {
         return group.members().stream().map(ScimGroupMember::userId).toList();
-    }
-
-    /**
-     * The Users whose membership of this Group started or stopped — the symmetric
-     * difference. A member present in both sets is unaffected when the label did not
-     * change, which is why this is not simply the union.
-     */
-    private static Set<UUID> membershipDifference(
-            Collection<UUID> previous, Collection<UUID> current) {
-        Set<UUID> difference = new LinkedHashSet<>(previous);
-        difference.addAll(current);
-        Set<UUID> unchanged = new LinkedHashSet<>(previous);
-        unchanged.retainAll(current);
-        difference.removeAll(unchanged);
-        return difference;
-    }
-
-    private static Set<UUID> union(Collection<UUID> previous, Collection<UUID> current) {
-        Set<UUID> all = new LinkedHashSet<>(previous);
-        all.addAll(current);
-        return all;
     }
 
     /** The memberships of these Groups, grouped by Group, each member carrying its label. */

@@ -681,6 +681,29 @@ public class ArchitectureTest {
                     + " remembering an accepted hash have one implementation (issue #103)");
 
     /**
+     * Which resources a SCIM write advances has one owner:
+     * {@code scim.infrastructure.persistence.RepresentationChange}. An adapter describes the write
+     * and the module decides; an adapter that advanced versions itself would be working out who
+     * moved on its own, which is how Group create with members once advanced none of them — and a
+     * miss is silent, a stale ETag rather than an error.
+     */
+    @com.tngtech.archunit.junit.ArchTest
+    static final ArchRule only_representation_change_advances_versions =
+        noClasses()
+            .that().doNotHaveFullyQualifiedName(
+                    "com.example.backend.scim.infrastructure.persistence.RepresentationChange")
+            .should().callMethodWhere(DescribedPredicate.describe(
+                    "target is ScimResourceJpaRepository.advanceVersions",
+                    (com.tngtech.archunit.core.domain.JavaMethodCall call) ->
+                            call.getName().equals("advanceVersions")
+                                    && call.getTargetOwner().isAssignableTo(
+                                            "com.example.backend.scim.infrastructure.persistence"
+                                                    + ".ScimResourceJpaRepository")))
+            .allowEmptyShould(true)
+            .because("RepresentationChange decides which resources' versions a write advances,"
+                    + " so every write path applies one rule (issue #137)");
+
+    /**
      * An audit event is constructed inside the audit slice and nowhere else.
      *
      * <p>The boundary rule above is only worth having while
